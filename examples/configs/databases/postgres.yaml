@@ -1,0 +1,3 @@
+description: A Postgres database
+URI: postgres://username:FoolishPassword@localhost:5433/examples
+mode: read-write

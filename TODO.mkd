@@ -1,0 +1,30 @@
+- [ ] Compile repo, computing the schema of source nodes
+- [ ] Compute the schema of downstream nodes
+- [ ] Translate metrics into SQL
+- [ ] Compute metrics
+- [ ] Compute statistics on columns (histogram, correlation)
+- [ ] Move data on JOINs based on column statistics
+- [ ] Optimize data transfer (delta-of-delta for timeseries)
+
+Models:
+
+- table
+- dataset
+- dimension
+- metric
+- population
+
+Relationships:
+
+- table -> dataset [-> dataset ]-> metric
+- table -> dimension -> population
+
+DSL for querying:
+
+- `m=likes,comments&d=user.country&f=userid>10,time>2021-01-01T00:00:00+00:00`
+
+Examples:
+
+1. Dimension table in 2 storages (fast/slow), choose fast.
+2. Dimension table in 2 storages (fast/slow) but only a few columns in fast; choose slow.
+3. Translate query with cross-DB join, `FROM PROGRAM` in Postgres

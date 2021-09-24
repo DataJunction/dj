@@ -1,0 +1,17 @@
+description: A user dimension table
+representations:
+  gsheets:
+    catalog: null
+    schema: null
+    table: "https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0"
+    cost: 100
+  postgres:
+    catalog: null
+    schema: examples
+    table: dim_users
+    cost: 10
+  druid:
+    catalog: null
+    schema: druid
+    table: dim_users
+    cost: 1

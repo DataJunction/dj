@@ -1,0 +1,3 @@
+description: A Google Sheets connector
+URI: gsheets://
+mode: read-only
