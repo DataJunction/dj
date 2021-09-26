@@ -1,0 +1,14 @@
+Running
+=======
+
+.. code-block:: bash
+
+    $ docker compose up
+
+If the Druid data doesn't load, you need to fix the permissions:
+
+.. code-block:: bash
+
+    $ docker exec -u root -it coordinator sh
+    $ chmod 777 /opt/shared
+    $ docker-compose restart druid_ingest

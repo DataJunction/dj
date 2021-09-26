@@ -68,7 +68,7 @@ services:
     volumes:
       - druid_shared:/opt/shared
       - coordinator_var:/opt/druid/var
-    depends_on: 
+    depends_on:
       - zookeeper
       - postgres
     ports:
@@ -83,7 +83,7 @@ services:
     container_name: broker
     volumes:
       - broker_var:/opt/druid/var
-    depends_on: 
+    depends_on:
       - zookeeper
       - postgres
       - coordinator
@@ -100,7 +100,7 @@ services:
     volumes:
       - druid_shared:/opt/shared
       - historical_var:/opt/druid/var
-    depends_on: 
+    depends_on:
       - zookeeper
       - postgres
       - coordinator
@@ -117,7 +117,7 @@ services:
     volumes:
       - druid_shared:/opt/shared
       - middle_var:/opt/druid/var
-    depends_on: 
+    depends_on:
       - zookeeper
       - postgres
       - coordinator
@@ -144,3 +144,14 @@ services:
       - router
     env_file:
       - environment
+
+  druid_ingest:
+    image: curlimages/curl
+    depends_on:
+      - router
+    container_name: druid_ingest
+    volumes:
+      - ./druid_init.sh:/druid_init.sh
+      - ./druid_spec.json:/druid_spec.json
+      - ./wait-for:/wait-for
+    entrypoint: sh -c './wait-for coordinator:8081 -- /druid_init.sh'

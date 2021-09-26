@@ -1,23 +1,27 @@
 - [ ] Compile repo, computing the schema of source nodes
+- [ ] Auto-map dimensions from the DB schema
 - [ ] Compute the schema of downstream nodes
 - [ ] Translate metrics into SQL
 - [ ] Compute metrics
 - [ ] Compute statistics on columns (histogram, correlation)
 - [ ] Move data on JOINs based on column statistics
 - [ ] Optimize data transfer (delta-of-delta for timeseries)
+- [ ] Virtual dimensions (time, space, user-defined)
+- [ ] Client smart cache (based on time)
 
 Models:
 
-- table
-- dataset
+- source
+- transform
 - dimension
 - metric
 - population
 
 Relationships:
 
-- table -> dataset [-> dataset ]-> metric
-- table -> dimension -> population
+- source -> transform [-> transform ]-> metric
+- source -> dimension -> population
+- population based on metrics as well?
 
 DSL for querying:
 

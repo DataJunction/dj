@@ -10,8 +10,3 @@ representations:
     schema: examples
     table: dim_users
     cost: 10
-  druid:
-    catalog: null
-    schema: druid
-    table: dim_users
-    cost: 1
