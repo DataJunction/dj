@@ -1,15 +1,17 @@
 description: A fact table with comments
 representations:
-  - catalog: null
+  gsheets:
+    catalog: null
     schema: null
     table: "https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=1811447072"
     cost: 100
-  - catalog: null
-    schema: examples
+  postgres:
+    catalog: null
+    schema: public
     table: comments
     cost: 10
-  - catalog: null
+  druid:
+    catalog: null
     schema: druid
     table: comments
     cost: 1
-columns: []

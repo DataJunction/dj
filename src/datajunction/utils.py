@@ -9,7 +9,7 @@ import yaml
 from rich.logging import RichHandler
 
 from datajunction.constants import CONFIG_FILENAME
-from datajunction.typing import Config
+from datajunction.models import Config
 
 
 def setup_logging(loglevel: str) -> None:
@@ -53,7 +53,8 @@ def load_config(root: Path) -> Config:
         raise SystemExit("No configuration found!")
 
     with open(path, encoding="utf-8") as input_:
-        config: Config = yaml.full_load(input_)
+        config_data = yaml.safe_load(input_)
 
-    # XXX validate the schema
+    config = Config(**config_data)
+
     return config
