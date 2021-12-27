@@ -22,7 +22,7 @@ from pathlib import Path
 from docopt import docopt
 
 from datajunction import __version__
-from datajunction.cli import compile
+from datajunction.cli import compile as compile_
 from datajunction.utils import find_directory, setup_logging
 
 _logger = logging.getLogger(__name__)
@@ -43,7 +43,7 @@ async def main() -> None:
 
     try:
         if arguments["compile"]:
-            await compile.run(repository)
+            await compile_.run(repository)
     except asyncio.CancelledError:
         _logger.info("Canceled")
 

@@ -19,19 +19,22 @@ def test_get_name_from_path() -> None:
 
     with pytest.raises(Exception) as excinfo:
         get_name_from_path(
-            Path("/path/to/repository"), Path("/path/to/repository/nodes")
+            Path("/path/to/repository"),
+            Path("/path/to/repository/nodes"),
         )
     assert str(excinfo.value) == "Invalid path: /path/to/repository/nodes"
 
     with pytest.raises(Exception) as excinfo:
         get_name_from_path(
-            Path("/path/to/repository"), Path("/path/to/repository/invalid/test.yaml")
+            Path("/path/to/repository"),
+            Path("/path/to/repository/invalid/test.yaml"),
         )
     assert str(excinfo.value) == "Invalid path: /path/to/repository/invalid/test.yaml"
 
     assert (
         get_name_from_path(
-            Path("/path/to/repository"), Path("/path/to/repository/nodes/test.yaml")
+            Path("/path/to/repository"),
+            Path("/path/to/repository/nodes/test.yaml"),
         )
         == "test"
     )

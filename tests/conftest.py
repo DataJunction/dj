@@ -1,6 +1,8 @@
 """
 Fixtures for testing.
 """
+# pylint: disable=redefined-outer-name, invalid-name
+
 from pathlib import Path
 from typing import Iterator
 
@@ -20,7 +22,8 @@ def repository(fs: FakeFilesystem) -> Iterator[Path]:
     # add the examples repository to the fake filesystem
     repository = get_project_repository()
     fs.add_real_directory(
-        repository / "examples/configs", target_path="/path/to/repository"
+        repository / "examples/configs",
+        target_path="/path/to/repository",
     )
 
     path = Path("/path/to/repository")
@@ -36,7 +39,7 @@ def config(repository: Path) -> Iterator[Config]:
 
 
 @pytest.fixture()
-def session(config: Config) -> Iterator[Session]:
+def session() -> Iterator[Session]:
     """
     Create an in-memory SQLite session to test models.
     """

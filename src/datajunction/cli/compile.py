@@ -134,12 +134,13 @@ def get_columns(representations: List[Representation]) -> List[Column]:
     """
     Fetch all columns from a list of representations.
     """
-    columns = {}
+    columns: Dict[str, Column] = {}
     for representation in representations:
         engine = create_engine(representation.database.URI)
         inspector = inspect(engine)
         for column in inspector.get_columns(
-            representation.table, schema=representation.schema_
+            representation.table,
+            schema=representation.schema_,
         ):
             name = column["name"]
             type_ = column["type"].python_type.__name__

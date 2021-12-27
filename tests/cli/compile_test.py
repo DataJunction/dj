@@ -1,6 +1,7 @@
 """
 Tests for ``datajunction.cli.compile``.
 """
+# pylint: disable=redefined-outer-name, invalid-name
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -135,7 +136,9 @@ def test_get_columns(mocker: MockerFixture) -> None:
 
 @pytest.mark.asyncio
 async def test_index_nodes(
-    mocker: MockerFixture, repository: Path, session: Session
+    mocker: MockerFixture,
+    repository: Path,
+    session: Session,
 ) -> None:
     """
     Test ``index_nodes``.
@@ -167,7 +170,7 @@ async def test_index_nodes(
         Database(
             name="postgres",
             URI="postgresql://username:FoolishPassword@localhost:5433/examples",
-        )
+        ),
     )
     session.add(Database(name="gsheets", URI="gsheets://"))
 
@@ -205,7 +208,11 @@ async def test_index_nodes(
                     id=1,
                     catalog=None,
                     schema_=None,
-                    table="https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=1811447072",
+                    table=(
+                        "https://docs.google.com/spreadsheets/d/"
+                        "1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/"
+                        "edit#gid=1811447072"
+                    ),
                     cost=100.0,
                     node_id=1,
                     database_id=3,
@@ -256,7 +263,10 @@ async def test_index_nodes(
                     id=4,
                     catalog=None,
                     schema_=None,
-                    table="https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0",
+                    table=(
+                        "https://docs.google.com/spreadsheets/d/"
+                        "1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0"
+                    ),
                     cost=100.0,
                     node_id=2,
                     database_id=3,

@@ -24,7 +24,7 @@ def test_setup_logging() -> None:
     assert str(excinfo.value) == "Invalid log level: invalid"
 
 
-def test_find_directory(fs: FakeFilesystem) -> None:
+def test_find_directory(fs: FakeFilesystem) -> None:  # pylint: disable=invalid-name
     """
     Test ``find_directory``.
     """

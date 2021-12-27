@@ -51,7 +51,7 @@ class Config(SQLModel):
     index: str
 
 
-class Database(SQLModel, table=True):
+class Database(SQLModel, table=True):  # type: ignore
     """
     A database.
 
@@ -73,11 +73,12 @@ class Database(SQLModel, table=True):
     read_only: bool = True
 
     representations: List["Representation"] = Relationship(
-        back_populates="database", sa_relationship_kwargs={"cascade": "all, delete"}
+        back_populates="database",
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
 
-class Node(SQLModel, table=True):
+class Node(SQLModel, table=True):  # type: ignore
     """
     A node.
     """
@@ -93,16 +94,18 @@ class Node(SQLModel, table=True):
 
     # schema
     columns: List["Column"] = Relationship(
-        back_populates="node", sa_relationship_kwargs={"cascade": "all, delete"}
+        back_populates="node",
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
     # storages
     representations: List["Representation"] = Relationship(
-        back_populates="node", sa_relationship_kwargs={"cascade": "all, delete"}
+        back_populates="node",
+        sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
 
-class Representation(SQLModel, table=True):
+class Representation(SQLModel, table=True):  # type: ignore
     """
     A representation of data.
 
@@ -125,7 +128,7 @@ class Representation(SQLModel, table=True):
     # aggregation_level => for materialized metrics?
 
 
-class Column(SQLModel, table=True):
+class Column(SQLModel, table=True):  # type: ignore
     """
     A column.
     """

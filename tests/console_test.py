@@ -16,8 +16,8 @@ async def test_main_compile(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "compile" action.
     """
-    compile = mocker.patch("datajunction.console.compile")
-    compile.run = mocker.AsyncMock()
+    compile_ = mocker.patch("datajunction.console.compile")
+    compile_.run = mocker.AsyncMock()
 
     mocker.patch(
         "datajunction.console.docopt",
@@ -28,11 +28,12 @@ async def test_main_compile(mocker: MockerFixture) -> None:
         },
     )
     mocker.patch(
-        "datajunction.console.find_directory", return_value=Path("/path/to/repository")
+        "datajunction.console.find_directory",
+        return_value=Path("/path/to/repository"),
     )
 
     await console.main()
-    compile.run.assert_called_with(Path("/path/to/repository"))
+    compile_.run.assert_called_with(Path("/path/to/repository"))
 
 
 @pytest.mark.asyncio
@@ -40,8 +41,8 @@ async def test_main_compile_passing_repository(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "compile" action.
     """
-    compile = mocker.patch("datajunction.console.compile")
-    compile.run = mocker.AsyncMock()
+    compile_ = mocker.patch("datajunction.console.compile")
+    compile_.run = mocker.AsyncMock()
 
     mocker.patch(
         "datajunction.console.docopt",
@@ -53,7 +54,7 @@ async def test_main_compile_passing_repository(mocker: MockerFixture) -> None:
     )
 
     await console.main()
-    compile.run.assert_called_with(Path("/path/to/another/repository"))
+    compile_.run.assert_called_with(Path("/path/to/another/repository"))
 
 
 @pytest.mark.asyncio
@@ -61,8 +62,8 @@ async def test_main_canceled(mocker: MockerFixture) -> None:
     """
     Test canceling the ``main`` coroutine.
     """
-    compile = mocker.patch("datajunction.console.compile")
-    compile.run = mocker.AsyncMock(side_effect=asyncio.CancelledError("Canceled"))
+    compile_ = mocker.patch("datajunction.console.compile")
+    compile_.run = mocker.AsyncMock(side_effect=asyncio.CancelledError("Canceled"))
     _logger = mocker.patch("datajunction.console._logger")
 
     mocker.patch(
