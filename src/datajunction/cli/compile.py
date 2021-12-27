@@ -14,18 +14,18 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import yaml
 from sqlalchemy import inspect
-from sqlmodel import create_engine, select, Session, SQLModel
+from sqlmodel import Session, SQLModel, create_engine, select
 
 from datajunction.models import (
     Column,
     Database,
-    get_name_from_path,
-    Representation,
     Node,
+    Representation,
+    get_name_from_path,
 )
 from datajunction.utils import load_config
 
@@ -42,24 +42,48 @@ def load_data(path: Path) -> Dict[str, Any]:
     return data
 
 
-def update_config(path: Path, **kwargs: Any) -> None:
+def get_more_specific_type(current_type: Optional[str], new_type: str) -> str:
     """
-    Update a YAML file with new keys.
+    Given two types, return the most specific one.
+
+    Different databases might store the same column as different types. For example, Hive
+    might store timestamps as strings, while Postgres would store the same data as a
+    datetime.
+
+        >>> get_more_specific_type('str',  'datetime')
+        'datetime'
+        >>> get_more_specific_type('str',  'int')
+        'int'
+
     """
-    data = load_data(path)
-    data.update(kwargs)
+    if current_type is None:
+        return new_type
 
-    with open(path, "w", encoding="utf-8") as output:
-        yaml.dump(data, output)
+    hierarchy = [
+        "bytes",
+        "str",
+        "float",
+        "int",
+        "Decimal",
+        "bool",
+        "datetime",
+        "date",
+        "time",
+        "timedelta",
+        "list",
+        "dict",
+    ]
+
+    return sorted([current_type, new_type], key=hierarchy.index)[1]
 
 
-async def index_databases(repository: Path, session: Session) -> None:
+async def index_databases(repository: Path, session: Session) -> List[Database]:
     """
     Index all the databases.
     """
     directory = repository / "databases"
 
-    async def add_from_path(path: Path) -> None:
+    async def add_from_path(path: Path) -> Database:
         name = get_name_from_path(repository, path)
         _logger.info("Processing database %s", name)
 
@@ -69,36 +93,44 @@ async def index_databases(repository: Path, session: Session) -> None:
         if database:
             # compare file modification time with timestamp on DB
             mtime = path.stat().st_mtime
-            updated_at = database.updated_at
 
             # some DBs like SQLite will drop the timezone info; in that case
             # we assume it's UTC
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if database.updated_at.tzinfo is None:
+                database.updated_at = database.updated_at.replace(tzinfo=timezone.utc)
 
-            if updated_at > datetime.fromtimestamp(mtime, tz=timezone.utc):
+            if database.updated_at > datetime.fromtimestamp(mtime, tz=timezone.utc):
                 _logger.info("Database %s is up-to-date, skipping", name)
-                return
+                return database
+
+            # delete existing database
+            created_at = database.created_at
+            session.delete(database)
+            session.flush()
+        else:
+            created_at = None
 
         _logger.info("Loading database from config %s", path)
-
         data = load_data(path)
-        if database:
-            _logger.info("Updating database %s", name)
-            for key, value in data.items():
-                setattr(database, key, value)
-        else:
-            _logger.info("Creating database %s", name)
-            data["name"] = name
-            database = Database(**data)
+
+        _logger.info("Creating database %s", name)
+        data["name"] = name
+        data["created_at"] = created_at or datetime.now(timezone.utc)
+        data["updated_at"] = datetime.now(timezone.utc)
+        database = Database(**data)
 
         session.add(database)
+        session.flush()
+
+        return database
 
     tasks = [add_from_path(path) for path in directory.glob("**/*.yaml")]
-    await asyncio.gather(*tasks)
+    databases = await asyncio.gather(*tasks)
+
+    return databases
 
 
-async def get_columns(representations: List[Representation]) -> List[Column]:
+def get_columns(representations: List[Representation]) -> List[Column]:
     """
     Fetch all columns from a list of representations.
     """
@@ -109,15 +141,20 @@ async def get_columns(representations: List[Representation]) -> List[Column]:
         for column in inspector.get_columns(
             representation.table, schema=representation.schema_
         ):
-            # XXX type hierarchy
-            columns[column["name"]] = Column(
-                name=column["name"], type=column["type"].python_type.__name__
+            name = column["name"]
+            type_ = column["type"].python_type.__name__
+
+            columns[name] = Column(
+                name=name,
+                type=get_more_specific_type(columns[name].type, type_)
+                if name in columns
+                else type_,
             )
 
     return list(columns.values())
 
 
-async def index_nodes(repository: Path, session: Session) -> None:
+async def index_nodes(repository: Path, session: Session) -> List[Node]:
     """
     Index all the nodes, computing their schema.
     """
@@ -128,7 +165,7 @@ async def index_nodes(repository: Path, session: Session) -> None:
 
     directory = repository / "nodes"
 
-    async def add_from_path(path: Path) -> None:
+    async def add_from_path(path: Path) -> Node:
         name = get_name_from_path(repository, path)
         _logger.info("Processing node %s", name)
 
@@ -138,57 +175,50 @@ async def index_nodes(repository: Path, session: Session) -> None:
         if node:
             # compare file modification time with timestamp on DB
             mtime = path.stat().st_mtime
-            updated_at = node.updated_at
 
             # some DBs like SQLite will drop the timezone info; in that case
             # we assume it's UTC
-            if updated_at.tzinfo is None:
-                updated_at = updated_at.replace(tzinfo=timezone.utc)
+            if node.updated_at.tzinfo is None:
+                node.updated_at = node.updated_at.replace(tzinfo=timezone.utc)
 
-            if updated_at > datetime.fromtimestamp(mtime, tz=timezone.utc):
+            if node.updated_at > datetime.fromtimestamp(mtime, tz=timezone.utc):
                 _logger.info("Node %s is up-do-date, skipping", name)
-                return
+                return node
+
+            # delete existing node
+            created_at = node.created_at
+            session.delete(node)
+            session.flush()
+        else:
+            created_at = None
 
         _logger.info("Loading node from config %s", path)
         data = load_data(path)
-        data["name"] = name
 
-        # delete existing representations
-        if node:
-            for representation in node.representations:
-                session.delete(representation)
-            session.flush()
-
-        # create representations
+        # create representations and columns
         representations = []
         for database_name, representation_data in data["representations"].items():
             representation_data["database"] = databases[database_name]
             representation = Representation(**representation_data)
             representations.append(representation)
         data["representations"] = representations
+        data["columns"] = get_columns(representations)
 
-        data["columns"] = await get_columns(representations)
-
-        if node:
-            _logger.info("Updating node %s", name)
-            for key, value in data.items():
-                setattr(node, key, value)
-        else:
-            _logger.info("Creating node %s", name)
-            node = Node(**data)
+        _logger.info("Creating node %s", name)
+        data["name"] = name
+        data["created_at"] = created_at or datetime.now(timezone.utc)
+        data["updated_at"] = datetime.now(timezone.utc)
+        node = Node(**data)
 
         session.add(node)
         session.flush()
 
-        # update config with column information
-        columns = [
-            column.dict(include={"name": True, "type": True})
-            for column in data["columns"]
-        ]
-        update_config(path, columns=columns)
+        return node
 
     tasks = [add_from_path(path) for path in directory.glob("**/*.yaml")]
-    await asyncio.gather(*tasks)
+    nodes = await asyncio.gather(*tasks)
+
+    return nodes
 
 
 async def run(repository: Path) -> None:

@@ -6,9 +6,8 @@ import os
 from datetime import datetime, timezone
 from functools import partial
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import List, Optional
 
-import yaml
 from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
@@ -19,17 +18,26 @@ def get_name_from_path(repository: Path, path: Path) -> str:
     Compute the name of a node given its path and the repository path.
     """
     # strip anything before the repository
-    path = path.relative_to(repository)
+    relative_path = path.relative_to(repository)
+
+    if len(relative_path.parts) < 2 or relative_path.parts[0] not in {
+        "nodes",
+        "databases",
+    }:
+        raise Exception(f"Invalid path: {path}")
 
     # remove the "nodes" directory from the path
-    path = path.relative_to(path.parts[0])
+    relative_path = relative_path.relative_to(relative_path.parts[0])
 
     # remove extension
-    path = path.with_suffix("")
+    relative_path = relative_path.with_suffix("")
 
     # encode percent symbols and periods
     encoded = (
-        str(path).replace("%", "%25").replace(".", "%2E").replace(os.path.sep, ".")
+        str(relative_path)
+        .replace("%", "%25")
+        .replace(".", "%2E")
+        .replace(os.path.sep, ".")
     )
 
     return encoded
@@ -57,13 +65,16 @@ class Database(SQLModel, table=True):
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
     updated_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
     name: str
     description: str = ""
     URI: str
     read_only: bool = True
 
-    representations: List["Representation"] = Relationship(back_populates="database")
+    representations: List["Representation"] = Relationship(
+        back_populates="database", sa_relationship_kwargs={"cascade": "all, delete"}
+    )
 
 
 class Node(SQLModel, table=True):
@@ -81,17 +92,21 @@ class Node(SQLModel, table=True):
     expression: Optional[str] = None
 
     # schema
-    columns: List["Column"] = Relationship(back_populates="node")
+    columns: List["Column"] = Relationship(
+        back_populates="node", sa_relationship_kwargs={"cascade": "all, delete"}
+    )
 
     # storages
-    representations: List["Representation"] = Relationship(back_populates="node")
+    representations: List["Representation"] = Relationship(
+        back_populates="node", sa_relationship_kwargs={"cascade": "all, delete"}
+    )
 
 
 class Representation(SQLModel, table=True):
     """
     A representation of data.
 
-    Node nodes can have multiple representations of data, in different databases.
+    Nodes can have multiple representations of data, in different databases.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)

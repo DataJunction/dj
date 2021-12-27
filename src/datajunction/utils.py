@@ -44,11 +44,11 @@ def find_directory(cwd: Path) -> Path:
     return cwd
 
 
-def load_config(root: Path) -> Config:
+def load_config(repository: Path) -> Config:
     """
     Return the configuration for a metrics repository.
     """
-    path = root / CONFIG_FILENAME
+    path = repository / CONFIG_FILENAME
     if not path.exists():
         raise SystemExit("No configuration found!")
 
@@ -58,3 +58,12 @@ def load_config(root: Path) -> Config:
     config = Config(**config_data)
 
     return config
+
+
+def get_project_repository() -> Path:
+    """
+    Return the project repository.
+
+    This is used for unit tests.
+    """
+    return Path(__file__).parent.parent.parent

@@ -2,19 +2,13 @@
 DataJunction (DJ) is a metric repository.
 
 Usage:
-    dj c [REPOSITORY] [--loglevel=INFO]
-    dj t METRIC [-db DATABASE] [--loglevel=INFO]
-    dj g METRIC [-db DATABASE] [-f FORMAT] [--loglevel=INFO]
+    dj compile [REPOSITORY] [--loglevel=INFO]
 
 Actions:
-    c                   Compile repository
-    t                   Translate a metric into SQL
-    g                   Get data for a given metric
+    compile                 Compile repository
 
 Options:
-    -db DATABASE        Specify a database
-    -f FORMAT           Data format (JSON, CSV)
-    --loglevel=LEVEL    Level for logging. [default: INFO]
+    --loglevel=LEVEL        Level for logging. [default: INFO]
 
 Released under the MIT license.
 (c) 2018 Beto Dealmeida <roberto@dealmeida.net>
@@ -48,12 +42,8 @@ async def main() -> None:
         repository = Path(arguments["REPOSITORY"])
 
     try:
-        if arguments["c"]:
+        if arguments["compile"]:
             await compile.run(repository)
-        elif arguments["t"]:
-            raise NotImplementedError()
-        elif arguments["g"]:
-            raise NotImplementedError()
     except asyncio.CancelledError:
         _logger.info("Canceled")
 
