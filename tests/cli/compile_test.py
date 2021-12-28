@@ -22,7 +22,7 @@ from datajunction.cli.compile import (
     load_data,
     run,
 )
-from datajunction.models import Column, Database, Node, Representation
+from datajunction.models import Column, Database
 
 
 def test_get_more_specific_type() -> None:
