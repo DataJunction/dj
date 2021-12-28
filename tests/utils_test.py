@@ -7,9 +7,9 @@ from pathlib import Path
 
 import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
+from pytest_mock import MockerFixture
 
-from datajunction.models import Config
-from datajunction.utils import find_directory, load_config, setup_logging
+from datajunction.utils import find_directory, get_session, setup_logging
 
 
 def test_setup_logging() -> None:
@@ -29,7 +29,7 @@ def test_find_directory(fs: FakeFilesystem) -> None:  # pylint: disable=invalid-
     Test ``find_directory``.
     """
     fs.create_dir("/path/to/repository/nodes/core")
-    fs.create_file("/path/to/repository/dj.yaml")
+    fs.create_file("/path/to/repository/.env")
 
     path = find_directory(Path("/path/to/repository/nodes/core"))
     assert path == Path("/path/to/repository")
@@ -39,13 +39,13 @@ def test_find_directory(fs: FakeFilesystem) -> None:  # pylint: disable=invalid-
     assert str(excinfo.value) == "No configuration found!"
 
 
-def test_load_config(repository: Path, config: Config) -> None:
+def test_get_session(mocker: MockerFixture) -> None:
     """
-    Test ``load_config``.
+    Test ``get_session``.
     """
-    config = load_config(repository)
-    assert config.dict() == {"index": "sqlite:///dj.db"}
+    mocker.patch("datajunction.utils.get_engine")
+    Session = mocker.patch("datajunction.utils.Session")  # pylint: disable=invalid-name
 
-    with pytest.raises(SystemExit) as excinfo:
-        load_config(Path("/path/to"))
-    assert str(excinfo.value) == "No configuration found!"
+    session = next(get_session())
+
+    assert session == Session.return_value.__enter__.return_value

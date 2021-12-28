@@ -39,10 +39,10 @@ def test_load_data(fs: FakeFilesystem) -> None:
     Test ``load_data``.
     """
     fs.create_file(
-        "/path/to/repository/dj.yaml",
+        "/path/to/repository/example.yaml",
         contents="foo: bar",
     )
-    assert load_data(Path("/path/to/repository/dj.yaml")) == {"foo": "bar"}
+    assert load_data(Path("/path/to/repository/example.yaml")) == {"foo": "bar"}
 
 
 @pytest.mark.asyncio
@@ -228,11 +228,9 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
     """
     Test the ``run`` command.
     """
-    mocker.patch("datajunction.cli.compile.create_engine")
-    mocker.patch("datajunction.cli.compile.SQLModel")
-
-    Session = mocker.patch("datajunction.cli.compile.Session")
-    session = Session.return_value.__enter__.return_value
+    mocker.patch("datajunction.cli.compile.create_db_and_tables")
+    get_session = mocker.patch("datajunction.cli.compile.get_session")
+    session = get_session.return_value.__next__.return_value
 
     index_databases = mocker.patch("datajunction.cli.compile.index_databases")
     index_nodes = mocker.patch("datajunction.cli.compile.index_nodes")
