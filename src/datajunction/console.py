@@ -16,14 +16,13 @@ Released under the MIT license.
 
 import asyncio
 import logging
-import os
 from pathlib import Path
 
 from docopt import docopt
 
 from datajunction import __version__
 from datajunction.cli import compile as compile_
-from datajunction.utils import find_directory, setup_logging
+from datajunction.utils import get_settings, setup_logging
 
 _logger = logging.getLogger(__name__)
 
@@ -37,7 +36,8 @@ async def main() -> None:
     setup_logging(arguments["--loglevel"])
 
     if arguments["REPOSITORY"] is None:
-        repository = find_directory(Path(os.getcwd()))
+        settings = get_settings()
+        repository = settings.repository
     else:
         repository = Path(arguments["REPOSITORY"])
 

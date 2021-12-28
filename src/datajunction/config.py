@@ -2,6 +2,8 @@
 Configuration for the metric repository.
 """
 
+from pathlib import Path
+
 from pydantic import BaseSettings
 
 
@@ -13,5 +15,6 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     # SQLAlchemy URI for the metadata database.
     index: str = "sqlite:///dj.db"
 
-    class Config:  # pylint: disable=too-few-public-methods, missing-class-docstring
-        env_file = ".env"
+    # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
+    # "databases".
+    repository: Path = Path(".")
