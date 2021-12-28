@@ -43,14 +43,6 @@ def get_name_from_path(repository: Path, path: Path) -> str:
     return encoded
 
 
-class Config(SQLModel):
-    """
-    Configuration for a metric repository.
-    """
-
-    index: str
-
-
 class Database(SQLModel, table=True):  # type: ignore
     """
     A database.
