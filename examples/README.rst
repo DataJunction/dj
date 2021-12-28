@@ -3,7 +3,7 @@ Running
 
 .. code-block:: bash
 
-    $ cd docker/
+    $ cd examples/docker/
     $ docker compose up
 
 If the Druid data doesn't load, you need to fix the permissions:
@@ -21,3 +21,7 @@ Install the required SQLAlchemy dialects:
     $ pip install 'shillelagh[gsheetsapi]' pydruid psycopg2-binary
 
 And run:
+
+.. code-block:: bash
+
+    $ dj compile examples/configs
