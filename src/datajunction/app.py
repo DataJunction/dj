@@ -2,6 +2,8 @@
 Run a DJ server.
 """
 
+from typing import List
+
 from fastapi import Depends, FastAPI
 from sqlmodel import Session, select
 
@@ -12,7 +14,7 @@ app = FastAPI()
 
 
 @app.on_event("startup")
-def on_startup():
+def on_startup() -> None:
     """
     Ensure the database and tables exist on startup.
     """
@@ -20,7 +22,7 @@ def on_startup():
 
 
 @app.get("/databases/")
-def read_databases(*, session: Session = Depends(get_session)):
+def read_databases(*, session: Session = Depends(get_session)) -> List[Database]:
     """
     List the available databases.
     """

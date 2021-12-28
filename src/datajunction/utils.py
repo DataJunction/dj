@@ -7,6 +7,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterator
 
+from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
@@ -32,20 +33,6 @@ def setup_logging(loglevel: str) -> None:
     )
 
 
-def find_directory(cwd: Path) -> Path:
-    """
-    Find root of the metrics repository, starting from `cwd`.
-
-    The function will traverse up trying to find the dotenv file.
-    """
-    while not (cwd / ".env").exists():
-        if cwd == cwd.parent:
-            raise SystemExit("No configuration found!")
-        cwd = cwd.parent
-
-    return cwd
-
-
 def get_project_repository() -> Path:
     """
     Return the project repository.
@@ -60,6 +47,7 @@ def get_settings() -> Settings:
     """
     Return a cached settings object.
     """
+    load_dotenv()
     return Settings()
 
 
@@ -74,6 +62,14 @@ def get_engine() -> Engine:
     return engine
 
 
+def create_db_and_tables() -> None:
+    """
+    Create the database and tables.
+    """
+    engine = get_engine()
+    SQLModel.metadata.create_all(engine)
+
+
 def get_session() -> Iterator[Session]:
     """
     Per-request session.
@@ -82,11 +78,3 @@ def get_session() -> Iterator[Session]:
 
     with Session(engine) as session:
         yield session
-
-
-def create_db_and_tables():
-    """
-    Create the database and tables.
-    """
-    engine = get_engine()
-    SQLModel.metadata.create_all(engine)

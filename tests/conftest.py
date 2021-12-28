@@ -9,15 +9,17 @@ from typing import Iterator
 import pytest
 from fastapi.testclient import TestClient
 from pyfakefs.fake_filesystem import FakeFilesystem
+from pytest_mock import MockerFixture
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
 from datajunction.app import app, get_session
+from datajunction.config import Settings
 from datajunction.utils import get_project_repository
 
 
 @pytest.fixture
-def repository(fs: FakeFilesystem) -> Iterator[Path]:
+def repository(mocker: MockerFixture, fs: FakeFilesystem) -> Iterator[Path]:
     """
     Create the main repository.
     """
@@ -26,6 +28,11 @@ def repository(fs: FakeFilesystem) -> Iterator[Path]:
     fs.add_real_directory(
         repository / "examples/configs",
         target_path="/path/to/repository",
+    )
+
+    mocker.patch(
+        "datajunction.utils.get_settings",
+        return_value=Settings(index="sqlite://", repository="/path/to/repository"),
     )
 
     path = Path("/path/to/repository")
