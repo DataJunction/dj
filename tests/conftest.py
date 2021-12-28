@@ -7,9 +7,12 @@ from pathlib import Path
 from typing import Iterator
 
 import pytest
+from fastapi.testclient import TestClient
 from pyfakefs.fake_filesystem import FakeFilesystem
 from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel.pool import StaticPool
 
+from datajunction.app import app, get_session
 from datajunction.models import Config
 from datajunction.utils import get_project_repository, load_config
 
@@ -43,8 +46,27 @@ def session() -> Iterator[Session]:
     """
     Create an in-memory SQLite session to test models.
     """
-    engine = create_engine("sqlite://")
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
     SQLModel.metadata.create_all(engine)
 
     with Session(engine) as session:
         yield session
+
+
+@pytest.fixture()
+def client(session: Session) -> Iterator[TestClient]:
+    """
+    Create a client for testing APIs.
+    """
+
+    def get_session_override() -> Session:
+        return session
+
+    app.dependency_overrides[get_session] = get_session_override
+
+    client = TestClient(app)
+    yield client
+
+    app.dependency_overrides.clear()
