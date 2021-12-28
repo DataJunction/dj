@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 from sqlalchemy import inspect
-from sqlmodel import Session, SQLModel, create_engine, select
+from sqlmodel import Session, create_engine, select
 
 from datajunction.models import (
     Column,
@@ -27,7 +27,7 @@ from datajunction.models import (
     Representation,
     get_name_from_path,
 )
-from datajunction.utils import load_config
+from datajunction.utils import create_db_and_tables, get_session
 
 _logger = logging.getLogger(__name__)
 
@@ -226,13 +226,11 @@ async def run(repository: Path) -> None:
     """
     Compile the metrics repository.
     """
-    config = load_config(repository)
+    create_db_and_tables()
 
-    engine = create_engine(config.index)
-    SQLModel.metadata.create_all(engine)
+    session = next(get_session())
 
-    with Session(engine) as session:
-        await index_databases(repository, session)
-        await index_nodes(repository, session)
+    await index_databases(repository, session)
+    await index_nodes(repository, session)
 
-        session.commit()
+    session.commit()
