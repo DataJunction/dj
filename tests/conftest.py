@@ -13,8 +13,7 @@ from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
 from datajunction.app import app, get_session
-from datajunction.models import Config
-from datajunction.utils import get_project_repository, load_config
+from datajunction.utils import get_project_repository
 
 
 @pytest.fixture
@@ -33,21 +32,15 @@ def repository(fs: FakeFilesystem) -> Iterator[Path]:
     yield path
 
 
-@pytest.fixture
-def config(repository: Path) -> Iterator[Config]:
-    """
-    Load the configuration for a given repository.
-    """
-    yield load_config(repository)
-
-
 @pytest.fixture()
 def session() -> Iterator[Session]:
     """
     Create an in-memory SQLite session to test models.
     """
     engine = create_engine(
-        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+        "sqlite://",
+        connect_args={"check_same_thread": False},
+        poolclass=StaticPool,
     )
     SQLModel.metadata.create_all(engine)
 
@@ -66,7 +59,7 @@ def client(session: Session) -> Iterator[TestClient]:
 
     app.dependency_overrides[get_session] = get_session_override
 
-    client = TestClient(app)
-    yield client
+    with TestClient(app) as client:
+        yield client
 
     app.dependency_overrides.clear()
