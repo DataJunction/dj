@@ -9,6 +9,7 @@ import pytest
 from pytest_mock import MockerFixture
 
 from datajunction import console
+from datajunction.config import Settings
 
 
 @pytest.mark.asyncio
@@ -28,8 +29,11 @@ async def test_main_compile(mocker: MockerFixture) -> None:
         },
     )
     mocker.patch(
-        "datajunction.console.find_directory",
-        return_value=Path("/path/to/repository"),
+        "datajunction.console.get_settings",
+        return_value=Settings(
+            index="sqlite:///dj.db",
+            repository=Path("/path/to/repository"),
+        ),
     )
 
     await console.main()
