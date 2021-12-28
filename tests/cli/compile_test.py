@@ -4,6 +4,7 @@ Tests for ``datajunction.cli.compile``.
 # pylint: disable=redefined-outer-name, invalid-name
 
 from datetime import datetime, timezone
+from operator import itemgetter
 from pathlib import Path
 
 import pytest
@@ -57,56 +58,56 @@ async def test_index_databases(repository: Path, session: Session) -> None:
     with freeze_time("2021-01-02T00:00:00Z"):
         databases = await index_databases(repository, session)
 
-    assert databases == [
-        Database(
-            id=1,
-            name="druid",
-            URI="druid://localhost:8082/druid/v2/sql/",
-            updated_at=datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            created_at=datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            description="An Apache Druid database",
-            read_only=True,
-        ),
-        Database(
-            id=2,
-            name="postgres",
-            URI="postgresql://username:FoolishPassword@localhost:5433/examples",
-            updated_at=datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            created_at=datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            description="A Postgres database",
-            read_only=False,
-        ),
-        Database(
-            id=3,
-            name="gsheets",
-            URI="gsheets://",
-            updated_at=datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            created_at=datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            description="A Google Sheets connector",
-            read_only=True,
-        ),
+    configs = [database.dict(exclude={"id": True}) for database in databases]
+    assert sorted(configs, key=itemgetter("name")) == [
+        {
+            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "name": "druid",
+            "description": "An Apache Druid database",
+            "URI": "druid://localhost:8082/druid/v2/sql/",
+            "read_only": True,
+        },
+        {
+            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "name": "gsheets",
+            "description": "A Google Sheets connector",
+            "URI": "gsheets://",
+            "read_only": True,
+        },
+        {
+            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "name": "postgres",
+            "description": "A Postgres database",
+            "URI": "postgresql://username:FoolishPassword@localhost:5433/examples",
+            "read_only": False,
+        },
     ]
 
     # update the Druid database and reindex
     with freeze_time("2021-01-03T00:00:00Z"):
         Path("/path/to/repository/databases/druid.yaml").touch()
         databases = await index_databases(repository, session)
+    databases = sorted(databases, key=lambda database: database.name)
 
     assert [(database.name, database.updated_at) for database in databases] == [
         ("druid", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
-        ("postgres", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
         ("gsheets", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
+        ("postgres", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
     ]
 
     # test that a missing timezone is treated as UTC
     databases[0].updated_at = databases[0].updated_at.replace(tzinfo=None)
     with freeze_time("2021-01-03T00:00:00Z"):
         databases = await index_databases(repository, session)
+    databases = sorted(databases, key=lambda database: database.name)
 
     assert [(database.name, database.updated_at) for database in databases] == [
         ("druid", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
-        ("postgres", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
         ("gsheets", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
+        ("postgres", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
     ]
 
 
@@ -181,113 +182,29 @@ async def test_index_nodes(
     with freeze_time("2021-01-02T00:00:00Z"):
         nodes = await index_nodes(repository, session)
 
-    assert nodes == [
-        Node(
-            id=1,
-            name="core.comments",
-            description="A fact table with comments",
-            created_at=datetime(2021, 1, 2, tzinfo=timezone.utc),
-            updated_at=datetime(2021, 1, 2, tzinfo=timezone.utc),
-            expression=None,
-            columns=[
-                Column(
-                    id=1,
-                    name="ds",
-                    type="datetime",
-                    node_id=2,
-                ),
-                Column(
-                    id=2,
-                    name="cnt",
-                    type="int",
-                    node_id=2,
-                ),
-            ],
-            representations=[
-                Representation(
-                    id=1,
-                    catalog=None,
-                    schema_=None,
-                    table=(
-                        "https://docs.google.com/spreadsheets/d/"
-                        "1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/"
-                        "edit#gid=1811447072"
-                    ),
-                    cost=100.0,
-                    node_id=1,
-                    database_id=3,
-                ),
-                Representation(
-                    id=2,
-                    catalog=None,
-                    schema_="public",
-                    table="comments",
-                    cost=10.0,
-                    node_id=1,
-                    database_id=2,
-                ),
-                Representation(
-                    id=3,
-                    catalog=None,
-                    schema_="druid",
-                    table="comments",
-                    cost=1.0,
-                    node_id=1,
-                    database_id=1,
-                ),
-            ],
-        ),
-        Node(
-            id=2,
-            name="core.users",
-            description="A user dimension table",
-            created_at=datetime(2021, 1, 2, tzinfo=timezone.utc),
-            updated_at=datetime(2021, 1, 2, tzinfo=timezone.utc),
-            expression=None,
-            columns=[
-                Column(
-                    id=1,
-                    name="ds",
-                    type="datetime",
-                    node_id=2,
-                ),
-                Column(
-                    id=2,
-                    name="cnt",
-                    type="int",
-                    node_id=2,
-                ),
-            ],
-            representations=[
-                Representation(
-                    id=4,
-                    catalog=None,
-                    schema_=None,
-                    table=(
-                        "https://docs.google.com/spreadsheets/d/"
-                        "1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0"
-                    ),
-                    cost=100.0,
-                    node_id=2,
-                    database_id=3,
-                ),
-                Representation(
-                    id=5,
-                    catalog=None,
-                    schema_="public",
-                    table="dim_users",
-                    cost=10.0,
-                    node_id=2,
-                    database_id=2,
-                ),
-            ],
-        ),
+    configs = [node.dict(exclude={"id": True}) for node in nodes]
+    assert sorted(configs, key=itemgetter("name")) == [
+        {
+            "name": "core.comments",
+            "description": "A fact table with comments",
+            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "expression": None,
+        },
+        {
+            "name": "core.users",
+            "description": "A user dimension table",
+            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "expression": None,
+        },
     ]
 
     # update one of the nodes and reindex
     with freeze_time("2021-01-03T00:00:00Z"):
         Path("/path/to/repository/nodes/core/users.yaml").touch()
         nodes = await index_nodes(repository, session)
+    nodes = sorted(nodes, key=lambda node: node.name)
 
     assert [(node.name, node.updated_at) for node in nodes] == [
         ("core.comments", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
@@ -298,6 +215,7 @@ async def test_index_nodes(
     nodes[0].updated_at = nodes[0].updated_at.replace(tzinfo=None)
     with freeze_time("2021-01-03T00:00:00Z"):
         nodes = await index_nodes(repository, session)
+    nodes = sorted(nodes, key=lambda node: node.name)
 
     assert [(node.name, node.updated_at) for node in nodes] == [
         ("core.comments", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
