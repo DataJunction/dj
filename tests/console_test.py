@@ -16,7 +16,7 @@ async def test_main_compile(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "compile" action.
     """
-    compile_ = mocker.patch("datajunction.console.compile")
+    compile_ = mocker.patch("datajunction.console.compile_")
     compile_.run = mocker.AsyncMock()
 
     mocker.patch(
@@ -41,7 +41,7 @@ async def test_main_compile_passing_repository(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "compile" action.
     """
-    compile_ = mocker.patch("datajunction.console.compile")
+    compile_ = mocker.patch("datajunction.console.compile_")
     compile_.run = mocker.AsyncMock()
 
     mocker.patch(
@@ -62,7 +62,7 @@ async def test_main_canceled(mocker: MockerFixture) -> None:
     """
     Test canceling the ``main`` coroutine.
     """
-    compile_ = mocker.patch("datajunction.console.compile")
+    compile_ = mocker.patch("datajunction.console.compile_")
     compile_.run = mocker.AsyncMock(side_effect=asyncio.CancelledError("Canceled"))
     _logger = mocker.patch("datajunction.console._logger")
 
