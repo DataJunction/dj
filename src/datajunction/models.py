@@ -3,15 +3,16 @@ Models for nodes.
 """
 
 import os
-import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from functools import partial
 from pathlib import Path
 from typing import List, Optional
+from uuid import UUID, uuid4
 
 from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
+from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
 
 
@@ -172,7 +173,10 @@ class Query(BaseQuery, table=True):  # type: ignore
     A query.
     """
 
-    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    id: UUID = Field(
+        default_factory=uuid4,
+        sa_column=SqlaColumn(UUIDType(), primary_key=True),
+    )
     database: Database = Relationship(back_populates="queries")
 
     submitted_query: str

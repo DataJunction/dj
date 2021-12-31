@@ -2,12 +2,12 @@
 Tests for the FastAPI application.
 """
 
-import uuid
-
 from fastapi.testclient import TestClient
+from freezegun import freeze_time
+from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from datajunction.app import QueryCreate
+from datajunction.app import QueryCreate, process_query
 from datajunction.models import Database, Query, QueryState
 
 
@@ -49,7 +49,8 @@ def test_submit_query(session: Session, client: TestClient) -> None:
         submitted_query="SELECT 1 AS col",
     )
 
-    response = client.post("/queries/", data=query_create.json())
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post("/queries/", data=query_create.json())
     data = response.json()
 
     assert response.status_code == 200
@@ -58,17 +59,26 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["schema_"] is None
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] == "SELECT 1 AS col"
+    assert data["scheduled"] == "2021-01-01T00:00:00"
+    assert data["started"] == "2021-01-01T00:00:00"
+    assert data["finished"] == "2021-01-01T00:00:00"
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
-    assert data["columns"] == [{"name": "col", "type": "STRING"}]
-    assert data["results"] == [[1]]
+    assert data["results"]["columns"] == [{"name": "col", "type": "STRING"}]
+    assert data["results"]["rows"] == [[1]]
     assert data["errors"] == []
 
 
-def test_submit_query_async(session: Session, client: TestClient) -> None:
+def test_submit_query_async(
+    mocker: MockerFixture,
+    session: Session,
+    client: TestClient,
+) -> None:
     """
     Test ``POST /queries/``.
     """
+    add_task = mocker.patch("fastapi.BackgroundTasks.add_task")
+
     database = Database(name="test", URI="sqlite://", async_=True)
     session.add(database)
     session.commit()
@@ -79,7 +89,8 @@ def test_submit_query_async(session: Session, client: TestClient) -> None:
         submitted_query="SELECT 1 AS col",
     )
 
-    response = client.post("/queries/", data=query_create.json())
+    with freeze_time("2021-01-01T00:00:00Z", auto_tick_seconds=300):
+        response = client.post("/queries/", data=query_create.json())
     data = response.json()
 
     assert response.status_code == 201
@@ -88,11 +99,21 @@ def test_submit_query_async(session: Session, client: TestClient) -> None:
     assert data["schema_"] is None
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] is None
+    assert data["scheduled"] is None
+    assert data["started"] is None
+    assert data["finished"] is None
     assert data["state"] == "ACCEPTED"
     assert data["progress"] == 0.0
-    assert data["columns"] == []
-    assert data["results"] == []
+    assert data["results"]["columns"] == []
+    assert data["results"]["rows"] == []
     assert data["errors"] == []
+
+    # check that ``BackgroundTasks.add_task`` was called
+    add_task.assert_called()
+    arguments = add_task.mock_calls[0].args
+    assert arguments[0] == process_query  # pylint: disable=comparison-with-callable
+    assert arguments[1] == session
+    assert isinstance(arguments[2], Query)
 
 
 def test_submit_query_error(session: Session, client: TestClient) -> None:
@@ -120,8 +141,8 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
     assert data["executed_query"] == "SELECT FROM"
     assert data["state"] == "FAILED"
     assert data["progress"] == 0.0
-    assert data["columns"] == []
-    assert data["results"] == []
+    assert data["results"]["columns"] == []
+    assert data["results"]["rows"] == []
     assert data["errors"] == [
         '(sqlite3.OperationalError) near "FROM": syntax error\n'
         "[SQL: SELECT FROM]\n"
@@ -156,11 +177,11 @@ def test_read_query(session: Session, client: TestClient) -> None:
     assert data["executed_query"] == "SELECT 1"
     assert data["state"] == "RUNNING"
     assert data["progress"] == 0.5
-    assert data["columns"] == []
-    assert data["results"] == []
+    assert data["results"]["columns"] == []
+    assert data["results"]["rows"] == []
     assert data["errors"] == []
 
-    response = client.get(f"/queries/{uuid.uuid4()}")
+    response = client.get("/queries/27289db6-a75c-47fc-b451-da59a743a168")
     assert response.status_code == 404
 
     response = client.get("/queries/123")
