@@ -3,7 +3,9 @@ Models for nodes.
 """
 
 import os
+import uuid
 from datetime import datetime, timezone
+from enum import Enum
 from functools import partial
 from pathlib import Path
 from typing import List, Optional
@@ -63,8 +65,14 @@ class Database(SQLModel, table=True):  # type: ignore
     description: str = ""
     URI: str
     read_only: bool = True
+    async_: bool = Field(default=False, sa_column_kwargs={"name": "async"})
 
     representations: List["Representation"] = Relationship(
+        back_populates="database",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+
+    queries: List["Query"] = Relationship(
         back_populates="database",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
@@ -133,3 +141,46 @@ class Column(SQLModel, table=True):  # type: ignore
 
     node_id: int = Field(foreign_key="node.id")
     node: Node = Relationship(back_populates="columns")
+
+
+class QueryState(str, Enum):
+    """
+    Different states of a query.
+    """
+
+    UNKNOWN = "UNKNOWN"
+    ACCEPTED = "ACCEPTED"
+    SCHEDULED = "SCHEDULED"
+    RUNNING = "RUNNING"
+    FINISHED = "FINISHED"
+    CANCELED = "CANCELED"
+    FAILED = "FAILED"
+
+
+class BaseQuery(SQLModel):
+    """
+    Base class for query models.
+    """
+
+    database_id: int = Field(foreign_key="database.id")
+    catalog: Optional[str] = None
+    schema_: Optional[str] = None  # XXX use alias  # pylint: disable=fixme
+
+
+class Query(BaseQuery, table=True):  # type: ignore
+    """
+    A query.
+    """
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    database: Database = Relationship(back_populates="queries")
+
+    submitted_query: str
+    executed_query: Optional[str] = None
+
+    scheduled: Optional[datetime] = None
+    started: Optional[datetime] = None
+    finished: Optional[datetime] = None
+
+    state: QueryState = QueryState.UNKNOWN
+    progress: float = 0.0
