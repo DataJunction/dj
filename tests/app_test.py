@@ -2,10 +2,13 @@
 Tests for the FastAPI application.
 """
 
+import uuid
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from datajunction.models import Database
+from datajunction.app import QueryCreate
+from datajunction.models import Database, Query, QueryState
 
 
 def test_read_databases(session: Session, client: TestClient) -> None:
@@ -30,3 +33,135 @@ def test_read_databases(session: Session, client: TestClient) -> None:
     assert data[0]["URI"] == "gsheets://"
     assert data[0]["description"] == "A Google Sheets connector"
     assert data[0]["read_only"] is True
+
+
+def test_submit_query(session: Session, client: TestClient) -> None:
+    """
+    Test ``POST /queries/``.
+    """
+    database = Database(name="test", URI="sqlite://")
+    session.add(database)
+    session.commit()
+    session.refresh(database)
+
+    query_create = QueryCreate(
+        database_id=database.id,
+        submitted_query="SELECT 1 AS col",
+    )
+
+    response = client.post("/queries/", data=query_create.json())
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["database_id"] == 1
+    assert data["catalog"] is None
+    assert data["schema_"] is None
+    assert data["submitted_query"] == "SELECT 1 AS col"
+    assert data["executed_query"] == "SELECT 1 AS col"
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert data["columns"] == [{"name": "col", "type": "STRING"}]
+    assert data["results"] == [[1]]
+    assert data["errors"] == []
+
+
+def test_submit_query_async(session: Session, client: TestClient) -> None:
+    """
+    Test ``POST /queries/``.
+    """
+    database = Database(name="test", URI="sqlite://", async_=True)
+    session.add(database)
+    session.commit()
+    session.refresh(database)
+
+    query_create = QueryCreate(
+        database_id=database.id,
+        submitted_query="SELECT 1 AS col",
+    )
+
+    response = client.post("/queries/", data=query_create.json())
+    data = response.json()
+
+    assert response.status_code == 201
+    assert data["database_id"] == 1
+    assert data["catalog"] is None
+    assert data["schema_"] is None
+    assert data["submitted_query"] == "SELECT 1 AS col"
+    assert data["executed_query"] is None
+    assert data["state"] == "ACCEPTED"
+    assert data["progress"] == 0.0
+    assert data["columns"] == []
+    assert data["results"] == []
+    assert data["errors"] == []
+
+
+def test_submit_query_error(session: Session, client: TestClient) -> None:
+    """
+    Test submitting invalid query to ``POST /queries/``.
+    """
+    database = Database(name="test", URI="sqlite://")
+    session.add(database)
+    session.commit()
+    session.refresh(database)
+
+    query_create = QueryCreate(
+        database_id=database.id,
+        submitted_query="SELECT FROM",
+    )
+
+    response = client.post("/queries/", data=query_create.json())
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["database_id"] == 1
+    assert data["catalog"] is None
+    assert data["schema_"] is None
+    assert data["submitted_query"] == "SELECT FROM"
+    assert data["executed_query"] == "SELECT FROM"
+    assert data["state"] == "FAILED"
+    assert data["progress"] == 0.0
+    assert data["columns"] == []
+    assert data["results"] == []
+    assert data["errors"] == [
+        '(sqlite3.OperationalError) near "FROM": syntax error\n'
+        "[SQL: SELECT FROM]\n"
+        "(Background on this error at: https://sqlalche.me/e/14/e3q8)",
+    ]
+
+
+def test_read_query(session: Session, client: TestClient) -> None:
+    """
+    Test ``GET /queries/{query_id}``.
+    """
+    database = Database(name="test", URI="sqlite://")
+    query = Query(
+        database=database,
+        submitted_query="SELECT 1",
+        executed_query="SELECT 1",
+        state=QueryState.RUNNING,
+        progress=0.5,
+    )
+    session.add(query)
+    session.commit()
+    session.refresh(query)
+
+    response = client.get(f"/queries/{query.id}")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["database_id"] == 1
+    assert data["catalog"] is None
+    assert data["schema_"] is None
+    assert data["submitted_query"] == "SELECT 1"
+    assert data["executed_query"] == "SELECT 1"
+    assert data["state"] == "RUNNING"
+    assert data["progress"] == 0.5
+    assert data["columns"] == []
+    assert data["results"] == []
+    assert data["errors"] == []
+
+    response = client.get(f"/queries/{uuid.uuid4()}")
+    assert response.status_code == 404
+
+    response = client.get("/queries/123")
+    assert response.status_code == 422

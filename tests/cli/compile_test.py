@@ -61,6 +61,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
     configs = [database.dict(exclude={"id": True}) for database in databases]
     assert sorted(configs, key=itemgetter("name")) == [
         {
+            "async_": False,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "druid",
@@ -69,6 +70,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "read_only": True,
         },
         {
+            "async_": False,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "gsheets",
@@ -77,6 +79,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "read_only": True,
         },
         {
+            "async_": False,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "postgres",

@@ -1,6 +1,10 @@
-- [ ] Single model for all nodes
-- [ ] All nodes in the same directory
-- [/] Compile repo, computing the schema of source nodes
+- [X] Single model for all nodes
+- [X] All nodes in the same directory
+- [X] Compile repo, computing the schema of source nodes
+- [X] API for running sync queries
+- [ ] API for running async queries
+- [ ] UUID for models?
+- [ ] Queries with multiple statements
 - [ ] Auto-map dimensions from the DB schema
 - [ ] Compute the schema of downstream nodes
 - [ ] Translate metrics into SQL
