@@ -6,8 +6,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple
 
-from fastapi import Depends, FastAPI, HTTPException, Response, status
-from sqlmodel import Session, select
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Response, status
+from sqlmodel import Session, SQLModel, select
 
 from datajunction.models import BaseQuery, Database, Query, QueryState
 from datajunction.queries import ColumnMetadata, run_query
@@ -41,6 +41,17 @@ class QueryCreate(BaseQuery):
     submitted_query: str
 
 
+class QueryResults(SQLModel):
+    """
+    Results for a given query.
+
+    This contains the column names and types, as well as the rows.
+    """
+
+    columns: List[ColumnMetadata]
+    rows: List[Tuple[Any, ...]]
+
+
 class QueryWithResults(BaseQuery):
     """
     Model for query with results.
@@ -58,8 +69,7 @@ class QueryWithResults(BaseQuery):
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
 
-    columns: List[ColumnMetadata]
-    results: List[Tuple[Any, ...]]
+    results: QueryResults
     errors: List[str]
 
 
@@ -69,6 +79,7 @@ def submit_query(
     session: Session = Depends(get_session),
     create_query: QueryCreate,
     response: Response,
+    background_tasks: BackgroundTasks,
 ) -> QueryWithResults:
     """
     Run or schedule a query.
@@ -81,9 +92,20 @@ def submit_query(
 
     if query.database.async_:
         query.state = QueryState.ACCEPTED
-        response.status_code = status.HTTP_201_CREATED
-        return QueryWithResults(columns=[], results=[], errors=[], **query.dict())
 
+        background_tasks.add_task(process_query, session, query)
+
+        response.status_code = status.HTTP_201_CREATED
+        results = QueryResults(columns=[], rows=[])
+        return QueryWithResults(results=results, errors=[], **query.dict())
+
+    return process_query(session, query)
+
+
+def process_query(session: Session, query: Query) -> QueryWithResults:
+    """
+    Process a query.
+    """
     query.scheduled = datetime.now(timezone.utc)
     query.state = QueryState.SCHEDULED
     query.executed_query = query.submitted_query
@@ -105,9 +127,8 @@ def submit_query(
     session.commit()
     session.refresh(query)
 
-    return QueryWithResults(
-        columns=columns, results=list(results), errors=errors, **query.dict()
-    )
+    results = QueryResults(columns=columns, rows=list(results))
+    return QueryWithResults(results=results, errors=errors, **query.dict())
 
 
 @app.get("/queries/{query_id}", response_model=QueryWithResults)
@@ -124,4 +145,5 @@ def read_query(
         raise HTTPException(status_code=404, detail="Query not found")
 
     # XXX fetch results/columns/errors from somewhere?  # pylint: disable=fixme
-    return QueryWithResults(columns=[], results=[], errors=[], **query.dict())
+    results = QueryResults(columns=[], rows=[])
+    return QueryWithResults(results=results, errors=[], **query.dict())
