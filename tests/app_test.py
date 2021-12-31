@@ -49,7 +49,7 @@ def test_submit_query(session: Session, client: TestClient) -> None:
         submitted_query="SELECT 1 AS col",
     )
 
-    with freeze_time("2021-01-01T00:00:00Z", auto_tick_seconds=300):
+    with freeze_time("2021-01-01T00:00:00Z"):
         response = client.post("/queries/", data=query_create.json())
     data = response.json()
 
@@ -59,9 +59,9 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["schema_"] is None
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] == "SELECT 1 AS col"
-    assert data["scheduled"] == "2021-01-01T01:20:00"
-    assert data["started"] == "2021-01-01T01:25:00"
-    assert data["finished"] == "2021-01-01T01:35:00"
+    assert data["scheduled"] == "2021-01-01T00:00:00"
+    assert data["started"] == "2021-01-01T00:00:00"
+    assert data["finished"] == "2021-01-01T00:00:00"
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
     assert data["results"]["columns"] == [{"name": "col", "type": "STRING"}]
