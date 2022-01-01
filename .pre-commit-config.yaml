@@ -80,7 +80,7 @@ repos:
 #  - id: reorder-python-imports
 #    args: [--application-directories=.:src]
 - repo: https://github.com/hadialqattan/pycln
-  rev: v1.0.3 # Possible releases: https://github.com/hadialqattan/pycln/tags
+  rev: v1.1.0 # Possible releases: https://github.com/hadialqattan/pycln/tags
   hooks:
   - id: pycln
     args: [--config=pyproject.toml]
