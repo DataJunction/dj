@@ -2,12 +2,15 @@
 Tests for the FastAPI application.
 """
 
+import json
+
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from datajunction.app import QueryCreate, process_query
+from datajunction.app import QueryCreate, QueryResults, process_query
+from datajunction.config import Settings
 from datajunction.models import Database, Query, QueryState
 
 
@@ -69,6 +72,35 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["errors"] == []
 
 
+def test_submit_query_results_backend(
+    session: Session,
+    settings: Settings,
+    client: TestClient,
+) -> None:
+    """
+    Test that ``POST /queries/`` stores results.
+    """
+    database = Database(name="test", URI="sqlite://")
+    session.add(database)
+    session.commit()
+    session.refresh(database)
+
+    query_create = QueryCreate(
+        database_id=database.id,
+        submitted_query="SELECT 1 AS col",
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post("/queries/", data=query_create.json())
+    data = response.json()
+
+    cached = settings.results_backend.get(data["id"])
+    assert json.loads(cached) == {
+        "columns": [{"name": "col", "type": "STRING"}],
+        "rows": [[1]],
+    }
+
+
 def test_submit_query_async(
     mocker: MockerFixture,
     session: Session,
@@ -113,7 +145,8 @@ def test_submit_query_async(
     arguments = add_task.mock_calls[0].args
     assert arguments[0] == process_query  # pylint: disable=comparison-with-callable
     assert arguments[1] == session
-    assert isinstance(arguments[2], Query)
+    assert isinstance(arguments[2], Settings)
+    assert isinstance(arguments[3], Query)
 
 
 def test_submit_query_error(session: Session, client: TestClient) -> None:
@@ -150,7 +183,48 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
     ]
 
 
-def test_read_query(session: Session, client: TestClient) -> None:
+def test_read_query(session: Session, settings: Settings, client: TestClient) -> None:
+    """
+    Test ``GET /queries/{query_id}``.
+    """
+    database = Database(name="test", URI="sqlite://")
+    query = Query(
+        database=database,
+        submitted_query="SELECT 1",
+        executed_query="SELECT 1",
+        state=QueryState.RUNNING,
+        progress=0.5,
+    )
+    session.add(query)
+    session.commit()
+    session.refresh(query)
+
+    results = QueryResults(columns=[{"name": "col", "type": "STRING"}], rows=[[1]])
+    settings.results_backend.add(str(query.id), results.json())
+
+    response = client.get(f"/queries/{query.id}")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["database_id"] == 1
+    assert data["catalog"] is None
+    assert data["schema_"] is None
+    assert data["submitted_query"] == "SELECT 1"
+    assert data["executed_query"] == "SELECT 1"
+    assert data["state"] == "RUNNING"
+    assert data["progress"] == 0.5
+    assert data["results"]["columns"] == [{"name": "col", "type": "STRING"}]
+    assert data["results"]["rows"] == [[1]]
+    assert data["errors"] == []
+
+    response = client.get("/queries/27289db6-a75c-47fc-b451-da59a743a168")
+    assert response.status_code == 404
+
+    response = client.get("/queries/123")
+    assert response.status_code == 422
+
+
+def test_read_query_no_results_backend(session: Session, client: TestClient) -> None:
     """
     Test ``GET /queries/{query_id}``.
     """
@@ -185,4 +259,3 @@ def test_read_query(session: Session, client: TestClient) -> None:
     assert response.status_code == 404
 
     response = client.get("/queries/123")
-    assert response.status_code == 422

@@ -7,7 +7,7 @@ import logging
 import pytest
 from pytest_mock import MockerFixture
 
-from datajunction.utils import get_session, setup_logging
+from datajunction.utils import get_session, get_settings, setup_logging
 
 
 def test_setup_logging() -> None:
@@ -32,3 +32,20 @@ def test_get_session(mocker: MockerFixture) -> None:
     session = next(get_session())
 
     assert session == Session.return_value.__enter__.return_value
+
+
+def test_get_settings(mocker: MockerFixture) -> None:
+    """
+    Test ``get_settings``.
+    """
+    mocker.patch("datajunction.utils.load_dotenv")
+    Settings = mocker.patch(  # pylint: disable=invalid-name
+        "datajunction.utils.Settings",
+    )
+
+    get_settings()
+    Settings.assert_called_once()
+
+    # test cache
+    get_settings()
+    Settings.assert_called_once()

@@ -2,6 +2,7 @@
 Run a DJ server.
 """
 
+import json
 import uuid
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple
@@ -9,9 +10,10 @@ from typing import Any, List, Optional, Tuple
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Response, status
 from sqlmodel import Session, SQLModel, select
 
+from datajunction.config import Settings
 from datajunction.models import BaseQuery, Database, Query, QueryState
 from datajunction.queries import ColumnMetadata, run_query
-from datajunction.utils import create_db_and_tables, get_session
+from datajunction.utils import create_db_and_tables, get_session, get_settings
 
 app = FastAPI()
 
@@ -77,6 +79,7 @@ class QueryWithResults(BaseQuery):
 def submit_query(
     *,
     session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
     create_query: QueryCreate,
     response: Response,
     background_tasks: BackgroundTasks,
@@ -93,16 +96,20 @@ def submit_query(
     if query.database.async_:
         query.state = QueryState.ACCEPTED
 
-        background_tasks.add_task(process_query, session, query)
+        background_tasks.add_task(process_query, session, settings, query)
 
         response.status_code = status.HTTP_201_CREATED
         results = QueryResults(columns=[], rows=[])
         return QueryWithResults(results=results, errors=[], **query.dict())
 
-    return process_query(session, query)
+    return process_query(session, settings, query)
 
 
-def process_query(session: Session, query: Query) -> QueryWithResults:
+def process_query(
+    session: Session,
+    settings: Settings,
+    query: Query,
+) -> QueryWithResults:
     """
     Process a query.
     """
@@ -128,6 +135,8 @@ def process_query(session: Session, query: Query) -> QueryWithResults:
     session.refresh(query)
 
     results = QueryResults(columns=columns, rows=list(results))
+    settings.results_backend.add(str(query.id), results.json())
+
     return QueryWithResults(results=results, errors=errors, **query.dict())
 
 
@@ -136,6 +145,7 @@ def read_query(
     query_id: uuid.UUID,
     *,
     session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
 ) -> QueryWithResults:
     """
     Fetch information about a query.
@@ -144,6 +154,9 @@ def read_query(
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
 
-    # XXX fetch results/columns/errors from somewhere?  # pylint: disable=fixme
-    results = QueryResults(columns=[], rows=[])
+    if cached := settings.results_backend.get(str(query_id)):
+        results = QueryResults(**json.loads(cached))
+    else:
+        results = QueryResults(columns=[], rows=[])
+
     return QueryWithResults(results=results, errors=[], **query.dict())
