@@ -3,13 +3,16 @@ Tests for the FastAPI application.
 """
 
 import json
+from uuid import UUID, uuid4
 
+import pytest
+from fastapi.exceptions import HTTPException
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from datajunction.app import QueryCreate, QueryResults, process_query
+from datajunction.app import QueryCreate, QueryResults, dispatch_query, process_query
 from datajunction.config import Settings
 from datajunction.models import Database, Query, QueryState
 
@@ -107,7 +110,7 @@ def test_submit_query_async(
     client: TestClient,
 ) -> None:
     """
-    Test ``POST /queries/``.
+    Test ``POST /queries/`` on an async database.
     """
     add_task = mocker.patch("fastapi.BackgroundTasks.add_task")
 
@@ -147,6 +150,83 @@ def test_submit_query_async(
     assert arguments[1] == session
     assert isinstance(arguments[2], Settings)
     assert isinstance(arguments[3], Query)
+
+
+def test_submit_query_async_celery(
+    mocker: MockerFixture,
+    session: Session,
+    settings: Settings,
+    client: TestClient,
+) -> None:
+    """
+    Test ``POST /queries/`` on an async database via Celery.
+    """
+    settings.celery_broker = "redis://127.0.0.1:6379/0"
+
+    dispatch_query = mocker.patch(  # pylint: disable=redefined-outer-name
+        "datajunction.app.dispatch_query",
+    )
+
+    database = Database(name="test", URI="sqlite://", async_=True)
+    session.add(database)
+    session.commit()
+    session.refresh(database)
+
+    query_create = QueryCreate(
+        database_id=database.id,
+        submitted_query="SELECT 1 AS col",
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z", auto_tick_seconds=300):
+        response = client.post("/queries/", data=query_create.json())
+    data = response.json()
+
+    dispatch_query.delay.assert_called_with(UUID(data["id"]))
+
+
+def test_dispatch_query(
+    mocker: MockerFixture,
+    session: Session,
+    settings: Settings,
+) -> None:
+    """
+    Test ``dispatch_query``.
+    """
+    get_session = mocker.patch("datajunction.app.get_session")
+    get_session.return_value.__next__.return_value = (  # pylint: disable=redefined-outer-name
+        session
+    )
+
+    mocker.patch("datajunction.app.get_settings", return_value=settings)
+
+    process_query = mocker.patch(  # pylint: disable=redefined-outer-name
+        "datajunction.app.process_query",
+    )
+
+    database = Database(name="test", URI="sqlite://")
+    query = Query(
+        database=database,
+        submitted_query="SELECT 1",
+        executed_query="SELECT 1",
+        state=QueryState.RUNNING,
+        progress=0.5,
+    )
+    session.add(query)
+    session.commit()
+    session.refresh(query)
+
+    dispatch_query(query.id)
+
+    process_query.assert_called()
+    arguments = process_query.mock_calls[0].args
+    assert arguments[0] == session
+    assert arguments[1] == settings
+    assert isinstance(arguments[2], Query)
+
+    random_uuid = uuid4()
+    with pytest.raises(HTTPException) as excinfo:
+        dispatch_query(random_uuid)
+    assert str(excinfo.value) == ""
 
 
 def test_submit_query_error(session: Session, client: TestClient) -> None:

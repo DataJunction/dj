@@ -16,6 +16,7 @@ from datajunction.queries import ColumnMetadata, run_query
 from datajunction.utils import create_db_and_tables, get_session, get_settings
 
 app = FastAPI()
+celery = get_settings().celery  # pylint: disable=invalid-name
 
 
 @app.on_event("startup")
@@ -88,21 +89,38 @@ def submit_query(
     Run or schedule a query.
     """
     query = Query.from_orm(create_query)
+    query.state = QueryState.ACCEPTED
 
     session.add(query)
     session.commit()
     session.refresh(query)
 
     if query.database.async_:
-        query.state = QueryState.ACCEPTED
-
-        background_tasks.add_task(process_query, session, settings, query)
+        if settings.celery_broker:
+            dispatch_query.delay(query.id)
+        else:
+            background_tasks.add_task(process_query, session, settings, query)
 
         response.status_code = status.HTTP_201_CREATED
         results = QueryResults(columns=[], rows=[])
         return QueryWithResults(results=results, errors=[], **query.dict())
 
     return process_query(session, settings, query)
+
+
+@celery.task
+def dispatch_query(query_id: uuid.UUID) -> None:
+    """
+    Celery task for processing a query.
+    """
+    session = next(get_session())
+    settings = get_settings()
+
+    query = session.get(Query, query_id)
+    if not query:
+        raise HTTPException(status_code=404, detail="Query not found")
+
+    process_query(session, settings, query).dict()
 
 
 def process_query(
