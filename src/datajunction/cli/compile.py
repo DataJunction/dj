@@ -137,11 +137,17 @@ def get_columns(representations: List[Representation]) -> List[Column]:
     columns: Dict[str, Column] = {}
     for representation in representations:
         engine = create_engine(representation.database.URI)
-        inspector = inspect(engine)
-        for column in inspector.get_columns(
-            representation.table,
-            schema=representation.schema_,
-        ):
+        try:
+            inspector = inspect(engine)
+            column_metadata = inspector.get_columns(
+                representation.table,
+                schema=representation.schema_,
+            )
+        except Exception:  # pylint: disable=broad-except
+            _logger.exception("Unable to get table metadata")
+            continue
+
+        for column in column_metadata:
             name = column["name"]
             type_ = column["type"].python_type.__name__
 
