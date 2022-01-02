@@ -66,7 +66,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "druid",
             "description": "An Apache Druid database",
-            "URI": "druid://localhost:8082/druid/v2/sql/",
+            "URI": "druid://host.docker.internal:8082/druid/v2/sql/",
             "read_only": True,
         },
         {
@@ -84,7 +84,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "postgres",
             "description": "A Postgres database",
-            "URI": "postgresql://username:FoolishPassword@localhost:5433/examples",
+            "URI": "postgresql://username:FoolishPassword@host.docker.internal:5433/examples",
             "read_only": False,
         },
     ]
@@ -129,9 +129,10 @@ def test_get_columns(mocker: MockerFixture) -> None:
             {"name": "ds", "type": sqlalchemy.sql.sqltypes.DateTime()},
             {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
         ],
+        Exception("An unexpected error occurred"),
     ]
 
-    representations = [mocker.MagicMock(), mocker.MagicMock()]
+    representations = [mocker.MagicMock(), mocker.MagicMock(), mocker.MagicMock()]
     assert get_columns(representations) == [
         Column(id=None, name="ds", type="datetime"),
         Column(id=None, name="cnt", type="int"),
@@ -169,11 +170,13 @@ async def test_index_nodes(
         ],
     )
 
-    session.add(Database(name="druid", URI="druid://localhost:8082/druid/v2/sql/"))
+    session.add(
+        Database(name="druid", URI="druid://host.docker.internal:8082/druid/v2/sql/"),
+    )
     session.add(
         Database(
             name="postgres",
-            URI="postgresql://username:FoolishPassword@localhost:5433/examples",
+            URI="postgresql://username:FoolishPassword@host.docker.internal:5433/examples",
         ),
     )
     session.add(Database(name="gsheets", URI="gsheets://"))

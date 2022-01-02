@@ -5,8 +5,8 @@
 - [X] API for running async queries
 - [X] Results backend
 - [X] Celery workers for async queries
+- [/] Add DJ and Redis to docker-compose
 - [ ] Queries with multiple statements
-- [ ] Auto-map dimensions from the DB schema
 - [ ] Compute the schema of downstream nodes
 - [ ] Translate metrics into SQL
 - [ ] Compute metrics (ie, run query)
@@ -16,6 +16,7 @@
 - [ ] Virtual dimensions (time, space, user-defined)
 - [ ] JS dataframe with time-aware caching and additive-aware, to reuse queries
 - [ ] 2 modes of join: Shillelagh and move data
+- [ ] Auto-map dimensions from the DB schema?
 - [ ] UUID for models?
 
 Node types:
