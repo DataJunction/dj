@@ -5,8 +5,8 @@
 - [X] API for running async queries
 - [X] Results backend
 - [X] Celery workers for async queries
-- [/] Add DJ and Redis to docker-compose
-- [ ] Queries with multiple statements
+- [X] Add DJ and Redis to docker-compose
+- [/] Queries with multiple statements
 - [ ] Compute the schema of downstream nodes
 - [ ] Translate metrics into SQL
 - [ ] Compute metrics (ie, run query)
