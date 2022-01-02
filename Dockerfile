@@ -6,5 +6,5 @@ RUN pip install uvicorn pydruid 'shillelagh[gsheetsapi]' psycopg2-binary
 COPY . /code
 RUN pip install -e .
 CMD ["dj", "compile"]
-CMD ["uvicorn", "datajunction.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "datajunction.app:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
 EXPOSE 8000
