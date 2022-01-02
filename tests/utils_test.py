@@ -43,9 +43,6 @@ def test_get_settings(mocker: MockerFixture) -> None:
         "datajunction.utils.Settings",
     )
 
+    # should be already cached, since it's called by the Celery app
     get_settings()
-    Settings.assert_called_once()
-
-    # test cache
-    get_settings()
-    Settings.assert_called_once()
+    Settings.assert_not_called()

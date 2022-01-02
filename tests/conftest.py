@@ -28,6 +28,7 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
         index="sqlite://",
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
+        celery_broker=None,
     )
 
     mocker.patch(

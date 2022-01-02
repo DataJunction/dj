@@ -4,8 +4,7 @@
 - [X] API for running sync queries
 - [X] API for running async queries
 - [X] Results backend
-- [ ] Celery workers for async queries
-- [ ] UUID for models?
+- [X] Celery workers for async queries
 - [ ] Queries with multiple statements
 - [ ] Auto-map dimensions from the DB schema
 - [ ] Compute the schema of downstream nodes
@@ -17,8 +16,9 @@
 - [ ] Virtual dimensions (time, space, user-defined)
 - [ ] JS dataframe with time-aware caching and additive-aware, to reuse queries
 - [ ] 2 modes of join: Shillelagh and move data
+- [ ] UUID for models?
 
-Models:
+Node types:
 
 - source
 - transform
