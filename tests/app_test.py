@@ -77,6 +77,7 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1 AS col"
     assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
@@ -112,8 +113,10 @@ def test_submit_query_multiple_statements(session: Session, client: TestClient) 
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
     assert len(data["results"]) == 2
+    assert data["results"][0]["sql"] == "SELECT 1 AS col"
     assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
     assert data["results"][0]["rows"] == [[1]]
+    assert data["results"][1]["sql"] == "SELECT 2 AS another_col"
     assert data["results"][1]["columns"] == [{"name": "another_col", "type": "STRING"}]
     assert data["results"][1]["rows"] == [[2]]
     assert data["errors"] == []
@@ -144,6 +147,7 @@ def test_submit_query_results_backend(
     cached = settings.results_backend.get(data["id"])
     assert json.loads(cached) == [
         {
+            "sql": "SELECT 1 AS col",
             "columns": [{"name": "col", "type": "STRING"}],
             "rows": [[1]],
         },
@@ -325,7 +329,11 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
 
     results = QueryResults(
         __root__=[
-            StatementResults(columns=[{"name": "col", "type": "STRING"}], rows=[[1]]),
+            StatementResults(
+                sql="SELECT 1",
+                columns=[{"name": "col", "type": "STRING"}],
+                rows=[[1]],
+            ),
         ],
     )
     settings.results_backend.add(str(query.id), results.json())
@@ -342,6 +350,7 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
     assert data["state"] == "RUNNING"
     assert data["progress"] == 0.5
     assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1"
     assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
