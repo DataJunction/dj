@@ -48,9 +48,10 @@ class StatementResults(SQLModel):
     """
     Results for a given statement.
 
-    This contains the column names and types, as well as the rows
+    This contains the SQL, column names and types, and rows
     """
 
+    sql: str
     columns: List[ColumnMetadata]
     rows: List[Tuple[Any, ...]]
 
@@ -147,8 +148,8 @@ def process_query(
     try:
         results = QueryResults(
             __root__=[
-                StatementResults(columns=columns, rows=list(stream))
-                for columns, stream in run_query(query)
+                StatementResults(sql=sql, columns=columns, rows=list(stream))
+                for sql, columns, stream in run_query(query)
             ],
         )
         query.state = QueryState.FINISHED
