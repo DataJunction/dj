@@ -12,7 +12,13 @@ from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from datajunction.app import QueryCreate, QueryResults, dispatch_query, process_query
+from datajunction.app import (
+    QueryCreate,
+    QueryResults,
+    StatementResults,
+    dispatch_query,
+    process_query,
+)
 from datajunction.config import Settings
 from datajunction.models import Database, Query, QueryState
 
@@ -70,8 +76,46 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["finished"] == "2021-01-01T00:00:00"
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
-    assert data["results"]["columns"] == [{"name": "col", "type": "STRING"}]
-    assert data["results"]["rows"] == [[1]]
+    assert len(data["results"]) == 1
+    assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
+    assert data["results"][0]["rows"] == [[1]]
+    assert data["errors"] == []
+
+
+def test_submit_query_multiple_statements(session: Session, client: TestClient) -> None:
+    """
+    Test ``POST /queries/``.
+    """
+    database = Database(name="test", URI="sqlite://")
+    session.add(database)
+    session.commit()
+    session.refresh(database)
+
+    query_create = QueryCreate(
+        database_id=database.id,
+        submitted_query="SELECT 1 AS col; SELECT 2 AS another_col",
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post("/queries/", data=query_create.json())
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["database_id"] == 1
+    assert data["catalog"] is None
+    assert data["schema_"] is None
+    assert data["submitted_query"] == "SELECT 1 AS col; SELECT 2 AS another_col"
+    assert data["executed_query"] == "SELECT 1 AS col; SELECT 2 AS another_col"
+    assert data["scheduled"] == "2021-01-01T00:00:00"
+    assert data["started"] == "2021-01-01T00:00:00"
+    assert data["finished"] == "2021-01-01T00:00:00"
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert len(data["results"]) == 2
+    assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
+    assert data["results"][0]["rows"] == [[1]]
+    assert data["results"][1]["columns"] == [{"name": "another_col", "type": "STRING"}]
+    assert data["results"][1]["rows"] == [[2]]
     assert data["errors"] == []
 
 
@@ -98,10 +142,12 @@ def test_submit_query_results_backend(
     data = response.json()
 
     cached = settings.results_backend.get(data["id"])
-    assert json.loads(cached) == {
-        "columns": [{"name": "col", "type": "STRING"}],
-        "rows": [[1]],
-    }
+    assert json.loads(cached) == [
+        {
+            "columns": [{"name": "col", "type": "STRING"}],
+            "rows": [[1]],
+        },
+    ]
 
 
 def test_submit_query_async(
@@ -139,8 +185,7 @@ def test_submit_query_async(
     assert data["finished"] is None
     assert data["state"] == "ACCEPTED"
     assert data["progress"] == 0.0
-    assert data["results"]["columns"] == []
-    assert data["results"]["rows"] == []
+    assert data["results"] == []
     assert data["errors"] == []
 
     # check that ``BackgroundTasks.add_task`` was called
@@ -254,8 +299,7 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
     assert data["executed_query"] == "SELECT FROM"
     assert data["state"] == "FAILED"
     assert data["progress"] == 0.0
-    assert data["results"]["columns"] == []
-    assert data["results"]["rows"] == []
+    assert data["results"] == []
     assert data["errors"] == [
         '(sqlite3.OperationalError) near "FROM": syntax error\n'
         "[SQL: SELECT FROM]\n"
@@ -279,7 +323,11 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
     session.commit()
     session.refresh(query)
 
-    results = QueryResults(columns=[{"name": "col", "type": "STRING"}], rows=[[1]])
+    results = QueryResults(
+        __root__=[
+            StatementResults(columns=[{"name": "col", "type": "STRING"}], rows=[[1]]),
+        ],
+    )
     settings.results_backend.add(str(query.id), results.json())
 
     response = client.get(f"/queries/{query.id}")
@@ -293,8 +341,9 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
     assert data["executed_query"] == "SELECT 1"
     assert data["state"] == "RUNNING"
     assert data["progress"] == 0.5
-    assert data["results"]["columns"] == [{"name": "col", "type": "STRING"}]
-    assert data["results"]["rows"] == [[1]]
+    assert len(data["results"]) == 1
+    assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
+    assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
 
     response = client.get("/queries/27289db6-a75c-47fc-b451-da59a743a168")
@@ -331,8 +380,7 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
     assert data["executed_query"] == "SELECT 1"
     assert data["state"] == "RUNNING"
     assert data["progress"] == 0.5
-    assert data["results"]["columns"] == []
-    assert data["results"]["rows"] == []
+    assert data["results"] == []
     assert data["errors"] == []
 
     response = client.get("/queries/27289db6-a75c-47fc-b451-da59a743a168")

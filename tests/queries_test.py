@@ -51,6 +51,6 @@ def test_run_query() -> None:
         submitted_query="SELECT 1",
         executed_query="SELECT 1",
     )
-    columns, stream = run_query(query)
+    columns, stream = run_query(query)[0]
     assert columns == [ColumnMetadata(name="1", type=TypeEnum.STRING)]
     assert list(stream) == [(1,)]
