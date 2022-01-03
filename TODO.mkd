@@ -7,13 +7,13 @@
 - [X] Celery workers for async queries
 - [X] Add DJ and Redis to docker-compose
 - [X] Queries with multiple statements
-- [ ] Return statement SQL with `results`
+- [X] Return statement SQL with `results`
 - [ ] Compute the schema of downstream nodes
 - [ ] Translate metrics into SQL
 - [ ] Compute metrics (ie, run query)
 - [ ] Compute statistics on columns (histogram, correlation)
 - [ ] Move data on JOINs based on column statistics
-- [ ] Optimize data transfer (delta-of-delta for timeseries)
+- [ ] Optimize data transfer (delta-of-delta for timeseries, msgpack?)
 - [ ] Virtual dimensions (time, space, user-defined)
 - [ ] JS dataframe with time-aware caching and additive-aware, to reuse queries
 - [ ] 2 modes of join: Shillelagh and move data

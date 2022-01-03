@@ -69,27 +69,30 @@ And you should see:
       "database_id": 3,
       "catalog": null,
       "schema_": null,
-      "id": "a1cbb5d8-d0e9-4063-9848-4d91c60b720f",
+      "id": "db6c5ef8-bb8c-4972-ad08-9052eaa0c288",
       "submitted_query": "SELECT 1 AS foo",
       "executed_query": "SELECT 1 AS foo",
-      "scheduled": "2022-01-02T23:14:20.065298",
-      "started": "2022-01-02T23:14:20.065369",
-      "finished": "2022-01-02T23:14:20.106211",
+      "scheduled": "2022-01-03T01:09:15.164400",
+      "started": "2022-01-03T01:09:15.164467",
+      "finished": "2022-01-03T01:09:15.217595",
       "state": "FINISHED",
       "progress": 1,
-      "results": {
-        "columns": [
-          {
-            "name": "foo",
-            "type": "NUMBER"
-          }
-        ],
-        "rows": [
-          [
-            1
+      "results": [
+        {
+          "sql": "SELECT 1 AS foo",
+          "columns": [
+            {
+              "name": "foo",
+              "type": "NUMBER"
+            }
+          ],
+          "rows": [
+            [
+              1
+            ]
           ]
-        ]
-      },
+        }
+      ],
       "errors": []
     }
 
