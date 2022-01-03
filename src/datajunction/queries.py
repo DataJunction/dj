@@ -79,17 +79,17 @@ def get_columns_from_description(
     return columns
 
 
-def run_query(query: Query) -> List[Tuple[List[ColumnMetadata], Stream]]:
+def run_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     """
     Run a query and return its results.
 
-    For each statement we return a tuple with a description of the columns (name and
-    type) and a stream of rows (tuples).
+    For each statement we return a tuple with the statement SQL, a description of the
+    columns (name and type) and a stream of rows (tuples).
     """
     engine = create_engine(query.database.URI)
     connection = engine.connect()
 
-    output: List[Tuple[List[ColumnMetadata], Stream]] = []
+    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     statements = sqlparse.parse(query.executed_query)
     for statement in statements:
         # Druid doesn't like statements that end in a semicolon...
@@ -101,6 +101,6 @@ def run_query(query: Query) -> List[Tuple[List[ColumnMetadata], Stream]]:
             results.cursor.description,
             engine.dialect,
         )
-        output.append((columns, stream))
+        output.append((sql, columns, stream))
 
     return output
