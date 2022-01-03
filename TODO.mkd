@@ -6,7 +6,8 @@
 - [X] Results backend
 - [X] Celery workers for async queries
 - [X] Add DJ and Redis to docker-compose
-- [/] Queries with multiple statements
+- [X] Queries with multiple statements
+- [ ] Return statement SQL with `results`
 - [ ] Compute the schema of downstream nodes
 - [ ] Translate metrics into SQL
 - [ ] Compute metrics (ie, run query)

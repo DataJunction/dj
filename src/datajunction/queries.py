@@ -4,6 +4,7 @@ Query related functions.
 from enum import Enum
 from typing import Any, Iterator, List, Optional, Tuple
 
+import sqlparse
 from sqlalchemy import text
 from sqlmodel import SQLModel, create_engine
 
@@ -58,6 +59,10 @@ def get_columns_from_description(
 ) -> List[ColumnMetadata]:
     """
     Extract column metadata from the cursor description.
+
+    For now this uses the information from the cursor description, which only allow us to
+    distinguish between 4 types (see ``TypeEnum``). In the future we should use a type
+    inferrer to determine the types based on the query.
     """
     columns = []
     for column in description or []:
@@ -74,17 +79,28 @@ def get_columns_from_description(
     return columns
 
 
-def run_query(query: Query) -> Tuple[List[ColumnMetadata], Stream]:
+def run_query(query: Query) -> List[Tuple[List[ColumnMetadata], Stream]]:
     """
     Run a query and return its results.
+
+    For each statement we return a tuple with a description of the columns (name and
+    type) and a stream of rows (tuples).
     """
     engine = create_engine(query.database.URI)
     connection = engine.connect()
 
-    sql = text(query.executed_query)
-    results = connection.execute(sql)
-    stream = (tuple(row) for row in results)
+    output: List[Tuple[List[ColumnMetadata], Stream]] = []
+    statements = sqlparse.parse(query.executed_query)
+    for statement in statements:
+        # Druid doesn't like statements that end in a semicolon...
+        sql = str(statement).strip().rstrip(";")
 
-    columns = get_columns_from_description(results.cursor.description, engine.dialect)
+        results = connection.execute(text(sql))
+        stream = (tuple(row) for row in results)
+        columns = get_columns_from_description(
+            results.cursor.description,
+            engine.dialect,
+        )
+        output.append((columns, stream))
 
-    return columns, stream
+    return output

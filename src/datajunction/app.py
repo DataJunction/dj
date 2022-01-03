@@ -44,15 +44,23 @@ class QueryCreate(BaseQuery):
     submitted_query: str
 
 
-class QueryResults(SQLModel):
+class StatementResults(SQLModel):
     """
-    Results for a given query.
+    Results for a given statement.
 
-    This contains the column names and types, as well as the rows.
+    This contains the column names and types, as well as the rows
     """
 
     columns: List[ColumnMetadata]
     rows: List[Tuple[Any, ...]]
+
+
+class QueryResults(SQLModel):
+    """
+    Results for a given query.
+    """
+
+    __root__: List[StatementResults]
 
 
 class QueryWithResults(BaseQuery):
@@ -102,8 +110,7 @@ def submit_query(
             background_tasks.add_task(process_query, session, settings, query)
 
         response.status_code = status.HTTP_201_CREATED
-        results = QueryResults(columns=[], rows=[])
-        return QueryWithResults(results=results, errors=[], **query.dict())
+        return QueryWithResults(results=[], errors=[], **query.dict())
 
     return process_query(session, settings, query)
 
@@ -138,11 +145,16 @@ def process_query(
     errors = []
     query.started = datetime.now(timezone.utc)
     try:
-        columns, results = run_query(query)
+        results = QueryResults(
+            __root__=[
+                StatementResults(columns=columns, rows=list(stream))
+                for columns, stream in run_query(query)
+            ],
+        )
         query.state = QueryState.FINISHED
         query.progress = 1.0
     except Exception as ex:  # pylint: disable=broad-except
-        columns, results = [], iter([])
+        results = QueryResults(__root__=[])
         query.state = QueryState.FAILED
         errors = [str(ex)]
 
@@ -152,7 +164,6 @@ def process_query(
     session.commit()
     session.refresh(query)
 
-    results = QueryResults(columns=columns, rows=list(results))
     settings.results_backend.add(str(query.id), results.json())
 
     return QueryWithResults(results=results, errors=errors, **query.dict())
@@ -173,8 +184,8 @@ def read_query(
         raise HTTPException(status_code=404, detail="Query not found")
 
     if cached := settings.results_backend.get(str(query_id)):
-        results = QueryResults(**json.loads(cached))
+        results = QueryResults(__root__=json.loads(cached))
     else:
-        results = QueryResults(columns=[], rows=[])
+        results = QueryResults(__root__=[])
 
     return QueryWithResults(results=results, errors=[], **query.dict())
