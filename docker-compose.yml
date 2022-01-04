@@ -43,6 +43,15 @@ services:
       - postgres_examples
       - druid_coordinator
 
+  celery:
+    container_name: celery
+    build: .
+    volumes:
+      - .:/code
+    depends_on:
+      - dj
+    command: celery -A datajunction.app.celery worker --loglevel=info
+
   redis:
     image: redis:latest
     container_name: query_broker
