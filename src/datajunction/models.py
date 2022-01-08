@@ -5,7 +5,7 @@ Models for nodes and everything else.
 from datetime import datetime, timezone
 from enum import Enum
 from functools import partial
-from typing import List, Optional
+from typing import Dict, List, Optional
 from uuid import UUID, uuid4
 
 from sqlalchemy import Column as SqlaColumn
@@ -13,6 +13,8 @@ from sqlalchemy import String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
+
+from datajunction.utils import get_more_specific_type
 
 Base = declarative_base()
 
@@ -41,7 +43,7 @@ class Database(SQLModel, table=True):  # type: ignore
     created_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
     updated_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
 
-    representations: List["Representation"] = Relationship(
+    tables: List["Table"] = Relationship(
         back_populates="database",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
@@ -83,14 +85,7 @@ class Node(SQLModel, table=True):  # type: ignore
 
     expression: Optional[str] = None
 
-    # schema
-    columns: List["Column"] = Relationship(
-        back_populates="node",
-        sa_relationship_kwargs={"cascade": "all, delete"},
-    )
-
-    # storages
-    representations: List["Representation"] = Relationship(
+    tables: List["Table"] = Relationship(
         back_populates="node",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
@@ -113,28 +108,65 @@ class Node(SQLModel, table=True):  # type: ignore
         ),
     )
 
+    @property
+    def columns(self) -> List["Column"]:
+        """
+        Return the node schema.
 
-class Representation(SQLModel, table=True):  # type: ignore
+        The schema is the superset of the columns across all tables, with the strictest
+        type. Eg, if a node has a table with these types:
+
+            timestamp: str
+            user_id: int
+
+        And another table with a single column:
+
+            timestamp: datetime
+
+        The node will have these columns:
+
+            timestamp: datetime
+            user_id: int
+
+        """
+        columns: Dict[str, "Column"] = {}
+        for table in self.tables:
+            for column in table.columns:
+                name = column.name
+                columns[name] = Column(
+                    name=name,
+                    type=get_more_specific_type(columns[name].type, column.type)
+                    if name in columns
+                    else column.type,
+                )
+
+        return list(columns.values())
+
+
+class Table(SQLModel, table=True):  # type: ignore
     """
-    A representation of data.
+    A table with data.
 
-    Nodes can have multiple representations of data, in different databases.
+    Nodes can data in multiple tables, in different databases.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
 
     node_id: int = Field(foreign_key="node.id")
-    node: Node = Relationship(back_populates="representations")
+    node: Node = Relationship(back_populates="tables")
 
     database_id: int = Field(foreign_key="database.id")
-    database: Database = Relationship(back_populates="representations")
+    database: Database = Relationship(back_populates="tables")
     catalog: Optional[str] = None
     schema_: Optional[str] = Field(None, alias="schema")
     table: str
 
     cost: float = 1.0
 
-    # aggregation_level => for materialized metrics?
+    columns: List["Column"] = Relationship(
+        back_populates="table",
+        sa_relationship_kwargs={"cascade": "all, delete"},
+    )
 
 
 class Column(SQLModel, table=True):  # type: ignore
@@ -146,10 +178,8 @@ class Column(SQLModel, table=True):  # type: ignore
     name: str
     type: str
 
-    # only-on => for columns that are present in only a few DBs
-
-    node_id: int = Field(foreign_key="node.id")
-    node: Node = Relationship(back_populates="columns")
+    table_id: int = Field(foreign_key="table.id")
+    table: Table = Relationship(back_populates="columns")
 
 
 class QueryState(str, Enum):

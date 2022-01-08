@@ -1,5 +1,5 @@
 description: A user dimension table
-representations:
+tables:
   gsheets:
     catalog: null
     schema: null
