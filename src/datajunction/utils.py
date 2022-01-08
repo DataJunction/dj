@@ -7,7 +7,7 @@ import os
 from functools import lru_cache
 from io import StringIO
 from pathlib import Path
-from typing import Any, Dict, Iterator, Set
+from typing import Any, Dict, Iterator, Optional, Set
 
 import asciidag.graph
 import asciidag.node
@@ -155,3 +155,38 @@ def get_name_from_path(repository: Path, path: Path) -> str:
     )
 
     return encoded
+
+
+def get_more_specific_type(current_type: Optional[str], new_type: str) -> str:
+    """
+    Given two types, return the most specific one.
+
+    Different databases might store the same column as different types. For example, Hive
+    might store timestamps as strings, while Postgres would store the same data as a
+    datetime.
+
+        >>> get_more_specific_type('str',  'datetime')
+        'datetime'
+        >>> get_more_specific_type('str',  'int')
+        'int'
+
+    """
+    if current_type is None:
+        return new_type
+
+    hierarchy = [
+        "bytes",
+        "str",
+        "float",
+        "int",
+        "Decimal",
+        "bool",
+        "datetime",
+        "date",
+        "time",
+        "timedelta",
+        "list",
+        "dict",
+    ]
+
+    return sorted([current_type, new_type], key=hierarchy.index)[1]
