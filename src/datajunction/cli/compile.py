@@ -206,7 +206,7 @@ async def index_nodes(  # pylint: disable=too-many-locals
     _logger.info("DAG:\n%s", Text.from_ansi(render_dag(dependencies)))
 
     # compute the schema of nodes with upstream nodes already indexed
-    nodes: List[Node] = []
+    nodes: Dict[str, Node] = {}
     started: Set[str] = set()
     finished: Set[str] = set()
     pending_tasks: Set[asyncio.Task] = set()
@@ -220,10 +220,7 @@ async def index_nodes(  # pylint: disable=too-many-locals
         if not to_process and not pending_tasks:
             break
         started |= {config["name"] for config in to_process}
-        new_tasks = {
-            add_node(session, databases, config["path"], config)
-            for config in to_process
-        }
+        new_tasks = {add_node(session, databases, config) for config in to_process}
 
         done, pending_tasks = await asyncio.wait(
             pending_tasks | new_tasks,
@@ -231,21 +228,22 @@ async def index_nodes(  # pylint: disable=too-many-locals
         )
         for future in done:
             node = future.result()
-            nodes.append(node)
+            node.parents = [nodes[parent] for parent in dependencies[node.name]]
+            nodes[node.name] = node
             finished.add(node.name)
 
-    return nodes
+    return list(nodes.values())
 
 
 async def add_node(
     session: Session,
     databases: Dict[str, Database],
-    path: Path,
     data: Dict[str, Any],
 ) -> Node:
     """
     Index a node given its YAML config.
     """
+    path = data["path"]
     name = data["name"]
     _logger.info("Processing node %s", name)
 
