@@ -108,9 +108,12 @@ def get_columns(table: Table) -> List[Column]:
             table.table,
             schema=table.schema_,
         )
-    except Exception as ex:  # pylint: disable=broad-except
+    except Exception:  # pylint: disable=broad-except
+        # Druid currently doesn't work with SQLAlchemy 1.4, and raises an exception. Once
+        # we've merged https://github.com/druid-io/pydruid/pull/275 we can modify this to
+        # re-raise the exception.
         _logger.exception("Unable to get table metadata")
-        raise ex
+        return []
 
     return [
         Column(
