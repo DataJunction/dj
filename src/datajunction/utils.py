@@ -3,6 +3,7 @@ Utility functions.
 """
 
 import logging
+import os
 from functools import lru_cache
 from io import StringIO
 from pathlib import Path
@@ -124,3 +125,33 @@ def build_asciidag(
     )
 
     return asciidag_node
+
+
+def get_name_from_path(repository: Path, path: Path) -> str:
+    """
+    Compute the name of a node given its path and the repository path.
+    """
+    # strip anything before the repository
+    relative_path = path.relative_to(repository)
+
+    if len(relative_path.parts) < 2 or relative_path.parts[0] not in {
+        "nodes",
+        "databases",
+    }:
+        raise Exception(f"Invalid path: {path}")
+
+    # remove the "nodes" directory from the path
+    relative_path = relative_path.relative_to(relative_path.parts[0])
+
+    # remove extension
+    relative_path = relative_path.with_suffix("")
+
+    # encode percent symbols and periods
+    encoded = (
+        str(relative_path)
+        .replace("%", "%25")
+        .replace(".", "%2E")
+        .replace(os.path.sep, ".")
+    )
+
+    return encoded
