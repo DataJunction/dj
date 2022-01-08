@@ -34,15 +34,17 @@ def test_get_more_specific_type() -> None:
     assert get_more_specific_type(None, "int") == "int"
 
 
-def test_load_data(fs: FakeFilesystem) -> None:
+@pytest.mark.asyncio
+async def test_load_data(fs: FakeFilesystem) -> None:
     """
     Test ``load_data``.
     """
-    fs.create_file(
-        "/path/to/repository/example.yaml",
-        contents="foo: bar",
-    )
-    assert load_data(Path("/path/to/repository/example.yaml")) == {"foo": "bar"}
+    repository = Path("/path/to/repository")
+    path = repository / "nodes/example.yaml"
+    fs.create_file(path, contents="foo: bar")
+
+    config = await load_data(repository, path)
+    assert config == {"foo": "bar", "name": "example", "path": path}
 
 
 @pytest.mark.asyncio
@@ -167,6 +169,22 @@ async def test_index_nodes(
                 Column(id=None, name="ds", type="datetime"),
                 Column(id=None, name="cnt", type="int"),
             ],
+            [
+                Column(id=None, name="ds", type="datetime"),
+                Column(id=None, name="cnt", type="int"),
+            ],
+            [
+                Column(id=None, name="ds", type="datetime"),
+                Column(id=None, name="cnt", type="int"),
+            ],
+            [
+                Column(id=None, name="ds", type="datetime"),
+                Column(id=None, name="cnt", type="int"),
+            ],
+            [
+                Column(id=None, name="ds", type="datetime"),
+                Column(id=None, name="cnt", type="int"),
+            ],
         ],
     )
 
@@ -198,6 +216,13 @@ async def test_index_nodes(
             "expression": None,
         },
         {
+            "name": "core.num_comments",
+            "description": "Number of comments",
+            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "expression": "SELECT COUNT(*) FROM core.comments",
+        },
+        {
             "name": "core.users",
             "description": "A user dimension table",
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
@@ -214,6 +239,7 @@ async def test_index_nodes(
 
     assert [(node.name, node.updated_at) for node in nodes] == [
         ("core.comments", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
+        ("core.num_comments", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
         ("core.users", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
     ]
 
@@ -225,6 +251,7 @@ async def test_index_nodes(
 
     assert [(node.name, node.updated_at) for node in nodes] == [
         ("core.comments", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
+        ("core.num_comments", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
         ("core.users", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
     ]
 
