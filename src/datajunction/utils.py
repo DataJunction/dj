@@ -4,9 +4,12 @@ Utility functions.
 
 import logging
 from functools import lru_cache
+from io import StringIO
 from pathlib import Path
-from typing import Iterator
+from typing import Any, Dict, Iterator, Set
 
+import asciidag.graph
+import asciidag.node
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
@@ -28,7 +31,7 @@ def setup_logging(loglevel: str) -> None:
         level=level,
         format=logformat,
         datefmt="[%X]",
-        handlers=[RichHandler()],
+        handlers=[RichHandler(rich_tracebacks=True)],
         force=True,
     )
 
@@ -78,3 +81,46 @@ def get_session() -> Iterator[Session]:
 
     with Session(engine) as session:
         yield session
+
+
+def render_dag(dependencies: Dict[str, Set[str]], **kwargs: Any) -> str:
+    """
+    Render the DAG of dependencies.
+    """
+    out = StringIO()
+    graph = asciidag.graph.Graph(out, **kwargs)
+
+    asciidag_nodes: Dict[str, asciidag.node.Node] = {}
+    tips = sorted(
+        [build_asciidag(name, dependencies, asciidag_nodes) for name in dependencies],
+        key=lambda n: n.item,
+    )
+
+    graph.show_nodes(tips)
+    out.seek(0)
+    return out.getvalue()
+
+
+def build_asciidag(
+    name: str,
+    dependencies: Dict[str, Set[str]],
+    asciidag_nodes: Dict[str, asciidag.node.Node],
+) -> asciidag.node.Node:
+    """
+    Build the nodes for ``asciidag``.
+    """
+    if name in asciidag_nodes:
+        asciidag_node = asciidag_nodes[name]
+    else:
+        asciidag_node = asciidag.node.Node(name)
+        asciidag_nodes[name] = asciidag_node
+
+    asciidag_node.parents = sorted(
+        [
+            build_asciidag(child, dependencies, asciidag_nodes)
+            for child in dependencies[name]
+        ],
+        key=lambda n: n.item,
+    )
+
+    return asciidag_node
