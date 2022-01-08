@@ -135,9 +135,7 @@ def test_get_columns_error(mocker: MockerFixture) -> None:
     )
 
     table = mocker.MagicMock()
-    with pytest.raises(Exception) as excinfo:
-        get_columns(table)
-    assert str(excinfo.value) == "An unexpected error occurred"
+    assert get_columns(table) == []
 
 
 @pytest.mark.asyncio
