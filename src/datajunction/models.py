@@ -8,33 +8,38 @@ from functools import partial
 from typing import List, Optional
 from uuid import UUID, uuid4
 
+from sqlalchemy import Column as SqlaColumn
 from sqlalchemy import String
-from sqlalchemy.sql.schema import Column as SqlaColumn
+from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
+
+Base = declarative_base()
 
 
 class Database(SQLModel, table=True):  # type: ignore
     """
     A database.
 
-    A simple example::
+    A simple example:
 
         name: druid
         description: An Apache Druid database
         URI: druid://localhost:8082/druid/v2/sql/
         read-only: true
+        async_: false
 
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    created_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
-    updated_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
     name: str
     description: str = ""
     URI: str
     read_only: bool = True
     async_: bool = Field(default=False, sa_column_kwargs={"name": "async"})
+
+    created_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
+    updated_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
 
     representations: List["Representation"] = Relationship(
         back_populates="database",
@@ -44,6 +49,23 @@ class Database(SQLModel, table=True):  # type: ignore
     queries: List["Query"] = Relationship(
         back_populates="database",
         sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+
+
+class NodeRelationship(SQLModel, table=True):  # type: ignore
+    """
+    Join table for self-referential many-to-many relationships between nodes.
+    """
+
+    parent_id: Optional[int] = Field(
+        default=None,
+        foreign_key="node.id",
+        primary_key=True,
+    )
+    child_id: Optional[int] = Field(
+        default=None,
+        foreign_key="node.id",
+        primary_key=True,
     )
 
 
@@ -71,6 +93,24 @@ class Node(SQLModel, table=True):  # type: ignore
     representations: List["Representation"] = Relationship(
         back_populates="node",
         sa_relationship_kwargs={"cascade": "all, delete"},
+    )
+
+    parents: List["Node"] = Relationship(
+        back_populates="children",
+        link_model=NodeRelationship,
+        sa_relationship_kwargs=dict(
+            primaryjoin="Node.id==NodeRelationship.child_id",
+            secondaryjoin="Node.id==NodeRelationship.parent_id",
+        ),
+    )
+
+    children: List["Node"] = Relationship(
+        back_populates="parents",
+        link_model=NodeRelationship,
+        sa_relationship_kwargs=dict(
+            primaryjoin="Node.id==NodeRelationship.parent_id",
+            secondaryjoin="Node.id==NodeRelationship.child_id",
+        ),
     )
 
 
