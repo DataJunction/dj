@@ -1,0 +1,2 @@
+description: Number of comments
+expression: SELECT COUNT(*) FROM core.comments
