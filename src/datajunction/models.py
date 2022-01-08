@@ -1,12 +1,10 @@
 """
-Models for nodes.
+Models for nodes and everything else.
 """
 
-import os
 from datetime import datetime, timezone
 from enum import Enum
 from functools import partial
-from pathlib import Path
 from typing import List, Optional
 from uuid import UUID, uuid4
 
@@ -14,36 +12,6 @@ from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
-
-
-def get_name_from_path(repository: Path, path: Path) -> str:
-    """
-    Compute the name of a node given its path and the repository path.
-    """
-    # strip anything before the repository
-    relative_path = path.relative_to(repository)
-
-    if len(relative_path.parts) < 2 or relative_path.parts[0] not in {
-        "nodes",
-        "databases",
-    }:
-        raise Exception(f"Invalid path: {path}")
-
-    # remove the "nodes" directory from the path
-    relative_path = relative_path.relative_to(relative_path.parts[0])
-
-    # remove extension
-    relative_path = relative_path.with_suffix("")
-
-    # encode percent symbols and periods
-    encoded = (
-        str(relative_path)
-        .replace("%", "%25")
-        .replace(".", "%2E")
-        .replace(os.path.sep, ".")
-    )
-
-    return encoded
 
 
 class Database(SQLModel, table=True):  # type: ignore
