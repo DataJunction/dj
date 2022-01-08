@@ -22,14 +22,13 @@ from rich.text import Text
 from sqlalchemy import inspect
 from sqlmodel import Session, create_engine, select
 
-from datajunction.models import (
-    Column,
-    Database,
-    Node,
-    Representation,
+from datajunction.models import Column, Database, Node, Representation
+from datajunction.utils import (
+    create_db_and_tables,
     get_name_from_path,
+    get_session,
+    render_dag,
 )
-from datajunction.utils import create_db_and_tables, get_session, render_dag
 
 _logger = logging.getLogger(__name__)
 
