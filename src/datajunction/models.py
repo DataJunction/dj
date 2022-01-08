@@ -129,6 +129,10 @@ class Node(SQLModel, table=True):  # type: ignore
             user_id: int
 
         """
+        if self.expression:
+            # placeholder until we have a SQL parser
+            return [Column(name="cnt", type="int")]
+
         columns: Dict[str, "Column"] = {}
         for table in self.tables:
             for column in table.columns:
