@@ -15,14 +15,14 @@ import logging
 import re
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, Dict, List, Set
 
 import yaml
 from rich.text import Text
 from sqlalchemy import inspect
 from sqlmodel import Session, create_engine, select
 
-from datajunction.models import Column, Database, Node, Representation
+from datajunction.models import Column, Database, Node, Table
 from datajunction.utils import (
     create_db_and_tables,
     get_name_from_path,
@@ -46,41 +46,6 @@ async def load_data(repository: Path, path: Path) -> Dict[str, Any]:
     return data
 
 
-def get_more_specific_type(current_type: Optional[str], new_type: str) -> str:
-    """
-    Given two types, return the most specific one.
-
-    Different databases might store the same column as different types. For example, Hive
-    might store timestamps as strings, while Postgres would store the same data as a
-    datetime.
-
-        >>> get_more_specific_type('str',  'datetime')
-        'datetime'
-        >>> get_more_specific_type('str',  'int')
-        'int'
-
-    """
-    if current_type is None:
-        return new_type
-
-    hierarchy = [
-        "bytes",
-        "str",
-        "float",
-        "int",
-        "Decimal",
-        "bool",
-        "datetime",
-        "date",
-        "time",
-        "timedelta",
-        "list",
-        "dict",
-    ]
-
-    return sorted([current_type, new_type], key=hierarchy.index)[1]
-
-
 async def index_databases(repository: Path, session: Session) -> List[Database]:
     """
     Index all the databases.
@@ -98,8 +63,7 @@ async def index_databases(repository: Path, session: Session) -> List[Database]:
             # compare file modification time with timestamp on DB
             mtime = path.stat().st_mtime
 
-            # some DBs like SQLite will drop the timezone info; in that case
-            # we assume it's UTC
+            # SQLite will drop the timezone info; in that case we assume it's UTC
             if database.updated_at.tzinfo is None:
                 database.updated_at = database.updated_at.replace(tzinfo=timezone.utc)
 
@@ -133,35 +97,28 @@ async def index_databases(repository: Path, session: Session) -> List[Database]:
     return databases
 
 
-def get_columns(representations: List[Representation]) -> List[Column]:
+def get_columns(table: Table) -> List[Column]:
     """
-    Fetch all columns from a list of representations.
+    Return all columns in a given table.
     """
-    columns: Dict[str, Column] = {}
-    for representation in representations:
-        engine = create_engine(representation.database.URI)
-        try:
-            inspector = inspect(engine)
-            column_metadata = inspector.get_columns(
-                representation.table,
-                schema=representation.schema_,
-            )
-        except Exception:  # pylint: disable=broad-except
-            _logger.exception("Unable to get table metadata")
-            continue
+    engine = create_engine(table.database.URI)
+    try:
+        inspector = inspect(engine)
+        column_metadata = inspector.get_columns(
+            table.table,
+            schema=table.schema_,
+        )
+    except Exception as ex:  # pylint: disable=broad-except
+        _logger.exception("Unable to get table metadata")
+        raise ex
 
-        for column in column_metadata:
-            name = column["name"]
-            type_ = column["type"].python_type.__name__
-
-            columns[name] = Column(
-                name=name,
-                type=get_more_specific_type(columns[name].type, type_)
-                if name in columns
-                else type_,
-            )
-
-    return list(columns.values())
+    return [
+        Column(
+            name=column["name"],
+            type=column["type"].python_type.__name__,
+        )
+        for column in column_metadata
+    ]
 
 
 def get_dependencies(expression: str) -> Set[str]:
@@ -254,8 +211,7 @@ async def add_node(
         # compare file modification time with timestamp on DB
         mtime = path.stat().st_mtime
 
-        # some DBs like SQLite will drop the timezone info; in that case
-        # we assume it's UTC
+        # SQLite will drop the timezone info; in that case we assume it's UTC
         if node.updated_at.tzinfo is None:
             node.updated_at = node.updated_at.replace(tzinfo=timezone.utc)
 
@@ -270,14 +226,14 @@ async def add_node(
     else:
         created_at = None
 
-    # create representations and columns
-    representations = []
-    for database_name, representation_data in data.get("representations", {}).items():
-        representation_data["database"] = databases[database_name]
-        representation = Representation(**representation_data)
-        representations.append(representation)
-    data["representations"] = representations
-    data["columns"] = get_columns(representations)
+    # create tables and columns
+    tables = []
+    for database_name, table_data in data.get("tables", {}).items():
+        table_data["database"] = databases[database_name]
+        table = Table(**table_data)
+        table.columns = get_columns(table)
+        tables.append(table)
+    data["tables"] = tables
 
     _logger.info("Creating node %s", name)
     data["name"] = name

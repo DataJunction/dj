@@ -16,22 +16,12 @@ from sqlmodel import Session
 
 from datajunction.cli.compile import (
     get_columns,
-    get_more_specific_type,
     index_databases,
     index_nodes,
     load_data,
     run,
 )
 from datajunction.models import Column, Database
-
-
-def test_get_more_specific_type() -> None:
-    """
-    Test ``get_more_specific_type``.
-    """
-    assert get_more_specific_type("str", "datetime") == "datetime"
-    assert get_more_specific_type("str", "int") == "int"
-    assert get_more_specific_type(None, "int") == "int"
 
 
 @pytest.mark.asyncio
@@ -122,23 +112,32 @@ def test_get_columns(mocker: MockerFixture) -> None:
     """
     mocker.patch("datajunction.cli.compile.create_engine")
     inspect = mocker.patch("datajunction.cli.compile.inspect")
-    inspect.return_value.get_columns.side_effect = [
-        [
-            {"name": "ds", "type": sqlalchemy.sql.sqltypes.String()},
-            {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Integer()},
-        ],
-        [
-            {"name": "ds", "type": sqlalchemy.sql.sqltypes.DateTime()},
-            {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
-        ],
-        Exception("An unexpected error occurred"),
+    inspect.return_value.get_columns.return_value = [
+        {"name": "ds", "type": sqlalchemy.sql.sqltypes.DateTime()},
+        {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
     ]
 
-    representations = [mocker.MagicMock(), mocker.MagicMock(), mocker.MagicMock()]
-    assert get_columns(representations) == [
+    table = mocker.MagicMock()
+    assert get_columns(table) == [
         Column(id=None, name="ds", type="datetime"),
-        Column(id=None, name="cnt", type="int"),
+        Column(id=None, name="cnt", type="float"),
     ]
+
+
+def test_get_columns_error(mocker: MockerFixture) -> None:
+    """
+    Test ``get_columns`` raising an exception.
+    """
+    mocker.patch("datajunction.cli.compile.create_engine")
+    inspect = mocker.patch("datajunction.cli.compile.inspect")
+    inspect.return_value.get_columns.side_effect = Exception(
+        "An unexpected error occurred",
+    )
+
+    table = mocker.MagicMock()
+    with pytest.raises(Exception) as excinfo:
+        get_columns(table)
+    assert str(excinfo.value) == "An unexpected error occurred"
 
 
 @pytest.mark.asyncio
@@ -153,6 +152,10 @@ async def test_index_nodes(
     mocker.patch(
         "datajunction.cli.compile.get_columns",
         side_effect=[
+            [
+                Column(id=None, name="ds", type="datetime"),
+                Column(id=None, name="cnt", type="int"),
+            ],
             [
                 Column(id=None, name="ds", type="datetime"),
                 Column(id=None, name="cnt", type="int"),
