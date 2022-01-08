@@ -57,3 +57,35 @@ def test_node_columns(session: Session) -> None:
         Column(name="ds", type="datetime"),
         Column(name="user_id", type="int"),
     ]
+
+
+def test_node_schema_downstream_nodes(session: Session) -> None:
+    """
+    Test computing the schema of downstream nodes.
+    """
+
+    node_a = Node(
+        name="A",
+        tables=[
+            Table(
+                database=Database(name="test", URI="sqlite://"),
+                table="A",
+                columns=[
+                    Column(name="ds", type="str"),
+                    Column(name="user_id", type="int"),
+                ],
+            ),
+        ],
+    )
+
+    node_b = Node(
+        name="B",
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[node_a],
+    )
+
+    session.add(node_b)
+
+    assert node_b.columns == [
+        Column(name="cnt", type="int"),
+    ]
