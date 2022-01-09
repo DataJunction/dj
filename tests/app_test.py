@@ -150,6 +150,7 @@ def test_submit_query_results_backend(
             "sql": "SELECT 1 AS col",
             "columns": [{"name": "col", "type": "STRING"}],
             "rows": [[1]],
+            "row_count": 1,
         },
     ]
 

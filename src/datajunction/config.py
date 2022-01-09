@@ -2,11 +2,14 @@
 Configuration for the metric repository.
 """
 
+import urllib.parse
+from datetime import timedelta
 from pathlib import Path
 from typing import Optional
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
+from cachelib.redis import RedisCache
 from celery import Celery
 from pydantic import BaseSettings
 
@@ -26,6 +29,10 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     # Where to store the results from queries.
     results_backend: BaseCache = FileSystemCache("/tmp/dj", default_timeout=0)
 
+    # Cache for paginating results and potentially other things.
+    redis_cache: Optional[str] = None
+    paginating_timeout: timedelta = timedelta(minutes=5)
+
     # Configure Celery for async requests. If not configured async queries will be
     # executed using FastAPI's ``BackgroundTasks``.
     celery_broker: Optional[str] = None
@@ -36,3 +43,19 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
         Return Celery app.
         """
         return Celery(__name__, broker=self.celery_broker)
+
+    @property
+    def cache(self) -> Optional[BaseCache]:
+        """
+        Configure the Redis cache.
+        """
+        if self.redis_cache is None:
+            return None
+
+        parsed = urllib.parse.urlparse(self.redis_cache)
+        return RedisCache(
+            host=parsed.hostname,
+            port=parsed.port,
+            password=parsed.password,
+            db=parsed.path.strip("/"),
+        )
