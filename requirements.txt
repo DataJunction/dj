@@ -6,6 +6,7 @@
 #
 amqp==5.0.9
 anyio==3.4.0
+asciidag==0.2.0
 billiard==3.6.4.0
 cachelib==0.5.0
 celery==5.2.3
@@ -33,13 +34,14 @@ pytz==2021.3
 pyyaml==5.4.1
 redis==4.1.0
 requests==2.26.0
-rich==10.16.1
+rich==11.0.0
 six==1.16.0
 sniffio==1.2.0
 sqlalchemy==1.4.25
 sqlalchemy-utils==0.38.2
 sqlalchemy2-stubs==0.0.2a19
 sqlmodel==0.0.5
+sqlparse==0.4.2
 starlette==0.16.0
 typing-extensions==4.0.1
 urllib3==1.26.7
