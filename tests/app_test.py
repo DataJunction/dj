@@ -397,3 +397,102 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
     assert response.status_code == 404
 
     response = client.get("/queries/123")
+
+
+def test_pagination(
+    mocker: MockerFixture,
+    session: Session,
+    settings: Settings,
+    client: TestClient,
+) -> None:
+    """
+    Test paginated queries.
+
+    The first call for paginated results should move results from the results backend to
+    the cache. The second call should reuse the cache.
+    """
+    database = Database(name="test", URI="sqlite://")
+    query = Query(
+        database=database,
+        submitted_query="SELECT 1",
+        executed_query="SELECT 1",
+        state=QueryState.RUNNING,
+        progress=0.5,
+    )
+    session.add(query)
+    session.commit()
+    session.refresh(query)
+
+    results = QueryResults(
+        __root__=[
+            StatementResults(
+                sql="SELECT 1",
+                columns=[{"name": "col", "type": "STRING"}],
+                rows=[[1]],
+                row_count=1,
+            ),
+        ],
+    )
+    settings.results_backend.add(str(query.id), results.json())
+
+    cache = mocker.MagicMock()
+    cache.has.side_effect = [False, True]
+    cache.get.return_value = results.json()
+    mocker.patch("datajunction.config.RedisCache", return_value=cache)
+    settings.redis_cache = "dummy"
+
+    # first request should load data into cache
+    response = client.get(f"/queries/{query.id}?limit=2")
+    data = response.json()
+    assert data["next"] == f"http://testserver/queries/{query.id}?limit=2&offset=2"
+    cache.add.assert_called()
+
+    # second request should read from cache
+    client.get(f"/queries/{query.id}?limit=2")
+    cache.get.assert_called()
+
+
+def test_pagination_last_page(
+    mocker: MockerFixture,
+    session: Session,
+    settings: Settings,
+    client: TestClient,
+) -> None:
+    """
+    Test paginated queries.
+
+    The last page should have a null `next` attribute.
+    """
+    database = Database(name="test", URI="sqlite://")
+    query = Query(
+        database=database,
+        submitted_query="SELECT 1",
+        executed_query="SELECT 1",
+        state=QueryState.RUNNING,
+        progress=0.5,
+    )
+    session.add(query)
+    session.commit()
+    session.refresh(query)
+
+    results = QueryResults(
+        __root__=[
+            StatementResults(
+                sql="SELECT 1",
+                columns=[{"name": "col", "type": "STRING"}],
+                rows=[],
+                row_count=1,
+            ),
+        ],
+    )
+    settings.results_backend.add(str(query.id), results.json())
+
+    cache = mocker.MagicMock()
+    cache.has.side_effect = [False, True]
+    cache.get.return_value = results.json()
+    mocker.patch("datajunction.config.RedisCache", return_value=cache)
+    settings.redis_cache = "dummy"
+
+    response = client.get(f"/queries/{query.id}?limit=2")
+    data = response.json()
+    assert data["next"] is None

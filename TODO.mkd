@@ -10,8 +10,8 @@
 - [X] Return statement SQL with `results`
 - [X] Add Celery to docker-compose
 - [X] Representations should have columns
+- [X] Paginating results
 - [/] Compute the schema of downstream nodes
-- [/] Paginating results
 - [ ] Limit results
 - [ ] Write columns back to YAML
 - [ ] Organize files (`api/`, `models/`, etc)

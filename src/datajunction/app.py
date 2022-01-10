@@ -18,7 +18,7 @@ from fastapi import (
     Response,
     status,
 )
-from pydantic import HttpUrl
+from pydantic import AnyHttpUrl
 from sqlmodel import Session, SQLModel, select
 
 from datajunction.config import Settings
@@ -98,7 +98,7 @@ class QueryWithResults(BaseQuery):
     progress: float = 0.0
 
     results: QueryResults
-    next: Optional[HttpUrl] = None
+    next: Optional[AnyHttpUrl] = None
     errors: List[str]
 
 
@@ -168,7 +168,10 @@ def process_query(
             rows = list(stream)
             root.append(
                 StatementResults(
-                    sql=sql, columns=columns, rows=rows, row_count=len(rows),
+                    sql=sql,
+                    columns=columns,
+                    rows=rows,
+                    row_count=len(rows),
                 ),
             )
         results = QueryResults(__root__=root)
@@ -215,16 +218,21 @@ def read_query(  # pylint: disable=too-many-locals
 
     key = str(query_id)
     if settings.cache and settings.cache.has(key):
+        _logger.info("Reading results from cache")
         cached = settings.cache.get(key)
         query_results = json.loads(cached)
     elif settings.results_backend.has(key):
+        _logger.info("Reading results from results backend")
         cached = settings.results_backend.get(key)
         query_results = json.loads(cached)
         if paginated and settings.cache:
             settings.cache.add(
-                key, cached, timeout=int(settings.paginating_timeout.total_seconds()),
+                key,
+                cached,
+                timeout=int(settings.paginating_timeout.total_seconds()),
             )
     else:
+        _logger.warning("No results found")
         query_results = []
 
     next_ = None

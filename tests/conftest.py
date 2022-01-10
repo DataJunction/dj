@@ -29,11 +29,12 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
+        redis_cache=None,
     )
 
     mocker.patch(
         "datajunction.utils.get_settings",
-        return_value=Settings(index="sqlite://", repository="/path/to/repository"),
+        return_value=settings,
     )
 
     yield settings
