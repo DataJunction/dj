@@ -414,8 +414,8 @@ def test_pagination(
     database = Database(name="test", URI="sqlite://")
     query = Query(
         database=database,
-        submitted_query="SELECT 1",
-        executed_query="SELECT 1",
+        submitted_query="SELECT some_col",
+        executed_query="SELECT some_col",
         state=QueryState.RUNNING,
         progress=0.5,
     )
@@ -426,10 +426,10 @@ def test_pagination(
     results = QueryResults(
         __root__=[
             StatementResults(
-                sql="SELECT 1",
-                columns=[{"name": "col", "type": "STRING"}],
-                rows=[[1]],
-                row_count=1,
+                sql="SELECT some_col",
+                columns=[{"name": "some_col", "type": "NUMBER"}],
+                rows=[[1], [2], [3], [4], [5], [6]],
+                row_count=6,
             ),
         ],
     )
@@ -445,6 +445,7 @@ def test_pagination(
     response = client.get(f"/queries/{query.id}?limit=2")
     data = response.json()
     assert data["next"] == f"http://testserver/queries/{query.id}?limit=2&offset=2"
+    assert data["previous"] is None
     cache.add.assert_called()
 
     # second request should read from cache
@@ -466,8 +467,8 @@ def test_pagination_last_page(
     database = Database(name="test", URI="sqlite://")
     query = Query(
         database=database,
-        submitted_query="SELECT 1",
-        executed_query="SELECT 1",
+        submitted_query="SELECT some_col",
+        executed_query="SELECT some_Col",
         state=QueryState.RUNNING,
         progress=0.5,
     )
@@ -478,10 +479,10 @@ def test_pagination_last_page(
     results = QueryResults(
         __root__=[
             StatementResults(
-                sql="SELECT 1",
-                columns=[{"name": "col", "type": "STRING"}],
-                rows=[],
-                row_count=1,
+                sql="SELECT some_col",
+                columns=[{"name": "some_col", "type": "NUMBER"}],
+                rows=[[1], [2], [3], [4], [5], [6]],
+                row_count=6,
             ),
         ],
     )
@@ -493,6 +494,7 @@ def test_pagination_last_page(
     mocker.patch("datajunction.config.RedisCache", return_value=cache)
     settings.redis_cache = "dummy"
 
-    response = client.get(f"/queries/{query.id}?limit=2")
+    response = client.get(f"/queries/{query.id}?offset=4&limit=2")
     data = response.json()
     assert data["next"] is None
+    assert data["previous"] == f"http://testserver/queries/{query.id}?limit=2&offset=2"
