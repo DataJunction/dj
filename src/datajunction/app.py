@@ -99,6 +99,7 @@ class QueryWithResults(BaseQuery):
 
     results: QueryResults
     next: Optional[AnyHttpUrl] = None
+    previous: Optional[AnyHttpUrl] = None
     errors: List[str]
 
 
@@ -235,19 +236,27 @@ def read_query(  # pylint: disable=too-many-locals
         _logger.warning("No results found")
         query_results = []
 
-    next_ = None
+    prev = next_ = None
     if paginated:
         for statement_results in query_results:
             statement_results["rows"] = statement_results["rows"][
                 offset : offset + limit
             ]
 
-        if any(statement_results["rows"] for statement_results in query_results):
-            baseurl = request.url_for("read_query", query_id=query_id)
-            parts = list(urllib.parse.urlparse(baseurl))
+        baseurl = request.url_for("read_query", query_id=query_id)
+        parts = list(urllib.parse.urlparse(baseurl))
+        if any(
+            statement_results["row_count"] > offset + limit
+            for statement_results in query_results
+        ):
             parts[4] = urllib.parse.urlencode(dict(limit=limit, offset=offset + limit))
             next_ = urllib.parse.urlunparse(parts)
+        if offset > 0:
+            parts[4] = urllib.parse.urlencode(dict(limit=limit, offset=offset - limit))
+            prev = urllib.parse.urlunparse(parts)
 
     results = QueryResults(__root__=query_results)
 
-    return QueryWithResults(results=results, next=next_, errors=[], **query.dict())
+    return QueryWithResults(
+        results=results, next=next_, previous=prev, errors=[], **query.dict()
+    )
