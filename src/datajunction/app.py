@@ -3,17 +3,30 @@ Run a DJ server.
 """
 
 import json
+import logging
+import urllib.parse
 import uuid
 from datetime import datetime, timezone
 from typing import Any, List, Optional, Tuple
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Response, status
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
+from pydantic import AnyHttpUrl
 from sqlmodel import Session, SQLModel, select
 
 from datajunction.config import Settings
 from datajunction.models import BaseQuery, Database, Query, QueryState
 from datajunction.queries import ColumnMetadata, run_query
 from datajunction.utils import create_db_and_tables, get_session, get_settings
+
+_logger = logging.getLogger(__name__)
 
 app = FastAPI()
 celery = get_settings().celery  # pylint: disable=invalid-name
@@ -55,6 +68,9 @@ class StatementResults(SQLModel):
     columns: List[ColumnMetadata]
     rows: List[Tuple[Any, ...]]
 
+    # this indicates the total number of rows, and is useful for paginated requests
+    row_count: int = 0
+
 
 class QueryResults(SQLModel):
     """
@@ -82,6 +98,7 @@ class QueryWithResults(BaseQuery):
     progress: float = 0.0
 
     results: QueryResults
+    next: Optional[AnyHttpUrl] = None
     errors: List[str]
 
 
@@ -146,12 +163,19 @@ def process_query(
     errors = []
     query.started = datetime.now(timezone.utc)
     try:
-        results = QueryResults(
-            __root__=[
-                StatementResults(sql=sql, columns=columns, rows=list(stream))
-                for sql, columns, stream in run_query(query)
-            ],
-        )
+        root = []
+        for sql, columns, stream in run_query(query):
+            rows = list(stream)
+            root.append(
+                StatementResults(
+                    sql=sql,
+                    columns=columns,
+                    rows=rows,
+                    row_count=len(rows),
+                ),
+            )
+        results = QueryResults(__root__=root)
+
         query.state = QueryState.FINISHED
         query.progress = 1.0
     except Exception as ex:  # pylint: disable=broad-except
@@ -171,22 +195,59 @@ def process_query(
 
 
 @app.get("/queries/{query_id}", response_model=QueryWithResults)
-def read_query(
+def read_query(  # pylint: disable=too-many-locals
     query_id: uuid.UUID,
+    limit: int = 0,
+    offset: int = 0,
     *,
     session: Session = Depends(get_session),
+    request: Request,
     settings: Settings = Depends(get_settings),
 ) -> QueryWithResults:
     """
     Fetch information about a query.
+
+    For paginated queries we move the data from the results backend to the cache for a
+    short period, anticipating additional requests.
     """
     query = session.get(Query, query_id)
     if not query:
         raise HTTPException(status_code=404, detail="Query not found")
 
-    if cached := settings.results_backend.get(str(query_id)):
-        results = QueryResults(__root__=json.loads(cached))
-    else:
-        results = QueryResults(__root__=[])
+    paginated = limit > 0 or offset > 0
 
-    return QueryWithResults(results=results, errors=[], **query.dict())
+    key = str(query_id)
+    if settings.cache and settings.cache.has(key):
+        _logger.info("Reading results from cache")
+        cached = settings.cache.get(key)
+        query_results = json.loads(cached)
+    elif settings.results_backend.has(key):
+        _logger.info("Reading results from results backend")
+        cached = settings.results_backend.get(key)
+        query_results = json.loads(cached)
+        if paginated and settings.cache:
+            settings.cache.add(
+                key,
+                cached,
+                timeout=int(settings.paginating_timeout.total_seconds()),
+            )
+    else:
+        _logger.warning("No results found")
+        query_results = []
+
+    next_ = None
+    if paginated:
+        for statement_results in query_results:
+            statement_results["rows"] = statement_results["rows"][
+                offset : offset + limit
+            ]
+
+        if any(statement_results["rows"] for statement_results in query_results):
+            baseurl = request.url_for("read_query", query_id=query_id)
+            parts = list(urllib.parse.urlparse(baseurl))
+            parts[4] = urllib.parse.urlencode(dict(limit=limit, offset=offset + limit))
+            next_ = urllib.parse.urlunparse(parts)
+
+    results = QueryResults(__root__=query_results)
+
+    return QueryWithResults(results=results, next=next_, errors=[], **query.dict())

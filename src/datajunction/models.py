@@ -134,7 +134,7 @@ class Node(SQLModel, table=True):  # type: ignore
             return [Column(name="cnt", type="int")]
 
         columns: Dict[str, "Column"] = {}
-        for table in self.tables:
+        for table in self.tables:  # pylint: disable=not-an-iterable
             for column in table.columns:
                 name = column.name
                 columns[name] = Column(

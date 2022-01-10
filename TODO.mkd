@@ -10,11 +10,11 @@
 - [X] Return statement SQL with `results`
 - [X] Add Celery to docker-compose
 - [X] Representations should have columns
+- [X] Paginating results
 - [/] Compute the schema of downstream nodes
+- [ ] Limit results
 - [ ] Write columns back to YAML
 - [ ] Organize files (`api/`, `models/`, etc)
-- [ ] Paginating results
-- [ ] Limit results
 - [ ] Optimize data transfer (delta-of-delta for timeseries, msgpack?)
 - [ ] Translate metrics into SQL
 - [ ] Compute metrics (ie, run query)
