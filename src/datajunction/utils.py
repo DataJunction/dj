@@ -190,3 +190,18 @@ def get_more_specific_type(current_type: Optional[str], new_type: str) -> str:
     ]
 
     return sorted([current_type, new_type], key=hierarchy.index)[1]
+
+
+def find_nodes_by_key(element: Any, target: str) -> Iterator[Any]:
+    """
+    Find all nodes in a SQL tree matching a given key.
+    """
+    if isinstance(element, list):
+        for child in element:
+            yield from find_nodes_by_key(child, target)
+    elif isinstance(element, dict):
+        for key, value in element.items():
+            if key == target:
+                yield value
+            else:
+                yield from find_nodes_by_key(value, target)

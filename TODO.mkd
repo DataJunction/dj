@@ -11,7 +11,7 @@
 - [X] Add Celery to docker-compose
 - [X] Representations should have columns
 - [X] Paginating results
-- [/] Compute the schema of downstream nodes
+- [X] Compute the schema of downstream nodes
 - [ ] Limit results
 - [ ] Write columns back to YAML
 - [ ] Organize files (`api/`, `models/`, etc)
