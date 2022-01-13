@@ -12,7 +12,6 @@ This will:
 
 import asyncio
 import logging
-import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Set
@@ -21,10 +20,12 @@ import yaml
 from rich.text import Text
 from sqlalchemy import inspect
 from sqlmodel import Session, create_engine, select
+from sqloxide import parse_sql
 
 from datajunction.models import Column, Database, Node, Table
 from datajunction.utils import (
     create_db_and_tables,
+    find_nodes_by_key,
     get_name_from_path,
     get_session,
     render_dag,
@@ -127,12 +128,13 @@ def get_columns(table: Table) -> List[Column]:
 def get_dependencies(expression: str) -> Set[str]:
     """
     Return all the dependencies from a SQL expression.
-
-    This should be done with a SQL parser instead.
     """
-    pattern = re.compile("FROM (.*)")
-    match = pattern.search(expression)
-    return {match.group(1)} if match else set()
+    tree = parse_sql(expression, dialect="ansi")
+
+    return {
+        ".".join(part["value"] for part in table["name"])
+        for table in find_nodes_by_key(tree, "Table")
+    }
 
 
 async def index_nodes(  # pylint: disable=too-many-locals
