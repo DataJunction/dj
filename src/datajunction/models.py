@@ -13,8 +13,10 @@ from sqlalchemy import String
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
+from sqloxide import parse_sql
 
-from datajunction.utils import get_more_specific_type
+from datajunction.functions import evaluate_expression
+from datajunction.utils import find_nodes_by_key, get_more_specific_type
 
 Base = declarative_base()
 
@@ -130,8 +132,7 @@ class Node(SQLModel, table=True):  # type: ignore
 
         """
         if self.expression:
-            # placeholder until we have a SQL parser
-            return [Column(name="cnt", type="int")]
+            return self._infer_columns()
 
         columns: Dict[str, "Column"] = {}
         for table in self.tables:  # pylint: disable=not-an-iterable
@@ -145,6 +146,38 @@ class Node(SQLModel, table=True):  # type: ignore
                 )
 
         return list(columns.values())
+
+    def _infer_columns(self) -> List["Column"]:  # pylint: disable=too-many-branches
+        """
+        Infer columns based on parent nodes.
+        """
+        tree = parse_sql(self.expression, dialect="ansi")
+
+        # Use the first projection. We actually want to check that all the projections
+        # produce the same columns, and raise an error if not.
+        projection = next(find_nodes_by_key(tree, "projection"))
+
+        columns = []
+        for expression in projection:
+            alias: Optional[str] = None
+            if "UnnamedExpr" in expression:
+                expression = expression["UnnamedExpr"]
+            elif "ExprWithAlias" in expression:
+                alias = expression["ExprWithAlias"]["alias"]["value"]
+                expression = expression["ExprWithAlias"]["expr"]
+            else:
+                raise NotImplementedError(f"Unable to handle expression: {expression}")
+
+            columns.append(evaluate_expression(self.parents, expression, alias))
+
+        # name nameless columns
+        i = 0
+        for column in columns:
+            if column.name is None:
+                column.name = f"_col{i}"
+                i += 1
+
+        return columns
 
 
 class Table(SQLModel, table=True):  # type: ignore

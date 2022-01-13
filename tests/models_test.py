@@ -73,6 +73,7 @@ def test_node_schema_downstream_nodes(session: Session) -> None:
                 columns=[
                     Column(name="ds", type="str"),
                     Column(name="user_id", type="int"),
+                    Column(name="foo", type="float"),
                 ],
             ),
         ],
@@ -80,12 +81,14 @@ def test_node_schema_downstream_nodes(session: Session) -> None:
 
     node_b = Node(
         name="B",
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        expression="SELECT ds, COUNT(*) AS cnt, MAX(foo) FROM A GROUP BY ds",
         parents=[node_a],
     )
 
     session.add(node_b)
 
     assert node_b.columns == [
+        Column(name="ds", type="str"),
         Column(name="cnt", type="int"),
+        Column(name="_col0", type="float"),
     ]

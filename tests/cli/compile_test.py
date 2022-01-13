@@ -16,6 +16,7 @@ from sqlmodel import Session
 
 from datajunction.cli.compile import (
     get_columns,
+    get_dependencies,
     index_databases,
     index_nodes,
     load_data,
@@ -275,3 +276,18 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
     index_nodes.assert_called_with(repository, session)
 
     session.commit.assert_called()
+
+
+def test_get_dependencies() -> None:
+    """
+    Test ``get_dependencies``.
+    """
+    assert get_dependencies("SELECT 1") == set()
+    assert get_dependencies("SELECT COUNT(*) FROM core.comments") == {"core.comments"}
+    assert (
+        get_dependencies(
+            "SELECT COUNT(*) FROM core.comments cc JOIN core.events ce ON cc.id = ce.id",
+        )
+        == {"core.comments", "core.events"}
+    )
+    assert get_dependencies("SELECT 1 FROM a UNION SELECT 2 FROM b") == {"a", "b"}
