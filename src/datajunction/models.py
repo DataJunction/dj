@@ -15,7 +15,7 @@ from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
 from sqloxide import parse_sql
 
-from datajunction.functions import evaluate_expression
+from datajunction.sql.inference import get_column_from_expression
 from datajunction.utils import find_nodes_by_key, get_more_specific_type
 
 Base = declarative_base()
@@ -168,7 +168,7 @@ class Node(SQLModel, table=True):  # type: ignore
             else:
                 raise NotImplementedError(f"Unable to handle expression: {expression}")
 
-            columns.append(evaluate_expression(self.parents, expression, alias))
+            columns.append(get_column_from_expression(self.parents, expression, alias))
 
         # name nameless columns
         i = 0
