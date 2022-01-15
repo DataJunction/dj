@@ -6,7 +6,7 @@ Tests for the FastAPI application.
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from datajunction.models import Database
+from datajunction.models.database import Database
 
 
 def test_read_databases(session: Session, client: TestClient) -> None:

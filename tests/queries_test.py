@@ -4,7 +4,8 @@ Tests for ``datajunction.queries``.
 
 from pytest_mock import MockerFixture
 
-from datajunction.models import Database, Query
+from datajunction.models.database import Database
+from datajunction.models.query import Query
 from datajunction.queries import (
     ColumnMetadata,
     Description,

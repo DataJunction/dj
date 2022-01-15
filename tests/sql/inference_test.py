@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 from sqloxide import parse_sql
 
-from datajunction.models import Column, Database, Node, Table
+from datajunction.models.database import Column, Database, Table
+from datajunction.models.node import Node
 from datajunction.sql.inference import evaluate_expression, get_column_from_expression
 from datajunction.sql.parse import find_nodes_by_key
 
