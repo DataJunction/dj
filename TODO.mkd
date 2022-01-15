@@ -12,12 +12,14 @@
 - [X] Representations should have columns
 - [X] Paginating results
 - [X] Compute the schema of downstream nodes
-- [ ] Limit results
-- [ ] Write columns back to YAML
-- [ ] Organize files (`api/`, `models/`, etc)
-- [ ] Optimize data transfer (delta-of-delta for timeseries, msgpack?)
+- [/] Organize files (`api/`, `models/`, etc)
+- [ ] Allow only 1 aggregation (metric)
+- [ ] Add an enum for types, instead of using strings (also, a type for a parse tree)
 - [ ] Translate metrics into SQL
 - [ ] Compute metrics (ie, run query)
+- [ ] Limit results
+- [ ] Write columns back to YAML
+- [ ] Optimize data transfer (delta-of-delta for timeseries, msgpack?)
 - [ ] Compute statistics on columns (histogram, correlation)
 - [ ] Move data on JOINs based on column statistics
 - [ ] Virtual dimensions (time, space, user-defined)

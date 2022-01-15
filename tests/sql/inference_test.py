@@ -1,5 +1,5 @@
 """
-Tests for ``datajunction.functions``.
+Tests for ``datajunction.sql.inference``.
 """
 
 from typing import Any
@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 from sqloxide import parse_sql
 
-from datajunction.functions import evaluate_expression
 from datajunction.models import Column, Database, Node, Table
+from datajunction.sql.inference import evaluate_expression, get_column_from_expression
 from datajunction.utils import find_nodes_by_key
 
 
@@ -24,6 +24,8 @@ def get_expression(sql: str) -> Any:
         return expression["UnnamedExpr"]
     if "ExprWithAlias" in expression:
         return expression["ExprWithAlias"]["expr"]
+    if expression == "Wildcard":
+        return expression
 
     raise Exception(f"Unable to evaluate expression: {expression}")
 
@@ -52,17 +54,33 @@ def test_evaluate_expression() -> None:
     )
 
     assert evaluate_expression([node_a], get_expression("SELECT ds")) == Column(
-        name="ds", type="str"
+        name="ds",
+        type="str",
     )
-    assert evaluate_expression(
-        [node_a], get_expression("SELECT MAX(foo)"), "bar"
-    ) == Column(name="bar", type="float")
-    assert evaluate_expression(
-        [node_a], get_expression("SELECT MAX(MAX(foo))"), "bar"
-    ) == Column(name="bar", type="float")
-    assert evaluate_expression(
-        [node_a], get_expression("SELECT COUNT(MAX(foo))"), "bar"
-    ) == Column(name="bar", type="int")
+    assert (
+        evaluate_expression(
+            [node_a],
+            get_expression("SELECT MAX(foo)"),
+            "bar",
+        )
+        == Column(name="bar", type="float")
+    )
+    assert (
+        evaluate_expression(
+            [node_a],
+            get_expression("SELECT MAX(MAX(foo))"),
+            "bar",
+        )
+        == Column(name="bar", type="float")
+    )
+    assert (
+        evaluate_expression(
+            [node_a],
+            get_expression("SELECT COUNT(MAX(foo))"),
+            "bar",
+        )
+        == Column(name="bar", type="int")
+    )
 
 
 def test_evaluate_expression_ambiguous() -> None:
@@ -105,9 +123,13 @@ def test_evaluate_expression_ambiguous() -> None:
     assert str(excinfo.value) == 'Unable to determine origin of column "ds"'
 
     # using fully qualified notation
-    assert evaluate_expression(
-        [node_a, node_b], get_expression("SELECT A.ds")
-    ) == Column(name="ds", type="str")
+    assert (
+        evaluate_expression(
+            [node_a, node_b],
+            get_expression("SELECT A.ds"),
+        )
+        == Column(name="ds", type="str")
+    )
 
     # invalid parent
     with pytest.raises(Exception) as excinfo:
@@ -153,5 +175,25 @@ def test_evaluate_expression_parent_no_columns() -> None:
     )
 
     assert evaluate_expression([node_a, node_b], get_expression("SELECT ds")) == Column(
-        name="ds", type="str"
+        name="ds",
+        type="str",
     )
+
+
+def test_get_column_from_expression() -> None:
+    """
+    Test ``get_column_from_expression``.
+    """
+    assert get_column_from_expression([], get_expression("SELECT 1")) == Column(
+        name=None, type="int",
+    )
+    assert get_column_from_expression([], get_expression("SELECT 1.1")) == Column(
+        name=None, type="float",
+    )
+    assert get_column_from_expression([], get_expression("SELECT 'test'")) == Column(
+        name=None, type="str",
+    )
+
+    with pytest.raises(Exception) as excinfo:
+        get_column_from_expression([], get_expression("SELECT * FROM A"))
+    assert str(excinfo.value) == "Invalid expression for column: Wildcard"
