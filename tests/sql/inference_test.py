@@ -9,7 +9,7 @@ from sqloxide import parse_sql
 
 from datajunction.models import Column, Database, Node, Table
 from datajunction.sql.inference import evaluate_expression, get_column_from_expression
-from datajunction.utils import find_nodes_by_key
+from datajunction.sql.parse import find_nodes_by_key
 
 
 def get_expression(sql: str) -> Any:
@@ -185,13 +185,16 @@ def test_get_column_from_expression() -> None:
     Test ``get_column_from_expression``.
     """
     assert get_column_from_expression([], get_expression("SELECT 1")) == Column(
-        name=None, type="int",
+        name=None,
+        type="int",
     )
     assert get_column_from_expression([], get_expression("SELECT 1.1")) == Column(
-        name=None, type="float",
+        name=None,
+        type="float",
     )
     assert get_column_from_expression([], get_expression("SELECT 'test'")) == Column(
-        name=None, type="str",
+        name=None,
+        type="str",
     )
 
     with pytest.raises(Exception) as excinfo:
