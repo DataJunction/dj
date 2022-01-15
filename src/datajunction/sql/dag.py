@@ -1,5 +1,5 @@
 """
-DAG functions.
+DAG related functions.
 """
 
 from io import StringIO
@@ -7,6 +7,9 @@ from typing import Any, Dict, Set
 
 import asciidag.graph
 import asciidag.node
+
+from datajunction.models.database import Database
+from datajunction.models.node import Node
 
 
 def render_dag(dependencies: Dict[str, Set[str]], **kwargs: Any) -> str:
@@ -50,3 +53,18 @@ def build_asciidag(
     )
 
     return asciidag_node
+
+
+def get_computable_databases(node: Node) -> Set[Database]:
+    """
+    Return all the databases where a given node can be computed.
+    """
+    # add all the databases where the node is explicitly materialized
+    databases = {table.database for table in node.tables}
+
+    # add all the databases that are shared between the parents
+    parent_dbs = [get_computable_databases(parent) for parent in node.parents]
+    if parent_dbs:
+        databases |= set.intersection(*parent_dbs)
+
+    return databases

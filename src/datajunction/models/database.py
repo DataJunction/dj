@@ -24,6 +24,7 @@ class Database(SQLModel, table=True):  # type: ignore
         URI: druid://localhost:8082/druid/v2/sql/
         read-only: true
         async_: false
+        cost: 1.0
 
     """
 
@@ -33,6 +34,7 @@ class Database(SQLModel, table=True):  # type: ignore
     URI: str
     read_only: bool = True
     async_: bool = Field(default=False, sa_column_kwargs={"name": "async"})
+    cost: float = 1.0
 
     created_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
     updated_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
@@ -46,6 +48,9 @@ class Database(SQLModel, table=True):  # type: ignore
         back_populates="database",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
+
+    def __hash__(self):
+        return hash(self.id)
 
 
 class Table(SQLModel, table=True):  # type: ignore
