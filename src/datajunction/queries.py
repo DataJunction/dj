@@ -1,14 +1,23 @@
 """
 Query related functions.
 """
-from enum import Enum
+from datetime import datetime, timezone
 from typing import Any, Iterator, List, Optional, Tuple
 
 import sqlparse
 from sqlalchemy import text
-from sqlmodel import SQLModel, create_engine
+from sqlmodel import Session, create_engine
 
-from datajunction.models import Query
+from datajunction.config import Settings
+from datajunction.models import (
+    ColumnMetadata,
+    Query,
+    QueryResults,
+    QueryState,
+    QueryWithResults,
+    StatementResults,
+    TypeEnum,
+)
 
 Stream = Iterator[Tuple[Any, ...]]
 
@@ -26,31 +35,6 @@ Description = Optional[
         ]
     ]
 ]
-
-
-class TypeEnum(Enum):
-    """
-    PEP 249 basic types.
-
-    Unfortunately SQLAlchemy doesn't seem to offer an API for determining the types of the
-    columns in a (SQL Core) query, and the DB API 2.0 cursor only offers very coarse
-    types.
-    """
-
-    STRING = "STRING"
-    BINARY = "BINARY"
-    NUMBER = "NUMBER"
-    DATETIME = "DATETIME"
-    UNKNOWN = "UNKNOWN"
-
-
-class ColumnMetadata(SQLModel):
-    """
-    A simple model for column metadata.
-    """
-
-    name: str
-    type: TypeEnum
 
 
 def get_columns_from_description(
@@ -104,3 +88,49 @@ def run_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
         output.append((sql, columns, stream))
 
     return output
+
+
+def process_query(
+    session: Session,
+    settings: Settings,
+    query: Query,
+) -> QueryWithResults:
+    """
+    Process a query.
+    """
+    query.scheduled = datetime.now(timezone.utc)
+    query.state = QueryState.SCHEDULED
+    query.executed_query = query.submitted_query
+
+    errors = []
+    query.started = datetime.now(timezone.utc)
+    try:
+        root = []
+        for sql, columns, stream in run_query(query):
+            rows = list(stream)
+            root.append(
+                StatementResults(
+                    sql=sql,
+                    columns=columns,
+                    rows=rows,
+                    row_count=len(rows),
+                ),
+            )
+        results = QueryResults(__root__=root)
+
+        query.state = QueryState.FINISHED
+        query.progress = 1.0
+    except Exception as ex:  # pylint: disable=broad-except
+        results = QueryResults(__root__=[])
+        query.state = QueryState.FAILED
+        errors = [str(ex)]
+
+    query.finished = datetime.now(timezone.utc)
+
+    session.add(query)
+    session.commit()
+    session.refresh(query)
+
+    settings.results_backend.add(str(query.id), results.json())
+
+    return QueryWithResults(results=results, errors=errors, **query.dict())

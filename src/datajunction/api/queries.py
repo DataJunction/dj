@@ -6,101 +6,23 @@ import json
 import logging
 import urllib.parse
 import uuid
-from datetime import datetime, timezone
-from typing import Any, List, Optional, Tuple
 
-from fastapi import (
-    BackgroundTasks,
-    Depends,
-    FastAPI,
-    HTTPException,
-    Request,
-    Response,
-    status,
-)
-from pydantic import AnyHttpUrl
-from sqlmodel import Session, SQLModel, select
+from fastapi import BackgroundTasks, Depends, HTTPException, Request, Response, status
+from sqlmodel import Session
 
+from datajunction.api.main import app, celery
 from datajunction.config import Settings
-from datajunction.models import BaseQuery, Database, Query, QueryState
-from datajunction.queries import ColumnMetadata, run_query
-from datajunction.utils import create_db_and_tables, get_session, get_settings
+from datajunction.models import (
+    Query,
+    QueryCreate,
+    QueryResults,
+    QueryState,
+    QueryWithResults,
+)
+from datajunction.queries import process_query
+from datajunction.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-
-app = FastAPI()
-celery = get_settings().celery  # pylint: disable=invalid-name
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    """
-    Ensure the database and tables exist on startup.
-    """
-    create_db_and_tables()
-
-
-@app.get("/databases/", response_model=List[Database])
-def read_databases(*, session: Session = Depends(get_session)) -> List[Database]:
-    """
-    List the available databases.
-    """
-    databases = session.exec(select(Database)).all()
-    return databases
-
-
-class QueryCreate(BaseQuery):
-    """
-    Model for submitted queries.
-    """
-
-    submitted_query: str
-
-
-class StatementResults(SQLModel):
-    """
-    Results for a given statement.
-
-    This contains the SQL, column names and types, and rows
-    """
-
-    sql: str
-    columns: List[ColumnMetadata]
-    rows: List[Tuple[Any, ...]]
-
-    # this indicates the total number of rows, and is useful for paginated requests
-    row_count: int = 0
-
-
-class QueryResults(SQLModel):
-    """
-    Results for a given query.
-    """
-
-    __root__: List[StatementResults]
-
-
-class QueryWithResults(BaseQuery):
-    """
-    Model for query with results.
-    """
-
-    id: uuid.UUID
-
-    submitted_query: str
-    executed_query: Optional[str] = None
-
-    scheduled: Optional[datetime] = None
-    started: Optional[datetime] = None
-    finished: Optional[datetime] = None
-
-    state: QueryState = QueryState.UNKNOWN
-    progress: float = 0.0
-
-    results: QueryResults
-    next: Optional[AnyHttpUrl] = None
-    previous: Optional[AnyHttpUrl] = None
-    errors: List[str]
 
 
 @app.post("/queries/", response_model=QueryWithResults, status_code=status.HTTP_200_OK)
@@ -147,52 +69,6 @@ def dispatch_query(query_id: uuid.UUID) -> None:
         raise HTTPException(status_code=404, detail="Query not found")
 
     process_query(session, settings, query).dict()
-
-
-def process_query(
-    session: Session,
-    settings: Settings,
-    query: Query,
-) -> QueryWithResults:
-    """
-    Process a query.
-    """
-    query.scheduled = datetime.now(timezone.utc)
-    query.state = QueryState.SCHEDULED
-    query.executed_query = query.submitted_query
-
-    errors = []
-    query.started = datetime.now(timezone.utc)
-    try:
-        root = []
-        for sql, columns, stream in run_query(query):
-            rows = list(stream)
-            root.append(
-                StatementResults(
-                    sql=sql,
-                    columns=columns,
-                    rows=rows,
-                    row_count=len(rows),
-                ),
-            )
-        results = QueryResults(__root__=root)
-
-        query.state = QueryState.FINISHED
-        query.progress = 1.0
-    except Exception as ex:  # pylint: disable=broad-except
-        results = QueryResults(__root__=[])
-        query.state = QueryState.FAILED
-        errors = [str(ex)]
-
-    query.finished = datetime.now(timezone.utc)
-
-    session.add(query)
-    session.commit()
-    session.refresh(query)
-
-    settings.results_backend.add(str(query.id), results.json())
-
-    return QueryWithResults(results=results, errors=errors, **query.dict())
 
 
 @app.get("/queries/{query_id}", response_model=QueryWithResults)
