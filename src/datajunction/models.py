@@ -2,12 +2,14 @@
 Models for nodes and everything else.
 """
 
+import uuid
 from datetime import datetime, timezone
 from enum import Enum
 from functools import partial
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import UUID, uuid4
 
+from pydantic import AnyHttpUrl
 from sqlalchemy import Column as SqlaColumn
 from sqlalchemy import String
 from sqlalchemy.ext.declarative import declarative_base
@@ -264,3 +266,82 @@ class Query(BaseQuery, table=True):  # type: ignore
 
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
+
+
+class QueryCreate(BaseQuery):
+    """
+    Model for submitted queries.
+    """
+
+    submitted_query: str
+
+
+class TypeEnum(Enum):
+    """
+    PEP 249 basic types.
+
+    Unfortunately SQLAlchemy doesn't seem to offer an API for determining the types of the
+    columns in a (SQL Core) query, and the DB API 2.0 cursor only offers very coarse
+    types.
+    """
+
+    STRING = "STRING"
+    BINARY = "BINARY"
+    NUMBER = "NUMBER"
+    DATETIME = "DATETIME"
+    UNKNOWN = "UNKNOWN"
+
+
+class ColumnMetadata(SQLModel):
+    """
+    A simple model for column metadata.
+    """
+
+    name: str
+    type: TypeEnum
+
+
+class StatementResults(SQLModel):
+    """
+    Results for a given statement.
+
+    This contains the SQL, column names and types, and rows
+    """
+
+    sql: str
+    columns: List[ColumnMetadata]
+    rows: List[Tuple[Any, ...]]
+
+    # this indicates the total number of rows, and is useful for paginated requests
+    row_count: int = 0
+
+
+class QueryResults(SQLModel):
+    """
+    Results for a given query.
+    """
+
+    __root__: List[StatementResults]
+
+
+class QueryWithResults(BaseQuery):
+    """
+    Model for query with results.
+    """
+
+    id: uuid.UUID
+
+    submitted_query: str
+    executed_query: Optional[str] = None
+
+    scheduled: Optional[datetime] = None
+    started: Optional[datetime] = None
+    finished: Optional[datetime] = None
+
+    state: QueryState = QueryState.UNKNOWN
+    progress: float = 0.0
+
+    results: QueryResults
+    next: Optional[AnyHttpUrl] = None
+    previous: Optional[AnyHttpUrl] = None
+    errors: List[str]
