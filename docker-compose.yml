@@ -50,7 +50,7 @@ services:
       - .:/code
     depends_on:
       - dj
-    command: celery -A datajunction.app.celery worker --loglevel=info
+    command: celery -A datajunction.api.main.celery worker --loglevel=info
 
   redis:
     image: redis:latest
