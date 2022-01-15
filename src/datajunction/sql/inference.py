@@ -6,10 +6,11 @@ Type inference.
 
 from typing import TYPE_CHECKING, Any, List, Optional, Type, Union
 
+from datajunction.models.database import Column
 from datajunction.sql.functions import function_registry
 
 if TYPE_CHECKING:
-    from datajunction.models import Column, Node
+    from datajunction.models.node import Node
 
 
 class Wildcard:  # pylint: disable=too-few-public-methods
@@ -71,8 +72,6 @@ def evaluate_function(
     """
     Evaluate a "Function" node.
     """
-    from datajunction.models import Column  # pylint: disable=import-outside-toplevel
-
     name = ".".join(part["value"] for part in expression["Function"]["name"])
     args = expression["Function"]["args"]
     evaluated_args = [
@@ -136,9 +135,6 @@ def get_column_from_expression(
     """
     Return a column from an expression from a projection.
     """
-    from datajunction.models import Column  # pylint: disable=import-outside-toplevel
-
-    print(expression)
     value = evaluate_expression(parents, expression, alias)
 
     if isinstance(value, Column):

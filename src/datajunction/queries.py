@@ -9,7 +9,7 @@ from sqlalchemy import text
 from sqlmodel import Session, create_engine
 
 from datajunction.config import Settings
-from datajunction.models import (
+from datajunction.models.query import (
     ColumnMetadata,
     Query,
     QueryResults,

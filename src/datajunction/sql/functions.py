@@ -25,7 +25,7 @@ should then look like this:
 from typing import TYPE_CHECKING, Callable, Dict, Union
 
 if TYPE_CHECKING:
-    from datajunction.models import Column
+    from datajunction.models.database import Column
     from datajunction.sql.lib import Wildcard
 
 
