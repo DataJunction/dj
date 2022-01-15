@@ -20,16 +20,11 @@ import yaml
 from rich.text import Text
 from sqlalchemy import inspect
 from sqlmodel import Session, create_engine, select
-from sqloxide import parse_sql
 
 from datajunction.models import Column, Database, Node, Table
-from datajunction.utils import (
-    create_db_and_tables,
-    find_nodes_by_key,
-    get_name_from_path,
-    get_session,
-    render_dag,
-)
+from datajunction.sql.dag import render_dag
+from datajunction.sql.parse import get_dependencies
+from datajunction.utils import create_db_and_tables, get_name_from_path, get_session
 
 _logger = logging.getLogger(__name__)
 
@@ -123,18 +118,6 @@ def get_columns(table: Table) -> List[Column]:
         )
         for column in column_metadata
     ]
-
-
-def get_dependencies(expression: str) -> Set[str]:
-    """
-    Return all the dependencies from a SQL expression.
-    """
-    tree = parse_sql(expression, dialect="ansi")
-
-    return {
-        ".".join(part["value"] for part in table["name"])
-        for table in find_nodes_by_key(tree, "Table")
-    }
 
 
 async def index_nodes(  # pylint: disable=too-many-locals

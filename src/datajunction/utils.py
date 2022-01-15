@@ -5,12 +5,9 @@ Utility functions.
 import logging
 import os
 from functools import lru_cache
-from io import StringIO
 from pathlib import Path
-from typing import Any, Dict, Iterator, Optional, Set
+from typing import Iterator, Optional
 
-import asciidag.graph
-import asciidag.node
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
@@ -84,49 +81,6 @@ def get_session() -> Iterator[Session]:
         yield session
 
 
-def render_dag(dependencies: Dict[str, Set[str]], **kwargs: Any) -> str:
-    """
-    Render the DAG of dependencies.
-    """
-    out = StringIO()
-    graph = asciidag.graph.Graph(out, **kwargs)
-
-    asciidag_nodes: Dict[str, asciidag.node.Node] = {}
-    tips = sorted(
-        [build_asciidag(name, dependencies, asciidag_nodes) for name in dependencies],
-        key=lambda n: n.item,
-    )
-
-    graph.show_nodes(tips)
-    out.seek(0)
-    return out.getvalue()
-
-
-def build_asciidag(
-    name: str,
-    dependencies: Dict[str, Set[str]],
-    asciidag_nodes: Dict[str, asciidag.node.Node],
-) -> asciidag.node.Node:
-    """
-    Build the nodes for ``asciidag``.
-    """
-    if name in asciidag_nodes:
-        asciidag_node = asciidag_nodes[name]
-    else:
-        asciidag_node = asciidag.node.Node(name)
-        asciidag_nodes[name] = asciidag_node
-
-    asciidag_node.parents = sorted(
-        [
-            build_asciidag(child, dependencies, asciidag_nodes)
-            for child in dependencies[name]
-        ],
-        key=lambda n: n.item,
-    )
-
-    return asciidag_node
-
-
 def get_name_from_path(repository: Path, path: Path) -> str:
     """
     Compute the name of a node given its path and the repository path.
@@ -190,18 +144,3 @@ def get_more_specific_type(current_type: Optional[str], new_type: str) -> str:
     ]
 
     return sorted([current_type, new_type], key=hierarchy.index)[1]
-
-
-def find_nodes_by_key(element: Any, target: str) -> Iterator[Any]:
-    """
-    Find all nodes in a SQL tree matching a given key.
-    """
-    if isinstance(element, list):
-        for child in element:
-            yield from find_nodes_by_key(child, target)
-    elif isinstance(element, dict):
-        for key, value in element.items():
-            if key == target:
-                yield value
-            else:
-                yield from find_nodes_by_key(value, target)
