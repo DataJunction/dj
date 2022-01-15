@@ -14,9 +14,9 @@ from pytest_mock import MockerFixture
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
-from datajunction.app import app, get_session, get_settings
+from datajunction.api.main import app
 from datajunction.config import Settings
-from datajunction.utils import get_project_repository
+from datajunction.utils import get_project_repository, get_session, get_settings
 
 
 @pytest.fixture

@@ -12,39 +12,17 @@ from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from datajunction.app import (
+from datajunction.api.queries import dispatch_query
+from datajunction.config import Settings
+from datajunction.models import (
+    Database,
+    Query,
     QueryCreate,
     QueryResults,
+    QueryState,
     StatementResults,
-    dispatch_query,
-    process_query,
 )
-from datajunction.config import Settings
-from datajunction.models import Database, Query, QueryState
-
-
-def test_read_databases(session: Session, client: TestClient) -> None:
-    """
-    Test ``GET /databases/``.
-    """
-    database = Database(
-        name="gsheets",
-        description="A Google Sheets connector",
-        URI="gsheets://",
-        read_only=True,
-    )
-    session.add(database)
-    session.commit()
-
-    response = client.get("/databases/")
-    data = response.json()
-
-    assert response.status_code == 200
-    assert len(data) == 1
-    assert data[0]["name"] == "gsheets"
-    assert data[0]["URI"] == "gsheets://"
-    assert data[0]["description"] == "A Google Sheets connector"
-    assert data[0]["read_only"] is True
+from datajunction.queries import process_query
 
 
 def test_submit_query(session: Session, client: TestClient) -> None:
@@ -214,7 +192,7 @@ def test_submit_query_async_celery(
     settings.celery_broker = "redis://127.0.0.1:6379/0"
 
     dispatch_query = mocker.patch(  # pylint: disable=redefined-outer-name
-        "datajunction.app.dispatch_query",
+        "datajunction.api.queries.dispatch_query",
     )
 
     database = Database(name="test", URI="sqlite://", async_=True)
@@ -242,15 +220,15 @@ def test_dispatch_query(
     """
     Test ``dispatch_query``.
     """
-    get_session = mocker.patch("datajunction.app.get_session")
+    get_session = mocker.patch("datajunction.api.queries.get_session")
     get_session.return_value.__next__.return_value = (  # pylint: disable=redefined-outer-name
         session
     )
 
-    mocker.patch("datajunction.app.get_settings", return_value=settings)
+    mocker.patch("datajunction.api.queries.get_settings", return_value=settings)
 
     process_query = mocker.patch(  # pylint: disable=redefined-outer-name
-        "datajunction.app.process_query",
+        "datajunction.api.queries.process_query",
     )
 
     database = Database(name="test", URI="sqlite://")
