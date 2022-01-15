@@ -6,7 +6,8 @@ Tests for ``datajunction.models``.
 
 from sqlmodel import Session
 
-from datajunction.models import Column, Database, Node, Table
+from datajunction.models.database import Column, Database, Table
+from datajunction.models.node import Node
 
 
 def test_node_relationship(session: Session) -> None:

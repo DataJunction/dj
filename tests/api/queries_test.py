@@ -14,7 +14,7 @@ from sqlmodel import Session
 
 from datajunction.api.queries import dispatch_query
 from datajunction.config import Settings
-from datajunction.models import (
+from datajunction.models.query import (
     Database,
     Query,
     QueryCreate,

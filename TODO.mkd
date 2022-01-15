@@ -12,11 +12,11 @@
 - [X] Representations should have columns
 - [X] Paginating results
 - [X] Compute the schema of downstream nodes
-- [/] Organize files (`api/`, `models/`, etc)
-- [ ] Allow only 1 aggregation (metric)
-- [ ] Add an enum for types, instead of using strings (also, a type for a parse tree)
+- [X] Organize files (`api/`, `models/`, etc)
 - [ ] Translate metrics into SQL
 - [ ] Compute metrics (ie, run query)
+- [ ] Allow only 1 aggregation (metric)
+- [ ] Add an enum for types, instead of using strings (also, a type for a parse tree)
 - [ ] Limit results
 - [ ] Write columns back to YAML
 - [ ] Optimize data transfer (delta-of-delta for timeseries, msgpack?)

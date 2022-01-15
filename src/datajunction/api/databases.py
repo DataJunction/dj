@@ -9,7 +9,7 @@ from fastapi import Depends
 from sqlmodel import Session, select
 
 from datajunction.api.main import app
-from datajunction.models import Database
+from datajunction.models.database import Database
 from datajunction.utils import get_session
 
 _logger = logging.getLogger(__name__)
