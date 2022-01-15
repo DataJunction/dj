@@ -12,7 +12,7 @@ from sqlmodel import Session
 
 from datajunction.api.main import app, celery
 from datajunction.config import Settings
-from datajunction.models import (
+from datajunction.models.query import (
     Query,
     QueryCreate,
     QueryResults,

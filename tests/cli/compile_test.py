@@ -22,7 +22,7 @@ from datajunction.cli.compile import (
     load_data,
     run,
 )
-from datajunction.models import Column, Database
+from datajunction.models.database import Column, Database
 
 
 @pytest.mark.asyncio

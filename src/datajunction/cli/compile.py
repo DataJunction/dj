@@ -21,7 +21,8 @@ from rich.text import Text
 from sqlalchemy import inspect
 from sqlmodel import Session, create_engine, select
 
-from datajunction.models import Column, Database, Node, Table
+from datajunction.models.database import Column, Database, Table
+from datajunction.models.node import Node
 from datajunction.sql.dag import render_dag
 from datajunction.sql.parse import get_dependencies
 from datajunction.utils import create_db_and_tables, get_name_from_path, get_session
