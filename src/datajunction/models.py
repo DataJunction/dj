@@ -16,7 +16,8 @@ from sqlmodel import Field, Relationship, SQLModel
 from sqloxide import parse_sql
 
 from datajunction.sql.inference import get_column_from_expression
-from datajunction.utils import find_nodes_by_key, get_more_specific_type
+from datajunction.sql.parse import find_nodes_by_key
+from datajunction.utils import get_more_specific_type
 
 Base = declarative_base()
 

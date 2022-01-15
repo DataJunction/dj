@@ -64,7 +64,9 @@ def evaluate_compound_identifier(parents: List["Node"], expression: Any) -> "Col
 
 
 def evaluate_function(
-    parents: List["Node"], expression: Any, alias: Optional[str] = None,
+    parents: List["Node"],
+    expression: Any,
+    alias: Optional[str] = None,
 ) -> "Column":
     """
     Evaluate a "Function" node.
@@ -82,7 +84,8 @@ def evaluate_function(
 
 
 def evaluate_value(
-    expression: Any, alias: Optional[str] = None,
+    expression: Any,
+    alias: Optional[str] = None,
 ) -> Union[int, float, str]:
     """
     Evaluate a "Value" node.
@@ -126,7 +129,9 @@ def evaluate_expression(
 
 
 def get_column_from_expression(
-    parents: List["Node"], expression: Any, alias: Optional[str] = None,
+    parents: List["Node"],
+    expression: Any,
+    alias: Optional[str] = None,
 ) -> "Column":
     """
     Return a column from an expression from a projection.
