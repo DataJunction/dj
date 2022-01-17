@@ -6,6 +6,8 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import TYPE_CHECKING, List, Optional
 
+from sqlalchemy import String
+from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
@@ -29,7 +31,7 @@ class Database(SQLModel, table=True):  # type: ignore
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str
+    name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
     description: str = ""
     URI: str
     read_only: bool = True

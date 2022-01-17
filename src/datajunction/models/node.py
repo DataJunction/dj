@@ -6,9 +6,9 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import Dict, List, Optional
 
-from sqlalchemy import Column as SqlaColumn
 from sqlalchemy import String
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
 from sqloxide import parse_sql
 
