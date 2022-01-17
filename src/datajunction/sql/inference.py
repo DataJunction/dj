@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, List, Optional, Type, Union
 
 from datajunction.models.database import Column
 from datajunction.sql.functions import function_registry
+from datajunction.typing import ColumnType
 
 if TYPE_CHECKING:
     from datajunction.models.node import Node
@@ -136,11 +137,11 @@ def get_column_from_expression(
         return value
 
     if isinstance(value, int):
-        type_ = "int"
+        type_ = ColumnType.INT
     elif isinstance(value, float):
-        type_ = "float"
+        type_ = ColumnType.FLOAT
     elif isinstance(value, str):
-        type_ = "str"
+        type_ = ColumnType.STR
     else:
         raise Exception(f"Invalid expression for column: {expression}")
 

@@ -24,16 +24,18 @@ should then look like this:
 
 from typing import TYPE_CHECKING, Callable, Dict, Union
 
+from datajunction.typing import ColumnType
+
 if TYPE_CHECKING:
     from datajunction.models.database import Column
     from datajunction.sql.lib import Wildcard
 
 
-def count(argument: Union["Wildcard", "Column", int]) -> str:
-    return "int"
+def count(argument: Union["Wildcard", "Column", int]) -> ColumnType:
+    return ColumnType.INT
 
 
-def max_(column: "Column") -> str:
+def max_(column: "Column") -> ColumnType:
     return column.type
 
 
