@@ -62,9 +62,9 @@ def get_computable_databases(node: Node) -> Set[Database]:
     # add all the databases where the node is explicitly materialized
     databases = {table.database for table in node.tables}
 
-    # add all the databases that are shared between the parents
-    parent_dbs = [get_computable_databases(parent) for parent in node.parents]
-    if parent_dbs:
-        databases |= set.intersection(*parent_dbs)
+    # add all the databases that are common between the parents
+    if node.parents:
+        parent_databases = [get_computable_databases(parent) for parent in node.parents]
+        databases |= set.intersection(*parent_databases)
 
     return databases
