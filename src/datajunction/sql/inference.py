@@ -23,16 +23,16 @@ def evaluate_identifier(parents: List["Node"], expression: Any) -> "Column":
     """
     Evaluate an "Identifier" node.
     """
-    name = expression["Identifier"]["value"]
+    value = expression["value"]
     candidates = []
     for parent in parents:
         for column in parent.columns:
-            if column.name == name:
+            if column.name == value:
                 candidates.append(column)
                 break
 
     if len(candidates) != 1:
-        raise Exception(f'Unable to determine origin of column "{name}"')
+        raise Exception(f'Unable to determine origin of column "{value}"')
 
     return candidates[0]
 
@@ -41,10 +41,8 @@ def evaluate_compound_identifier(parents: List["Node"], expression: Any) -> "Col
     """
     Evaluate a "CompoundIdentifier" node.
     """
-    name = expression["CompoundIdentifier"][-1]["value"]
-    parent_name = ".".join(
-        part["value"] for part in expression["CompoundIdentifier"][:-1]
-    )
+    name = expression[-1]["value"]
+    parent_name = ".".join(part["value"] for part in expression[:-1])
     parent: Optional["Node"] = None
     for parent in parents:
         if parent.name == parent_name:
@@ -72,11 +70,9 @@ def evaluate_function(
     """
     Evaluate a "Function" node.
     """
-    name = ".".join(part["value"] for part in expression["Function"]["name"])
-    args = expression["Function"]["args"]
-    evaluated_args = [
-        evaluate_expression(parents, arg["Unnamed"], alias=alias) for arg in args
-    ]
+    name = ".".join(part["value"] for part in expression["name"])
+    args = expression["args"]
+    evaluated_args = [evaluate_expression(parents, arg["Unnamed"]) for arg in args]
     type_ = function_registry[name](*evaluated_args)
 
     return Column(name=alias, type=type_)
@@ -89,14 +85,13 @@ def evaluate_value(
     """
     Evaluate a "Value" node.
     """
-    value = expression["Value"]
-    if "Number" in value:
+    if "Number" in expression:
         try:
-            return int(value["Number"][0])
+            return int(expression["Number"][0])
         except ValueError:
-            return float(value["Number"][0])
-    elif "SingleQuotedString" in value:
-        return value["SingleQuotedString"]
+            return float(expression["Number"][0])
+    elif "SingleQuotedString" in expression:
+        return expression["SingleQuotedString"]
 
     raise NotImplementedError(f"Unable to handle expression: {expression}")
 
@@ -110,16 +105,16 @@ def evaluate_expression(
     Evaluates an expression from a projection.
     """
     if "Identifier" in expression:
-        return evaluate_identifier(parents, expression)
+        return evaluate_identifier(parents, expression["Identifier"])
 
     if "CompoundIdentifier" in expression:
-        return evaluate_compound_identifier(parents, expression)
+        return evaluate_compound_identifier(parents, expression["CompoundIdentifier"])
 
     if "Function" in expression:
-        return evaluate_function(parents, expression, alias)
+        return evaluate_function(parents, expression["Function"], alias)
 
     if "Value" in expression:
-        return evaluate_value(expression, alias)
+        return evaluate_value(expression["Value"], alias)
 
     if expression == "Wildcard":
         return Wildcard

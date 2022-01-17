@@ -23,6 +23,7 @@ from datajunction.cli.compile import (
     run,
 )
 from datajunction.models.database import Column, Database
+from datajunction.models.query import Query  # pylint: disable=unused-import
 
 
 @pytest.mark.asyncio
@@ -55,6 +56,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
     assert sorted(configs, key=itemgetter("name")) == [
         {
             "async_": False,
+            "cost": 1.0,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "druid",
@@ -64,6 +66,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         },
         {
             "async_": False,
+            "cost": 1.0,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "gsheets",
@@ -73,6 +76,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         },
         {
             "async_": False,
+            "cost": 1.0,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "postgres",

@@ -14,11 +14,14 @@
 - [X] Compute the schema of downstream nodes
 - [X] Organize files (`api/`, `models/`, etc)
 - [ ] Translate metrics into SQL
+- [ ] Rename `queries.py` to `engine.py`
+- [ ] Split models tests
+- [ ] Make database/node name unique
 - [ ] Compute metrics (ie, run query)
 - [ ] Allow only 1 aggregation (metric)
 - [ ] Add an enum for types, instead of using strings (also, a type for a parse tree)
 - [ ] Limit results
-- [ ] Write columns back to YAML
+- [ ] Write columns back to YAML -> way to add column metadata (dimension and more)
 - [ ] Optimize data transfer (delta-of-delta for timeseries, msgpack?)
 - [ ] Compute statistics on columns (histogram, correlation)
 - [ ] Move data on JOINs based on column statistics
@@ -27,6 +30,13 @@
 - [ ] 2 modes of join: Shillelagh and move data
 - [ ] Auto-map dimensions from the DB schema?
 - [ ] UUID for models?
+- [ ] Name/description for the server in `.env`
+
+Integration with Superset:
+
+1. Run `superset sync dj http://dj.example.com/`
+2. Creates database, a `metrics` datasets, and add metrics as custom SQL (metric `foo` with SQL `foo`)
+3. Depending on the metric selected in Explore bring in dimensions (AirBnB has that?)
 
 Node types:
 
@@ -56,10 +66,12 @@ SQL input:
 
 ```
 SELECT core.likes FROM metrics
+WHERE user.country = 'BR'
 ```
 
 Gets translated to:
 
 ```
 SELECT COUNT(*) FROM content_actions
+JOIN dim_users ON content_actions.user_id = dim_users.id
 ```
