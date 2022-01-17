@@ -17,7 +17,8 @@
 - [X] Split models tests
 - [X] Rename `queries.py` to `engine.py`
 - [/] Translate metrics into SQL
-- [ ] Add an enum for types, instead of using strings (also, a type for a parse tree)
+- [ ] Add an enum for types, instead of using strings
+- [ ] Add custom type for the parse tree
 - [ ] Compute metrics (ie, run query)
 - [ ] Allow only 1 aggregation (metric)
 - [ ] Limit results
