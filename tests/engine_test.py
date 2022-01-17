@@ -1,18 +1,18 @@
 """
-Tests for ``datajunction.queries``.
+Tests for ``datajunction.engine``.
 """
 
 from pytest_mock import MockerFixture
 
-from datajunction.models.database import Database
-from datajunction.models.query import Query
-from datajunction.queries import (
+from datajunction.engine import (
     ColumnMetadata,
     Description,
     TypeEnum,
     get_columns_from_description,
     run_query,
 )
+from datajunction.models.database import Database
+from datajunction.models.query import Query
 
 
 def test_get_columns_from_description(mocker: MockerFixture) -> None:
