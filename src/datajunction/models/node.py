@@ -7,7 +7,6 @@ from functools import partial
 from typing import Dict, List, Optional
 
 from sqlalchemy import String
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
 from sqloxide import parse_sql
@@ -16,8 +15,6 @@ from datajunction.models.database import Column, Table
 from datajunction.sql.inference import get_column_from_expression
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.utils import get_more_specific_type
-
-Base = declarative_base()
 
 
 class NodeRelationship(SQLModel, table=True):  # type: ignore

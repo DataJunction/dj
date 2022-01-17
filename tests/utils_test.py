@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 from pytest_mock import MockerFixture
 
+from datajunction.typing import ColumnType
 from datajunction.utils import (
     get_more_specific_type,
     get_name_from_path,
@@ -114,6 +115,9 @@ def test_get_more_specific_type() -> None:
     """
     Test ``get_more_specific_type``.
     """
-    assert get_more_specific_type("str", "datetime") == "datetime"
-    assert get_more_specific_type("str", "int") == "int"
-    assert get_more_specific_type(None, "int") == "int"
+    assert (
+        get_more_specific_type(ColumnType.STR, ColumnType.DATETIME)
+        == ColumnType.DATETIME
+    )
+    assert get_more_specific_type(ColumnType.STR, ColumnType.INT) == ColumnType.INT
+    assert get_more_specific_type(None, ColumnType.INT) == ColumnType.INT

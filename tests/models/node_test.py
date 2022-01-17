@@ -8,6 +8,7 @@ from sqlmodel import Session
 
 from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
+from datajunction.typing import ColumnType
 
 
 def test_node_relationship(session: Session) -> None:
@@ -39,15 +40,15 @@ def test_node_columns(session: Session) -> None:
         database_id=database.id,
         table="A",
         columns=[
-            Column(name="ds", type="str"),
-            Column(name="user_id", type="int"),
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
         ],
     )
 
     table_b = Table(
         database_id=database.id,
         table="B",
-        columns=[Column(name="ds", type="datetime")],
+        columns=[Column(name="ds", type=ColumnType.DATETIME)],
     )
 
     node = Node(name="C", tables=[table_a, table_b])
@@ -55,8 +56,8 @@ def test_node_columns(session: Session) -> None:
     session.add(node)
 
     assert node.columns == [
-        Column(name="ds", type="datetime"),
-        Column(name="user_id", type="int"),
+        Column(name="ds", type=ColumnType.DATETIME),
+        Column(name="user_id", type=ColumnType.INT),
     ]
 
 
@@ -72,9 +73,9 @@ def test_node_schema_downstream_nodes(session: Session) -> None:
                 database=Database(name="test", URI="sqlite://"),
                 table="A",
                 columns=[
-                    Column(name="ds", type="str"),
-                    Column(name="user_id", type="int"),
-                    Column(name="foo", type="float"),
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="foo", type=ColumnType.FLOAT),
                 ],
             ),
         ],
@@ -89,7 +90,7 @@ def test_node_schema_downstream_nodes(session: Session) -> None:
     session.add(node_b)
 
     assert node_b.columns == [
-        Column(name="ds", type="str"),
-        Column(name="cnt", type="int"),
-        Column(name="_col0", type="float"),
+        Column(name="ds", type=ColumnType.STR),
+        Column(name="cnt", type=ColumnType.INT),
+        Column(name="_col0", type=ColumnType.FLOAT),
     ]

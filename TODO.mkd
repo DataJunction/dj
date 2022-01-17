@@ -16,8 +16,9 @@
 - [X] Make database/node name unique
 - [X] Split models tests
 - [X] Rename `queries.py` to `engine.py`
+- [X] Name/description for the server in `.env`
+- [X] Add an enum for types, instead of using strings
 - [/] Translate metrics into SQL
-- [ ] Add an enum for types, instead of using strings
 - [ ] Add custom type for the parse tree
 - [ ] Compute metrics (ie, run query)
 - [ ] Allow only 1 aggregation (metric)
@@ -31,7 +32,6 @@
 - [ ] 2 modes of join: Shillelagh and move data
 - [ ] Auto-map dimensions from the DB schema?
 - [ ] UUID for models?
-- [ ] Name/description for the server in `.env`
 
 Integration with Superset:
 
