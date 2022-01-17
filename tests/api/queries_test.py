@@ -14,6 +14,7 @@ from sqlmodel import Session
 
 from datajunction.api.queries import dispatch_query
 from datajunction.config import Settings
+from datajunction.engine import process_query
 from datajunction.models.query import (
     Database,
     Query,
@@ -22,7 +23,6 @@ from datajunction.models.query import (
     QueryState,
     StatementResults,
 )
-from datajunction.queries import process_query
 
 
 def test_submit_query(session: Session, client: TestClient) -> None:

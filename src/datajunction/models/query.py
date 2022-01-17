@@ -9,8 +9,8 @@ from typing import Any, List, Optional, Tuple
 from uuid import UUID, uuid4
 
 from pydantic import AnyHttpUrl
-from sqlalchemy import Column as SqlaColumn
 from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
 

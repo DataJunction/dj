@@ -12,6 +12,7 @@ from sqlmodel import Session
 
 from datajunction.api.main import app, celery
 from datajunction.config import Settings
+from datajunction.engine import process_query
 from datajunction.models.query import (
     Query,
     QueryCreate,
@@ -19,7 +20,6 @@ from datajunction.models.query import (
     QueryState,
     QueryWithResults,
 )
-from datajunction.queries import process_query
 from datajunction.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
