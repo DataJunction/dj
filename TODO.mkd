@@ -13,13 +13,13 @@
 - [X] Paginating results
 - [X] Compute the schema of downstream nodes
 - [X] Organize files (`api/`, `models/`, etc)
-- [ ] Translate metrics into SQL
-- [ ] Rename `queries.py` to `engine.py`
-- [ ] Split models tests
-- [ ] Make database/node name unique
+- [X] Make database/node name unique
+- [X] Split models tests
+- [X] Rename `queries.py` to `engine.py`
+- [/] Translate metrics into SQL
+- [ ] Add an enum for types, instead of using strings (also, a type for a parse tree)
 - [ ] Compute metrics (ie, run query)
 - [ ] Allow only 1 aggregation (metric)
-- [ ] Add an enum for types, instead of using strings (also, a type for a parse tree)
 - [ ] Limit results
 - [ ] Write columns back to YAML -> way to add column metadata (dimension and more)
 - [ ] Optimize data transfer (delta-of-delta for timeseries, msgpack?)
@@ -74,4 +74,5 @@ Gets translated to:
 ```
 SELECT COUNT(*) FROM content_actions
 JOIN dim_users ON content_actions.user_id = dim_users.id
+WHERE dim_users.country = 'BR'
 ```
