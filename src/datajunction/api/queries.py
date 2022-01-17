@@ -7,10 +7,17 @@ import logging
 import urllib.parse
 import uuid
 
-from fastapi import BackgroundTasks, Depends, HTTPException, Request, Response, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Depends,
+    HTTPException,
+    Request,
+    Response,
+    status,
+)
 from sqlmodel import Session
 
-from datajunction.api.main import app, celery
 from datajunction.config import Settings
 from datajunction.engine import process_query
 from datajunction.models.query import (
@@ -23,9 +30,15 @@ from datajunction.models.query import (
 from datajunction.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
+router = APIRouter()
+celery = get_settings().celery  # pylint: disable=invalid-name
 
 
-@app.post("/queries/", response_model=QueryWithResults, status_code=status.HTTP_200_OK)
+@router.post(
+    "/queries/",
+    response_model=QueryWithResults,
+    status_code=status.HTTP_200_OK,
+)
 def submit_query(
     *,
     session: Session = Depends(get_session),
@@ -71,7 +84,7 @@ def dispatch_query(query_id: uuid.UUID) -> None:
     process_query(session, settings, query).dict()
 
 
-@app.get("/queries/{query_id}", response_model=QueryWithResults)
+@router.get("/queries/{query_id}", response_model=QueryWithResults)
 def read_query(  # pylint: disable=too-many-locals
     query_id: uuid.UUID,
     limit: int = 0,

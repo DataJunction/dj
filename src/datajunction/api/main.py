@@ -2,16 +2,23 @@
 Main DJ server app.
 """
 
+# pylint: disable=unused-import
+
 import logging
 
 from fastapi import FastAPI
 
-from datajunction.utils import create_db_and_tables, get_settings
+from datajunction.api import databases, queries
+from datajunction.models.database import Column, Database, Table
+from datajunction.models.node import Node
+from datajunction.models.query import Query
+from datajunction.utils import create_db_and_tables
 
 _logger = logging.getLogger(__name__)
 
 app = FastAPI()
-celery = get_settings().celery  # pylint: disable=invalid-name
+app.include_router(databases.router)
+app.include_router(queries.router)
 
 
 @app.on_event("startup")
