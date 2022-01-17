@@ -1,5 +1,5 @@
 """
-Type inference.
+Functions for type inference.
 """
 
 # pylint: disable=unused-argument
