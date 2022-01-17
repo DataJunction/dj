@@ -23,10 +23,12 @@ def test_get_computable_databases() -> None:
             Table(database=database_2, table="A"),
         ],
     )
+
     parent_b = Node(
         name="B",
         tables=[Table(database=database_1, table="B")],
     )
+
     child = Node(
         name="C",
         tables=[Table(database=database_3, table="C")],

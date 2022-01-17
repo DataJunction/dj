@@ -13,9 +13,10 @@
 - [X] Paginating results
 - [X] Compute the schema of downstream nodes
 - [X] Organize files (`api/`, `models/`, etc)
+- [ ] Translate metrics into SQL
+- [ ] Rename `queries.py` to `engine.py`
 - [ ] Split models tests
 - [ ] Make database/node name unique
-- [ ] Translate metrics into SQL
 - [ ] Compute metrics (ie, run query)
 - [ ] Allow only 1 aggregation (metric)
 - [ ] Add an enum for types, instead of using strings (also, a type for a parse tree)
