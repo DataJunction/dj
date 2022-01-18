@@ -4,8 +4,46 @@ Custom types for annotations.
 
 # pylint: disable=missing-class-docstring, fixme
 
+from __future__ import annotations
+
 from enum import Enum
-from typing import List, Literal, Optional, Tuple, TypedDict, Union
+from types import ModuleType
+from typing import Any, Iterator, List, Literal, Optional, Tuple, TypedDict, Union
+
+from typing_extensions import Protocol
+
+
+class SQLADialect(Protocol):  # pylint: disable=too-few-public-methods
+    """
+    A SQLAlchemy dialect.
+    """
+
+    dbapi: ModuleType
+
+
+# The ``type_code`` in a cursor description -- can really be anything
+TypeCode = Any
+
+
+# Cursor description
+Description = Optional[
+    List[
+        Tuple[
+            str,
+            TypeCode,
+            Optional[str],
+            Optional[str],
+            Optional[str],
+            Optional[str],
+            Optional[bool],
+        ]
+    ]
+]
+
+
+# A stream of data
+Row = Tuple[Any, ...]
+Stream = Iterator[Row]
 
 
 class ColumnType(str, Enum):
@@ -92,8 +130,8 @@ class Expression(TypedDict, total=False):
     CompoundIdentifier: List["Identifier"]
     Identifier: Identifier
     Value: Value
-    Function: "Function"
-    BinaryOp: "BinaryOp"
+    Function: Function  # type: ignore
+    BinaryOp: BinaryOp  # type: ignore
 
 
 class Argument(TypedDict, total=False):
@@ -147,9 +185,9 @@ Top = Fetch
 
 
 class BinaryOp(TypedDict):
-    left: Union["BinaryOp", Expression]
+    left: Union["BinaryOp", Expression]  # type: ignore
     op: str
-    right: Union["BinaryOp", Expression]
+    right: Union["BinaryOp", Expression]  # type: ignore
 
 
 class LateralView(TypedDict):
@@ -229,7 +267,7 @@ CTETable = TypedDict(
     {
         "alias": TableAlias,
         "from": Optional[Identifier],
-        "query": "Query",
+        "query": "Query",  # type: ignore
     },
 )
 
@@ -252,7 +290,7 @@ Query = TypedDict(
 
 
 # We could support more than just ``SELECT`` here.
-Statement = Query
+Statement = Query  # type: ignore
 
 # A parse tree, result of ``sqloxide.parse_sql``.
-ParseTree = List[Statement]
+ParseTree = List[Statement]  # type: ignore

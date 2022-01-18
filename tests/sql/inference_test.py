@@ -2,8 +2,6 @@
 Tests for ``datajunction.sql.inference``.
 """
 
-from typing import Any
-
 import pytest
 from sqloxide import parse_sql
 
@@ -11,10 +9,10 @@ from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
 from datajunction.sql.inference import evaluate_expression, get_column_from_expression
 from datajunction.sql.parse import find_nodes_by_key
-from datajunction.typing import ColumnType
+from datajunction.typing import ColumnType, Expression
 
 
-def get_expression(sql: str) -> Any:
+def get_expression(sql: str) -> Expression:
     """
     Return the first expression of the first projection.
     """
