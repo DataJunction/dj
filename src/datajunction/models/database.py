@@ -10,6 +10,8 @@ from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
 
+from datajunction.typing import ColumnType
+
 if TYPE_CHECKING:
     from datajunction.models.node import Node
     from datajunction.models.query import Query
@@ -88,7 +90,7 @@ class Column(SQLModel, table=True):  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    type: str
+    type: ColumnType
 
     table_id: int = Field(foreign_key="table.id")
     table: Table = Relationship(back_populates="columns")

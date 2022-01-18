@@ -14,6 +14,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
 
 from datajunction.config import Settings
+from datajunction.typing import ColumnType
 
 
 def setup_logging(loglevel: str) -> None:
@@ -111,7 +112,10 @@ def get_name_from_path(repository: Path, path: Path) -> str:
     return encoded
 
 
-def get_more_specific_type(current_type: Optional[str], new_type: str) -> str:
+def get_more_specific_type(
+    current_type: Optional[ColumnType],
+    new_type: ColumnType,
+) -> ColumnType:
     """
     Given two types, return the most specific one.
 
@@ -119,28 +123,28 @@ def get_more_specific_type(current_type: Optional[str], new_type: str) -> str:
     might store timestamps as strings, while Postgres would store the same data as a
     datetime.
 
-        >>> get_more_specific_type('str',  'datetime')
-        'datetime'
-        >>> get_more_specific_type('str',  'int')
-        'int'
+        >>> get_more_specific_type(ColumnType.STR, ColumnType.DATETIME)
+        <ColumnType.DATETIME: 'DATETIME'>
+        >>> get_more_specific_type(ColumnType.STR, ColumnType.INT)
+        <ColumnType.INT: 'INT'>
 
     """
     if current_type is None:
         return new_type
 
     hierarchy = [
-        "bytes",
-        "str",
-        "float",
-        "int",
-        "Decimal",
-        "bool",
-        "datetime",
-        "date",
-        "time",
-        "timedelta",
-        "list",
-        "dict",
+        ColumnType.BYTES,
+        ColumnType.STR,
+        ColumnType.FLOAT,
+        ColumnType.INT,
+        ColumnType.DECIMAL,
+        ColumnType.BOOL,
+        ColumnType.DATETIME,
+        ColumnType.DATE,
+        ColumnType.TIME,
+        ColumnType.TIMEDELTA,
+        ColumnType.LIST,
+        ColumnType.DICT,
     ]
 
     return sorted([current_type, new_type], key=hierarchy.index)[1]

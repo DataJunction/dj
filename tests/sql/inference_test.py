@@ -11,6 +11,7 @@ from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
 from datajunction.sql.inference import evaluate_expression, get_column_from_expression
 from datajunction.sql.parse import find_nodes_by_key
+from datajunction.typing import ColumnType
 
 
 def get_expression(sql: str) -> Any:
@@ -46,9 +47,9 @@ def test_evaluate_expression() -> None:
                 database=Database(name="test", URI="sqlite://"),
                 table="A",
                 columns=[
-                    Column(name="ds", type="str"),
-                    Column(name="user_id", type="int"),
-                    Column(name="foo", type="float"),
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="foo", type=ColumnType.FLOAT),
                 ],
             ),
         ],
@@ -56,7 +57,7 @@ def test_evaluate_expression() -> None:
 
     assert evaluate_expression([node_a], get_expression("SELECT ds")) == Column(
         name="ds",
-        type="str",
+        type=ColumnType.STR,
     )
     assert (
         evaluate_expression(
@@ -64,7 +65,7 @@ def test_evaluate_expression() -> None:
             get_expression("SELECT MAX(foo)"),
             "bar",
         )
-        == Column(name="bar", type="float")
+        == Column(name="bar", type=ColumnType.FLOAT)
     )
     assert (
         evaluate_expression(
@@ -72,7 +73,7 @@ def test_evaluate_expression() -> None:
             get_expression("SELECT MAX(MAX(foo))"),
             "bar",
         )
-        == Column(name="bar", type="float")
+        == Column(name="bar", type=ColumnType.FLOAT)
     )
     assert (
         evaluate_expression(
@@ -80,7 +81,7 @@ def test_evaluate_expression() -> None:
             get_expression("SELECT COUNT(MAX(foo))"),
             "bar",
         )
-        == Column(name="bar", type="int")
+        == Column(name="bar", type=ColumnType.INT)
     )
 
 
@@ -98,9 +99,9 @@ def test_evaluate_expression_ambiguous() -> None:
                 database=Database(name="test", URI="sqlite://"),
                 table="A",
                 columns=[
-                    Column(name="ds", type="str"),
-                    Column(name="user_id", type="int"),
-                    Column(name="foo", type="float"),
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="foo", type=ColumnType.FLOAT),
                 ],
             ),
         ],
@@ -113,7 +114,7 @@ def test_evaluate_expression_ambiguous() -> None:
                 database=Database(name="test", URI="sqlite://"),
                 table="B",
                 columns=[
-                    Column(name="ds", type="str"),
+                    Column(name="ds", type=ColumnType.STR),
                 ],
             ),
         ],
@@ -129,7 +130,7 @@ def test_evaluate_expression_ambiguous() -> None:
             [node_a, node_b],
             get_expression("SELECT A.ds"),
         )
-        == Column(name="ds", type="str")
+        == Column(name="ds", type=ColumnType.STR)
     )
 
     # invalid parent
@@ -167,9 +168,9 @@ def test_evaluate_expression_parent_no_columns() -> None:
                 database=Database(name="test", URI="sqlite://"),
                 table="B",
                 columns=[
-                    Column(name="ds", type="str"),
-                    Column(name="user_id", type="int"),
-                    Column(name="foo", type="float"),
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="foo", type=ColumnType.FLOAT),
                 ],
             ),
         ],
@@ -177,7 +178,7 @@ def test_evaluate_expression_parent_no_columns() -> None:
 
     assert evaluate_expression([node_a, node_b], get_expression("SELECT ds")) == Column(
         name="ds",
-        type="str",
+        type=ColumnType.STR,
     )
 
 
@@ -187,15 +188,15 @@ def test_get_column_from_expression() -> None:
     """
     assert get_column_from_expression([], get_expression("SELECT 1")) == Column(
         name=None,
-        type="int",
+        type=ColumnType.INT,
     )
     assert get_column_from_expression([], get_expression("SELECT 1.1")) == Column(
         name=None,
-        type="float",
+        type=ColumnType.FLOAT,
     )
     assert get_column_from_expression([], get_expression("SELECT 'test'")) == Column(
         name=None,
-        type="str",
+        type=ColumnType.STR,
     )
 
     with pytest.raises(Exception) as excinfo:

@@ -24,6 +24,7 @@ from datajunction.cli.compile import (
 )
 from datajunction.models.database import Column, Database
 from datajunction.models.query import Query  # pylint: disable=unused-import
+from datajunction.typing import ColumnType
 
 
 @pytest.mark.asyncio
@@ -124,8 +125,8 @@ def test_get_columns(mocker: MockerFixture) -> None:
 
     table = mocker.MagicMock()
     assert get_columns(table) == [
-        Column(id=None, name="ds", type="datetime"),
-        Column(id=None, name="cnt", type="float"),
+        Column(id=None, name="ds", type=ColumnType.DATETIME),
+        Column(id=None, name="cnt", type=ColumnType.FLOAT),
     ]
 
 
@@ -156,40 +157,40 @@ async def test_index_nodes(
         "datajunction.cli.compile.get_columns",
         side_effect=[
             [
-                Column(id=None, name="ds", type="datetime"),
-                Column(id=None, name="cnt", type="int"),
+                Column(id=None, name="ds", type=ColumnType.DATETIME),
+                Column(id=None, name="cnt", type=ColumnType.INT),
             ],
             [
-                Column(id=None, name="ds", type="datetime"),
-                Column(id=None, name="cnt", type="int"),
+                Column(id=None, name="ds", type=ColumnType.DATETIME),
+                Column(id=None, name="cnt", type=ColumnType.INT),
             ],
             [
-                Column(id=None, name="ds", type="datetime"),
-                Column(id=None, name="cnt", type="int"),
+                Column(id=None, name="ds", type=ColumnType.DATETIME),
+                Column(id=None, name="cnt", type=ColumnType.INT),
             ],
             [
-                Column(id=None, name="ds", type="datetime"),
-                Column(id=None, name="cnt", type="int"),
+                Column(id=None, name="ds", type=ColumnType.DATETIME),
+                Column(id=None, name="cnt", type=ColumnType.INT),
             ],
             [
-                Column(id=None, name="ds", type="datetime"),
-                Column(id=None, name="cnt", type="int"),
+                Column(id=None, name="ds", type=ColumnType.DATETIME),
+                Column(id=None, name="cnt", type=ColumnType.INT),
             ],
             [
-                Column(id=None, name="ds", type="datetime"),
-                Column(id=None, name="cnt", type="int"),
+                Column(id=None, name="ds", type=ColumnType.DATETIME),
+                Column(id=None, name="cnt", type=ColumnType.INT),
             ],
             [
-                Column(id=None, name="ds", type="datetime"),
-                Column(id=None, name="cnt", type="int"),
+                Column(id=None, name="ds", type=ColumnType.DATETIME),
+                Column(id=None, name="cnt", type=ColumnType.INT),
             ],
             [
-                Column(id=None, name="ds", type="datetime"),
-                Column(id=None, name="cnt", type="int"),
+                Column(id=None, name="ds", type=ColumnType.DATETIME),
+                Column(id=None, name="cnt", type=ColumnType.INT),
             ],
             [
-                Column(id=None, name="ds", type="datetime"),
-                Column(id=None, name="cnt", type="int"),
+                Column(id=None, name="ds", type=ColumnType.DATETIME),
+                Column(id=None, name="cnt", type=ColumnType.INT),
             ],
         ],
     )

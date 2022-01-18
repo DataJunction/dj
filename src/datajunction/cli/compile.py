@@ -26,6 +26,7 @@ from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
 from datajunction.sql.dag import render_dag
 from datajunction.sql.parse import get_dependencies
+from datajunction.typing import ColumnType
 from datajunction.utils import create_db_and_tables, get_name_from_path, get_session
 
 _logger = logging.getLogger(__name__)
@@ -116,7 +117,7 @@ def get_columns(table: Table) -> List[Column]:
     return [
         Column(
             name=column["name"],
-            type=column["type"].python_type.__name__,
+            type=ColumnType[column["type"].python_type.__name__.upper()],
         )
         for column in column_metadata
     ]

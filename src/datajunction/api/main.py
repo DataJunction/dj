@@ -2,6 +2,9 @@
 Main DJ server app.
 """
 
+# All the models need to be imported here so that SQLModel can define their
+# relationships at runtime without causing circular imports.
+# See https://sqlmodel.tiangolo.com/tutorial/code-structure/#make-circular-imports-work.
 # pylint: disable=unused-import
 
 import logging
