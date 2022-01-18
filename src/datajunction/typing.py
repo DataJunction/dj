@@ -2,7 +2,10 @@
 Custom types for annotations.
 """
 
+# pylint: disable=missing-class-docstring, fixme
+
 from enum import Enum
+from typing import List, Literal, Optional, Tuple, TypedDict, Union
 
 
 class ColumnType(str, Enum):
@@ -54,3 +57,201 @@ class QueryState(str, Enum):
     FINISHED = "FINISHED"
     CANCELED = "CANCELED"
     FAILED = "FAILED"
+
+
+# sqloxide type hints
+# TODO: check https://github.com/sqlparser-rs/sqlparser-rs/blob/main/src/ast/query.rs
+
+
+class Value(TypedDict, total=False):
+    Number: Tuple(str, bool)
+    SingleQuotedString: str
+
+
+class Limit(TypedDict):
+    Value: Value
+
+
+class Identifier(TypedDict):
+    quote_style: Optional[str]
+    value: str
+
+
+class Bound(TypedDict, total=False):
+    Following: int
+    Preceding: int
+
+
+class WindowFrame(TypedDict):
+    end_bound: Bound
+    start_bound: Bound
+    units: str
+
+
+class Expression(TypedDict, total=False):
+    CompoundIdentifier: List["Identifier"]
+    Identifier: Identifier
+    Value: Value
+    Function: "Function"
+
+
+class Argument(TypedDict, total=False):
+    Unnamed: Expression
+
+
+class Over(TypedDict):
+    order_by: List[Expression]
+    partition_by: List[Expression]
+    window_frame: WindowFrame
+
+
+class Function(TypedDict):
+    args: List[Argument]
+    distinct: bool
+    name: List[Identifier]
+    over: Over
+
+
+class ExpressionWithAlias(TypedDict):
+    alias: Identifier
+    expr: Expression
+
+
+class Offset(TypedDict):
+    rows: str
+    value: Expression
+
+
+class OrderBy(TypedDict, total=False):
+    asc: Optional[bool]
+    expr: Expression
+    nulls_first: Optional[bool]
+
+
+class Projection(TypedDict, total=False):
+    UnnamedExpr: Expression
+    ExprWithAlias: ExpressionWithAlias
+
+
+Wildcard = Literal["Wildcard"]
+
+
+class Fetch(TypedDict):
+    percent: bool
+    quantity: Value
+    with_ties: bool
+
+
+Top = Fetch
+
+
+class BinaryOp(TypedDict):
+    left: Union["BinaryOp", Expression]
+    op: str
+    right: Union["BinaryOp", Expression]
+
+
+class LateralView(TypedDict):
+    lateral_col_alias: List[Identifier]
+    lateral_view: Expression
+    lateral_view_name: List[Identifier]
+    outer: bool
+
+
+class TableAlias(TypedDict):
+    columns: List[Identifier]
+    name: Identifier
+
+
+class Table(TypedDict):
+    alias: TableAlias
+    args: List[Argument]
+    name: List[Identifier]
+    with_hints: List[Expression]
+
+
+class Relation(TypedDict):
+    Table: Table
+
+
+class JoinConstraint(TypedDict):
+    On: BinaryOp
+    Using: List[Identifier]
+
+
+class JoinOperator(TypedDict, total=False):
+    Inner: JoinConstraint
+    LeftOuter: JoinConstraint
+    RightOuter: JoinConstraint
+    FullOuter: JoinConstraint
+
+
+CrossJoin = Literal["CrossJoin"]
+CrossApply = Literal["CrossApply"]
+OuterApply = Literal["Outerapply"]
+
+
+class Join(TypedDict):
+    join_operator: Union[JoinOperator, CrossJoin, CrossApply, OuterApply]
+    relation: Relation
+
+
+class From(TypedDict):
+    joins: List[Join]
+    relation: Relation
+
+
+Select = TypedDict(
+    "Select",
+    {
+        "cluster_by": List[Expression],
+        "distinct": bool,
+        "distribute_by": List[Expression],
+        "from": List[From],
+        "group_by": List[Expression],
+        "having": Optional[BinaryOp],
+        "lateral_views": List[LateralView],
+        "projection": List[Union[Projection, Wildcard]],
+        "selection": Optional[BinaryOp],
+        "sort_by": List[Expression],
+        "top": Optional[Top],
+    },
+)
+
+
+class Body(TypedDict):
+    Select: Select
+
+
+CTETable = TypedDict(
+    "CTETable",
+    {
+        "alias": TableAlias,
+        "from": Optional[Identifier],
+        "query": "Query",
+    },
+)
+
+
+class With(TypedDict):
+    cte_tables: List[CTETable]
+
+
+Query = TypedDict(
+    "Query",
+    {
+        "body": Body,
+        "fetch": Optional[Fetch],
+        "limit": Optional[Limit],
+        "offset": Optional[Offset],
+        "order_by": List[OrderBy],
+        "with": Optional[With],
+    },
+)
+
+
+# We could support more than just ``SELECT`` here.
+Statement = Query
+
+# A parse tree, result of ``sqloxide.parse_sql``.
+ParseTree = List[Statement]
