@@ -9,6 +9,7 @@ from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
 from datajunction.sql.transpile import get_query_for_node
+from datajunction.typing import ColumnType
 
 
 def test_get_query_for_node_materialized(mocker: MockerFixture) -> None:
@@ -25,7 +26,7 @@ def test_get_query_for_node_materialized(mocker: MockerFixture) -> None:
             Table(
                 database=database_1,
                 table="B",
-                columns=[Column(name="one", type="str")],
+                columns=[Column(name="one", type=ColumnType.STR)],
             ),
         ],
         expression="SELECT COUNT(*) AS cnt FROM A",
@@ -54,14 +55,14 @@ def test_get_query_for_node_not_materialized(mocker: MockerFixture) -> None:
                 database=database_1,
                 table="A",
                 columns=[
-                    Column(name="one", type="str"),
-                    Column(name="two", type="str"),
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
                 ],
             ),
             Table(
                 database=database_2,
                 table="A",
-                columns=[Column(name="one", type="str")],
+                columns=[Column(name="one", type=ColumnType.STR)],
             ),
         ],
     )
