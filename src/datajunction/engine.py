@@ -2,7 +2,7 @@
 Query related functions.
 """
 from datetime import datetime, timezone
-from typing import Any, Iterator, List, Optional, Tuple
+from typing import List, Tuple
 
 import sqlparse
 from sqlalchemy import text
@@ -18,28 +18,12 @@ from datajunction.models.query import (
     StatementResults,
     TypeEnum,
 )
-
-Stream = Iterator[Tuple[Any, ...]]
-
-# Cursor description
-Description = Optional[
-    List[
-        Tuple[
-            str,
-            Any,
-            Optional[str],
-            Optional[str],
-            Optional[str],
-            Optional[str],
-            Optional[bool],
-        ]
-    ]
-]
+from datajunction.typing import Description, SQLADialect, Stream
 
 
 def get_columns_from_description(
     description: Description,
-    dialect: Any,
+    dialect: SQLADialect,
 ) -> List[ColumnMetadata]:
     """
     Extract column metadata from the cursor description.
