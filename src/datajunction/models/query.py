@@ -4,7 +4,7 @@ Models for queries.
 
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional, Tuple
+from typing import List, Optional
 from uuid import UUID, uuid4
 
 from pydantic import AnyHttpUrl
@@ -13,7 +13,7 @@ from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
 
 from datajunction.models.database import Database
-from datajunction.typing import QueryState, TypeEnum
+from datajunction.typing import QueryState, Row, TypeEnum
 
 
 class BaseQuery(SQLModel):
@@ -74,7 +74,7 @@ class StatementResults(SQLModel):
 
     sql: str
     columns: List[ColumnMetadata]
-    rows: List[Tuple[Any, ...]]
+    rows: List[Row]
 
     # this indicates the total number of rows, and is useful for paginated requests
     row_count: int = 0

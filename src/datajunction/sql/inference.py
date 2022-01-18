@@ -4,11 +4,11 @@ Functions for type inference.
 
 # pylint: disable=unused-argument
 
-from typing import TYPE_CHECKING, Any, List, Optional, Type, Union
+from typing import TYPE_CHECKING, List, Optional, Type, Union
 
 from datajunction.models.database import Column
 from datajunction.sql.functions import function_registry
-from datajunction.typing import ColumnType
+from datajunction.typing import ColumnType, Expression, Function, Identifier, Value
 
 if TYPE_CHECKING:
     from datajunction.models.node import Node
@@ -20,11 +20,11 @@ class Wildcard:  # pylint: disable=too-few-public-methods
     """
 
 
-def evaluate_identifier(parents: List["Node"], expression: Any) -> "Column":
+def evaluate_identifier(parents: List["Node"], identifier: Identifier) -> "Column":
     """
     Evaluate an "Identifier" node.
     """
-    value = expression["value"]
+    value = identifier["value"]
     candidates = []
     for parent in parents:
         for column in parent.columns:
@@ -38,12 +38,15 @@ def evaluate_identifier(parents: List["Node"], expression: Any) -> "Column":
     return candidates[0]
 
 
-def evaluate_compound_identifier(parents: List["Node"], expression: Any) -> "Column":
+def evaluate_compound_identifier(
+    parents: List["Node"],
+    compound_identifier: List[Identifier],
+) -> "Column":
     """
     Evaluate a "CompoundIdentifier" node.
     """
-    name = expression[-1]["value"]
-    parent_name = ".".join(part["value"] for part in expression[:-1])
+    name = compound_identifier[-1]["value"]
+    parent_name = ".".join(part["value"] for part in compound_identifier[:-1])
     parent: Optional["Node"] = None
     for parent in parents:
         if parent.name == parent_name:
@@ -65,14 +68,14 @@ def evaluate_compound_identifier(parents: List["Node"], expression: Any) -> "Col
 
 def evaluate_function(
     parents: List["Node"],
-    expression: Any,
+    function: Function,
     alias: Optional[str] = None,
 ) -> "Column":
     """
     Evaluate a "Function" node.
     """
-    name = ".".join(part["value"] for part in expression["name"])
-    args = expression["args"]
+    name = ".".join(part["value"] for part in function["name"])
+    args = function["args"]
     evaluated_args = [evaluate_expression(parents, arg["Unnamed"]) for arg in args]
     type_ = function_registry[name](*evaluated_args)
 
@@ -80,26 +83,26 @@ def evaluate_function(
 
 
 def evaluate_value(
-    expression: Any,
+    value: Value,
     alias: Optional[str] = None,
 ) -> Union[int, float, str]:
     """
     Evaluate a "Value" node.
     """
-    if "Number" in expression:
+    if "Number" in value:
         try:
-            return int(expression["Number"][0])
+            return int(value["Number"][0])
         except ValueError:
-            return float(expression["Number"][0])
-    elif "SingleQuotedString" in expression:
-        return expression["SingleQuotedString"]
+            return float(value["Number"][0])
+    elif "SingleQuotedString" in value:
+        return value["SingleQuotedString"]
 
-    raise NotImplementedError(f"Unable to handle expression: {expression}")
+    raise NotImplementedError(f"Unable to handle value: {value}")
 
 
 def evaluate_expression(
     parents: List["Node"],
-    expression: Any,
+    expression: Expression,
     alias: Optional[str] = None,
 ) -> Union["Column", int, float, str, Type[Wildcard]]:
     """
@@ -125,7 +128,7 @@ def evaluate_expression(
 
 def get_column_from_expression(
     parents: List["Node"],
-    expression: Any,
+    expression: Expression,
     alias: Optional[str] = None,
 ) -> "Column":
     """

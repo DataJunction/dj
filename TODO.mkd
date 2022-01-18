@@ -18,8 +18,8 @@
 - [X] Rename `queries.py` to `engine.py`
 - [X] Name/description for the server in `.env`
 - [X] Add an enum for types, instead of using strings
+- [X] Add custom type for the parse tree
 - [/] Translate metrics into SQL
-- [ ] Add custom type for the parse tree
 - [ ] Compute metrics (ie, run query)
 - [ ] Allow only 1 aggregation (metric)
 - [ ] Limit results
