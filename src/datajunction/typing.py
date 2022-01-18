@@ -64,7 +64,7 @@ class QueryState(str, Enum):
 
 
 class Value(TypedDict, total=False):
-    Number: Tuple(str, bool)
+    Number: Tuple[str, bool]
     SingleQuotedString: str
 
 
@@ -93,6 +93,7 @@ class Expression(TypedDict, total=False):
     Identifier: Identifier
     Value: Value
     Function: "Function"
+    BinaryOp: "BinaryOp"
 
 
 class Argument(TypedDict, total=False):
@@ -175,7 +176,7 @@ class Relation(TypedDict):
 
 
 class JoinConstraint(TypedDict):
-    On: BinaryOp
+    On: Expression
     Using: List[Identifier]
 
 
