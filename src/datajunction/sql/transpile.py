@@ -6,15 +6,17 @@ queries which can be then executed in specific databases.
 """
 
 from operator import attrgetter
-from typing import Any, List, Optional
+from typing import List, Optional, Union
 
 from sqlalchemy.engine import create_engine
 from sqlalchemy.schema import MetaData, Table
 from sqlalchemy.sql import Select, func, select
+from sqlalchemy.sql.functions import Function as SqlaFunction
 from sqloxide import parse_sql
 
 from datajunction.models.node import Node
 from datajunction.sql.parse import find_nodes_by_key
+from datajunction.typing import Expression, Function, ParseTree
 
 
 def get_query_for_node(node: Node) -> Select:
@@ -40,7 +42,7 @@ def get_query_for_node(node: Node) -> Select:
     return projection.select_from(source)
 
 
-def get_projection(node: Node, tree: Any) -> Select:
+def get_projection(node: Node, tree: ParseTree) -> Select:
     """
     Build the ``SELECT`` part of a query.
     """
@@ -63,9 +65,9 @@ def get_projection(node: Node, tree: Any) -> Select:
 
 def get_expression(
     parents: List[Node],
-    expression: Any,
+    expression: Expression,
     alias: Optional[str] = None,
-) -> Any:
+) -> Union[SqlaFunction, str]:
     """
     Build an expression.
     """
@@ -78,19 +80,22 @@ def get_expression(
 
 def get_function(
     parents: List[Node],
-    expression: Any,
+    function: Function,
     alias: Optional[str] = None,
-) -> Any:
+) -> SqlaFunction:
     """
     Build a function.
     """
-    name = expression["name"][0]["value"]
-    args = expression["args"]
+    name = function["name"][0]["value"]
+    args = function["args"]
     evaluated_args = [get_expression(parents, arg["Unnamed"]) for arg in args]
     return getattr(func, name.lower())(*evaluated_args).label(alias)
 
 
-def get_source(node: Node, tree: Any) -> Select:  # pylint: disable=unused-argument
+def get_source(
+    node: Node,
+    tree: ParseTree,  # pylint: disable=unused-argument
+) -> Select:
     """
     Build the ``FROM`` part of a query.
     """
