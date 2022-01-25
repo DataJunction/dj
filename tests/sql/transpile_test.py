@@ -96,3 +96,44 @@ FROM "A") AS "A"'''
 FROM (SELECT "A".one AS one, "A".two AS two{space}
 FROM "A") AS "A"'''
     )
+
+
+def test_get_query_projection(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node`` with a colum projection.
+    """
+    database_1 = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    parent = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database_1,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database_1.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    child = Node(
+        name="B",
+        expression="SELECT one, MAX(two), 3, 4.0, 'five' FROM A",
+        parents=[parent],
+    )
+
+    space = " "
+
+    assert (
+        str(get_query_for_node(child))
+        == f'''SELECT "A".one AS one_1, max("A".two) AS max_1, 3, 4.0, five{space}
+FROM (SELECT "A".one AS one, "A".two AS two{space}
+FROM "A") AS "A"'''
+    )
