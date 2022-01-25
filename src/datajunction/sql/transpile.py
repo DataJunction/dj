@@ -5,18 +5,23 @@ These functions parse the DJ SQL used to define node expressions, and generate S
 queries which can be then executed in specific databases.
 """
 
-from operator import attrgetter
-from typing import List, Optional, Union
+# pylint: disable=fixme, unused-argument
 
+from operator import attrgetter
+from typing import Optional, Union
+
+from sqlalchemy import text
 from sqlalchemy.engine import create_engine
+from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.schema import MetaData, Table
-from sqlalchemy.sql import Select, func, select
+from sqlalchemy.sql import Select, select
 from sqlalchemy.sql.functions import Function as SqlaFunction
 from sqloxide import parse_sql
 
 from datajunction.models.node import Node
+from datajunction.sql.functions import function_registry
 from datajunction.sql.parse import find_nodes_by_key
-from datajunction.typing import Expression, Function, ParseTree
+from datajunction.typing import Expression, Function, Identifier, ParseTree, Value
 
 
 def get_query_for_node(node: Node) -> Select:
@@ -37,12 +42,12 @@ def get_query_for_node(node: Node) -> Select:
 
     tree = parse_sql(node.expression, dialect="ansi")
 
-    projection = get_projection(node, tree)
     source = get_source(node, tree)
+    projection = get_projection(node, tree, source)
     return projection.select_from(source)
 
 
-def get_projection(node: Node, tree: ParseTree) -> Select:
+def get_projection(node: Node, tree: ParseTree, source: Select) -> Select:
     """
     Build the ``SELECT`` part of a query.
     """
@@ -58,29 +63,33 @@ def get_projection(node: Node, tree: ParseTree) -> Select:
         else:
             raise NotImplementedError(f"Unable to handle expression: {expression}")
 
-        expressions.append(get_expression(node.parents, expression, alias))
+        expressions.append(get_expression(expression, source, alias))
 
     return select(expressions)
 
 
 def get_expression(
-    parents: List[Node],
     expression: Expression,
+    source: Select,
     alias: Optional[str] = None,
 ) -> Union[SqlaFunction, str]:
     """
     Build an expression.
     """
     if "Function" in expression:
-        return get_function(parents, expression["Function"], alias)
+        return get_function(expression["Function"], source, alias)
+    if "Identifier" in expression:
+        return get_identifier(expression["Identifier"], source, alias)
+    if "Value" in expression:
+        return get_value(expression["Value"], source, alias)
     if expression == "Wildcard":
         return "*"
     raise NotImplementedError(f"Unable to handle expression: {expression}")
 
 
 def get_function(
-    parents: List[Node],
     function: Function,
+    source: Select,
     alias: Optional[str] = None,
 ) -> SqlaFunction:
     """
@@ -88,8 +97,40 @@ def get_function(
     """
     name = function["name"][0]["value"]
     args = function["args"]
-    evaluated_args = [get_expression(parents, arg["Unnamed"]) for arg in args]
-    return getattr(func, name.lower())(*evaluated_args).label(alias)
+    evaluated_args = [get_expression(arg["Unnamed"], source) for arg in args]
+    func = function_registry[name.upper()]
+
+    return func.get_sqla_function(*evaluated_args).label(alias)
+
+
+def get_identifier(
+    identifier: Identifier,
+    source: Select,
+    alias: Optional[str] = None,
+) -> SqlaColumn:
+    """
+    Build a column.
+    """
+    return getattr(source.columns, identifier["value"]).label(alias)
+
+
+def get_value(
+    value: Value,
+    source: Select,
+    alias: Optional[str] = None,
+) -> Union[int, float, text]:
+    """
+    Build a value.
+    """
+    if "Number" in value:
+        try:
+            return int(value["Number"][0])
+        except ValueError:
+            return float(value["Number"][0])
+    elif "SingleQuotedString" in value:
+        return text(value["SingleQuotedString"])
+
+    raise NotImplementedError(f"Unable to handle value: {value}")
 
 
 def get_source(
