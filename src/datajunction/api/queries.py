@@ -1,5 +1,5 @@
 """
-Run a DJ server.
+Query related APIs.
 """
 
 import json
@@ -49,6 +49,25 @@ def submit_query(
 ) -> QueryWithResults:
     """
     Run or schedule a query.
+    """
+    return save_query_and_run(
+        create_query,
+        session,
+        settings,
+        response,
+        background_tasks,
+    )
+
+
+def save_query_and_run(
+    create_query: QueryCreate,
+    session: Session,
+    settings: Settings,
+    response: Response,
+    background_tasks: BackgroundTasks,
+) -> QueryWithResults:
+    """
+    Store a new query to the DB and run it.
     """
     query = Query.from_orm(create_query)
     query.state = QueryState.ACCEPTED

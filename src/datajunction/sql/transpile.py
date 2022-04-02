@@ -19,12 +19,30 @@ from sqlalchemy.sql.functions import Function as SqlaFunction
 from sqloxide import parse_sql
 
 from datajunction.models.node import Node
+from datajunction.models.query import QueryCreate
+from datajunction.sql.dag import get_computable_databases
 from datajunction.sql.functions import function_registry
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import Expression, Function, Identifier, ParseTree, Value
 
 
-def get_query_for_node(node: Node) -> Select:
+def get_query_for_node(node: Node) -> QueryCreate:
+    """
+    Return a DJ QueryCreate object from a given node.
+    """
+    databases = get_computable_databases(node)
+    if not databases:
+        raise Exception(f"Unable to compute {node.name} (no common database)")
+    database = sorted(databases, key=attrgetter("cost"))[0]
+
+    engine = create_engine(database.URI)
+    node_select = get_select_for_node(node)
+    sql = str(node_select.compile(engine, compile_kwargs={"literal_binds": True}))
+
+    return QueryCreate(database_id=database.id, submitted_query=sql)
+
+
+def get_select_for_node(node: Node) -> Select:
     """
     Build a SQLAlchemy ``select()`` for a given node.
     """
@@ -141,4 +159,4 @@ def get_source(
     Build the ``FROM`` part of a query.
     """
     # For now assume no JOINs or multiple relations
-    return get_query_for_node(node.parents[0]).alias(node.parents[0].name)
+    return get_select_for_node(node.parents[0]).alias(node.parents[0].name)

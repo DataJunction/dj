@@ -11,7 +11,7 @@ import logging
 
 from fastapi import FastAPI
 
-from datajunction.api import databases, queries
+from datajunction.api import databases, metrics, queries
 from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
 from datajunction.models.query import Query
@@ -22,6 +22,7 @@ _logger = logging.getLogger(__name__)
 app = FastAPI()
 app.include_router(databases.router)
 app.include_router(queries.router)
+app.include_router(metrics.router)
 
 
 @app.on_event("startup")
