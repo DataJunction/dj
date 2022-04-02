@@ -1,5 +1,5 @@
 """
-Run a DJ server.
+Database related APIs.
 """
 
 import logging
