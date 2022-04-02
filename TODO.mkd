@@ -19,9 +19,11 @@
 - [X] Name/description for the server in `.env`
 - [X] Add an enum for types, instead of using strings
 - [X] Add custom type for the parse tree
-- [/] Translate metrics into SQL
-- [ ] Compute metrics (ie, run query)
-- [ ] Allow only 1 aggregation (metric)
+- [X] Translate metrics into SQL
+- [X] Metrics API
+- [X] Allow only 1 aggregation (metric)
+- [ ] Allow filtering/grouping in metrics API
+- [ ] Allow metrics to be queried via SQL
 - [ ] Limit results
 - [ ] Write columns back to YAML -> way to add column metadata (dimension and more)
 - [ ] Optimize data transfer (delta-of-delta for timeseries, msgpack?)

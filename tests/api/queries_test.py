@@ -1,5 +1,5 @@
 """
-Tests for the FastAPI application.
+Tests for the queries API.
 """
 
 import json

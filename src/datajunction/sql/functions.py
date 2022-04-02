@@ -54,6 +54,8 @@ class Function:  # pylint: disable=too-few-public-methods
     A DJ function.
     """
 
+    is_aggregation = False
+
     @staticmethod
     @abc.abstractmethod
     def infer_type(*args: Any) -> ColumnType:
@@ -69,6 +71,8 @@ class Count(Function):
     """
     The ``COUNT`` function.
     """
+
+    is_aggregation = True
 
     @staticmethod
     def infer_type(argument: Union["Wildcard", "Column", int]) -> ColumnType:  # type: ignore
@@ -86,6 +90,8 @@ class Max(Function):
     """
     The ``MAX`` function.
     """
+
+    is_aggregation = True
 
     @staticmethod
     def infer_type(column: "Column") -> ColumnType:  # type: ignore
