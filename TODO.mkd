@@ -22,7 +22,9 @@
 - [X] Translate metrics into SQL
 - [X] Metrics API
 - [X] Allow only 1 aggregation (metric)
-- [ ] Allow filtering/grouping in metrics API
+- [X] Allow grouping in metrics API
+- [ ] Allow filtering in metrics API
+- [ ] Handle columns with database-specific names (`__timestamp` in Druid, eg)
 - [ ] Allow metrics to be queried via SQL
 - [ ] Limit results
 - [ ] Write columns back to YAML -> way to add column metadata (dimension and more)

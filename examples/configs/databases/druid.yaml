@@ -1,3 +1,4 @@
 description: An Apache Druid database
 URI: druid://host.docker.internal:8082/druid/v2/sql/
 read_only: true
+cost: 1
