@@ -2,10 +2,11 @@
 Metric related APIs.
 """
 
+from datetime import datetime
 from typing import Any, List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
-from sqlmodel import Session, select
+from sqlmodel import Session, SQLModel, select
 
 from datajunction.api.queries import save_query_and_run
 from datajunction.config import Settings
@@ -18,22 +19,46 @@ from datajunction.utils import get_session, get_settings
 router = APIRouter()
 
 
-@router.get("/metrics/", response_model=List[Node])
+class Metric(SQLModel):
+    """
+    Class for a metric.
+    """
+
+    id: int
+    name: str
+    description: str = ""
+
+    created_at: datetime
+    updated_at: datetime
+
+    expression: str
+
+    dimensions: List[str]
+
+
+@router.get("/metrics/", response_model=List[Metric])
 def read_metrics(*, session: Session = Depends(get_session)) -> List[Any]:
     """
     List all available metrics.
     """
-    nodes = [
-        node
+    return [
+        Metric(
+            **node.dict(),
+            dimensions=[
+                f"{parent.name}/{column.name}"
+                for parent in node.parents
+                for column in parent.columns
+            ],
+        )
         for node in session.exec(select(Node))
         if node.expression and is_metric(node.expression)
     ]
-    return nodes
 
 
 @router.get("/metrics/{node_id}/data/", response_model=QueryWithResults)
 def read_metrics_data(
     node_id: int,
+    d: str = "",  # pylint: disable=invalid-name
     *,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
@@ -49,7 +74,9 @@ def read_metrics_data(
     if not node.expression or not is_metric(node.expression):
         raise HTTPException(status_code=400, detail="Not a metric node")
 
-    create_query = get_query_for_node(node)
+    groupbys = d.split(",") if d else []
+    create_query = get_query_for_node(node, groupbys)
+
     return save_query_and_run(
         create_query,
         session,
