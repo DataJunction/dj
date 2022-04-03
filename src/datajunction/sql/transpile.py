@@ -5,16 +5,19 @@ These functions parse the DJ SQL used to define node expressions, and generate S
 queries which can be then executed in specific databases.
 """
 
-# pylint: disable=fixme, unused-argument
+# pylint: disable=unused-argument
 
-from operator import attrgetter
-from typing import List, Optional, Union
+import ast
+import operator
+import re
+from typing import Dict, List, Optional, Union
 
 from sqlalchemy import text
 from sqlalchemy.engine import create_engine
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.schema import MetaData, Table
 from sqlalchemy.sql import Select, select
+from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.functions import Function as SqlaFunction
 from sqloxide import parse_sql
 
@@ -26,15 +29,56 @@ from datajunction.sql.functions import function_registry
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import Expression, Function, Identifier, ParseTree, Value
 
+FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
+COMPARISONS = {
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+    "=": operator.eq,
+    "!=": operator.ne,
+}
 
-def get_query_for_node(node: Node, groupbys: List[str]) -> QueryCreate:
+
+def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression:
+    """
+    Build a SQLAlchemy filter.
+    """
+    match = FILTER_RE.match(filter_)
+    if not match:
+        raise Exception(f"Invalid filter: {filter_}")
+
+    name, op, value = match.groups()  # pylint: disable=invalid-name
+
+    if name not in columns:
+        raise Exception(f"Invalid column name: {name}")
+    column = columns[name]
+
+    if op not in COMPARISONS:
+        valid = ", ".join(COMPARISONS)
+        raise Exception(f"Invalid operation: {op} (valid: {valid})")
+    comparison = COMPARISONS[op]
+
+    try:
+        value = ast.literal_eval(value)
+    except Exception as ex:
+        raise Exception(f"Invalid value: {value}") from ex
+
+    return comparison(column, value)
+
+
+def get_query_for_node(
+    node: Node,
+    groupbys: List[str],
+    filters: List[str],
+) -> QueryCreate:
     """
     Return a DJ QueryCreate object from a given node.
     """
     databases = get_computable_databases(node)
     if not databases:
         raise Exception(f"Unable to compute {node.name} (no common database)")
-    database = sorted(databases, key=attrgetter("cost"))[0]
+    database = sorted(databases, key=operator.attrgetter("cost"))[0]
 
     engine = create_engine(database.URI)
     node_select = get_select_for_node(node, database)
@@ -44,8 +88,9 @@ def get_query_for_node(node: Node, groupbys: List[str]) -> QueryCreate:
         for from_ in node_select.froms
         for column in from_.columns
     }
-    groups = [columns[groupby] for groupby in groupbys]
-    node_select = node_select.group_by(*groups)
+    node_select = node_select.filter(
+        *[get_filter(columns, filter_) for filter_ in filters]
+    ).group_by(*[columns[groupby] for groupby in groupbys])
 
     sql = str(node_select.compile(engine, compile_kwargs={"literal_binds": True}))
 
@@ -59,7 +104,7 @@ def get_select_for_node(node: Node, database: Database) -> Select:
     # if the node is materialized we use the table with the cheapest cost
     tables = [table for table in node.tables if table.database == database]
     if tables:
-        table = sorted(tables, key=attrgetter("cost"))[0]
+        table = sorted(tables, key=operator.attrgetter("cost"))[0]
         engine = create_engine(table.database.URI)
         materialized_table = Table(
             table.table,

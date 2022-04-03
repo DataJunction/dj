@@ -9,7 +9,11 @@ from sqlalchemy.engine import create_engine
 from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
-from datajunction.sql.transpile import get_query_for_node, get_select_for_node
+from datajunction.sql.transpile import (
+    get_filter,
+    get_query_for_node,
+    get_select_for_node,
+)
 from datajunction.typing import ColumnType
 
 
@@ -166,7 +170,7 @@ def test_get_query_for_node(mocker: MockerFixture) -> None:
     connection.execute("CREATE TABLE B (cnt INTEGER)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
 
-    create_query = get_query_for_node(child, [])
+    create_query = get_query_for_node(child, [], [])
     assert create_query.database_id == 1
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
@@ -195,5 +199,34 @@ def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
     mocker.patch("datajunction.sql.transpile.get_computable_databases", return_value=[])
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(child, [])
+        get_query_for_node(child, [], [])
     assert str(excinfo.value) == "Unable to compute B (no common database)"
+
+
+def test_get_filter(mocker: MockerFixture) -> None:
+    """
+    Test ``get_filter``.
+    """
+    greater_than = mocker.MagicMock()
+    mocker.patch("datajunction.sql.transpile.COMPARISONS", new={">": greater_than})
+    column_a = mocker.MagicMock()
+    columns = {"a": column_a}
+
+    get_filter(columns, "a>0")
+    greater_than.assert_called_with(column_a, 0)
+
+    with pytest.raises(Exception) as excinfo:
+        get_filter(columns, "invalid")
+    assert str(excinfo.value) == "Invalid filter: invalid"
+
+    with pytest.raises(Exception) as excinfo:
+        get_filter(columns, "b>0")
+    assert str(excinfo.value) == "Invalid column name: b"
+
+    with pytest.raises(Exception) as excinfo:
+        get_filter(columns, "a>=0")
+    assert str(excinfo.value) == "Invalid operation: >= (valid: >)"
+
+    with pytest.raises(Exception) as excinfo:
+        get_filter(columns, "a>open('/etc/passwd').read()")
+    assert str(excinfo.value) == "Invalid value: open('/etc/passwd').read()"

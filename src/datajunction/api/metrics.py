@@ -5,7 +5,7 @@ Metric related APIs.
 from datetime import datetime
 from typing import Any, List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlmodel import Session, SQLModel, select
 
 from datajunction.api.queries import save_query_and_run
@@ -58,7 +58,8 @@ def read_metrics(*, session: Session = Depends(get_session)) -> List[Any]:
 @router.get("/metrics/{node_id}/data/", response_model=QueryWithResults)
 def read_metrics_data(
     node_id: int,
-    d: str = "",  # pylint: disable=invalid-name
+    d: List[str] = Query([]),  # pylint: disable=invalid-name
+    f: List[str] = Query([]),  # pylint: disable=invalid-name
     *,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
@@ -74,8 +75,7 @@ def read_metrics_data(
     if not node.expression or not is_metric(node.expression):
         raise HTTPException(status_code=400, detail="Not a metric node")
 
-    groupbys = d.split(",") if d else []
-    create_query = get_query_for_node(node, groupbys)
+    create_query = get_query_for_node(node, d, f)
 
     return save_query_and_run(
         create_query,
