@@ -23,7 +23,7 @@
 - [X] Metrics API
 - [X] Allow only 1 aggregation (metric)
 - [X] Allow grouping in metrics API
-- [ ] Allow filtering in metrics API
+- [X] Allow filtering in metrics API
 - [ ] Handle columns with database-specific names (`__timestamp` in Druid, eg)
 - [ ] Allow metrics to be queried via SQL
 - [ ] Limit results
