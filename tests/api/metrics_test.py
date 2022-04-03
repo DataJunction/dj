@@ -35,7 +35,9 @@ def test_read_metrics(session: Session, client: TestClient) -> None:
 
 
 def test_read_metrics_data(
-    mocker: MockerFixture, session: Session, client: TestClient,
+    mocker: MockerFixture,
+    session: Session,
+    client: TestClient,
 ) -> None:
     """
     Test ``GET /metrics/{node_id}/data/``.

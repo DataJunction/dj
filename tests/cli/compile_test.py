@@ -67,7 +67,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         },
         {
             "async_": False,
-            "cost": 1.0,
+            "cost": 100.0,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "gsheets",
@@ -77,7 +77,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         },
         {
             "async_": False,
-            "cost": 1.0,
+            "cost": 10.0,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "name": "postgres",
