@@ -1,3 +1,4 @@
 description: A Google Sheets connector
 URI: gsheets://
 read_only: true
+cost: 100

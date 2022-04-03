@@ -32,6 +32,8 @@
       },
       "dimensionsSpec": {
         "dimensions": [
+	  "id",
+	  "user_id",
           "text"
         ]
       },
@@ -39,16 +41,6 @@
         {
           "name": "count",
           "type": "count"
-        },
-        {
-          "name": "sum_id",
-          "type": "longSum",
-          "fieldName": "id"
-        },
-        {
-          "name": "sum_user_id",
-          "type": "longSum",
-          "fieldName": "user_id"
         }
       ]
     }

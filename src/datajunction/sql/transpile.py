@@ -8,7 +8,7 @@ queries which can be then executed in specific databases.
 # pylint: disable=fixme, unused-argument
 
 from operator import attrgetter
-from typing import Optional, Union
+from typing import List, Optional, Union
 
 from sqlalchemy import text
 from sqlalchemy.engine import create_engine
@@ -18,6 +18,7 @@ from sqlalchemy.sql import Select, select
 from sqlalchemy.sql.functions import Function as SqlaFunction
 from sqloxide import parse_sql
 
+from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.query import QueryCreate
 from datajunction.sql.dag import get_computable_databases
@@ -26,7 +27,7 @@ from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import Expression, Function, Identifier, ParseTree, Value
 
 
-def get_query_for_node(node: Node) -> QueryCreate:
+def get_query_for_node(node: Node, groupbys: List[str]) -> QueryCreate:
     """
     Return a DJ QueryCreate object from a given node.
     """
@@ -36,19 +37,29 @@ def get_query_for_node(node: Node) -> QueryCreate:
     database = sorted(databases, key=attrgetter("cost"))[0]
 
     engine = create_engine(database.URI)
-    node_select = get_select_for_node(node)
+    node_select = get_select_for_node(node, database)
+
+    columns = {
+        f"{from_.name}/{column.name}": column
+        for from_ in node_select.froms
+        for column in from_.columns
+    }
+    groups = [columns[groupby] for groupby in groupbys]
+    node_select = node_select.group_by(*groups)
+
     sql = str(node_select.compile(engine, compile_kwargs={"literal_binds": True}))
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
 
 
-def get_select_for_node(node: Node) -> Select:
+def get_select_for_node(node: Node, database: Database) -> Select:
     """
     Build a SQLAlchemy ``select()`` for a given node.
     """
     # if the node is materialized we use the table with the cheapest cost
-    if node.tables:
-        table = sorted(node.tables, key=attrgetter("cost"))[0]
+    tables = [table for table in node.tables if table.database == database]
+    if tables:
+        table = sorted(tables, key=attrgetter("cost"))[0]
         engine = create_engine(table.database.URI)
         materialized_table = Table(
             table.table,
@@ -60,7 +71,7 @@ def get_select_for_node(node: Node) -> Select:
 
     tree = parse_sql(node.expression, dialect="ansi")
 
-    source = get_source(node, tree)
+    source = get_source(node, database, tree)
     projection = get_projection(node, tree, source)
     return projection.select_from(source)
 
@@ -153,10 +164,11 @@ def get_value(
 
 def get_source(
     node: Node,
+    database: Database,
     tree: ParseTree,  # pylint: disable=unused-argument
 ) -> Select:
     """
     Build the ``FROM`` part of a query.
     """
     # For now assume no JOINs or multiple relations
-    return get_select_for_node(node.parents[0]).alias(node.parents[0].name)
+    return get_select_for_node(node.parents[0], database).alias(node.parents[0].name)
