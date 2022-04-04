@@ -243,7 +243,8 @@ def test_get_query_for_sql_not_metric(mocker: MockerFixture, session: Session) -
 
 
 def test_get_query_for_sql_no_databases(
-    mocker: MockerFixture, session: Session,
+    mocker: MockerFixture,
+    session: Session,
 ) -> None:
     """
     Test ``get_query_for_sql`` when no common databases are found.
