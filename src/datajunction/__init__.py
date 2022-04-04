@@ -1,7 +1,6 @@
 """
 Package version and name.
 """
-# pylint: disable=fixme
 
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
