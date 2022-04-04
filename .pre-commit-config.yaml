@@ -89,7 +89,7 @@ repos:
   hooks:
   - id: pylint
     name: pylint
-    entry: pylint
+    entry: pylint --disable=fixme
     language: system
     types: [python]
     exclude: ^templates/

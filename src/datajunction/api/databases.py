@@ -20,5 +20,4 @@ def read_databases(*, session: Session = Depends(get_session)) -> List[Database]
     """
     List the available databases.
     """
-    databases = session.exec(select(Database)).all()
-    return databases
+    return session.exec(select(Database)).all()
