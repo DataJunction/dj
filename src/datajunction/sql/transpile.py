@@ -8,7 +8,7 @@ queries which can be then executed in specific databases.
 # pylint: disable=unused-argument
 
 import operator
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional, Union, cast
 
 from sqlalchemy import text
 from sqlalchemy.engine import create_engine
@@ -77,9 +77,25 @@ def get_query(tree: ParseTree, parents: List[Node], database: Database) -> Selec
     if groupby:
         query = query.group_by(*groupby)
 
-    # TODO (betodealmeida): LIMIT, HAVING, etc.
+    # LIMIT ...
+    limit = get_limit(tree, source)
+    if limit:
+        query = query.limit(limit)
+
+    # TODO (betodealmeida): HAVING, ORDER BY, etc.
 
     return query
+
+
+def get_limit(tree: ParseTree, source: Select) -> Optional[int]:
+    """
+    Return the ``LIMIT`` of a query.
+    """
+    limit = next(find_nodes_by_key(tree, "limit"))
+    if limit is None:
+        return None
+
+    return cast(int, get_expression(limit, source))
 
 
 def get_groupby(tree: ParseTree, source: Select) -> List[Any]:
