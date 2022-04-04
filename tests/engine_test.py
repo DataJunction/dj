@@ -269,3 +269,53 @@ def test_get_query_for_sql_no_databases(
     with pytest.raises(Exception) as excinfo:
         get_query_for_sql(sql)
     assert str(excinfo.value) == "Unable to compute B (no common database)"
+
+
+def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) -> None:
+    """
+    Test ``get_query_for_sql`` with aliases.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    A = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    B = Node(
+        name="B",
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[A],
+    )
+    session.add(B)
+    session.commit()
+
+    sql = "SELECT B AS my_metric FROM metrics"
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+
+    space = " "
+    assert (
+        create_query.submitted_query
+        == f'''SELECT count('*') AS my_metric{space}
+FROM (SELECT "A".one AS one, "A".two AS two{space}
+FROM "A") AS "A"'''
+    )
