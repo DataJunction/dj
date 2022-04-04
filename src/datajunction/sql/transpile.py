@@ -7,94 +7,34 @@ queries which can be then executed in specific databases.
 
 # pylint: disable=unused-argument
 
-import ast
 import operator
-import re
-from typing import Dict, List, Optional, Union
+from typing import Any, List, Optional, Union
 
 from sqlalchemy import text
 from sqlalchemy.engine import create_engine
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.schema import MetaData, Table
 from sqlalchemy.sql import Select, select
-from sqlalchemy.sql.elements import BinaryExpression
+from sqlalchemy.sql.expression import ClauseElement
 from sqlalchemy.sql.functions import Function as SqlaFunction
 from sqloxide import parse_sql
 
 from datajunction.models.database import Database
 from datajunction.models.node import Node
-from datajunction.models.query import QueryCreate
-from datajunction.sql.dag import get_computable_databases
 from datajunction.sql.functions import function_registry
 from datajunction.sql.parse import find_nodes_by_key
-from datajunction.typing import Expression, Function, Identifier, ParseTree, Value
+from datajunction.typing import (
+    BinaryOp,
+    Expression,
+    Function,
+    Identifier,
+    ParseTree,
+    Value,
+)
 
-FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
-COMPARISONS = {
-    ">": operator.gt,
-    ">=": operator.ge,
-    "<": operator.lt,
-    "<=": operator.le,
-    "=": operator.eq,
-    "!=": operator.ne,
+OPERATIONS = {
+    "Gt": operator.gt,
 }
-
-
-def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression:
-    """
-    Build a SQLAlchemy filter.
-    """
-    match = FILTER_RE.match(filter_)
-    if not match:
-        raise Exception(f"Invalid filter: {filter_}")
-
-    name, op, value = match.groups()  # pylint: disable=invalid-name
-
-    if name not in columns:
-        raise Exception(f"Invalid column name: {name}")
-    column = columns[name]
-
-    if op not in COMPARISONS:
-        valid = ", ".join(COMPARISONS)
-        raise Exception(f"Invalid operation: {op} (valid: {valid})")
-    comparison = COMPARISONS[op]
-
-    try:
-        value = ast.literal_eval(value)
-    except Exception as ex:
-        raise Exception(f"Invalid value: {value}") from ex
-
-    return comparison(column, value)
-
-
-def get_query_for_node(
-    node: Node,
-    groupbys: List[str],
-    filters: List[str],
-) -> QueryCreate:
-    """
-    Return a DJ QueryCreate object from a given node.
-    """
-    databases = get_computable_databases(node)
-    if not databases:
-        raise Exception(f"Unable to compute {node.name} (no common database)")
-    database = sorted(databases, key=operator.attrgetter("cost"))[0]
-
-    engine = create_engine(database.URI)
-    node_select = get_select_for_node(node, database)
-
-    columns = {
-        f"{from_.name}/{column.name}": column
-        for from_ in node_select.froms
-        for column in from_.columns
-    }
-    node_select = node_select.filter(
-        *[get_filter(columns, filter_) for filter_ in filters]
-    ).group_by(*[columns[groupby] for groupby in groupbys])
-
-    sql = str(node_select.compile(engine, compile_kwargs={"literal_binds": True}))
-
-    return QueryCreate(database_id=database.id, submitted_query=sql)
 
 
 def get_select_for_node(node: Node, database: Database) -> Select:
@@ -115,13 +55,70 @@ def get_select_for_node(node: Node, database: Database) -> Select:
         return select(materialized_table)
 
     tree = parse_sql(node.expression, dialect="ansi")
-
-    source = get_source(node, database, tree)
-    projection = get_projection(node, tree, source)
-    return projection.select_from(source)
+    return get_query(tree, node.parents, database)
 
 
-def get_projection(node: Node, tree: ParseTree, source: Select) -> Select:
+def get_query(tree: ParseTree, parents: List[Node], database: Database) -> Select:
+    """
+    Build a SQLAlchemy query.
+    """
+    # SELECT ... FROM ...
+    source = get_source(parents, database, tree)
+    projection = get_projection(tree, source)
+    query = projection.select_from(source)
+
+    # WHERE ...
+    selection = get_selection(tree, source)
+    if selection is not None:
+        query = query.filter(selection)
+
+    # GROUP BY ...
+    groupby = get_groupby(tree, source)
+    if groupby:
+        query = query.group_by(*groupby)
+
+    # TODO (betodealmeida): LIMIT, HAVING, etc.
+
+    return query
+
+
+def get_groupby(tree: ParseTree, source: Select) -> List[Any]:
+    """
+    Build the ``GROUP BY`` clause of a query.
+    """
+    groupby = next(find_nodes_by_key(tree, "group_by"))
+    return [get_expression(expression, source) for expression in groupby]
+
+
+def get_selection(
+    tree: ParseTree,
+    source: Select,
+) -> Union[SqlaFunction, SqlaColumn, ClauseElement, int, float, str, text, None]:
+    """
+    Build the ``WHERE`` clause of a query.
+    """
+    selection = next(find_nodes_by_key(tree, "selection"))
+    if not selection:
+        return None
+
+    return get_expression(selection, source)
+
+
+def get_binary_op(selection: BinaryOp, source: Select) -> ClauseElement:
+    """
+    Build a binary operation (eg, >).
+    """
+    left = get_expression(selection["left"], source)
+    right = get_expression(selection["right"], source)
+    op = selection["op"]  # pylint: disable=invalid-name
+
+    if op not in OPERATIONS:
+        raise NotImplementedError(f"Operator not supported: {op}")
+
+    return OPERATIONS[op](left, right)
+
+
+def get_projection(tree: ParseTree, source: Select) -> Select:
     """
     Build the ``SELECT`` part of a query.
     """
@@ -137,7 +134,10 @@ def get_projection(node: Node, tree: ParseTree, source: Select) -> Select:
         else:
             raise NotImplementedError(f"Unable to handle expression: {expression}")
 
-        expressions.append(get_expression(expression, source, alias))
+        expression = get_expression(expression, source)
+        if hasattr(expression, "label"):
+            expression = expression.label(alias)
+        expressions.append(expression)
 
     return select(expressions)
 
@@ -145,17 +145,18 @@ def get_projection(node: Node, tree: ParseTree, source: Select) -> Select:
 def get_expression(
     expression: Expression,
     source: Select,
-    alias: Optional[str] = None,
-) -> Union[SqlaFunction, str]:
+) -> Union[SqlaFunction, SqlaColumn, ClauseElement, int, float, str, text]:
     """
     Build an expression.
     """
     if "Function" in expression:
-        return get_function(expression["Function"], source, alias)
+        return get_function(expression["Function"], source)
     if "Identifier" in expression:
-        return get_identifier(expression["Identifier"], source, alias)
+        return get_identifier(expression["Identifier"], source)
     if "Value" in expression:
-        return get_value(expression["Value"], source, alias)
+        return get_value(expression["Value"], source)
+    if "BinaryOp" in expression:
+        return get_binary_op(expression["BinaryOp"], source)
     if expression == "Wildcard":
         return "*"
     raise NotImplementedError(f"Unable to handle expression: {expression}")
@@ -164,7 +165,6 @@ def get_expression(
 def get_function(
     function: Function,
     source: Select,
-    alias: Optional[str] = None,
 ) -> SqlaFunction:
     """
     Build a function.
@@ -174,24 +174,23 @@ def get_function(
     evaluated_args = [get_expression(arg["Unnamed"], source) for arg in args]
     func = function_registry[name.upper()]
 
-    return func.get_sqla_function(*evaluated_args).label(alias)
+    # TODO (betodealmeida): pass dialect
+    return func.get_sqla_function(*evaluated_args)
 
 
 def get_identifier(
     identifier: Identifier,
     source: Select,
-    alias: Optional[str] = None,
 ) -> SqlaColumn:
     """
     Build a column.
     """
-    return getattr(source.columns, identifier["value"]).label(alias)
+    return getattr(source.columns, identifier["value"])
 
 
 def get_value(
     value: Value,
     source: Select,
-    alias: Optional[str] = None,
 ) -> Union[int, float, text]:
     """
     Build a value.
@@ -208,7 +207,7 @@ def get_value(
 
 
 def get_source(
-    node: Node,
+    parents: List[Node],
     database: Database,
     tree: ParseTree,  # pylint: disable=unused-argument
 ) -> Select:
@@ -216,4 +215,4 @@ def get_source(
     Build the ``FROM`` part of a query.
     """
     # For now assume no JOINs or multiple relations
-    return get_select_for_node(node.parents[0], database).alias(node.parents[0].name)
+    return get_select_for_node(parents[0], database).alias(parents[0].name)

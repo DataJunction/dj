@@ -10,10 +10,10 @@ from sqlmodel import Session, SQLModel, select
 
 from datajunction.api.queries import save_query_and_run
 from datajunction.config import Settings
+from datajunction.engine import get_query_for_node
 from datajunction.models.node import Node
 from datajunction.models.query import QueryWithResults
 from datajunction.sql.parse import is_metric
-from datajunction.sql.transpile import get_query_for_node
 from datajunction.utils import get_session, get_settings
 
 router = APIRouter()

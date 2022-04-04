@@ -63,7 +63,7 @@ class Function:  # pylint: disable=too-few-public-methods
 
     @staticmethod
     @abc.abstractmethod
-    def get_sqla_function(dialect: Optional[str] = None) -> SqlaFunction:
+    def get_sqla_function(*, dialect: Optional[str] = None) -> SqlaFunction:
         raise NotImplementedError("Subclass MUST implement get_sqla_function")
 
 
@@ -81,6 +81,7 @@ class Count(Function):
     @staticmethod
     def get_sqla_function(  # type: ignore
         argument: Union[SqlaColumn, str, int],
+        *,
         dialect: Optional[str] = None,
     ) -> SqlaFunction:
         return func.count(argument)
@@ -100,6 +101,7 @@ class Max(Function):
     @staticmethod
     def get_sqla_function(  # type: ignore
         column: SqlaColumn,
+        *,
         dialect: Optional[str] = None,
     ) -> SqlaFunction:
         return func.max(column)
