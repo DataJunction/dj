@@ -130,8 +130,19 @@ def get_query_for_sql(sql: str) -> QueryCreate:
 
     # replace projection with metric definition
     for expression in projection:
-        expression = get_expression_from_projection(expression)
-        name = expression["Identifier"]["value"]
+        if "UnnamedExpr" in expression:
+            expression = expression["UnnamedExpr"]
+            name = expression["Identifier"]["value"]
+            alias = {
+                "quote_style": '"',
+                "value": name,
+            }
+        elif "ExprWithAlias" in expression:
+            alias = expression["ExprWithAlias"]["alias"]
+            expression = expression["ExprWithAlias"]["expr"]
+            name = expression["Identifier"]["value"]
+        else:
+            raise NotImplementedError(f"Unable to handle expression: {expression}")
 
         node = session.exec(select(Node).where(Node.name == name)).one()
         if not node.expression or not is_metric(node.expression):
@@ -141,10 +152,7 @@ def get_query_for_sql(sql: str) -> QueryCreate:
         new_projection.append(
             {
                 "ExprWithAlias": {
-                    "alias": {
-                        "quote_style": '"',
-                        "value": name,  # TODO check if there's already an alias
-                    },
+                    "alias": alias,
                     "expr": get_expression_from_projection(
                         subtree[0]["Query"]["body"]["Select"]["projection"][0],
                     ),
