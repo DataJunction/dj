@@ -4,12 +4,20 @@ Tests for ``datajunction.sql.transpile``.
 
 from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
+from sqlalchemy.sql import Select
 
 from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
 from datajunction.sql.transpile import get_select_for_node
 from datajunction.typing import ColumnType
+
+
+def query_to_string(query: Select) -> str:
+    """
+    Helper function to compile a SQLAlchemy query to a string.
+    """
+    return str(query.compile(compile_kwargs={"literal_binds": True}))
 
 
 def test_get_select_for_node_materialized(mocker: MockerFixture) -> None:
@@ -38,7 +46,10 @@ def test_get_select_for_node_materialized(mocker: MockerFixture) -> None:
     connection.execute("CREATE TABLE B (cnt INTEGER)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
 
-    assert str(get_select_for_node(child, database)) == 'SELECT "B".cnt \nFROM "B"'
+    assert (
+        query_to_string(get_select_for_node(child, database))
+        == 'SELECT "B".cnt \nFROM "B"'
+    )
 
 
 def test_get_select_for_node_not_materialized(mocker: MockerFixture) -> None:
@@ -81,8 +92,8 @@ def test_get_select_for_node_not_materialized(mocker: MockerFixture) -> None:
     space = " "
 
     assert (
-        str(get_select_for_node(child, database_1))
-        == f'''SELECT count(?) AS cnt{space}
+        query_to_string(get_select_for_node(child, database_1))
+        == f'''SELECT count('*') AS cnt{space}
 FROM (SELECT "A".one AS one, "A".two AS two{space}
 FROM "A") AS "A"'''
     )
@@ -91,8 +102,8 @@ FROM "A") AS "A"'''
     child.expression = "SELECT COUNT(*) FROM A"
 
     assert (
-        str(get_select_for_node(child, database_1))
-        == f'''SELECT count(?) AS count_1{space}
+        query_to_string(get_select_for_node(child, database_1))
+        == f'''SELECT count('*') AS count_1{space}
 FROM (SELECT "A".one AS one, "A".two AS two{space}
 FROM "A") AS "A"'''
     )
@@ -132,7 +143,7 @@ def test_get_select_for_node_projection(mocker: MockerFixture) -> None:
     space = " "
 
     assert (
-        str(get_select_for_node(child, database))
+        query_to_string(get_select_for_node(child, database))
         == f'''SELECT "A".one AS one_1, max("A".two) AS max_1, 3, 4.0, five{space}
 FROM (SELECT "A".one AS one, "A".two AS two{space}
 FROM "A") AS "A"'''
@@ -173,11 +184,11 @@ def test_get_select_for_node_where(mocker: MockerFixture) -> None:
     space = " "
 
     assert (
-        str(get_select_for_node(child, database))
+        query_to_string(get_select_for_node(child, database))
         == f"""SELECT "A".one AS one_1, max("A".two) AS max_1, 3, 4.0, five{space}
 FROM (SELECT "A".one AS one, "A".two AS two{space}
 FROM "A") AS "A"{space}
-WHERE "A".one > ?"""
+WHERE "A".one > 10"""
     )
 
 
@@ -215,7 +226,7 @@ def test_get_select_for_node_groupby(mocker: MockerFixture) -> None:
     space = " "
 
     assert (
-        str(get_select_for_node(child, database))
+        query_to_string(get_select_for_node(child, database))
         == f"""SELECT "A".one AS one_1, max("A".two) AS max_1{space}
 FROM (SELECT "A".one AS one, "A".two AS two{space}
 FROM "A") AS "A" GROUP BY "A".one"""
@@ -256,9 +267,9 @@ def test_get_select_for_node_limit(mocker: MockerFixture) -> None:
     space = " "
 
     assert (
-        str(get_select_for_node(child, database))
+        query_to_string(get_select_for_node(child, database))
         == f"""SELECT "A".one AS one_1, max("A".two) AS max_1{space}
 FROM (SELECT "A".one AS one, "A".two AS two{space}
 FROM "A") AS "A"
- LIMIT ? OFFSET ?"""
+ LIMIT 10 OFFSET 0"""
     )
