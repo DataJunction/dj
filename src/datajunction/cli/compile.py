@@ -132,7 +132,7 @@ async def index_nodes(  # pylint: disable=too-many-locals
 
     We first compute the schema of source nodes, since they are simply fetched from the
     database using SQLAlchemy. After that we compute the schema of downstream nodes, as
-    the schema of source nodes become available.
+    the schemas of source nodes become available.
     """
     directory = repository / "nodes"
 
