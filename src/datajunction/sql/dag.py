@@ -58,6 +58,9 @@ def build_asciidag(
 def get_computable_databases(node: Node) -> Set[Database]:
     """
     Return all the databases where a given node can be computed.
+
+    TODO (betodealmeida): this should also take into consideration the node expression,
+    since some of the columns might not be present in all databases.
     """
     # add all the databases where the node is explicitly materialized
     databases = {table.database for table in node.tables}

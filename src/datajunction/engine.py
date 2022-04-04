@@ -1,24 +1,173 @@
 """
 Query related functions.
 """
+import ast
+import operator
+import re
 from datetime import datetime, timezone
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
 import sqlparse
 from sqlalchemy import text
-from sqlmodel import Session, create_engine
+from sqlalchemy.engine import create_engine as sqla_create_engine
+from sqlalchemy.schema import Column as SqlaColumn
+from sqlalchemy.sql.elements import BinaryExpression
+from sqlmodel import Session, create_engine, select
+from sqloxide import parse_sql
 
 from datajunction.config import Settings
+from datajunction.models.node import Node
 from datajunction.models.query import (
     ColumnMetadata,
     Query,
+    QueryCreate,
     QueryResults,
     QueryState,
     QueryWithResults,
     StatementResults,
     TypeEnum,
 )
+from datajunction.sql.dag import get_computable_databases
+from datajunction.sql.parse import (
+    find_nodes_by_key,
+    get_expression_from_projection,
+    is_metric,
+)
+from datajunction.sql.transpile import get_query, get_select_for_node
 from datajunction.typing import Description, SQLADialect, Stream
+from datajunction.utils import get_session
+
+FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
+COMPARISONS = {
+    ">": operator.gt,
+    ">=": operator.ge,
+    "<": operator.lt,
+    "<=": operator.le,
+    "=": operator.eq,
+    "!=": operator.ne,
+}
+
+
+def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression:
+    """
+    Build a SQLAlchemy filter.
+    """
+    match = FILTER_RE.match(filter_)
+    if not match:
+        raise Exception(f"Invalid filter: {filter_}")
+
+    name, op, value = match.groups()  # pylint: disable=invalid-name
+
+    if name not in columns:
+        raise Exception(f"Invalid column name: {name}")
+    column = columns[name]
+
+    if op not in COMPARISONS:
+        valid = ", ".join(COMPARISONS)
+        raise Exception(f"Invalid operation: {op} (valid: {valid})")
+    comparison = COMPARISONS[op]
+
+    try:
+        value = ast.literal_eval(value)
+    except Exception as ex:
+        raise Exception(f"Invalid value: {value}") from ex
+
+    return comparison(column, value)
+
+
+def get_query_for_node(
+    node: Node,
+    groupbys: List[str],
+    filters: List[str],
+) -> QueryCreate:
+    """
+    Return a DJ QueryCreate object from a given node.
+    """
+    databases = get_computable_databases(node)
+    if not databases:
+        raise Exception(f"Unable to compute {node.name} (no common database)")
+    database = sorted(databases, key=operator.attrgetter("cost"))[0]
+
+    engine = sqla_create_engine(database.URI)
+    node_select = get_select_for_node(node, database)
+
+    columns = {
+        f"{from_.name}/{column.name}": column
+        for from_ in node_select.froms
+        for column in from_.columns
+    }
+    node_select = node_select.filter(
+        *[get_filter(columns, filter_) for filter_ in filters]
+    ).group_by(*[columns[groupby] for groupby in groupbys])
+
+    sql = str(node_select.compile(engine, compile_kwargs={"literal_binds": True}))
+
+    return QueryCreate(database_id=database.id, submitted_query=sql)
+
+
+def get_query_for_sql(sql: str) -> QueryCreate:
+    """
+    Return a query given a SQL expression querying the repo.
+
+    Eg:
+
+        SELECT "core.num_comments" FROM metrics
+        WHERE "core.comments"."user_id" > 1
+        GROUP BY "core.comments".user_id
+
+    TODO (betodealmeida): support multiple metrics.
+    TODO (betodealmeida): ensure that all metrics are from the same source?
+    """
+    session = next(get_session())
+    tree = parse_sql(sql, dialect="ansi")
+
+    new_from = []
+    new_projection = []
+
+    projection = next(find_nodes_by_key(tree, "projection"))
+    if (len(projection)) != 1:
+        raise NotImplementedError("Currently exactly a single metric is supported")
+
+    # replace projection with metric definition
+    for expression in projection:
+        expression = get_expression_from_projection(expression)
+        name = expression["Identifier"]["value"]
+
+        node = session.exec(select(Node).where(Node.name == name)).one()
+        if not node.expression or not is_metric(node.expression):
+            raise Exception(f"Not a valid metric: {name}")
+
+        subtree = parse_sql(node.expression, dialect="ansi")
+        new_projection.append(
+            {
+                "ExprWithAlias": {
+                    "alias": {
+                        "quote_style": '"',
+                        "value": name,  # TODO check if there's already an alias
+                    },
+                    "expr": get_expression_from_projection(
+                        subtree[0]["Query"]["body"]["Select"]["projection"][0],
+                    ),
+                },
+            },
+        )
+        new_from.append(subtree[0]["Query"]["body"]["Select"]["from"])
+
+    # TODO (betodealmeida): replace references in WHERE/GROUP BY as well
+    tree[0]["Query"]["body"]["Select"].update(
+        {"from": new_from, "projection": new_projection},
+    )
+
+    databases = get_computable_databases(node)
+    if not databases:
+        raise Exception(f"Unable to compute {node.name} (no common database)")
+    database = sorted(databases, key=operator.attrgetter("cost"))[0]
+
+    query = get_query(tree, node.parents, database)
+    engine = sqla_create_engine(database.URI)
+    sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
+
+    return QueryCreate(database_id=database.id, submitted_query=sql)
 
 
 def get_columns_from_description(
