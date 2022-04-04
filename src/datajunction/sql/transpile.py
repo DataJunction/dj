@@ -34,6 +34,11 @@ from datajunction.typing import (
 
 OPERATIONS = {
     "Gt": operator.gt,
+    "GtEq": operator.ge,
+    "Lt": operator.lt,
+    "LtEq": operator.le,
+    "Eq": operator.eq,
+    "NotEq": operator.ne,
 }
 
 
