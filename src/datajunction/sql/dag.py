@@ -2,14 +2,17 @@
 DAG related functions.
 """
 
+from collections import defaultdict
 from io import StringIO
-from typing import Any, Dict, Set
+from typing import Any, Dict, List, Optional, Set
 
 import asciidag.graph
 import asciidag.node
+from sqloxide import parse_sql
 
 from datajunction.models.database import Database
 from datajunction.models.node import Node
+from datajunction.sql.parse import find_nodes_by_key
 
 
 def render_dag(dependencies: Dict[str, Set[str]], **kwargs: Any) -> str:
@@ -55,19 +58,74 @@ def build_asciidag(
     return asciidag_node
 
 
-def get_computable_databases(node: Node) -> Set[Database]:
+def get_computable_databases(
+    node: Node,
+    columns: Optional[Set[str]] = None,
+) -> Set[Database]:
     """
     Return all the databases where a given node can be computed.
 
-    TODO (betodealmeida): this should also take into consideration the node expression,
-    since some of the columns might not be present in all databases.
+    This takes into consideration the node expression, since some of the columns might
+    not be present in all databases.
     """
-    # add all the databases where the node is explicitly materialized
-    databases = {table.database for table in node.tables}
+    columns = columns or set()
 
-    # add all the databases that are common between the parents
+    # add all the databases where the node is explicitly materialized
+    tables = [
+        table
+        for table in node.tables
+        if columns <= {column.name for column in table.columns}
+    ]
+    databases = {table.database for table in tables}
+
+    # add all the databases that are common between the parents and match all the columns
+    referenced_columns = get_referenced_columns(node.expression, node.parents)
     if node.parents:
-        parent_databases = [get_computable_databases(parent) for parent in node.parents]
+        parent_databases = [
+            get_computable_databases(parent, referenced_columns[parent.name])
+            for parent in node.parents
+        ]
         databases |= set.intersection(*parent_databases)
 
     return databases
+
+
+def get_referenced_columns(
+    sql: Optional[str],
+    parents: List[Node],
+) -> Dict[str, Set[str]]:
+    """
+    Given a SQL expression, return the referenced columns.
+
+    Referenced columns are a dictionary mapping parent name to column name(s).
+    """
+    referenced_columns: Dict[str, Set[str]] = defaultdict(set)
+    if not sql:
+        return referenced_columns
+
+    parent_columns = {
+        parent.name: {column.name for column in parent.columns} for parent in parents
+    }
+
+    tree = parse_sql(sql, dialect="ansi")
+
+    # compound identifers are fully qualified
+    for compound_identifier in find_nodes_by_key(tree, "CompoundIdentifier"):
+        parent = ".".join(part["value"] for part in compound_identifier[:-1])
+        column = compound_identifier[-1]["value"]
+        referenced_columns[parent].add(column)
+
+    # for regular identifiers we need to figure out which parent the columns belongs to
+    for identifier in find_nodes_by_key(tree, "Identifier"):
+        column = identifier["value"]
+        candidates = [
+            parent for parent, columns in parent_columns.items() if column in columns
+        ]
+        if not candidates:
+            raise Exception(f"Column {column} not found in any parent")
+        if len(candidates) > 1:
+            raise Exception(f"Column {column} is ambiguous")
+        parent = candidates[0]
+        referenced_columns[parent].add(column)
+
+    return referenced_columns
