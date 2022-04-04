@@ -7,6 +7,7 @@ from typing import Any, Iterator, Set
 from sqloxide import parse_sql
 
 from datajunction.sql.functions import function_registry
+from datajunction.typing import Expression, Projection
 
 
 def find_nodes_by_key(element: Any, target: str) -> Iterator[Any]:
@@ -36,6 +37,18 @@ def get_dependencies(sql: str) -> Set[str]:
     }
 
 
+def get_expression_from_projection(projection: Projection) -> Expression:
+    """
+    Return an expression from a projection, handling aliases.
+    """
+    if "UnnamedExpr" in projection:
+        return projection["UnnamedExpr"]
+    if "ExprWithAlias" in projection:
+        return projection["ExprWithAlias"]["expr"]
+
+    raise NotImplementedError(f"Unable to handle expression: {projection}")
+
+
 def is_metric(sql: str) -> bool:
     """
     Return if a SQL expression defines a metric.
@@ -52,13 +65,7 @@ def is_metric(sql: str) -> bool:
         return False
 
     # must be a function
-    expression = expressions[0]
-    if "UnnamedExpr" in expression:
-        expression = expression["UnnamedExpr"]
-    elif "ExprWithAlias" in expression:
-        expression = expression["ExprWithAlias"]["expr"]
-    else:
-        raise NotImplementedError(f"Unable to handle expression: {expression}")
+    expression = get_expression_from_projection(expressions[0])
     if "Function" not in expression:
         return False
 

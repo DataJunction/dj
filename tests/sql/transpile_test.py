@@ -2,18 +2,13 @@
 Tests for ``datajunction.sql.transpile``.
 """
 
-import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
 
 from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
-from datajunction.sql.transpile import (
-    get_filter,
-    get_query_for_node,
-    get_select_for_node,
-)
+from datajunction.sql.transpile import get_select_for_node
 from datajunction.typing import ColumnType
 
 
@@ -103,7 +98,7 @@ FROM "A") AS "A"'''
     )
 
 
-def test_get_query_projection(mocker: MockerFixture) -> None:
+def test_get_select_for_node_projection(mocker: MockerFixture) -> None:
     """
     Test ``get_select_for_node`` with a column projection.
     """
@@ -144,89 +139,84 @@ FROM "A") AS "A"'''
     )
 
 
-def test_get_query_for_node(mocker: MockerFixture) -> None:
+def test_get_select_for_node_where(mocker: MockerFixture) -> None:
     """
-    Test ``get_query_for_node``.
+    Test ``get_select_for_node`` with a where clause.
     """
-    database_1 = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
-    parent = Node(name="A")
-
-    child = Node(
-        name="B",
+    parent = Node(
+        name="A",
         tables=[
             Table(
-                database=database_1,
-                table="B",
-                columns=[Column(name="cnt", type=ColumnType.INT)],
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
             ),
         ],
-        expression="SELECT COUNT(*) AS cnt FROM A",
-        parents=[parent],
     )
 
-    engine = create_engine(database_1.URI)
+    engine = create_engine(database.URI)
     connection = engine.connect()
-    connection.execute("CREATE TABLE B (cnt INTEGER)")
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
 
-    create_query = get_query_for_node(child, [], [])
-    assert create_query.database_id == 1
-    assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
-
-
-def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
-    """
-    Test ``get_query_for_node``.
-    """
-    database_1 = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
-
-    parent = Node(name="A")
-
     child = Node(
         name="B",
-        tables=[
-            Table(
-                database=database_1,
-                table="B",
-                columns=[Column(name="one", type=ColumnType.STR)],
-            ),
-        ],
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        expression="SELECT one, MAX(two), 3, 4.0, 'five' FROM A WHERE one > 10",
         parents=[parent],
     )
 
-    mocker.patch("datajunction.sql.transpile.get_computable_databases", return_value=[])
+    space = " "
 
-    with pytest.raises(Exception) as excinfo:
-        get_query_for_node(child, [], [])
-    assert str(excinfo.value) == "Unable to compute B (no common database)"
+    assert (
+        str(get_select_for_node(child, database))
+        == f"""SELECT "A".one AS one_1, max("A".two) AS max_1, 3, 4.0, five{space}
+FROM (SELECT "A".one AS one, "A".two AS two{space}
+FROM "A") AS "A"{space}
+WHERE "A".one > ?"""
+    )
 
 
-def test_get_filter(mocker: MockerFixture) -> None:
+def test_get_select_for_node_groupby(mocker: MockerFixture) -> None:
     """
-    Test ``get_filter``.
+    Test ``get_select_for_node`` with a group by clause.
     """
-    greater_than = mocker.MagicMock()
-    mocker.patch("datajunction.sql.transpile.COMPARISONS", new={">": greater_than})
-    column_a = mocker.MagicMock()
-    columns = {"a": column_a}
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
-    get_filter(columns, "a>0")
-    greater_than.assert_called_with(column_a, 0)
+    parent = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
 
-    with pytest.raises(Exception) as excinfo:
-        get_filter(columns, "invalid")
-    assert str(excinfo.value) == "Invalid filter: invalid"
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
 
-    with pytest.raises(Exception) as excinfo:
-        get_filter(columns, "b>0")
-    assert str(excinfo.value) == "Invalid column name: b"
+    child = Node(
+        name="B",
+        expression="SELECT one, MAX(two) FROM A GROUP BY one",
+        parents=[parent],
+    )
 
-    with pytest.raises(Exception) as excinfo:
-        get_filter(columns, "a>=0")
-    assert str(excinfo.value) == "Invalid operation: >= (valid: >)"
+    space = " "
 
-    with pytest.raises(Exception) as excinfo:
-        get_filter(columns, "a>open('/etc/passwd').read()")
-    assert str(excinfo.value) == "Invalid value: open('/etc/passwd').read()"
+    assert (
+        str(get_select_for_node(child, database))
+        == f"""SELECT "A".one AS one_1, max("A".two) AS max_1{space}
+FROM (SELECT "A".one AS one, "A".two AS two{space}
+FROM "A") AS "A" GROUP BY "A".one"""
+    )
