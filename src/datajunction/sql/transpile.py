@@ -46,11 +46,12 @@ def get_select_for_node(node: Node, database: Database) -> Select:
     """
     Build a SQLAlchemy ``select()`` for a given node.
     """
+    engine = create_engine(database.URI)
+
     # if the node is materialized we use the table with the cheapest cost
     tables = [table for table in node.tables if table.database == database]
     if tables:
         table = sorted(tables, key=operator.attrgetter("cost"))[0]
-        engine = create_engine(table.database.URI)
         materialized_table = Table(
             table.table,
             MetaData(bind=engine),
@@ -60,30 +61,35 @@ def get_select_for_node(node: Node, database: Database) -> Select:
         return select(materialized_table)
 
     tree = parse_sql(node.expression, dialect="ansi")
-    return get_query(tree, node.parents, database)
+    return get_query(tree, node.parents, database, engine.dialect.name)
 
 
-def get_query(tree: ParseTree, parents: List[Node], database: Database) -> Select:
+def get_query(
+    tree: ParseTree,
+    parents: List[Node],
+    database: Database,
+    dialect: Optional[str] = None,
+) -> Select:
     """
     Build a SQLAlchemy query.
     """
     # SELECT ... FROM ...
-    source = get_source(parents, database, tree)
-    projection = get_projection(tree, source)
+    source = get_source(parents, database, tree, dialect)
+    projection = get_projection(tree, source, dialect)
     query = projection.select_from(source)
 
     # WHERE ...
-    selection = get_selection(tree, source)
+    selection = get_selection(tree, source, dialect)
     if selection is not None:
         query = query.filter(selection)
 
     # GROUP BY ...
-    groupby = get_groupby(tree, source)
+    groupby = get_groupby(tree, source, dialect)
     if groupby:
         query = query.group_by(*groupby)
 
     # LIMIT ...
-    limit = get_limit(tree, source)
+    limit = get_limit(tree, source, dialect)
     if limit:
         query = query.limit(limit)
 
@@ -92,7 +98,11 @@ def get_query(tree: ParseTree, parents: List[Node], database: Database) -> Selec
     return query
 
 
-def get_limit(tree: ParseTree, source: Select) -> Optional[int]:
+def get_limit(
+    tree: ParseTree,
+    source: Select,
+    dialect: Optional[str] = None,
+) -> Optional[int]:
     """
     Return the ``LIMIT`` of a query.
     """
@@ -100,20 +110,25 @@ def get_limit(tree: ParseTree, source: Select) -> Optional[int]:
     if limit is None:
         return None
 
-    return cast(int, get_expression(limit, source))
+    return cast(int, get_expression(limit, source, dialect))
 
 
-def get_groupby(tree: ParseTree, source: Select) -> List[Any]:
+def get_groupby(
+    tree: ParseTree,
+    source: Select,
+    dialect: Optional[str] = None,
+) -> List[Any]:
     """
     Build the ``GROUP BY`` clause of a query.
     """
     groupby = next(find_nodes_by_key(tree, "group_by"))
-    return [get_expression(expression, source) for expression in groupby]
+    return [get_expression(expression, source, dialect) for expression in groupby]
 
 
 def get_selection(
     tree: ParseTree,
     source: Select,
+    dialect: Optional[str] = None,
 ) -> Union[SqlaFunction, SqlaColumn, ClauseElement, int, float, str, text, None]:
     """
     Build the ``WHERE`` clause of a query.
@@ -122,15 +137,19 @@ def get_selection(
     if not selection:
         return None
 
-    return get_expression(selection, source)
+    return get_expression(selection, source, dialect)
 
 
-def get_binary_op(selection: BinaryOp, source: Select) -> ClauseElement:
+def get_binary_op(
+    selection: BinaryOp,
+    source: Select,
+    dialect: Optional[str] = None,
+) -> ClauseElement:
     """
     Build a binary operation (eg, >).
     """
-    left = get_expression(selection["left"], source)
-    right = get_expression(selection["right"], source)
+    left = get_expression(selection["left"], source, dialect)
+    right = get_expression(selection["right"], source, dialect)
     op = selection["op"]  # pylint: disable=invalid-name
 
     if op not in OPERATIONS:
@@ -139,7 +158,11 @@ def get_binary_op(selection: BinaryOp, source: Select) -> ClauseElement:
     return OPERATIONS[op](left, right)
 
 
-def get_projection(tree: ParseTree, source: Select) -> Select:
+def get_projection(
+    tree: ParseTree,
+    source: Select,
+    dialect: Optional[str] = None,
+) -> Select:
     """
     Build the ``SELECT`` part of a query.
     """
@@ -155,7 +178,7 @@ def get_projection(tree: ParseTree, source: Select) -> Select:
         else:
             raise NotImplementedError(f"Unable to handle expression: {expression}")
 
-        expression = get_expression(expression, source)
+        expression = get_expression(expression, source, dialect)
         if hasattr(expression, "label"):
             expression = expression.label(alias)
         expressions.append(expression)
@@ -166,18 +189,19 @@ def get_projection(tree: ParseTree, source: Select) -> Select:
 def get_expression(
     expression: Expression,
     source: Select,
+    dialect: Optional[str] = None,
 ) -> Union[SqlaFunction, SqlaColumn, ClauseElement, int, float, str, text]:
     """
     Build an expression.
     """
     if "Function" in expression:
-        return get_function(expression["Function"], source)
+        return get_function(expression["Function"], source, dialect)
     if "Identifier" in expression:
-        return get_identifier(expression["Identifier"], source)
+        return get_identifier(expression["Identifier"], source, dialect)
     if "Value" in expression:
-        return get_value(expression["Value"], source)
+        return get_value(expression["Value"], source, dialect)
     if "BinaryOp" in expression:
-        return get_binary_op(expression["BinaryOp"], source)
+        return get_binary_op(expression["BinaryOp"], source, dialect)
     if expression == "Wildcard":
         return "*"
     raise NotImplementedError(f"Unable to handle expression: {expression}")
@@ -186,22 +210,23 @@ def get_expression(
 def get_function(
     function: Function,
     source: Select,
+    dialect: Optional[str] = None,
 ) -> SqlaFunction:
     """
     Build a function.
     """
     name = function["name"][0]["value"]
     args = function["args"]
-    evaluated_args = [get_expression(arg["Unnamed"], source) for arg in args]
+    evaluated_args = [get_expression(arg["Unnamed"], source, dialect) for arg in args]
     func = function_registry[name.upper()]
 
-    # TODO (betodealmeida): pass dialect
-    return func.get_sqla_function(*evaluated_args)
+    return func.get_sqla_function(*evaluated_args, dialect=dialect)
 
 
 def get_identifier(
     identifier: Identifier,
     source: Select,
+    dialect: Optional[str] = None,
 ) -> SqlaColumn:
     """
     Build a column.
@@ -212,6 +237,7 @@ def get_identifier(
 def get_value(
     value: Value,
     source: Select,
+    dialect: Optional[str] = None,
 ) -> Union[int, float, text]:
     """
     Build a value.
@@ -231,6 +257,7 @@ def get_source(
     parents: List[Node],
     database: Database,
     tree: ParseTree,  # pylint: disable=unused-argument
+    dialect: Optional[str] = None,
 ) -> Select:
     """
     Build the ``FROM`` part of a query.
