@@ -1,18 +1,27 @@
 """
 Tests for ``datajunction.engine``.
 """
+# pylint: disable=invalid-name
 
+import pytest
 from pytest_mock import MockerFixture
+from sqlalchemy.engine import create_engine
+from sqlmodel import Session
 
 from datajunction.engine import (
     ColumnMetadata,
     Description,
     TypeEnum,
     get_columns_from_description,
+    get_filter,
+    get_query_for_node,
+    get_query_for_sql,
     run_query,
 )
-from datajunction.models.database import Database
+from datajunction.models.database import Column, Database, Table
+from datajunction.models.node import Node
 from datajunction.models.query import Query
+from datajunction.typing import ColumnType
 
 
 def test_get_columns_from_description(mocker: MockerFixture) -> None:
@@ -56,3 +65,206 @@ def test_run_query() -> None:
     assert sql == "SELECT 1"
     assert columns == [ColumnMetadata(name="1", type=TypeEnum.STRING)]
     assert list(stream) == [(1,)]
+
+
+def test_get_query_for_node(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node``.
+    """
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    parent = Node(name="A")
+
+    child = Node(
+        name="B",
+        tables=[
+            Table(
+                database=database,
+                table="B",
+                columns=[Column(name="cnt", type=ColumnType.INT)],
+            ),
+        ],
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[parent],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE B (cnt INTEGER)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    create_query = get_query_for_node(child, [], [])
+    assert create_query.database_id == 1
+    assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
+
+
+def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node``.
+    """
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    parent = Node(name="A")
+
+    child = Node(
+        name="B",
+        tables=[
+            Table(
+                database=database,
+                table="B",
+                columns=[Column(name="one", type=ColumnType.STR)],
+            ),
+        ],
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[parent],
+    )
+
+    mocker.patch("datajunction.engine.get_computable_databases", return_value=[])
+
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_node(child, [], [])
+    assert str(excinfo.value) == "Unable to compute B (no common database)"
+
+
+def test_get_filter(mocker: MockerFixture) -> None:
+    """
+    Test ``get_filter``.
+    """
+    greater_than = mocker.MagicMock()
+    mocker.patch("datajunction.engine.COMPARISONS", new={">": greater_than})
+    column_a = mocker.MagicMock()
+    columns = {"a": column_a}
+
+    get_filter(columns, "a>0")
+    greater_than.assert_called_with(column_a, 0)
+
+    with pytest.raises(Exception) as excinfo:
+        get_filter(columns, "invalid")
+    assert str(excinfo.value) == "Invalid filter: invalid"
+
+    with pytest.raises(Exception) as excinfo:
+        get_filter(columns, "b>0")
+    assert str(excinfo.value) == "Invalid column name: b"
+
+    with pytest.raises(Exception) as excinfo:
+        get_filter(columns, "a>=0")
+    assert str(excinfo.value) == "Invalid operation: >= (valid: >)"
+
+    with pytest.raises(Exception) as excinfo:
+        get_filter(columns, "a>open('/etc/passwd').read()")
+    assert str(excinfo.value) == "Invalid value: open('/etc/passwd').read()"
+
+
+def test_get_query_for_sql(mocker: MockerFixture, session: Session) -> None:
+    """
+    Test ``get_query_for_sql``.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    A = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    B = Node(
+        name="B",
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[A],
+    )
+    session.add(B)
+    session.commit()
+
+    sql = "SELECT B FROM metrics"
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+
+    space = " "
+    assert (
+        create_query.submitted_query
+        == f'''SELECT count('*') AS "B"{space}
+FROM (SELECT "A".one AS one, "A".two AS two{space}
+FROM "A") AS "A"'''
+    )
+
+
+def test_get_query_for_sql_not_metric(mocker: MockerFixture, session: Session) -> None:
+    """
+    Test ``get_query_for_sql`` when the projection is not a metric node.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    A = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    B = Node(
+        name="B",
+        expression="SELECT one FROM A",
+        parents=[A],
+    )
+    session.add(B)
+    session.commit()
+
+    sql = "SELECT B FROM metrics"
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_sql(sql)
+    assert str(excinfo.value) == "Not a valid metric: B"
+
+
+def test_get_query_for_sql_no_databases(
+    mocker: MockerFixture, session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` when no common databases are found.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    A = Node(
+        name="A",
+        tables=[],
+    )
+
+    B = Node(
+        name="B",
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[A],
+    )
+    session.add(B)
+    session.commit()
+
+    sql = "SELECT B FROM metrics"
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_sql(sql)
+    assert str(excinfo.value) == "Unable to compute B (no common database)"
