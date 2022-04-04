@@ -26,8 +26,8 @@
 - [X] Allow filtering in metrics API
 - [ ] Allow metrics to be queried via SQL
 - [ ] Handle columns with database-specific names (`__timestamp` in Druid, eg)
-- [ ] Limit results
 - [ ] Write columns back to YAML -> way to add column metadata (dimension and more)
+- [ ] Limit results
 - [ ] Optimize data transfer (delta-of-delta for timeseries, msgpack?)
 - [ ] Compute statistics on columns (histogram, correlation)
 - [ ] Move data on JOINs based on column statistics
