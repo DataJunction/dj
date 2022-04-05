@@ -133,14 +133,18 @@ def test_get_referenced_columns() -> None:
     )
 
     assert get_referenced_columns("SELECT core.A.ds FROM core.A", [parent_1]) == {
-        "core.A": {"ds"}
+        "core.A": {"ds"},
     }
     assert get_referenced_columns("SELECT ds FROM core.A", [parent_1]) == {
-        "core.A": {"ds"}
+        "core.A": {"ds"},
     }
-    assert get_referenced_columns(
-        "SELECT ds FROM core.A WHERE user_id > 0", [parent_1]
-    ) == {"core.A": {"ds", "user_id"}}
+    assert (
+        get_referenced_columns(
+            "SELECT ds FROM core.A WHERE user_id > 0",
+            [parent_1],
+        )
+        == {"core.A": {"ds", "user_id"}}
+    )
     assert (
         get_referenced_columns(
             (

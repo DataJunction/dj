@@ -8,7 +8,7 @@ queries which can be then executed in specific databases.
 # pylint: disable=unused-argument, fixme
 
 import operator
-from typing import Any, List, Optional, Union, cast
+from typing import Any, List, Optional, Set, Union, cast
 
 from sqlalchemy import text
 from sqlalchemy.engine import create_engine
@@ -21,6 +21,7 @@ from sqloxide import parse_sql
 
 from datajunction.models.database import Database
 from datajunction.models.node import Node
+from datajunction.sql.dag import get_referenced_columns
 from datajunction.sql.functions import function_registry
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import (
@@ -42,14 +43,25 @@ OPERATIONS = {
 }
 
 
-def get_select_for_node(node: Node, database: Database) -> Select:
+def get_select_for_node(
+    node: Node,
+    database: Database,
+    columns: Optional[Set[str]] = None,
+) -> Select:
     """
     Build a SQLAlchemy ``select()`` for a given node.
     """
+    columns = columns or set()
+
     engine = create_engine(database.URI)
 
     # if the node is materialized we use the table with the cheapest cost
-    tables = [table for table in node.tables if table.database == database]
+    tables = [
+        table
+        for table in node.tables
+        if table.database == database
+        and columns <= {column.name for column in table.columns}
+    ]
     if tables:
         table = sorted(tables, key=operator.attrgetter("cost"))[0]
         materialized_table = Table(
@@ -61,12 +73,12 @@ def get_select_for_node(node: Node, database: Database) -> Select:
         return select(materialized_table)
 
     tree = parse_sql(node.expression, dialect="ansi")
-    return get_query(tree, node.parents, database, engine.dialect.name)
+    return get_query(node, tree, database, engine.dialect.name)
 
 
 def get_query(
+    node: Node,
     tree: ParseTree,
-    parents: List[Node],
     database: Database,
     dialect: Optional[str] = None,
 ) -> Select:
@@ -74,7 +86,7 @@ def get_query(
     Build a SQLAlchemy query.
     """
     # SELECT ... FROM ...
-    source = get_source(parents, database, tree, dialect)
+    source = get_source(node, database, tree, dialect)
     projection = get_projection(tree, source, dialect)
     query = projection.select_from(source)
 
@@ -254,7 +266,7 @@ def get_value(
 
 
 def get_source(
-    parents: List[Node],
+    node: Node,
     database: Database,
     tree: ParseTree,  # pylint: disable=unused-argument
     dialect: Optional[str] = None,
@@ -263,4 +275,8 @@ def get_source(
     Build the ``FROM`` part of a query.
     """
     # For now assume no JOINs or multiple relations
-    return get_select_for_node(parents[0], database).alias(parents[0].name)
+    parent_columns = get_referenced_columns(node.expression, node.parents)
+    parent = node.parents[0]
+    return get_select_for_node(parent, database, parent_columns[parent.name]).alias(
+        parent.name,
+    )

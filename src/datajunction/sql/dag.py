@@ -79,10 +79,10 @@ def get_computable_databases(
     databases = {table.database for table in tables}
 
     # add all the databases that are common between the parents and match all the columns
-    referenced_columns = get_referenced_columns(node.expression, node.parents)
+    parent_columns = get_referenced_columns(node.expression, node.parents)
     if node.parents:
         parent_databases = [
-            get_computable_databases(parent, referenced_columns[parent.name])
+            get_computable_databases(parent, parent_columns[parent.name])
             for parent in node.parents
         ]
         databases |= set.intersection(*parent_databases)
