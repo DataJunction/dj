@@ -205,6 +205,123 @@ FROM "A") AS "A"'''
     )
 
 
+def test_get_query_for_sql_multiple_metrics(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` with multiple metrics.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    A = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    B = Node(
+        name="B",
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[A],
+    )
+    session.add(B)
+    C = Node(
+        name="C",
+        expression="SELECT MAX(one) AS max_one FROM A",
+        parents=[A],
+    )
+    session.add(C)
+    session.commit()
+
+    sql = "SELECT B, C FROM metrics"
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+
+    space = " "
+    assert (
+        create_query.submitted_query
+        == f'''SELECT count('*') AS "B", max("A".one) AS "C"{space}
+FROM (SELECT "A".one AS one, "A".two AS two{space}
+FROM "A") AS "A"'''
+    )
+
+
+def test_get_query_for_sql_different_parents(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` with metrics with different parents.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    A = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+    B = Node(
+        name="B",
+        tables=[
+            Table(
+                database=database,
+                table="B",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+    C = Node(
+        name="C",
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[A],
+    )
+    session.add(C)
+    D = Node(
+        name="D",
+        expression="SELECT MAX(one) AS max_one FROM A",
+        parents=[B],
+    )
+    session.add(D)
+    session.commit()
+
+    sql = "SELECT C, D FROM metrics"
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_sql(sql)
+    assert str(excinfo.value) == "All metrics should have the same parents"
+
+
 def test_get_query_for_sql_not_metric(mocker: MockerFixture, session: Session) -> None:
     """
     Test ``get_query_for_sql`` when the projection is not a metric node.
@@ -268,7 +385,7 @@ def test_get_query_for_sql_no_databases(
     sql = "SELECT B FROM metrics"
     with pytest.raises(Exception) as excinfo:
         get_query_for_sql(sql)
-    assert str(excinfo.value) == "Unable to compute B (no common database)"
+    assert str(excinfo.value) == "Unable to run SQL (no common database)"
 
 
 def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) -> None:
@@ -319,3 +436,109 @@ def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) -> Non
 FROM (SELECT "A".one AS one, "A".two AS two{space}
 FROM "A") AS "A"'''
     )
+
+
+def test_get_query_for_sql_where_groupby(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` with a where and a group by.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    comments = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="comment", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE comments (user_id INT, comment TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    num_comments = Node(
+        name="core.num_comments",
+        expression="SELECT COUNT(*) FROM core.comments",
+        parents=[comments],
+    )
+    session.add(num_comments)
+    session.commit()
+
+    sql = """
+SELECT "core.num_comments" FROM metrics
+WHERE "core.comments.user_id" > 1
+GROUP BY "core.comments.user_id"
+    """
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+
+    space = " "
+    assert (
+        create_query.submitted_query
+        == f"""SELECT count('*') AS "core.num_comments"{space}
+FROM (SELECT comments.user_id AS user_id, comments.comment AS comment{space}
+FROM comments) AS "core.comments"{space}
+WHERE "core.comments".user_id > 1 GROUP BY "core.comments".user_id"""
+    )
+
+
+def test_get_query_for_sql_invalid_column(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` with an invalid column.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    comments = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="comment", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE comments (user_id INT, comment TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    num_comments = Node(
+        name="core.num_comments",
+        expression="SELECT COUNT(*) FROM core.comments",
+        parents=[comments],
+    )
+    session.add(num_comments)
+    session.commit()
+
+    sql = """
+SELECT "core.num_comments" FROM metrics
+WHERE "core.some_other_parent.user_id" > 1
+    """
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_sql(sql)
+    assert str(excinfo.value) == "Invalid identifier: core.some_other_parent"
