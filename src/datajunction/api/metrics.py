@@ -3,7 +3,7 @@ Metric related APIs.
 """
 
 from datetime import datetime
-from typing import Any, List
+from typing import List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlmodel import Session, SQLModel, select
@@ -37,7 +37,7 @@ class Metric(SQLModel):
 
 
 @router.get("/metrics/", response_model=List[Metric])
-def read_metrics(*, session: Session = Depends(get_session)) -> List[Any]:
+def read_metrics(*, session: Session = Depends(get_session)) -> List[Metric]:
     """
     List all available metrics.
     """
@@ -45,7 +45,7 @@ def read_metrics(*, session: Session = Depends(get_session)) -> List[Any]:
         Metric(
             **node.dict(),
             dimensions=[
-                f"{parent.name}/{column.name}"
+                f"{parent.name}.{column.name}"
                 for parent in node.parents
                 for column in parent.columns
             ],
@@ -53,6 +53,22 @@ def read_metrics(*, session: Session = Depends(get_session)) -> List[Any]:
         for node in session.exec(select(Node))
         if node.expression and is_metric(node.expression)
     ]
+
+
+@router.get("/metrics/{node_id}/", response_model=Metric)
+def read_metric(node_id: int, *, session: Session = Depends(get_session)) -> Metric:
+    """
+    Return a metric by ID.
+    """
+    node = session.get(Node, node_id)
+    return Metric(
+        **node.dict(),
+        dimensions=[
+            f"{parent.name}.{column.name}"
+            for parent in node.parents
+            for column in parent.columns
+        ],
+    )
 
 
 @router.get("/metrics/{node_id}/data/", response_model=QueryWithResults)

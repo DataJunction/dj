@@ -9,8 +9,10 @@ from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
+from datajunction.models.database import Column, Table
 from datajunction.models.node import Node
 from datajunction.models.query import Database, QueryCreate, QueryWithResults
+from datajunction.typing import ColumnType
 
 
 def test_read_metrics(session: Session, client: TestClient) -> None:
@@ -32,6 +34,43 @@ def test_read_metrics(session: Session, client: TestClient) -> None:
     assert len(data) == 1
     assert data[0]["name"] == "a-metric"
     assert data[0]["expression"] == "SELECT COUNT(*) FROM my_table"
+
+
+def test_read_metric(session: Session, client: TestClient) -> None:
+    """
+    Test ``GET /metric/{node_id}/``.
+    """
+    parent = Node(
+        name="parent",
+        tables=[
+            Table(
+                database=Database(name="test", URI="sqlite://"),
+                table="A",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="foo", type=ColumnType.FLOAT),
+                ],
+            ),
+        ],
+    )
+
+    child = Node(
+        name="child",
+        expression="SELECT COUNT(*) FROM parent",
+        parents=[parent],
+    )
+
+    session.add(child)
+    session.commit()
+
+    response = client.get("/metrics/1/")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["name"] == "child"
+    assert data["expression"] == "SELECT COUNT(*) FROM parent"
+    assert data["dimensions"] == ["parent.ds", "parent.user_id", "parent.foo"]
 
 
 def test_read_metrics_data(

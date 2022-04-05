@@ -124,10 +124,10 @@ To see the list of available metrics:
         "updated_at": "2022-04-04T16:27:53.374001",
         "expression": "SELECT COUNT(*) FROM core.comments",
         "dimensions": [
-          "core.comments/id",
-          "core.comments/user_id",
-          "core.comments/timestamp",
-          "core.comments/text"
+          "core.comments.id",
+          "core.comments.user_id",
+          "core.comments.timestamp",
+          "core.comments.text"
         ]
       }
     ]
