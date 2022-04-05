@@ -94,7 +94,7 @@ def get_query_for_node(
     node_select = get_select_for_node(node, database)
 
     columns = {
-        f"{from_.name}/{column.name}": column
+        f"{from_.name}.{column.name}": column
         for from_ in node_select.froms
         for column in from_.columns
     }
