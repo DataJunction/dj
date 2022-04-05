@@ -2,7 +2,7 @@
 SQL parsing functions.
 """
 
-from typing import Any, Iterator, Set
+from typing import Any, Iterator, Set, Tuple
 
 from sqloxide import parse_sql
 
@@ -14,15 +14,26 @@ def find_nodes_by_key(element: Any, target: str) -> Iterator[Any]:
     """
     Find all nodes in a SQL tree matching a given key.
     """
+    for node, _ in find_nodes_by_key_with_parent(element, target):
+        yield node
+
+
+def find_nodes_by_key_with_parent(
+    element: Any,
+    target: str,
+) -> Iterator[Tuple[Any, Any]]:
+    """
+    Find all nodes in a SQL tree matching a given key, and their parent.
+    """
     if isinstance(element, list):
         for child in element:
-            yield from find_nodes_by_key(child, target)
+            yield from find_nodes_by_key_with_parent(child, target)
     elif isinstance(element, dict):
         for key, value in element.items():
             if key == target:
-                yield value
+                yield value, element
             else:
-                yield from find_nodes_by_key(value, target)
+                yield from find_nodes_by_key_with_parent(value, target)
 
 
 def get_dependencies(sql: str) -> Set[str]:

@@ -73,11 +73,12 @@ def get_select_for_node(
         return select(materialized_table)
 
     tree = parse_sql(node.expression, dialect="ansi")
-    return get_query(node, tree, database, engine.dialect.name)
+    return get_query(node.expression, node.parents, tree, database, engine.dialect.name)
 
 
 def get_query(
-    node: Node,
+    expression: Optional[str],
+    parents: List[Node],
     tree: ParseTree,
     database: Database,
     dialect: Optional[str] = None,
@@ -86,7 +87,7 @@ def get_query(
     Build a SQLAlchemy query.
     """
     # SELECT ... FROM ...
-    source = get_source(node, database, tree, dialect)
+    source = get_source(expression, parents, database, tree, dialect)
     projection = get_projection(tree, source, dialect)
     query = projection.select_from(source)
 
@@ -210,6 +211,12 @@ def get_expression(
         return get_function(expression["Function"], source, dialect)
     if "Identifier" in expression:
         return get_identifier(expression["Identifier"], source, dialect)
+    if "CompoundIdentifier" in expression:
+        return get_compound_identifier(
+            expression["CompoundIdentifier"],
+            source,
+            dialect,
+        )
     if "Value" in expression:
         return get_value(expression["Value"], source, dialect)
     if "BinaryOp" in expression:
@@ -246,6 +253,19 @@ def get_identifier(
     return getattr(source.columns, identifier["value"])
 
 
+def get_compound_identifier(
+    compound_identifier: List[Identifier],
+    source: Select,
+    dialecet: Optional[str] = None,
+) -> SqlaColumn:
+    """
+    Build a column.
+
+    This assumes the first part of the identifier is ``source``.
+    """
+    return getattr(source.columns, compound_identifier[1]["value"])
+
+
 def get_value(
     value: Value,
     source: Select,
@@ -266,7 +286,8 @@ def get_value(
 
 
 def get_source(
-    node: Node,
+    expression: Optional[str],
+    parents: List[Node],
     database: Database,
     tree: ParseTree,  # pylint: disable=unused-argument
     dialect: Optional[str] = None,
@@ -275,8 +296,8 @@ def get_source(
     Build the ``FROM`` part of a query.
     """
     # For now assume no JOINs or multiple relations
-    parent_columns = get_referenced_columns(node.expression, node.parents)
-    parent = node.parents[0]
+    parent_columns = get_referenced_columns(expression, parents)
+    parent = parents[0]
     return get_select_for_node(parent, database, parent_columns[parent.name]).alias(
         parent.name,
     )

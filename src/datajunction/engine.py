@@ -32,11 +32,19 @@ from datajunction.models.query import (
 from datajunction.sql.dag import get_computable_databases
 from datajunction.sql.parse import (
     find_nodes_by_key,
+    find_nodes_by_key_with_parent,
     get_expression_from_projection,
     is_metric,
 )
 from datajunction.sql.transpile import get_query, get_select_for_node
-from datajunction.typing import Description, SQLADialect, Stream
+from datajunction.typing import (
+    Description,
+    From,
+    Identifier,
+    Projection,
+    SQLADialect,
+    Stream,
+)
 from datajunction.utils import get_session
 
 FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
@@ -107,48 +115,96 @@ def get_query_for_node(
     return QueryCreate(database_id=database.id, submitted_query=sql)
 
 
-def get_query_for_sql(sql: str) -> QueryCreate:
+def get_query_for_sql(sql: str) -> QueryCreate:  # pylint: disable=too-many-locals
     """
     Return a query given a SQL expression querying the repo.
 
     Eg:
 
         SELECT "core.num_comments" FROM metrics
-        WHERE "core.comments"."user_id" > 1
-        GROUP BY "core.comments".user_id
+        WHERE "core.comments.user_id" > 1
+        GROUP BY "core.comments.user_id"
 
-    TODO (betodealmeida): support multiple metrics.
-    TODO (betodealmeida): ensure that all metrics are from the same source?
+    """
+    tree = parse_sql(sql, dialect="ansi")
+    query_select = tree[0]["Query"]["body"]["Select"]
+
+    # all metrics should share the same parent(s)
+    parents: List[Node] = []
+
+    # replace projection with metric definition(s)
+    projection = next(find_nodes_by_key(tree, "projection"))
+    new_projection, new_from = get_new_projection_and_from(projection, parents)
+    query_select.update({"from": new_from, "projection": new_projection})
+
+    # update ``FILTER``, ``GROUP BY``, and ``SORT BY``
+    for part in ("selection", "group_by", "sort_by"):
+        for identifier, parent in list(
+            find_nodes_by_key_with_parent(query_select[part], "Identifier"),
+        ):
+            name, column = identifier["value"].rsplit(".", 1)
+            if name not in {parent.name for parent in parents}:
+                raise Exception(f"Invalid identifier: {name}")
+
+            parent.pop("Identifier")
+            parent["CompoundIdentifier"] = [
+                {"quote_style": '"', "value": name},
+                {"quote_style": '"', "value": column},
+            ]
+
+    databases = set.intersection(
+        *[get_computable_databases(parent) for parent in parents]
+    )
+    if not databases:
+        raise Exception("Unable to run SQL (no common database)")
+    database = sorted(databases, key=operator.attrgetter("cost"))[0]
+
+    query = get_query(None, parents, tree, database)
+    engine = sqla_create_engine(database.URI)
+    sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
+
+    return QueryCreate(database_id=database.id, submitted_query=sql)
+
+
+def get_new_projection_and_from(
+    projection: List[Projection],
+    parents: List[Node],
+) -> Tuple[List[Projection], List[From]]:
+    """
+    Replace node references in the ``SELECT`` clause and updte ``FROM`` clause.
+
+    Node names in the ``SELECT`` clause are replaced by the corresponding node expression
+    (only the ``SELECT`` part), while the ``FROM`` clause is updated to point to the
+    node parent(s).
+
+    This assumes that all nodes referenced in the ``SELECT`` share the same parents.
     """
     session = next(get_session())
-    tree = parse_sql(sql, dialect="ansi")
 
-    new_from = []
-    new_projection = []
-
-    projection = next(find_nodes_by_key(tree, "projection"))
-    if (len(projection)) != 1:
-        raise NotImplementedError("Currently exactly a single metric is supported")
-
-    # replace projection with metric definition
+    new_from: List[From] = []
+    new_projection: List[Projection] = []
     for expression in projection:
+        # TODO (betodealmeida): this should ignore non-identifiers
+        alias: Identifier
         if "UnnamedExpr" in expression:
-            expression = expression["UnnamedExpr"]
-            name = expression["Identifier"]["value"]
+            name = expression["UnnamedExpr"]["Identifier"]["value"]
             alias = {
                 "quote_style": '"',
                 "value": name,
             }
         elif "ExprWithAlias" in expression:
             alias = expression["ExprWithAlias"]["alias"]
-            expression = expression["ExprWithAlias"]["expr"]
-            name = expression["Identifier"]["value"]
+            name = expression["ExprWithAlias"]["expr"]["Identifier"]["value"]
         else:
             raise NotImplementedError(f"Unable to handle expression: {expression}")
 
         node = session.exec(select(Node).where(Node.name == name)).one()
         if not node.expression or not is_metric(node.expression):
             raise Exception(f"Not a valid metric: {name}")
+        if not parents:
+            parents.extend(node.parents)
+        elif set(parents) != set(node.parents):
+            raise Exception("All metrics should have the same parents")
 
         subtree = parse_sql(node.expression, dialect="ansi")
         new_projection.append(
@@ -161,23 +217,11 @@ def get_query_for_sql(sql: str) -> QueryCreate:
                 },
             },
         )
-        new_from.append(subtree[0]["Query"]["body"]["Select"]["from"])
 
-    # TODO (betodealmeida): replace references in WHERE/GROUP BY as well
-    tree[0]["Query"]["body"]["Select"].update(
-        {"from": new_from, "projection": new_projection},
-    )
+        if not new_from:
+            new_from.append(subtree[0]["Query"]["body"]["Select"]["from"])
 
-    databases = get_computable_databases(node)
-    if not databases:
-        raise Exception(f"Unable to compute {node.name} (no common database)")
-    database = sorted(databases, key=operator.attrgetter("cost"))[0]
-
-    query = get_query(node, tree, database)
-    engine = sqla_create_engine(database.URI)
-    sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
-
-    return QueryCreate(database_id=database.id, submitted_query=sql)
+    return new_projection, new_from
 
 
 def get_columns_from_description(
