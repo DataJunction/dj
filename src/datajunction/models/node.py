@@ -139,3 +139,6 @@ class Node(SQLModel, table=True):  # type: ignore
                 i += 1
 
         return columns
+
+    def __hash__(self):
+        return hash(self.id)
