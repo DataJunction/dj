@@ -56,31 +56,33 @@ def test_get_select_for_node_not_materialized(mocker: MockerFixture) -> None:
     """
     Test ``get_select_for_node`` when the node is not materialized.
     """
-    database_1 = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
-    database_2 = Database(id=2, name="fast", URI="sqlite://", cost=0.1)
+    database = Database(id=1, name="db", URI="sqlite://")
 
     parent = Node(
         name="A",
         tables=[
             Table(
-                database=database_1,
-                table="A",
+                database=database,
+                table="A_slow",
                 columns=[
                     Column(name="one", type=ColumnType.STR),
                     Column(name="two", type=ColumnType.STR),
                 ],
+                cost=1,
             ),
             Table(
-                database=database_2,
-                table="A",
+                database=database,
+                table="A_fast",
                 columns=[Column(name="one", type=ColumnType.STR)],
+                cost=0.1,
             ),
         ],
     )
 
-    engine = create_engine(database_1.URI)
+    engine = create_engine(database.URI)
     connection = engine.connect()
-    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    connection.execute("CREATE TABLE A_slow (one TEXT, two TEXT)")
+    connection.execute("CREATE TABLE A_fast (one TEXT)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
 
     child = Node(
@@ -92,20 +94,70 @@ def test_get_select_for_node_not_materialized(mocker: MockerFixture) -> None:
     space = " "
 
     assert (
-        query_to_string(get_select_for_node(child, database_1))
+        query_to_string(get_select_for_node(child, database))
         == f'''SELECT count('*') AS cnt{space}
-FROM (SELECT "A".one AS one, "A".two AS two{space}
-FROM "A") AS "A"'''
+FROM (SELECT "A_fast".one AS one{space}
+FROM "A_fast") AS "A"'''
     )
 
     # unnamed expression
     child.expression = "SELECT COUNT(*) FROM A"
 
     assert (
-        query_to_string(get_select_for_node(child, database_1))
+        query_to_string(get_select_for_node(child, database))
         == f'''SELECT count('*') AS count_1{space}
-FROM (SELECT "A".one AS one, "A".two AS two{space}
-FROM "A") AS "A"'''
+FROM (SELECT "A_fast".one AS one{space}
+FROM "A_fast") AS "A"'''
+    )
+
+
+def test_get_select_for_node_choose_slow(mocker: MockerFixture) -> None:
+    """
+    Test ``get_select_for_node`` when the slow table has the columns needed.
+    """
+    database = Database(id=1, name="db", URI="sqlite://")
+
+    parent = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A_slow",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+                cost=1,
+            ),
+            Table(
+                database=database,
+                table="A_fast",
+                columns=[Column(name="one", type=ColumnType.STR)],
+                cost=0.1,
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A_slow (one TEXT, two TEXT)")
+    connection.execute("CREATE TABLE A_fast (one TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    child = Node(
+        name="B",
+        expression="SELECT COUNT(*) AS cnt FROM A WHERE two = 'test'",
+        parents=[parent],
+    )
+
+    space = " "
+
+    assert (
+        query_to_string(get_select_for_node(child, database))
+        == f"""SELECT count('*') AS cnt{space}
+FROM (SELECT "A_slow".one AS one, "A_slow".two AS two{space}
+FROM "A_slow") AS "A"{space}
+WHERE "A".two = test"""
     )
 
 

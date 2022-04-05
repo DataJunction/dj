@@ -1,6 +1,8 @@
 """
 Query related functions.
 """
+# pylint: disable=fixme
+
 import ast
 import operator
 import re
@@ -171,7 +173,7 @@ def get_query_for_sql(sql: str) -> QueryCreate:
         raise Exception(f"Unable to compute {node.name} (no common database)")
     database = sorted(databases, key=operator.attrgetter("cost"))[0]
 
-    query = get_query(tree, node.parents, database)
+    query = get_query(node, tree, database)
     engine = sqla_create_engine(database.URI)
     sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
 
