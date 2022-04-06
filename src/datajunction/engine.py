@@ -7,7 +7,7 @@ import ast
 import operator
 import re
 from datetime import datetime, timezone
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import sqlparse
 from sqlalchemy import text
@@ -183,20 +183,26 @@ def get_new_projection_and_from(
 
     new_from: List[From] = []
     new_projection: List[Projection] = []
-    for expression in projection:
-        # TODO (betodealmeida): this should ignore non-identifiers
-        alias: Identifier
-        if "UnnamedExpr" in expression:
-            name = expression["UnnamedExpr"]["Identifier"]["value"]
+    for projection_expression in projection:
+        alias: Optional[Identifier] = None
+        if "UnnamedExpr" in projection_expression:
+            expression = projection_expression["UnnamedExpr"]
+        elif "ExprWithAlias" in projection_expression:
+            expression = projection_expression["ExprWithAlias"]["expr"]
+            alias = projection_expression["ExprWithAlias"]["alias"]
+        else:
+            raise NotImplementedError(f"Unable to handle expression: {expression}")
+
+        if "Identifier" not in expression:
+            new_projection.append(projection_expression)
+            continue
+
+        name = expression["Identifier"]["value"]
+        if alias is None:
             alias = {
                 "quote_style": '"',
                 "value": name,
             }
-        elif "ExprWithAlias" in expression:
-            alias = expression["ExprWithAlias"]["alias"]
-            name = expression["ExprWithAlias"]["expr"]["Identifier"]["value"]
-        else:
-            raise NotImplementedError(f"Unable to handle expression: {expression}")
 
         node = session.exec(select(Node).where(Node.name == name)).one()
         if not node.expression or not is_metric(node.expression):
@@ -218,6 +224,7 @@ def get_new_projection_and_from(
             },
         )
 
+        # this should be identical in all referenced nodes, so we just need to add it once
         if not new_from:
             new_from.append(subtree[0]["Query"]["body"]["Select"]["from"])
 
