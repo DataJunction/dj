@@ -98,6 +98,41 @@ def test_get_query_for_node(mocker: MockerFixture) -> None:
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
 
+def test_get_query_for_node_specify_database(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node`` when a database is specified.
+    """
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    parent = Node(name="A")
+
+    child = Node(
+        name="B",
+        tables=[
+            Table(
+                database=database,
+                table="B",
+                columns=[Column(name="cnt", type=ColumnType.INT)],
+            ),
+        ],
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[parent],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE B (cnt INTEGER)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    create_query = get_query_for_node(child, [], [], 1)
+    assert create_query.database_id == 1
+    assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
+
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_node(child, [], [], 2)
+    assert str(excinfo.value) == "Unable to compute B on database 2"
+
+
 def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
     """
     Test ``get_query_for_node``.
