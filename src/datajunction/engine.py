@@ -187,7 +187,7 @@ def get_new_projection_and_from(
     parents: List[Node],
 ) -> Tuple[List[Projection], List[From]]:
     """
-    Replace node references in the ``SELECT`` clause and updte ``FROM`` clause.
+    Replace node references in the ``SELECT`` clause and update ``FROM`` clause.
 
     Node names in the ``SELECT`` clause are replaced by the corresponding node expression
     (only the ``SELECT`` part), while the ``FROM`` clause is updated to point to the
