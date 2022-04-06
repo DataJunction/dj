@@ -133,3 +133,31 @@ def test_read_metrics_data_errors(session: Session, client: TestClient) -> None:
     response = client.get("/metrics/1/data/")
     assert response.status_code == 400
     assert response.json() == {"detail": "Not a metric node"}
+
+
+def test_read_metrics_sql(
+    mocker: MockerFixture,
+    session: Session,
+    client: TestClient,
+) -> None:
+    """
+    Test ``GET /metrics/{node_id}/sql/``.
+    """
+    database = Database(name="test", URI="sqlite://")
+    node = Node(name="a-metric", expression="SELECT COUNT(*) FROM my_table")
+    session.add(database)
+    session.add(node)
+    session.execute("CREATE TABLE my_table (one TEXT)")
+    session.commit()
+
+    create_query = QueryCreate(
+        database_id=database.id,
+        submitted_query="SELECT COUNT(*) FROM my_table",
+    )
+    mocker.patch(
+        "datajunction.api.metrics.get_query_for_node",
+        return_value=create_query,
+    )
+
+    response = client.get("/metrics/1/sql/")
+    assert response.json() == {"database_id": 1, "sql": "SELECT COUNT(*) FROM my_table"}

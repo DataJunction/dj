@@ -89,6 +89,7 @@ def get_query_for_node(
     node: Node,
     groupbys: List[str],
     filters: List[str],
+    database_id: Optional[int] = None,
 ) -> QueryCreate:
     """
     Return a DJ QueryCreate object from a given node.
@@ -96,7 +97,14 @@ def get_query_for_node(
     databases = get_computable_databases(node)
     if not databases:
         raise Exception(f"Unable to compute {node.name} (no common database)")
-    database = sorted(databases, key=operator.attrgetter("cost"))[0]
+    if database_id:
+        for database in databases:
+            if database.id == database_id:
+                break
+        else:
+            raise Exception(f"Unable to compute {node.name} on database {database_id}")
+    else:
+        database = sorted(databases, key=operator.attrgetter("cost"))[0]
 
     engine = sqla_create_engine(database.URI)
     node_select = get_select_for_node(node, database)
