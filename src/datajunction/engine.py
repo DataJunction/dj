@@ -18,6 +18,7 @@ from sqlmodel import Session, create_engine, select
 from sqloxide import parse_sql
 
 from datajunction.config import Settings
+from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.query import (
     ColumnMetadata,
@@ -123,7 +124,7 @@ def get_query_for_node(
     return QueryCreate(database_id=database.id, submitted_query=sql)
 
 
-def get_query_for_sql(sql: str) -> QueryCreate:  # pylint: disable=too-many-locals
+def get_query_for_sql(sql: str) -> QueryCreate:
     """
     Return a query given a SQL expression querying the repo.
 
@@ -160,18 +161,25 @@ def get_query_for_sql(sql: str) -> QueryCreate:  # pylint: disable=too-many-loca
                 {"quote_style": '"', "value": column},
             ]
 
-    databases = set.intersection(
-        *[get_computable_databases(parent) for parent in parents]
-    )
-    if not databases:
-        raise Exception("Unable to run SQL (no common database)")
-    database = sorted(databases, key=operator.attrgetter("cost"))[0]
-
+    database = get_database_for_sql(parents)
     query = get_query(None, parents, tree, database)
     engine = sqla_create_engine(database.URI)
     sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
+
+
+def get_database_for_sql(parents: List[Node]) -> Database:
+    """
+    Given a list of parents, return the best database to compute metric.
+    """
+    # TODO (betodealmeida): pass referenced columns to ``get_computable_databases``
+    databases = set.intersection(
+        *[get_computable_databases(parent) for parent in parents]
+    )
+    if not databases:
+        raise Exception("Unable to run SQL (no common database)")
+    return sorted(databases, key=operator.attrgetter("cost"))[0]
 
 
 def get_new_projection_and_from(

@@ -103,8 +103,36 @@ def dispatch_query(query_id: uuid.UUID) -> None:
     process_query(session, settings, query).dict()
 
 
+def load_query_results(settings: Settings, key: str, paginated: bool) -> QueryResults:
+    """
+    Load results from backend, if available.
+
+    If ``paginate`` is true we also load the results into the cache, anticipating more
+    paginated queries.
+    """
+    if settings.cache and settings.cache.has(key):
+        _logger.info("Reading results from cache")
+        cached = settings.cache.get(key)
+        query_results = json.loads(cached)
+    elif settings.results_backend.has(key):
+        _logger.info("Reading results from results backend")
+        cached = settings.results_backend.get(key)
+        query_results = json.loads(cached)
+        if paginated and settings.cache:
+            settings.cache.add(
+                key,
+                cached,
+                timeout=int(settings.paginating_timeout.total_seconds()),
+            )
+    else:
+        _logger.warning("No results found")
+        query_results = []
+
+    return query_results
+
+
 @router.get("/queries/{query_id}", response_model=QueryWithResults)
-def read_query(  # pylint: disable=too-many-locals
+def read_query(
     query_id: uuid.UUID,
     limit: int = 0,
     offset: int = 0,
@@ -124,25 +152,7 @@ def read_query(  # pylint: disable=too-many-locals
         raise HTTPException(status_code=404, detail="Query not found")
 
     paginated = limit > 0 or offset > 0
-
-    key = str(query_id)
-    if settings.cache and settings.cache.has(key):
-        _logger.info("Reading results from cache")
-        cached = settings.cache.get(key)
-        query_results = json.loads(cached)
-    elif settings.results_backend.has(key):
-        _logger.info("Reading results from results backend")
-        cached = settings.results_backend.get(key)
-        query_results = json.loads(cached)
-        if paginated and settings.cache:
-            settings.cache.add(
-                key,
-                cached,
-                timeout=int(settings.paginating_timeout.total_seconds()),
-            )
-    else:
-        _logger.warning("No results found")
-        query_results = []
+    query_results = load_query_results(settings, str(query_id), paginated)
 
     prev = next_ = None
     if paginated:

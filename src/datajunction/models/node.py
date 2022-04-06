@@ -108,7 +108,7 @@ class Node(SQLModel, table=True):  # type: ignore
 
         return list(columns.values())
 
-    def _infer_columns(self) -> List[Column]:  # pylint: disable=too-many-branches
+    def _infer_columns(self) -> List[Column]:
         """
         Infer columns based on parent nodes.
         """
