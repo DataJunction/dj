@@ -66,18 +66,3 @@ Examples:
 1. Dimension table in 2 storages (fast/slow), choose fast.
 2. Dimension table in 2 storages (fast/slow) but only a few columns in fast; choose slow.
 3. Translate query with cross-DB join, `FROM PROGRAM` in Postgres
-
-SQL input:
-
-```
-SELECT core.likes FROM metrics
-WHERE user.country = 'BR'
-```
-
-Gets translated to:
-
-```
-SELECT COUNT(*) FROM content_actions
-JOIN dim_users ON content_actions.user_id = dim_users.id
-WHERE dim_users.country = 'BR'
-```
