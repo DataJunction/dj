@@ -95,6 +95,7 @@ def get_metric(session: Session, node_id: int) -> Node:
 @router.get("/metrics/{node_id}/data/", response_model=QueryWithResults)
 def read_metrics_data(
     node_id: int,
+    database_id: Optional[int] = None,
     d: List[str] = Query([]),  # pylint: disable=invalid-name
     f: List[str] = Query([]),  # pylint: disable=invalid-name
     *,
@@ -107,7 +108,7 @@ def read_metrics_data(
     Return data for a metric.
     """
     node = get_metric(session, node_id)
-    create_query = get_query_for_node(node, d, f)
+    create_query = get_query_for_node(node, d, f, database_id)
 
     return save_query_and_run(
         create_query,
