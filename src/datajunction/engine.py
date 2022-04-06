@@ -1,7 +1,6 @@
 """
 Query related functions.
 """
-# pylint: disable=fixme
 
 import ast
 import operator
@@ -173,7 +172,6 @@ def get_database_for_sql(parents: List[Node]) -> Database:
     """
     Given a list of parents, return the best database to compute metric.
     """
-    # TODO (betodealmeida): pass referenced columns to ``get_computable_databases``
     databases = set.intersection(
         *[get_computable_databases(parent) for parent in parents]
     )
