@@ -2,7 +2,6 @@
 disable =
   duplicate-code
   use-implicit-booleaness-not-comparison
-  fixme
 
 [MASTER]
 # https://github.com/samuelcolvin/pydantic/issues/1961#issuecomment-759522422
@@ -11,4 +10,3 @@ ignore=templates,docs
 disable=
   duplicate-code
   use-implicit-booleaness-not-comparison
-  fixme

@@ -2,7 +2,7 @@
 Custom types for annotations.
 """
 
-# pylint: disable=missing-class-docstring, fixme
+# pylint: disable=missing-class-docstring
 
 from __future__ import annotations
 
@@ -98,7 +98,7 @@ class QueryState(str, Enum):
 
 
 # sqloxide type hints
-# TODO: check https://github.com/sqlparser-rs/sqlparser-rs/blob/main/src/ast/query.rs
+# Reference: https://github.com/sqlparser-rs/sqlparser-rs/blob/main/src/ast/query.rs
 
 
 class Value(TypedDict, total=False):
