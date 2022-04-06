@@ -264,6 +264,65 @@ FROM "A") AS "A"'''
     )
 
 
+def test_get_query_for_sql_non_identifiers(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` with metrics and non-identifiers in the ``SELECT``.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    A = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    B = Node(
+        name="B",
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[A],
+    )
+    session.add(B)
+    C = Node(
+        name="C",
+        expression="SELECT MAX(one) AS max_one FROM A",
+        parents=[A],
+    )
+    session.add(C)
+    session.commit()
+
+    sql = "SELECT B, C, 'test' FROM metrics"
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+
+    space = " "
+    assert (
+        create_query.submitted_query
+        == f'''SELECT count('*') AS "B", max("A".one) AS "C", test{space}
+FROM (SELECT "A".one AS one, "A".two AS two{space}
+FROM "A") AS "A"'''
+    )
+
+
 def test_get_query_for_sql_different_parents(
     mocker: MockerFixture,
     session: Session,
