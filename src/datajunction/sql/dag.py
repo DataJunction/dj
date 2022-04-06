@@ -109,7 +109,7 @@ def get_referenced_columns(
 
     tree = parse_sql(sql, dialect="ansi")
 
-    # compound identifers are fully qualified
+    # compound identifiers are fully qualified
     for compound_identifier in find_nodes_by_key(tree, "CompoundIdentifier"):
         parent = ".".join(part["value"] for part in compound_identifier[:-1])
         column = compound_identifier[-1]["value"]
