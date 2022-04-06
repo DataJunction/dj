@@ -33,7 +33,7 @@ The ``dialect`` can be used to build custom functions.
 
 """
 
-# pylint: disable=unused-argument, missing-function-docstring, arguments-differ, fixme
+# pylint: disable=unused-argument, missing-function-docstring, arguments-differ
 
 import abc
 from typing import TYPE_CHECKING, Any, Dict, Optional, Type, Union

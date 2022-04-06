@@ -5,7 +5,7 @@ These functions parse the DJ SQL used to define node expressions, and generate S
 queries which can be then executed in specific databases.
 """
 
-# pylint: disable=unused-argument, fixme
+# pylint: disable=unused-argument
 
 import operator
 from typing import Any, List, Optional, Set, Union, cast
@@ -105,8 +105,6 @@ def get_query(
     limit = get_limit(tree, source, dialect)
     if limit:
         query = query.limit(limit)
-
-    # TODO (betodealmeida): HAVING, ORDER BY, etc.
 
     return query
 

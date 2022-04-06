@@ -23,7 +23,7 @@ class BaseQuery(SQLModel):
 
     database_id: int = Field(foreign_key="database.id")
     catalog: Optional[str] = None
-    schema_: Optional[str] = None  # XXX use alias  # pylint: disable=fixme
+    schema_: Optional[str] = None
 
 
 class Query(BaseQuery, table=True):  # type: ignore
