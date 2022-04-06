@@ -219,11 +219,12 @@ async def add_node(
 
     # create tables and columns
     tables = []
-    for database_name, table_data in data.get("tables", {}).items():
-        table_data["database"] = databases[database_name]
-        table = Table(**table_data)
-        table.columns = get_columns(table)
-        tables.append(table)
+    for database_name, tables_data in data.get("tables", {}).items():
+        for table_data in tables_data:
+            table_data["database"] = databases[database_name]
+            table = Table(**table_data)
+            table.columns = get_columns(table)
+            tables.append(table)
     data["tables"] = tables
 
     _logger.info("Creating node %s", name)

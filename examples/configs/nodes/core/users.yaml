@@ -1,12 +1,12 @@
 description: A user dimension table
 tables:
   gsheets:
-    catalog: null
-    schema: null
-    table: "https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0"
-    cost: 100
+    - catalog: null
+      schema: null
+      table: "https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0"
+      cost: 100
   postgres:
-    catalog: null
-    schema: public
-    table: dim_users
-    cost: 10
+    - catalog: null
+      schema: public
+      table: dim_users
+      cost: 10
