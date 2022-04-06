@@ -123,7 +123,18 @@ def get_columns(table: Table) -> List[Column]:
     ]
 
 
-async def index_nodes(  # pylint: disable=too-many-locals
+async def load_node_configs(repository: Path) -> List[Dict[str, Any]]:
+    """
+    Load all configs from a repository.
+    """
+    directory = repository / "nodes"
+
+    # load all nodes and their dependencies
+    tasks = [load_data(repository, path) for path in directory.glob("**/*.yaml")]
+    return await asyncio.gather(*tasks)
+
+
+async def index_nodes(
     repository: Path,
     session: Session,
 ) -> List[Node]:
@@ -134,17 +145,12 @@ async def index_nodes(  # pylint: disable=too-many-locals
     database using SQLAlchemy. After that we compute the schema of downstream nodes, as
     the schemas of source nodes become available.
     """
-    directory = repository / "nodes"
-
     # load all databases
     databases = {
         database.name: database for database in session.exec(select(Database)).all()
     }
 
-    # load all nodes and their dependencies
-    tasks = [load_data(repository, path) for path in directory.glob("**/*.yaml")]
-    configs = await asyncio.gather(*tasks)
-
+    configs = await load_node_configs(repository)
     dependencies: Dict[str, Set[str]] = {}
     for config in configs:
         if "expression" in config:
