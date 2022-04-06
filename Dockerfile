@@ -3,7 +3,6 @@ WORKDIR /code
 COPY ./requirements.txt /code/requirements.txt
 RUN pip install --no-cache-dir --upgrade -r /code/requirements.txt
 RUN pip install uvicorn pydruid 'shillelagh[gsheetsapi]' psycopg2-binary
-COPY .env.docker /code/.env
 COPY . /code
 RUN pip install -e .
 CMD ["dj", "compile"]
