@@ -9,7 +9,7 @@ DataJunction (DJ) is currently supported in Python 3.8, 3.9, and 3.10. It's reco
 
 .. code-block:: bash
 
-    $ pyenv virtualenv 3.8 datajunctiona  # or 3.9/3.10
+    $ pyenv virtualenv 3.8 datajunction  # or 3.9/3.10
 
 Then you can just run ``make test`` to install all the dependencies.
 
@@ -144,14 +144,24 @@ You can also pass query parameters to group by a dimension (``d``) or filter (``
 
     $ curl "http://localhost:8000/metrics/6/data/?d=core.comments/user_id&f=core.comments/user_id<4" | jq
 
+Similarly, you can request the SQL for a given metric with given constraints:
+
+.. code-block:: bash
+
+    $ curl "http://localhost:8000/metrics/6/sql/?d=core.comments.user_id" | jq
+    {
+      "database_id": 7,
+      "sql": "SELECT count('*') AS \"count_1\" \nFROM (SELECT \"druid\".\"comments\".\"__time\" AS \"__time\", \"druid\".\"comments\".\"count\" AS \"count\", \"druid\".\"comments\".\"id\" AS \"id\", \"druid\".\"comments\".\"text\" AS \"text\", \"druid\".\"comments\".\"user_id\" AS \"user_id\" \nFROM \"druid\".\"comments\") AS \"core.comments\" GROUP BY \"core.comments\".\"user_id\""
+    }
+
 Soon DJ will also have an API allowing metrics to be queried via SQL, eg:
 
 .. code-block:: sql
 
     SELECT "core.num_comments"
     FROM metrics
-    WHERE "core.comments".user_id < 4
-    GROUP BY "core.comments".user_id
+    WHERE "core.comments.user_id" < 4
+    GROUP BY "core.comments.user_id"
 
 
 API docs
