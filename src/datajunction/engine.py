@@ -29,7 +29,10 @@ from datajunction.models.query import (
     StatementResults,
     TypeEnum,
 )
-from datajunction.sql.dag import get_computable_databases
+from datajunction.sql.dag import (
+    get_computable_databases,
+    get_referenced_columns_from_tree,
+)
 from datajunction.sql.parse import (
     find_nodes_by_key,
     find_nodes_by_key_with_parent,
@@ -41,6 +44,7 @@ from datajunction.typing import (
     Description,
     From,
     Identifier,
+    ParseTree,
     Projection,
     SQLADialect,
     Stream,
@@ -160,7 +164,7 @@ def get_query_for_sql(sql: str) -> QueryCreate:
                 {"quote_style": '"', "value": column},
             ]
 
-    database = get_database_for_sql(parents)
+    database = get_database_for_sql(tree, parents)
     query = get_query(None, parents, tree, database)
     engine = sqla_create_engine(database.URI)
     sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
@@ -168,12 +172,16 @@ def get_query_for_sql(sql: str) -> QueryCreate:
     return QueryCreate(database_id=database.id, submitted_query=sql)
 
 
-def get_database_for_sql(parents: List[Node]) -> Database:
+def get_database_for_sql(tree: ParseTree, parents: List[Node]) -> Database:
     """
     Given a list of parents, return the best database to compute metric.
     """
+    parent_columns = get_referenced_columns_from_tree(tree, parents)
     databases = set.intersection(
-        *[get_computable_databases(parent) for parent in parents]
+        *[
+            get_computable_databases(parent, parent_columns[parent.name])
+            for parent in parents
+        ]
     )
     if not databases:
         raise Exception("Unable to run SQL (no common database)")
