@@ -52,6 +52,15 @@ services:
       - dj
     command: celery -A datajunction.api.queries.celery worker --loglevel=info
 
+  watchdog:
+    container_name: watchdog
+    build: .
+    volumes:
+      - .:/code
+    depends_on:
+      - dj
+    command: dj compile --reload
+
   redis:
     image: redis:latest
     container_name: query_broker

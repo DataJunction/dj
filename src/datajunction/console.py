@@ -2,13 +2,14 @@
 DataJunction (DJ) is a metric repository.
 
 Usage:
-    dj compile [REPOSITORY] [--loglevel=INFO]
+    dj compile [REPOSITORY] [--loglevel=INFO] [--reload]
 
 Actions:
     compile                 Compile repository
 
 Options:
     --loglevel=LEVEL        Level for logging. [default: INFO]
+    --reload                Watch for changes. [default: false]
 
 Released under the MIT license.
 (c) 2018 Beto Dealmeida <roberto@dealmeida.net>
@@ -43,7 +44,7 @@ async def main() -> None:
 
     try:
         if arguments["compile"]:
-            await compile_.run(repository)
+            await compile_.run(repository, arguments["--reload"])
     except asyncio.CancelledError:
         _logger.info("Canceled")
 

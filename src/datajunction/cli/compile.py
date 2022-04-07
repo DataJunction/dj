@@ -20,6 +20,7 @@ import yaml
 from rich.text import Text
 from sqlalchemy import inspect
 from sqlmodel import Session, create_engine, select
+from watchfiles import Change, awatch
 
 from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
@@ -245,7 +246,14 @@ async def add_node(
     return node
 
 
-async def run(repository: Path) -> None:
+def yaml_file_changed(_: Change, path: str) -> bool:
+    """
+    Return if the modified file is a YAML file.
+    """
+    return Path(path).suffix in {".yaml", ".yml"}
+
+
+async def run(repository: Path, reload: bool = False) -> None:
     """
     Compile the metrics repository.
     """
@@ -255,5 +263,15 @@ async def run(repository: Path) -> None:
 
     await index_databases(repository, session)
     await index_nodes(repository, session)
-
     session.commit()
+
+    if not reload:
+        return
+
+    async for _ in awatch(  # pragma: no cover
+        repository,
+        watch_filter=yaml_file_changed,
+    ):
+        await index_databases(repository, session)
+        await index_nodes(repository, session)
+        session.commit()
