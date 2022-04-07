@@ -109,7 +109,8 @@ def get_referenced_columns_from_sql(
 
 
 def get_referenced_columns_from_tree(
-    tree: ParseTree, parents: List[Node],
+    tree: ParseTree,
+    parents: List[Node],
 ) -> Dict[str, Set[str]]:
     """
     Return the columns referenced in parents given a parse tree.

@@ -1,5 +1,5 @@
 """
-Tests for ``datajunction.models``.
+Tests for ``datajunction.models.node``.
 """
 
 # pylint: disable=use-implicit-booleaness-not-comparison

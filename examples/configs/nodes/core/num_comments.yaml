@@ -1,2 +1,5 @@
 description: Number of comments
 expression: SELECT COUNT(*) FROM core.comments
+columns:
+  _col0:
+    type: INT
