@@ -21,7 +21,7 @@ from sqloxide import parse_sql
 
 from datajunction.models.database import Database
 from datajunction.models.node import Node
-from datajunction.sql.dag import get_referenced_columns
+from datajunction.sql.dag import get_referenced_columns_from_sql
 from datajunction.sql.functions import function_registry
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import (
@@ -294,7 +294,7 @@ def get_source(
     Build the ``FROM`` part of a query.
     """
     # For now assume no JOINs or multiple relations
-    parent_columns = get_referenced_columns(expression, parents)
+    parent_columns = get_referenced_columns_from_sql(expression, parents)
     parent = parents[0]
     return get_select_for_node(parent, database, parent_columns[parent.name]).alias(
         parent.name,

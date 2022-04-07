@@ -240,6 +240,67 @@ FROM "A") AS "A"'''
     )
 
 
+def test_get_query_for_sql_multiple_databases(
+    mocker: MockerFixture, session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` when the parents are in multiple databases.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database_1 = Database(id=1, name="slow", URI="sqlite://", cost=10.0)
+    database_2 = Database(id=2, name="fast", URI="sqlite://", cost=1.0)
+
+    A = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database_1,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+            Table(
+                database=database_2,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database_1.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    B = Node(
+        name="B",
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[A],
+    )
+    session.add(B)
+    session.commit()
+
+    sql = "SELECT B FROM metrics"
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 2  # fast
+
+    B.expression = "SELECT COUNT(two) AS cnt FROM A"
+    session.add(B)
+    session.commit()
+
+    sql = "SELECT B FROM metrics"
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1  # slow
+
+
 def test_get_query_for_sql_multiple_metrics(
     mocker: MockerFixture,
     session: Session,
