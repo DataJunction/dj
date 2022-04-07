@@ -74,9 +74,9 @@ Now, if we want to compute the metric in our Hive warehouse we can build a pipel
 
 .. code-block:: bash
 
-    % curl "http://localhost:8000/metrics/2/sql/?database=1"
+    % curl "http://localhost:8000/metrics/2/sql/?database_id=1"
     {
-      "database_id": 9,
+      "database_id": 1,
       "sql": "SELECT count('*') AS count_1 \nFROM (SELECT default.fact_comments.id AS id, default.fact_comments.user_id AS user_id, default.fact_comments.timestamp AS timestamp, default.fact_comments.text AS text \nFROM default.fact_comments) AS \"comments\""
     }
 
@@ -104,13 +104,13 @@ For example, if we want to group the metric by the user_id, to see how many comm
 
 .. code-block:: bash
 
-    % curl "http://localhost:8000/metrics/2/sql/?database=1&d=comments.user_id&f=comments.user_id>0"
+    % curl "http://localhost:8000/metrics/2/sql/?database_id=1&d=comments.user_id&f=comments.user_id>0"
 
 If instead we want the actual data, instead of the SQL:
 
 .. code-block:: bash
 
-    % curl "http://localhost:8000/metrics/2/data/?database=1&d=comments.user_id&f=comments.user_id>0"
+    % curl "http://localhost:8000/metrics/2/data/?database_id=1&d=comments.user_id&f=comments.user_id>0"
 
 And if we omit the ``database_id`` DJ will compute the data using the fastest database (ie, the one with lowest ``costt``). It's also possible to specify tales with different costs:
 
