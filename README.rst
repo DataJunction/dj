@@ -100,7 +100,7 @@ We can also filter and group our metric by any of its dimensions:
       ]
     }
 
-For example, if we want to group the metric by the user_id, to see how many comments each user made, while filtering out non-positive user IDs:
+For example, if we want to group the metric by the user ID, to see how many comments each user made, while filtering out non-positive user IDs:
 
 .. code-block:: bash
 
@@ -112,7 +112,7 @@ If instead we want the actual data, instead of the SQL:
 
     % curl "http://localhost:8000/metrics/2/data/?database_id=1&d=comments.user_id&f=comments.user_id>0"
 
-And if we omit the ``database_id`` DJ will compute the data using the fastest database (ie, the one with lowest ``costt``). It's also possible to specify tales with different costs:
+And if we omit the ``database_id`` DJ will compute the data using the fastest database (ie, the one with lowest ``cost``). It's also possible to specify tables with different costs:
 
 .. code-block:: YAML
 
@@ -130,7 +130,7 @@ And if we omit the ``database_id`` DJ will compute the data using the fastest da
           table: dim_fast_users
           cost: 1
 
-The tables ``dim_users`` and ``dim_fast_users`` can have different columns. For example, ``dim_fast_users`` could have only a subset of the columns in ``dim_users``, the ones that can be quickly produced. DJ will use the fast table if the available columns can satisfy a given query, otherwise it will fallback to the slow table.
+The tables ``dim_users`` and ``dim_fast_users`` can have different columns. For example, ``dim_fast_users`` could have only a subset of the columns in ``dim_users``, the ones that can be quickly populated. DJ will use the fast table if the available columns can satisfy a given query, otherwise it will fallback to the slow table.
 
 Getting started
 ===============
