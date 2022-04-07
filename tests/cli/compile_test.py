@@ -21,6 +21,7 @@ from datajunction.cli.compile import (
     index_nodes,
     load_data,
     run,
+    yaml_file_changed,
 )
 from datajunction.models.database import Column, Database
 from datajunction.models.query import Query  # pylint: disable=unused-import
@@ -281,6 +282,33 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
     index_nodes.assert_called_with(repository, session)
 
     session.commit.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_run_reload(mocker: MockerFixture, repository: Path) -> None:
+    """
+    Test the ``run`` command with ``--reload``.
+    """
+    mocker.patch("datajunction.cli.compile.create_db_and_tables")
+    get_session = mocker.patch("datajunction.cli.compile.get_session")
+    session = get_session.return_value.__next__.return_value
+    awatch = mocker.patch("datajunction.cli.compile.awatch")
+    mocker.patch("datajunction.cli.compile.index_databases")
+    mocker.patch("datajunction.cli.compile.index_nodes")
+    awatch.return_value.__aiter__.return_value = ["event"]
+
+    await run(repository, reload=True)
+
+    assert session.commit.call_count == 2
+
+
+def test_yaml_file_changed() -> None:
+    """
+    Test ``yaml_file_changed``.
+    """
+    assert yaml_file_changed(None, "/path/to/config.yaml") is True
+    assert yaml_file_changed(None, "/path/to/config.yml") is True
+    assert yaml_file_changed(None, "/path/to/dj.db") is False
 
 
 def test_get_dependencies() -> None:
