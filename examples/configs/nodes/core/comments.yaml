@@ -1,17 +1,26 @@
 description: A fact table with comments
+columns:
+  id:
+    type: INT
+  user_id:
+    type: INT
+  timestamp:
+    type: DATETIME
+  text:
+    type: STR
 tables:
   gsheets:
-    - catalog: null
-      schema: null
-      table: "https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=1811447072"
-      cost: 100
+  - catalog: null
+    schema: null
+    table: https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=1811447072
+    cost: 100
   postgres:
-    - catalog: null
-      schema: public
-      table: comments
-      cost: 10
+  - catalog: null
+    schema: public
+    table: comments
+    cost: 10
   druid:
-    - catalog: null
-      schema: druid
-      table: comments
-      cost: 1
+  - catalog: null
+    schema: druid
+    table: comments
+    cost: 1

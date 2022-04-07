@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 import sqlalchemy
+import yaml
 from freezegun import freeze_time
 from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
@@ -21,9 +22,11 @@ from datajunction.cli.compile import (
     index_nodes,
     load_data,
     run,
+    update_node_config,
     yaml_file_changed,
 )
-from datajunction.models.database import Column, Database
+from datajunction.models.database import Column, Database, Table
+from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
 from datajunction.typing import ColumnType
 
@@ -324,3 +327,54 @@ def test_get_dependencies() -> None:
         == {"core.comments", "core.events"}
     )
     assert get_dependencies("SELECT 1 FROM a UNION SELECT 2 FROM b") == {"a", "b"}
+
+
+def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> None:
+    """
+    Test ``update_node_config``.
+    """
+    _logger = mocker.patch("datajunction.cli.compile._logger")
+
+    database = Database(name="test", URI="sqlite://")
+
+    table_a = Table(
+        database=database,
+        table="A",
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
+    )
+
+    table_b = Table(
+        database=database,
+        table="B",
+        columns=[Column(name="ds", type=ColumnType.DATETIME)],
+    )
+
+    node = Node(name="C", tables=[table_a, table_b])
+    path = Path("/path/to/repository/configs/nodes/C.yaml")
+    fs.create_file(path, contents="{}\n")
+
+    update_node_config(node, path)
+
+    with open(path, encoding="utf-8") as input_:
+        assert yaml.safe_load(input_) == {
+            "columns": {"ds": {"type": "DATETIME"}, "user_id": {"type": "INT"}},
+            "tables": {
+                "test": [
+                    {"catalog": None, "cost": 1.0, "schema": None, "table": "A"},
+                    {"catalog": None, "cost": 1.0, "schema": None, "table": "B"},
+                ],
+            },
+        }
+    _logger.info.assert_called_with(
+        "Updating node %s config with column information",
+        "C",
+    )
+
+    update_node_config(node, path)
+    _logger.info.assert_called_with(
+        "Node %s is up-do-date, skipping",
+        "C",
+    )

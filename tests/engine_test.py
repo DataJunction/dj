@@ -241,7 +241,8 @@ FROM "A") AS "A"'''
 
 
 def test_get_query_for_sql_multiple_databases(
-    mocker: MockerFixture, session: Session,
+    mocker: MockerFixture,
+    session: Session,
 ) -> None:
     """
     Test ``get_query_for_sql`` when the parents are in multiple databases.

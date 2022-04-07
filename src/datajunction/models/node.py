@@ -2,19 +2,31 @@
 Model for nodes.
 """
 
+from collections import defaultdict
 from datetime import datetime, timezone
 from functools import partial
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, TypedDict, cast
 
 from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
 from sqloxide import parse_sql
 
-from datajunction.models.database import Column, Table
+from datajunction.models.database import Column, ColumnYAML, Table, TableYAML
 from datajunction.sql.inference import get_column_from_expression
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.utils import get_more_specific_type
+
+
+class NodeYAML(TypedDict, total=False):
+    """
+    Schema of a node in the YAML file.
+    """
+
+    description: str
+    expression: str
+    columns: Dict[str, ColumnYAML]
+    tables: Dict[str, List[TableYAML]]
 
 
 class NodeRelationship(SQLModel, table=True):  # type: ignore
@@ -139,6 +151,26 @@ class Node(SQLModel, table=True):  # type: ignore
                 i += 1
 
         return columns
+
+    def to_yaml(self) -> NodeYAML:
+        """
+        Serialize the node for YAML.
+
+        This is used to update the original configuration with information about columns.
+        """
+        tables = defaultdict(list)
+        for table in self.tables:  # pylint: disable=not-an-iterable
+            tables[table.database.name].append(table.to_yaml())
+
+        data = {
+            "description": self.description,
+            "expression": self.expression,
+            "columns": {column.name: column.to_yaml() for column in self.columns},
+            "tables": dict(tables),
+        }
+        filtered = {key: value for key, value in data.items() if value}
+
+        return cast(NodeYAML, filtered)
 
     def __hash__(self):
         return hash(self.id)

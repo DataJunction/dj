@@ -4,7 +4,7 @@ Models for databases, tables, and columns.
 
 from datetime import datetime, timezone
 from functools import partial
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, List, Optional, TypedDict
 
 from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
@@ -15,6 +15,34 @@ from datajunction.typing import ColumnType
 if TYPE_CHECKING:
     from datajunction.models.node import Node
     from datajunction.models.query import Query
+
+
+class ColumnYAML(TypedDict, total=False):
+    """
+    Schema of a column in the YAML file.
+    """
+
+    type: str
+    dimension: str
+
+
+class TableYAML(TypedDict, total=False):
+    """
+    Schema of a table in the YAML file.
+    """
+
+    catalog: Optional[str]
+    schema: Optional[str]
+    table: str
+    cost: float
+
+
+# Schema of a database in the YAML file.
+DatabaseYAML = TypedDict(
+    "DatabaseYAML",
+    {"description": str, "URI": str, "read-only": bool, "async_": bool, "cost": float},
+    total=False,
+)
 
 
 class Database(SQLModel, table=True):  # type: ignore
@@ -53,6 +81,18 @@ class Database(SQLModel, table=True):  # type: ignore
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
+    def to_yaml(self) -> DatabaseYAML:
+        """
+        Serialize the table for YAML.
+        """
+        return {
+            "description": self.description,
+            "URI": self.URI,
+            "read-only": self.read_only,
+            "async_": self.async_,
+            "cost": self.cost,
+        }
+
     def __hash__(self):
         return hash(self.id)
 
@@ -82,6 +122,20 @@ class Table(SQLModel, table=True):  # type: ignore
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
 
+    def to_yaml(self) -> TableYAML:
+        """
+        Serialize the table for YAML.
+        """
+        return {
+            "catalog": self.catalog,
+            "schema": self.schema_,
+            "table": self.table,
+            "cost": self.cost,
+        }
+
+    def __hash__(self):
+        return hash(self.id)
+
 
 class Column(SQLModel, table=True):  # type: ignore
     """
@@ -94,3 +148,14 @@ class Column(SQLModel, table=True):  # type: ignore
 
     table_id: int = Field(foreign_key="table.id")
     table: Table = Relationship(back_populates="columns")
+
+    def to_yaml(self) -> ColumnYAML:
+        """
+        Serialize the column for YAML.
+        """
+        return {
+            "type": self.type.value,
+        }
+
+    def __hash__(self):
+        return hash(self.id)

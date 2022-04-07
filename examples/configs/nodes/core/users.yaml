@@ -1,12 +1,27 @@
 description: A user dimension table
+columns:
+  id:
+    type: INT
+  full_name:
+    type: STR
+  age:
+    type: INT
+  country:
+    type: STR
+  gender:
+    type: STR
+  preferred_language:
+    type: STR
+  secret_number:
+    type: FLOAT
 tables:
   gsheets:
-    - catalog: null
-      schema: null
-      table: "https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0"
-      cost: 100
+  - catalog: null
+    schema: null
+    table: https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0
+    cost: 100
   postgres:
-    - catalog: null
-      schema: public
-      table: dim_users
-      cost: 10
+  - catalog: null
+    schema: public
+    table: dim_users
+    cost: 10
