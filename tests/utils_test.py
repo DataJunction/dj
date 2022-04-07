@@ -39,7 +39,7 @@ def test_get_session(mocker: MockerFixture) -> None:
 
     session = next(get_session())
 
-    assert session == Session.return_value.__enter__.return_value
+    assert session == Session().__enter__.return_value
 
 
 def test_get_settings(mocker: MockerFixture) -> None:

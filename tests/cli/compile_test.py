@@ -6,6 +6,7 @@ Tests for ``datajunction.cli.compile``.
 from datetime import datetime, timezone
 from operator import itemgetter
 from pathlib import Path
+from unittest import mock
 
 import pytest
 import sqlalchemy
@@ -16,6 +17,7 @@ from pytest_mock import MockerFixture
 from sqlmodel import Session
 
 from datajunction.cli.compile import (
+    add_node,
     get_columns,
     get_dependencies,
     index_databases,
@@ -116,13 +118,56 @@ async def test_index_databases(repository: Path, session: Session) -> None:
     ]
 
 
+@pytest.mark.asyncio
+async def test_index_databases_force(mocker: MockerFixture, fs: FakeFilesystem) -> None:
+    """
+    Test ``index_databases`` with the ``--force`` option.
+    """
+    _logger = mocker.patch("datajunction.cli.compile._logger")
+    session = mocker.MagicMock()
+    session.exec().one_or_none().updated_at = datetime(
+        2021,
+        1,
+        3,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+
+    repository = Path("/path/to/another/repository")
+    with freeze_time("2021-01-01T00:00:00Z"):
+        fs.create_file(repository / "databases/druid.yaml", contents="{}\n")
+
+    await index_databases(repository, session, force=False)
+
+    _logger.info.assert_has_calls(
+        [
+            mock.call("Processing database %s", "druid"),
+            mock.call("Database %s is up-to-date, skipping", "druid"),
+        ],
+    )
+
+    await index_databases(repository, session, force=True)
+
+    _logger.info.assert_has_calls(
+        [
+            mock.call("Processing database %s", "druid"),
+            mock.call(
+                "Loading database from config %s",
+                Path("/path/to/another/repository/databases/druid.yaml"),
+            ),
+            mock.call("Creating database %s", "druid"),
+        ],
+    )
+
+
 def test_get_columns(mocker: MockerFixture) -> None:
     """
     Test ``get_columns``.
     """
     mocker.patch("datajunction.cli.compile.create_engine")
     inspect = mocker.patch("datajunction.cli.compile.inspect")
-    inspect.return_value.get_columns.return_value = [
+    inspect().get_columns.return_value = [
         {"name": "ds", "type": sqlalchemy.sql.sqltypes.DateTime()},
         {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
     ]
@@ -140,7 +185,7 @@ def test_get_columns_error(mocker: MockerFixture) -> None:
     """
     mocker.patch("datajunction.cli.compile.create_engine")
     inspect = mocker.patch("datajunction.cli.compile.inspect")
-    inspect.return_value.get_columns.side_effect = Exception(
+    inspect().get_columns.side_effect = Exception(
         "An unexpected error occurred",
     )
 
@@ -268,13 +313,58 @@ async def test_index_nodes(
 
 
 @pytest.mark.asyncio
+async def test_add_node_force(
+    mocker: MockerFixture,
+    fs: FakeFilesystem,
+) -> None:
+    """
+    Test ``add_nodes`` with the ``--force`` option.
+    """
+    _logger = mocker.patch("datajunction.cli.compile._logger")
+    session = mocker.MagicMock()
+    session.exec().one_or_none().updated_at = datetime(
+        2021,
+        1,
+        3,
+        0,
+        0,
+        tzinfo=timezone.utc,
+    )
+    databases = mocker.MagicMock()
+    mocker.patch("datajunction.cli.compile.update_node_config")
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        fs.create_file("/path/to/repository/nodes/test.yaml")
+
+    data = {"name": "test", "path": Path("/path/to/repository/nodes/test.yaml")}
+
+    await add_node(session, databases, data, force=False)  # type: ignore
+
+    _logger.info.assert_has_calls(
+        [
+            mock.call("Processing node %s", "test"),
+            mock.call("Node %s is up-do-date, skipping", "test"),
+        ],
+    )
+
+    await add_node(session, databases, data, force=True)  # type: ignore
+
+    _logger.info.assert_has_calls(
+        [
+            mock.call("Processing node %s", "test"),
+            mock.call("Creating node %s", "test"),
+        ],
+    )
+
+
+@pytest.mark.asyncio
 async def test_run(mocker: MockerFixture, repository: Path) -> None:
     """
     Test the ``run`` command.
     """
     mocker.patch("datajunction.cli.compile.create_db_and_tables")
     get_session = mocker.patch("datajunction.cli.compile.get_session")
-    session = get_session.return_value.__next__.return_value
+    session = get_session().__next__.return_value
 
     index_databases = mocker.patch("datajunction.cli.compile.index_databases")
     index_nodes = mocker.patch("datajunction.cli.compile.index_nodes")
@@ -294,11 +384,11 @@ async def test_run_reload(mocker: MockerFixture, repository: Path) -> None:
     """
     mocker.patch("datajunction.cli.compile.create_db_and_tables")
     get_session = mocker.patch("datajunction.cli.compile.get_session")
-    session = get_session.return_value.__next__.return_value
+    session = get_session().__next__.return_value
     awatch = mocker.patch("datajunction.cli.compile.awatch")
     mocker.patch("datajunction.cli.compile.index_databases")
     mocker.patch("datajunction.cli.compile.index_nodes")
-    awatch.return_value.__aiter__.return_value = ["event"]
+    awatch().__aiter__.return_value = ["event"]
 
     await run(repository, reload=True)
 
