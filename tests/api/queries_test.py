@@ -221,7 +221,7 @@ def test_dispatch_query(
     Test ``dispatch_query``.
     """
     get_session = mocker.patch("datajunction.api.queries.get_session")
-    get_session.return_value.__next__.return_value = (  # pylint: disable=redefined-outer-name
+    get_session().__next__.return_value = (  # pylint: disable=redefined-outer-name
         session
     )
 
