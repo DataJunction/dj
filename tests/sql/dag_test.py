@@ -136,7 +136,8 @@ def test_get_referenced_columns_from_sql() -> None:
     )
 
     assert get_referenced_columns_from_sql(
-        "SELECT core.A.ds FROM core.A", [parent_1],
+        "SELECT core.A.ds FROM core.A",
+        [parent_1],
     ) == {
         "core.A": {"ds"},
     }

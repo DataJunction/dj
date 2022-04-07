@@ -14,7 +14,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Set
+from typing import Dict, List, Set, TypedDict, Union
 
 import yaml
 from rich.text import Text
@@ -23,7 +23,7 @@ from sqlmodel import Session, create_engine, select
 from watchfiles import Change, awatch
 
 from datajunction.models.database import Column, Database, Table
-from datajunction.models.node import Node
+from datajunction.models.node import Node, NodeYAML
 from datajunction.models.query import Query  # pylint: disable=unused-import
 from datajunction.sql.dag import render_dag
 from datajunction.sql.parse import get_dependencies
@@ -33,7 +33,39 @@ from datajunction.utils import create_db_and_tables, get_name_from_path, get_ses
 _logger = logging.getLogger(__name__)
 
 
-async def load_data(repository: Path, path: Path) -> Dict[str, Any]:
+# Database YAML with extra information
+EnrichedDatabaseYAML = TypedDict(
+    "EnrichedDatabaseYAML",
+    {
+        "description": str,
+        "URI": str,
+        "read-only": bool,
+        "async_": bool,
+        "cost": float,
+        "name": str,
+        "path": Path,
+        "created_at": datetime,
+        "updated_at": datetime,
+    },
+    total=False,
+)
+
+
+class EnrichedNodeYAML(NodeYAML):
+    """
+    Node YAML with extra information.
+    """
+
+    name: str
+    path: Path
+    created_at: datetime
+    updated_at: datetime
+
+
+async def load_data(
+    repository: Path,
+    path: Path,
+) -> Union[EnrichedDatabaseYAML, EnrichedNodeYAML]:
     """
     Load data from a YAML file.
     """
@@ -131,7 +163,9 @@ def get_columns(table: Table) -> List[Column]:
     ]
 
 
-async def load_node_configs(repository: Path) -> List[Dict[str, Any]]:
+async def load_node_configs(
+    repository: Path,
+) -> List[EnrichedNodeYAML]:
     """
     Load all configs from a repository.
     """
@@ -203,7 +237,7 @@ async def index_nodes(  # pylint: disable=too-many-locals
 async def add_node(
     session: Session,
     databases: Dict[str, Database],
-    data: Dict[str, Any],
+    data: EnrichedNodeYAML,
     force: bool = False,
 ) -> Node:
     """
@@ -242,22 +276,41 @@ async def add_node(
     tables = []
     for database_name, tables_data in data.get("tables", {}).items():
         for table_data in tables_data:
-            table_data["database"] = databases[database_name]
-            table = Table(**table_data)
+            table = Table(database=databases[database_name], **table_data)
             table.columns = get_columns(table)
             tables.append(table)
-    data["tables"] = tables
 
     _logger.info("Creating node %s", name)
-    data["name"] = name
     data["created_at"] = created_at or datetime.now(timezone.utc)
     data["updated_at"] = datetime.now(timezone.utc)
-    node = Node(**data)
+    data.pop("tables", None)
+    node = Node(tables=tables, **data)
 
     session.add(node)
     session.flush()
 
+    # write node back to YAML, with column information
+    update_node_config(node, data["path"])
+
     return node
+
+
+def update_node_config(node: Node, path: Path) -> None:
+    """
+    Update the node config with information about columns.
+    """
+    with open(path, encoding="utf-8") as input_:
+        original = yaml.safe_load(input_)
+    updated = node.to_yaml()
+
+    updated.update(original)
+    if updated == original:
+        _logger.info("Node %s is up-do-date, skipping", node.name)
+        return
+
+    _logger.info("Updating node %s config with column information", node.name)
+    with open(path, "w", encoding="utf-8") as output:
+        yaml.safe_dump(updated, output, sort_keys=False)
 
 
 def yaml_file_changed(_: Change, path: str) -> bool:
