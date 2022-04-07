@@ -13,6 +13,7 @@ from sqloxide import parse_sql
 from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.sql.parse import find_nodes_by_key
+from datajunction.typing import ParseTree
 
 
 def render_dag(dependencies: Dict[str, Set[str]], **kwargs: Any) -> str:
@@ -79,7 +80,7 @@ def get_computable_databases(
     databases = {table.database for table in tables}
 
     # add all the databases that are common between the parents and match all the columns
-    parent_columns = get_referenced_columns(node.expression, node.parents)
+    parent_columns = get_referenced_columns_from_sql(node.expression, node.parents)
     if node.parents:
         parent_databases = [
             get_computable_databases(parent, parent_columns[parent.name])
@@ -90,7 +91,7 @@ def get_computable_databases(
     return databases
 
 
-def get_referenced_columns(
+def get_referenced_columns_from_sql(
     sql: Optional[str],
     parents: List[Node],
 ) -> Dict[str, Set[str]]:
@@ -99,15 +100,25 @@ def get_referenced_columns(
 
     Referenced columns are a dictionary mapping parent name to column name(s).
     """
-    referenced_columns: Dict[str, Set[str]] = defaultdict(set)
     if not sql:
-        return referenced_columns
+        return defaultdict(set)
+
+    tree = parse_sql(sql, dialect="ansi")
+
+    return get_referenced_columns_from_tree(tree, parents)
+
+
+def get_referenced_columns_from_tree(
+    tree: ParseTree, parents: List[Node],
+) -> Dict[str, Set[str]]:
+    """
+    Return the columns referenced in parents given a parse tree.
+    """
+    referenced_columns: Dict[str, Set[str]] = defaultdict(set)
 
     parent_columns = {
         parent.name: {column.name for column in parent.columns} for parent in parents
     }
-
-    tree = parse_sql(sql, dialect="ansi")
 
     # compound identifiers are fully qualified
     for compound_identifier in find_nodes_by_key(tree, "CompoundIdentifier"):
