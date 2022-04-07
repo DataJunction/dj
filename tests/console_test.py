@@ -24,6 +24,7 @@ async def test_main_compile(mocker: MockerFixture) -> None:
         "datajunction.console.docopt",
         return_value={
             "--loglevel": "debug",
+            "--force": False,
             "--reload": False,
             "compile": True,
             "REPOSITORY": None,
@@ -38,7 +39,7 @@ async def test_main_compile(mocker: MockerFixture) -> None:
     )
 
     await console.main()
-    compile_.run.assert_called_with(Path("/path/to/repository"), False)
+    compile_.run.assert_called_with(Path("/path/to/repository"), False, False)
 
 
 @pytest.mark.asyncio
@@ -53,6 +54,7 @@ async def test_main_compile_passing_repository(mocker: MockerFixture) -> None:
         "datajunction.console.docopt",
         return_value={
             "--loglevel": "debug",
+            "--force": False,
             "--reload": False,
             "compile": True,
             "REPOSITORY": "/path/to/another/repository",
@@ -60,7 +62,7 @@ async def test_main_compile_passing_repository(mocker: MockerFixture) -> None:
     )
 
     await console.main()
-    compile_.run.assert_called_with(Path("/path/to/another/repository"), False)
+    compile_.run.assert_called_with(Path("/path/to/another/repository"), False, False)
 
 
 @pytest.mark.asyncio
@@ -76,6 +78,7 @@ async def test_main_canceled(mocker: MockerFixture) -> None:
         "datajunction.console.docopt",
         return_value={
             "--loglevel": "debug",
+            "--force": False,
             "--reload": False,
             "compile": True,
             "REPOSITORY": "/path/to/another/repository",

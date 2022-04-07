@@ -78,7 +78,7 @@ def get_session() -> Iterator[Session]:
     """
     engine = get_engine()
 
-    with Session(engine) as session:
+    with Session(engine, autoflush=False) as session:
         yield session
 
 

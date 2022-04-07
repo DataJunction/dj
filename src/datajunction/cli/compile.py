@@ -46,7 +46,11 @@ async def load_data(repository: Path, path: Path) -> Dict[str, Any]:
     return data
 
 
-async def index_databases(repository: Path, session: Session) -> List[Database]:
+async def index_databases(
+    repository: Path,
+    session: Session,
+    force: bool = False,
+) -> List[Database]:
     """
     Index all the databases.
     """
@@ -67,7 +71,10 @@ async def index_databases(repository: Path, session: Session) -> List[Database]:
             if database.updated_at.tzinfo is None:
                 database.updated_at = database.updated_at.replace(tzinfo=timezone.utc)
 
-            if database.updated_at > datetime.fromtimestamp(mtime, tz=timezone.utc):
+            if not force and database.updated_at > datetime.fromtimestamp(
+                mtime,
+                tz=timezone.utc,
+            ):
                 _logger.info("Database %s is up-to-date, skipping", name)
                 return database
 
@@ -135,9 +142,10 @@ async def load_node_configs(repository: Path) -> List[Dict[str, Any]]:
     return await asyncio.gather(*tasks)
 
 
-async def index_nodes(
+async def index_nodes(  # pylint: disable=too-many-locals
     repository: Path,
     session: Session,
+    force: bool = False,
 ) -> List[Node]:
     """
     Index all the nodes, computing their schema.
@@ -175,7 +183,9 @@ async def index_nodes(
         if not to_process and not pending_tasks:
             break
         started |= {config["name"] for config in to_process}
-        new_tasks = {add_node(session, databases, config) for config in to_process}
+        new_tasks = {
+            add_node(session, databases, config, force) for config in to_process
+        }
 
         done, pending_tasks = await asyncio.wait(
             pending_tasks | new_tasks,
@@ -194,6 +204,7 @@ async def add_node(
     session: Session,
     databases: Dict[str, Database],
     data: Dict[str, Any],
+    force: bool = False,
 ) -> Node:
     """
     Index a node given its YAML config.
@@ -213,7 +224,10 @@ async def add_node(
         if node.updated_at.tzinfo is None:
             node.updated_at = node.updated_at.replace(tzinfo=timezone.utc)
 
-        if node.updated_at > datetime.fromtimestamp(mtime, tz=timezone.utc):
+        if not force and node.updated_at > datetime.fromtimestamp(
+            mtime,
+            tz=timezone.utc,
+        ):
             _logger.info("Node %s is up-do-date, skipping", name)
             return node
 
@@ -253,7 +267,7 @@ def yaml_file_changed(_: Change, path: str) -> bool:
     return Path(path).suffix in {".yaml", ".yml"}
 
 
-async def run(repository: Path, reload: bool = False) -> None:
+async def run(repository: Path, force: bool = False, reload: bool = False) -> None:
     """
     Compile the metrics repository.
     """
@@ -261,8 +275,8 @@ async def run(repository: Path, reload: bool = False) -> None:
 
     session = next(get_session())
 
-    await index_databases(repository, session)
-    await index_nodes(repository, session)
+    await index_databases(repository, session, force)
+    await index_nodes(repository, session, force)
     session.commit()
 
     if not reload:
@@ -272,6 +286,6 @@ async def run(repository: Path, reload: bool = False) -> None:
         repository,
         watch_filter=yaml_file_changed,
     ):
-        await index_databases(repository, session)
-        await index_nodes(repository, session)
+        await index_databases(repository, session, force)
+        await index_nodes(repository, session, force)
         session.commit()
