@@ -17,7 +17,7 @@ clean:
 	pyenv virtualenv-delete datajunction
 
 spellcheck:
-	codespell -S "*.json" src/datajunction docs/*rst tests templates
+	codespell -L froms -S "*.json" src/datajunction docs/*rst tests templates
 
 requirements.txt: .python-version
 	pip install --upgrade pip
