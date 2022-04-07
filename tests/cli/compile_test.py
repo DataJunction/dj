@@ -278,8 +278,8 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
 
     await run(repository)
 
-    index_databases.assert_called_with(repository, session)
-    index_nodes.assert_called_with(repository, session)
+    index_databases.assert_called_with(repository, session, False)
+    index_nodes.assert_called_with(repository, session, False)
 
     session.commit.assert_called()
 
