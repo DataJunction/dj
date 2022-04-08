@@ -7,12 +7,14 @@ import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
 from sqlmodel import Session
+from sqloxide import parse_sql
 
 from datajunction.engine import (
     ColumnMetadata,
     Description,
     TypeEnum,
     get_columns_from_description,
+    get_database_for_sql,
     get_filter,
     get_query_for_node,
     get_query_for_sql,
@@ -751,3 +753,35 @@ WHERE "core.some_other_parent.user_id" > 1
     with pytest.raises(Exception) as excinfo:
         get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid identifier: core.some_other_parent"
+
+
+def test_get_database_for_sql(mocker: MockerFixture) -> None:
+    """
+    Test ``get_database_for_sql``.
+    """
+    database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
+    database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
+
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__().exec().all.return_value = [database_1, database_2]
+
+    parent = Node(
+        name="parent",
+        tables=[
+            Table(
+                database=database_2,
+                table="comments",
+                columns=[
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="comment", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    tree = parse_sql("SELECT COUNT(*) FROM comments", dialect="ansi")
+    assert get_database_for_sql(tree, [parent]) == database_2
+
+    # without parents, return the cheapest DB
+    tree = parse_sql("SELECT 1, 'two'", dialect="ansi")
+    assert get_database_for_sql(tree, []) == database_1
