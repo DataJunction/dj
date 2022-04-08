@@ -21,8 +21,10 @@ from datajunction.models.query import (
     QueryCreate,
     QueryResults,
     QueryState,
+    QueryWithResults,
     StatementResults,
 )
+from datajunction.utils import DJ_DATABASE_ID
 
 
 def test_submit_query(session: Session, client: TestClient) -> None:
@@ -59,6 +61,32 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
+
+
+def test_submit_query_native(mocker: MockerFixture, client: TestClient) -> None:
+    """
+    Test ``POST /queries/`` with a native DJ query.
+    """
+    get_query_for_sql = mocker.patch("datajunction.api.queries.get_query_for_sql")
+    mocker.patch(
+        "datajunction.api.queries.save_query_and_run",
+        return_value=QueryWithResults(
+            database_id=DJ_DATABASE_ID,
+            id=UUID("74099c09-91f3-4df7-be9d-96a8075ff5a8"),
+            submitted_query="SELECT A FROM metrics",
+            results=[],
+            errors=[],
+        ),
+    )
+
+    query_create = QueryCreate(
+        database_id=DJ_DATABASE_ID,
+        submitted_query="SELECT A FROM metrics",
+    )
+
+    client.post("/queries/", data=query_create.json())
+
+    get_query_for_sql.assert_called_with("SELECT A FROM metrics")
 
 
 def test_submit_query_multiple_statements(session: Session, client: TestClient) -> None:

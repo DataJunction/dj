@@ -215,11 +215,14 @@ def get_new_projection_and_from(
         else:
             raise NotImplementedError(f"Unable to handle expression: {expression}")
 
-        if "Identifier" not in expression:
+        if "Identifier" in expression:
+            name = expression["Identifier"]["value"]
+        elif "CompoundIdentifier" in expression:
+            name = ".".join(part["value"] for part in expression["CompoundIdentifier"])
+        else:
             new_projection.append(projection_expression)
             continue
 
-        name = expression["Identifier"]["value"]
         if alias is None:
             alias = {
                 "quote_style": '"',
