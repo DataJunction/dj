@@ -240,6 +240,59 @@ FROM "A") AS "A"'''
     )
 
 
+def test_get_query_for_sql_compound_names(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` with nodes with compound names.
+    """
+    get_session = mocker.patch("datajunction.engine.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    A = Node(
+        name="core.A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    B = Node(
+        name="core.B",
+        expression="SELECT COUNT(*) AS cnt FROM core.A",
+        parents=[A],
+    )
+    session.add(B)
+    session.commit()
+
+    sql = "SELECT core.B FROM metrics"
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+
+    space = " "
+    assert (
+        create_query.submitted_query
+        == f'''SELECT count('*') AS "core.B"{space}
+FROM (SELECT "A".one AS one, "A".two AS two{space}
+FROM "A") AS "core.A"'''
+    )
+
+
 def test_get_query_for_sql_multiple_databases(
     mocker: MockerFixture,
     session: Session,
