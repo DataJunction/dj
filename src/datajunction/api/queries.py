@@ -19,7 +19,7 @@ from fastapi import (
 from sqlmodel import Session
 
 from datajunction.config import Settings
-from datajunction.engine import process_query
+from datajunction.engine import get_query_for_sql, process_query
 from datajunction.models.query import (
     Query,
     QueryCreate,
@@ -27,7 +27,7 @@ from datajunction.models.query import (
     QueryState,
     QueryWithResults,
 )
-from datajunction.utils import get_session, get_settings
+from datajunction.utils import DJ_DATABASE_ID, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -50,6 +50,9 @@ def submit_query(
     """
     Run or schedule a query.
     """
+    if create_query.database_id == DJ_DATABASE_ID:
+        create_query = get_query_for_sql(create_query.submitted_query)
+
     return save_query_and_run(
         create_query,
         session,
