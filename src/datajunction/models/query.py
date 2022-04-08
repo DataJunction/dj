@@ -13,7 +13,7 @@ from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
 
 from datajunction.models.database import Database
-from datajunction.typing import QueryState, Row, TypeEnum
+from datajunction.typing import ColumnType, QueryState, Row
 
 
 class BaseQuery(SQLModel):
@@ -62,7 +62,7 @@ class ColumnMetadata(SQLModel):
     """
 
     name: str
-    type: TypeEnum
+    type: ColumnType
 
 
 class StatementResults(SQLModel):
