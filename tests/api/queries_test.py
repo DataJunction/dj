@@ -58,7 +58,7 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
-    assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
+    assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
 
@@ -120,10 +120,10 @@ def test_submit_query_multiple_statements(session: Session, client: TestClient) 
     assert data["progress"] == 1.0
     assert len(data["results"]) == 2
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
-    assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
+    assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
     assert data["results"][0]["rows"] == [[1]]
     assert data["results"][1]["sql"] == "SELECT 2 AS another_col"
-    assert data["results"][1]["columns"] == [{"name": "another_col", "type": "STRING"}]
+    assert data["results"][1]["columns"] == [{"name": "another_col", "type": "STR"}]
     assert data["results"][1]["rows"] == [[2]]
     assert data["errors"] == []
 
@@ -154,7 +154,7 @@ def test_submit_query_results_backend(
     assert json.loads(cached) == [
         {
             "sql": "SELECT 1 AS col",
-            "columns": [{"name": "col", "type": "STRING"}],
+            "columns": [{"name": "col", "type": "STR"}],
             "rows": [[1]],
             "row_count": 1,
         },
@@ -338,7 +338,7 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
         __root__=[
             StatementResults(
                 sql="SELECT 1",
-                columns=[{"name": "col", "type": "STRING"}],
+                columns=[{"name": "col", "type": "STR"}],
                 rows=[[1]],
             ),
         ],
@@ -358,7 +358,7 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
     assert data["progress"] == 0.5
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1"
-    assert data["results"][0]["columns"] == [{"name": "col", "type": "STRING"}]
+    assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
 
@@ -433,7 +433,7 @@ def test_pagination(
         __root__=[
             StatementResults(
                 sql="SELECT some_col",
-                columns=[{"name": "some_col", "type": "NUMBER"}],
+                columns=[{"name": "some_col", "type": "FLOAT"}],
                 rows=[[1], [2], [3], [4], [5], [6]],
                 row_count=6,
             ),
@@ -486,7 +486,7 @@ def test_pagination_last_page(
         __root__=[
             StatementResults(
                 sql="SELECT some_col",
-                columns=[{"name": "some_col", "type": "NUMBER"}],
+                columns=[{"name": "some_col", "type": "FLOAT"}],
                 rows=[[1], [2], [3], [4], [5], [6]],
                 row_count=6,
             ),

@@ -24,6 +24,7 @@ fastapi==0.70.1
 greenlet==1.1.2
 idna==3.3
 kombu==5.2.3
+multidict==6.0.2
 packaging==21.3
 prompt-toolkit==3.0.24
 pydantic==1.8.2
@@ -47,8 +48,10 @@ starlette==0.16.0
 typing-extensions==4.0.1
 urllib3==1.26.7
 vine==5.0.0
+watchfiles==0.12
 wcwidth==0.2.5
 wrapt==1.13.3
+yarl==1.7.2
 
 # The following packages are considered to be unsafe in a requirements file:
 # setuptools
