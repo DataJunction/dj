@@ -19,9 +19,11 @@ from typing import Dict, List, Set, TypedDict, Union
 import yaml
 from rich.text import Text
 from sqlalchemy import inspect
+from sqlalchemy.engine.url import URL
 from sqlmodel import Session, create_engine, select
 from watchfiles import Change, awatch
 
+from datajunction.constants import DJ_DATABASE_ID, SQLITE_DATABASE_ID
 from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node, NodeYAML
 from datajunction.models.query import Query  # pylint: disable=unused-import
@@ -76,6 +78,38 @@ async def load_data(
     data["path"] = path
 
     return data
+
+
+async def add_special_databases(session: Session) -> None:
+    """
+    Add two special databases to the index.
+
+    This function adds two databases that are not defined in YAML files. The first one is
+    a pseudo-database used to run SQL queries against metrics, and the second one is an in
+    memory SQLite database for quickly running tableless queries like ``SELECT 1``.
+    """
+    if not session.get(Database, DJ_DATABASE_ID):
+        session.add(
+            Database(
+                id=DJ_DATABASE_ID,
+                name="dj",
+                description="The DJ meta database",
+                URI=str(URL("dj", host="localhost", port=8000, database="0")),
+                read_only=True,
+            ),
+        )
+
+    if not session.get(Database, SQLITE_DATABASE_ID):
+        session.add(
+            Database(
+                id=SQLITE_DATABASE_ID,
+                name="in-memory",
+                description="An in memory SQLite database for tableless queries",
+                URI="sqlite://",
+                read_only=True,
+                cost=0,
+            ),
+        )
 
 
 async def index_databases(
@@ -190,7 +224,10 @@ async def index_nodes(  # pylint: disable=too-many-locals
     """
     # load all databases
     databases = {
-        database.name: database for database in session.exec(select(Database)).all()
+        database.name: database
+        for database in session.exec(
+            select(Database).where(Database.id != DJ_DATABASE_ID),
+        ).all()
     }
 
     configs = await load_node_configs(repository)
@@ -328,6 +365,7 @@ async def run(repository: Path, force: bool = False, reload: bool = False) -> No
 
     session = next(get_session())
 
+    await add_special_databases(session)
     await index_databases(repository, session, force)
     await index_nodes(repository, session, force)
     session.commit()

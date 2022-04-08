@@ -21,6 +21,7 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
 
     name: str = "DJ server"
     description: str = "A DataJunction metrics repository"
+    url: str = "http://localhost:8000/"
 
     # SQLAlchemy URI for the metadata database.
     index: str = "sqlite:///dj.db"

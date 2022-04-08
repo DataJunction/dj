@@ -14,6 +14,7 @@ from sqlmodel import Session
 
 from datajunction.api.queries import dispatch_query
 from datajunction.config import Settings
+from datajunction.constants import DJ_DATABASE_ID
 from datajunction.engine import process_query
 from datajunction.models.query import (
     Database,
@@ -24,7 +25,6 @@ from datajunction.models.query import (
     QueryWithResults,
     StatementResults,
 )
-from datajunction.utils import DJ_DATABASE_ID
 
 
 def test_submit_query(session: Session, client: TestClient) -> None:
