@@ -17,6 +17,7 @@ from sqlmodel import Session, create_engine, select
 from sqloxide import parse_sql
 
 from datajunction.config import Settings
+from datajunction.constants import DJ_DATABASE_ID
 from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.query import (
@@ -188,7 +189,9 @@ def get_database_for_sql(tree: ParseTree, parents: List[Node]) -> Database:
         )
     else:
         session = next(get_session())
-        databases = session.exec(select(Database)).all()
+        databases = session.exec(
+            select(Database).where(Database.id != DJ_DATABASE_ID),
+        ).all()
 
     if not databases:
         raise Exception("Unable to run SQL (no common database)")

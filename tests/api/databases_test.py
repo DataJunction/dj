@@ -26,14 +26,9 @@ def test_read_databases(session: Session, client: TestClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert len(data) == 2
+    assert len(data) == 1
 
     assert data[0]["name"] == "gsheets"
     assert data[0]["URI"] == "gsheets://"
     assert data[0]["description"] == "A Google Sheets connector"
     assert data[0]["read_only"] is True
-
-    assert data[1]["name"] == "dj"
-    assert data[1]["URI"] == "dj://testserver/0"
-    assert data[1]["description"] == "Native DJ"
-    assert data[1]["read_only"] is True

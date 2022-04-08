@@ -19,6 +19,7 @@ from fastapi import (
 from sqlmodel import Session
 
 from datajunction.config import Settings
+from datajunction.constants import DJ_DATABASE_ID
 from datajunction.engine import get_query_for_sql, process_query
 from datajunction.models.query import (
     Query,
@@ -27,7 +28,7 @@ from datajunction.models.query import (
     QueryState,
     QueryWithResults,
 )
-from datajunction.utils import DJ_DATABASE_ID, get_session, get_settings
+from datajunction.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
