@@ -364,7 +364,8 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
     """
     mocker.patch("datajunction.cli.compile.create_db_and_tables")
     get_session = mocker.patch("datajunction.cli.compile.get_session")
-    session = get_session().__next__.return_value
+    session = get_session().__next__()
+    session.get.return_value = False
 
     index_databases = mocker.patch("datajunction.cli.compile.index_databases")
     index_nodes = mocker.patch("datajunction.cli.compile.index_nodes")
@@ -375,6 +376,7 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
     index_nodes.assert_called_with(repository, session, False)
 
     session.commit.assert_called()
+    assert session.add.call_count == 2
 
 
 @pytest.mark.asyncio
