@@ -16,6 +16,8 @@ from sqlmodel import Session, SQLModel, create_engine
 from datajunction.config import Settings
 from datajunction.typing import ColumnType
 
+DJ_DATABASE_ID = 0
+
 
 def setup_logging(loglevel: str) -> None:
     """
