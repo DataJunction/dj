@@ -12,7 +12,6 @@ from sqloxide import parse_sql
 from datajunction.engine import (
     ColumnMetadata,
     Description,
-    TypeEnum,
     get_columns_from_description,
     get_database_for_sql,
     get_filter,
@@ -45,11 +44,11 @@ def test_get_columns_from_description(mocker: MockerFixture) -> None:
     ]
 
     assert get_columns_from_description(description, dialect) == [
-        ColumnMetadata(name="a", type=TypeEnum.STRING),
-        ColumnMetadata(name="b", type=TypeEnum.BINARY),
-        ColumnMetadata(name="c", type=TypeEnum.NUMBER),
-        ColumnMetadata(name="d", type=TypeEnum.DATETIME),
-        ColumnMetadata(name="e", type=TypeEnum.UNKNOWN),
+        ColumnMetadata(name="a", type=ColumnType.STR),
+        ColumnMetadata(name="b", type=ColumnType.BYTES),
+        ColumnMetadata(name="c", type=ColumnType.FLOAT),
+        ColumnMetadata(name="d", type=ColumnType.DATETIME),
+        ColumnMetadata(name="e", type=ColumnType.STR),
     ]
 
 
@@ -65,7 +64,7 @@ def test_run_query() -> None:
     )
     sql, columns, stream = run_query(query)[0]
     assert sql == "SELECT 1"
-    assert columns == [ColumnMetadata(name="1", type=TypeEnum.STRING)]
+    assert columns == [ColumnMetadata(name="1", type=ColumnType.STR)]
     assert list(stream) == [(1,)]
 
 
@@ -689,7 +688,7 @@ def test_get_query_for_sql_where_groupby(
     session.commit()
 
     sql = """
-SELECT "core.num_comments" FROM metrics
+SELECT "core.num_comments", "core.comments.user_id" FROM metrics
 WHERE "core.comments.user_id" > 1
 GROUP BY "core.comments.user_id"
     """
@@ -700,7 +699,7 @@ GROUP BY "core.comments.user_id"
     space = " "
     assert (
         create_query.submitted_query
-        == f"""SELECT count('*') AS "core.num_comments"{space}
+        == f"""SELECT count('*') AS "core.num_comments", "core.comments".user_id{space}
 FROM (SELECT comments.user_id AS user_id, comments.comment AS comment{space}
 FROM comments) AS "core.comments"{space}
 WHERE "core.comments".user_id > 1 GROUP BY "core.comments".user_id"""
@@ -763,7 +762,8 @@ def test_get_database_for_sql(mocker: MockerFixture) -> None:
     database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
 
     get_session = mocker.patch("datajunction.engine.get_session")
-    get_session().__next__().exec().all.return_value = [database_1, database_2]
+    session = get_session().__next__()
+    session.exec().all.return_value = [database_1, database_2]
 
     parent = Node(
         name="parent",
@@ -780,8 +780,8 @@ def test_get_database_for_sql(mocker: MockerFixture) -> None:
     )
 
     tree = parse_sql("SELECT COUNT(*) FROM comments", dialect="ansi")
-    assert get_database_for_sql(tree, [parent]) == database_2
+    assert get_database_for_sql(session, tree, [parent]) == database_2
 
     # without parents, return the cheapest DB
     tree = parse_sql("SELECT 1, 'two'", dialect="ansi")
-    assert get_database_for_sql(tree, []) == database_1
+    assert get_database_for_sql(session, tree, []) == database_1

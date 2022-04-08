@@ -28,7 +28,6 @@ from datajunction.models.query import (
     QueryState,
     QueryWithResults,
     StatementResults,
-    TypeEnum,
 )
 from datajunction.sql.dag import (
     get_computable_databases,
@@ -42,13 +41,16 @@ from datajunction.sql.parse import (
 )
 from datajunction.sql.transpile import get_query, get_select_for_node
 from datajunction.typing import (
+    ColumnType,
     Description,
     From,
     Identifier,
     ParseTree,
     Projection,
+    Select,
     SQLADialect,
     Stream,
+    TypeEnum,
 )
 from datajunction.utils import get_session
 
@@ -139,22 +141,42 @@ def get_query_for_sql(sql: str) -> QueryCreate:
         GROUP BY "core.comments.user_id"
 
     """
+    session = next(get_session())
+
     tree = parse_sql(sql, dialect="ansi")
     query_select = tree[0]["Query"]["body"]["Select"]
 
     # all metrics should share the same parent(s)
     parents: List[Node] = []
 
-    # replace projection with metric definition(s)
+    # replace metrics with their definitions
     projection = next(find_nodes_by_key(tree, "projection"))
-    new_projection, new_from = get_new_projection_and_from(projection, parents)
+    new_projection, new_from = get_new_projection_and_from(session, projection, parents)
     query_select.update({"from": new_from, "projection": new_projection})
 
-    # update ``FILTER``, ``GROUP BY``, and ``SORT BY``
-    for part in ("selection", "group_by", "sort_by"):
+    # replace dimensions with column referencs
+    replace_dimension_references(query_select, parents)
+
+    database = get_database_for_sql(session, tree, parents)
+    query = get_query(None, parents, tree, database)
+    engine = sqla_create_engine(database.URI)
+    sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
+
+    return QueryCreate(database_id=database.id, submitted_query=sql)
+
+
+def replace_dimension_references(query_select: Select, parents: List[Node]) -> None:
+    """
+    Update a query inplace, replacing dimensions with proper column names.
+    """
+    for part in ("projection", "selection", "group_by", "sort_by"):
         for identifier, parent in list(
-            find_nodes_by_key_with_parent(query_select[part], "Identifier"),
+            find_nodes_by_key_with_parent(query_select[part], "Identifier"),  # type: ignore
         ):
+            if "." not in identifier["value"]:
+                # metric already processed
+                continue
+
             name, column = identifier["value"].rsplit(".", 1)
             if name not in {parent.name for parent in parents}:
                 raise Exception(f"Invalid identifier: {name}")
@@ -165,15 +187,12 @@ def get_query_for_sql(sql: str) -> QueryCreate:
                 {"quote_style": '"', "value": column},
             ]
 
-    database = get_database_for_sql(tree, parents)
-    query = get_query(None, parents, tree, database)
-    engine = sqla_create_engine(database.URI)
-    sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
 
-    return QueryCreate(database_id=database.id, submitted_query=sql)
-
-
-def get_database_for_sql(tree: ParseTree, parents: List[Node]) -> Database:
+def get_database_for_sql(
+    session: Session,
+    tree: ParseTree,
+    parents: List[Node],
+) -> Database:
     """
     Given a list of parents, return the best database to compute metric.
 
@@ -188,7 +207,6 @@ def get_database_for_sql(tree: ParseTree, parents: List[Node]) -> Database:
             ]
         )
     else:
-        session = next(get_session())
         databases = session.exec(
             select(Database).where(Database.id != DJ_DATABASE_ID),
         ).all()
@@ -199,6 +217,7 @@ def get_database_for_sql(tree: ParseTree, parents: List[Node]) -> Database:
 
 
 def get_new_projection_and_from(
+    session: Session,
     projection: List[Projection],
     parents: List[Node],
 ) -> Tuple[List[Projection], List[From]]:
@@ -211,8 +230,6 @@ def get_new_projection_and_from(
 
     This assumes that all nodes referenced in the ``SELECT`` share the same parents.
     """
-    session = next(get_session())
-
     new_from: List[From] = []
     new_projection: List[Projection] = []
     for projection_expression in projection:
@@ -239,7 +256,11 @@ def get_new_projection_and_from(
                 "value": name,
             }
 
-        node = session.exec(select(Node).where(Node.name == name)).one()
+        node = session.exec(select(Node).where(Node.name == name)).one_or_none()
+        if node is None:
+            # skip, since this is probably a dimension
+            new_projection.append(projection_expression)
+            continue
         if not node.expression or not is_metric(node.expression):
             raise Exception(f"Not a valid metric: {name}")
         if not parents:
@@ -258,10 +279,7 @@ def get_new_projection_and_from(
                 },
             },
         )
-
-        # this should be identical in all referenced nodes, so we just need to add it once
-        if not new_from:
-            new_from.append(subtree[0]["Query"]["body"]["Select"]["from"])
+        new_from.append(subtree[0]["Query"]["body"]["Select"]["from"])
 
     return new_projection, new_from
 
@@ -277,15 +295,23 @@ def get_columns_from_description(
     distinguish between 4 types (see ``TypeEnum``). In the future we should use a type
     inferrer to determine the types based on the query.
     """
+    type_map = {
+        TypeEnum.STRING: ColumnType.STR,
+        TypeEnum.BINARY: ColumnType.BYTES,
+        TypeEnum.NUMBER: ColumnType.FLOAT,
+        TypeEnum.DATETIME: ColumnType.DATETIME,
+    }
+
     columns = []
     for column in description or []:
         name, native_type = column[:2]
         for dbapi_type in TypeEnum:
             if native_type == getattr(dialect.dbapi, dbapi_type.value, None):
-                type_ = dbapi_type
+                type_ = type_map[dbapi_type]
                 break
         else:
-            type_ = TypeEnum.UNKNOWN
+            # fallback to string
+            type_ = ColumnType.STR
 
         columns.append(ColumnMetadata(name=name, type=type_))
 
