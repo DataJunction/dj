@@ -99,6 +99,48 @@ def test_get_query_for_node(mocker: MockerFixture) -> None:
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
 
+def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node`` with group bys.
+    """
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    parent = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="comment", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    child = Node(
+        name="B",
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[parent],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (user_id INTEGER, comment TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    create_query = get_query_for_node(child, ["A.user_id"], [])
+    space = " "
+    assert create_query.database_id == 1
+    assert (
+        create_query.submitted_query
+        == f"""SELECT count('*') AS cnt, "A".user_id{space}
+FROM (SELECT "A".user_id AS user_id, "A".comment AS comment{space}
+FROM "A") AS "A" GROUP BY "A".user_id"""
+    )
+
+
 def test_get_query_for_node_specify_database(mocker: MockerFixture) -> None:
     """
     Test ``get_query_for_node`` when a database is specified.

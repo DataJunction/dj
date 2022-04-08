@@ -125,6 +125,10 @@ def get_query_for_node(
         *[get_filter(columns, filter_) for filter_ in filters]
     ).group_by(*[columns[groupby] for groupby in groupbys])
 
+    # add groupbys to projection as well
+    for groupby in groupbys:
+        node_select.append_column(columns[groupby])
+
     sql = str(node_select.compile(engine, compile_kwargs={"literal_binds": True}))
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
