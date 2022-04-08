@@ -175,14 +175,21 @@ def get_query_for_sql(sql: str) -> QueryCreate:
 def get_database_for_sql(tree: ParseTree, parents: List[Node]) -> Database:
     """
     Given a list of parents, return the best database to compute metric.
+
+    When no parents are passed, the database with the lowest cost is returned.
     """
-    parent_columns = get_referenced_columns_from_tree(tree, parents)
-    databases = set.intersection(
-        *[
-            get_computable_databases(parent, parent_columns[parent.name])
-            for parent in parents
-        ]
-    )
+    if parents:
+        parent_columns = get_referenced_columns_from_tree(tree, parents)
+        databases = set.intersection(
+            *[
+                get_computable_databases(parent, parent_columns[parent.name])
+                for parent in parents
+            ]
+        )
+    else:
+        session = next(get_session())
+        databases = session.exec(select(Database)).all()
+
     if not databases:
         raise Exception("Unable to run SQL (no common database)")
     return sorted(databases, key=operator.attrgetter("cost"))[0]

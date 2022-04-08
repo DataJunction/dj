@@ -15,7 +15,7 @@ from sqlalchemy.engine import create_engine
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.schema import MetaData, Table
 from sqlalchemy.sql import Select, select
-from sqlalchemy.sql.expression import ClauseElement
+from sqlalchemy.sql.expression import ClauseElement, TextClause, literal
 from sqlalchemy.sql.functions import Function as SqlaFunction
 from sqloxide import parse_sql
 
@@ -41,6 +41,9 @@ OPERATIONS = {
     "Eq": operator.eq,
     "NotEq": operator.ne,
 }
+
+# this probably needs more types
+SqlaExpression = Union[SqlaFunction, SqlaColumn, ClauseElement, int, float, str, text]
 
 
 def get_select_for_node(
@@ -87,9 +90,13 @@ def get_query(
     Build a SQLAlchemy query.
     """
     # SELECT ... FROM ...
-    source = get_source(expression, parents, database, tree, dialect)
-    projection = get_projection(tree, source, dialect)
-    query = projection.select_from(source)
+    if parents:
+        source = get_source(expression, parents, database, tree, dialect)
+        projection = get_projection(tree, source, dialect)
+        query = projection.select_from(source)
+    else:
+        source = None
+        query = get_projection(tree, source, dialect)
 
     # WHERE ...
     selection = get_selection(tree, source, dialect)
@@ -111,7 +118,7 @@ def get_query(
 
 def get_limit(
     tree: ParseTree,
-    source: Select,
+    source: Optional[Select],
     dialect: Optional[str] = None,
 ) -> Optional[int]:
     """
@@ -126,7 +133,7 @@ def get_limit(
 
 def get_groupby(
     tree: ParseTree,
-    source: Select,
+    source: Optional[Select],
     dialect: Optional[str] = None,
 ) -> List[Any]:
     """
@@ -138,9 +145,9 @@ def get_groupby(
 
 def get_selection(
     tree: ParseTree,
-    source: Select,
+    source: Optional[Select],
     dialect: Optional[str] = None,
-) -> Union[SqlaFunction, SqlaColumn, ClauseElement, int, float, str, text, None]:
+) -> SqlaExpression:
     """
     Build the ``WHERE`` clause of a query.
     """
@@ -153,7 +160,7 @@ def get_selection(
 
 def get_binary_op(
     selection: BinaryOp,
-    source: Select,
+    source: Optional[Select],
     dialect: Optional[str] = None,
 ) -> ClauseElement:
     """
@@ -171,7 +178,7 @@ def get_binary_op(
 
 def get_projection(
     tree: ParseTree,
-    source: Select,
+    source: Optional[Select],
     dialect: Optional[str] = None,
 ) -> Select:
     """
@@ -190,18 +197,29 @@ def get_projection(
             raise NotImplementedError(f"Unable to handle expression: {expression}")
 
         expression = get_expression(expression, source, dialect)
-        if hasattr(expression, "label"):
-            expression = expression.label(alias)
+        if alias:
+            expression = add_alias(expression, alias)
         expressions.append(expression)
 
     return select(expressions)
 
 
+def add_alias(expression: SqlaExpression, alias: str) -> SqlaExpression:
+    """
+    Add an alias to an expression as a label.
+    """
+    if hasattr(expression, "label"):
+        return expression.label(alias)  # type: ignore
+    if isinstance(expression, TextClause):
+        return literal(str(expression)).label(alias)
+    return literal(expression).label(alias)
+
+
 def get_expression(
     expression: Expression,
-    source: Select,
+    source: Optional[Select],
     dialect: Optional[str] = None,
-) -> Union[SqlaFunction, SqlaColumn, ClauseElement, int, float, str, text]:
+) -> SqlaExpression:
     """
     Build an expression.
     """
@@ -226,7 +244,7 @@ def get_expression(
 
 def get_function(
     function: Function,
-    source: Select,
+    source: Optional[Select],
     dialect: Optional[str] = None,
 ) -> SqlaFunction:
     """
@@ -242,31 +260,35 @@ def get_function(
 
 def get_identifier(
     identifier: Identifier,
-    source: Select,
+    source: Optional[Select],
     dialect: Optional[str] = None,
 ) -> SqlaColumn:
     """
     Build a column.
     """
+    if source is None:
+        raise Exception("Unable to return identifier without a source")
     return getattr(source.columns, identifier["value"])
 
 
 def get_compound_identifier(
     compound_identifier: List[Identifier],
-    source: Select,
-    dialecet: Optional[str] = None,
+    source: Optional[Select],
+    dialect: Optional[str] = None,
 ) -> SqlaColumn:
     """
     Build a column.
 
     This assumes the first part of the identifier is ``source``.
     """
+    if source is None:
+        raise Exception("Unable to return identifier without a source")
     return getattr(source.columns, compound_identifier[1]["value"])
 
 
 def get_value(
     value: Value,
-    source: Select,
+    source: Optional[Select],
     dialect: Optional[str] = None,
 ) -> Union[int, float, text]:
     """
@@ -293,7 +315,7 @@ def get_source(
     """
     Build the ``FROM`` part of a query.
     """
-    # For now assume no JOINs or multiple relations
+    # for now assume no JOINs or multiple relations
     parent_columns = get_referenced_columns_from_sql(expression, parents)
     parent = parents[0]
     return get_select_for_node(parent, database, parent_columns[parent.name]).alias(
