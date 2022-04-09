@@ -43,7 +43,16 @@ OPERATIONS = {
 }
 
 # this probably needs more types
-SqlaExpression = Union[SqlaFunction, SqlaColumn, ClauseElement, int, float, str, text]
+SqlaExpression = Union[
+    SqlaFunction,
+    SqlaColumn,
+    ClauseElement,
+    int,
+    float,
+    str,
+    text,
+    bool,
+]
 
 
 def get_select_for_node(
@@ -118,7 +127,7 @@ def get_query(
 
 def get_limit(
     tree: ParseTree,
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> Optional[int]:
     """
@@ -133,7 +142,7 @@ def get_limit(
 
 def get_groupby(
     tree: ParseTree,
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> List[Any]:
     """
@@ -145,7 +154,7 @@ def get_groupby(
 
 def get_selection(
     tree: ParseTree,
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> SqlaExpression:
     """
@@ -160,7 +169,7 @@ def get_selection(
 
 def get_binary_op(
     selection: BinaryOp,
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> ClauseElement:
     """
@@ -178,7 +187,7 @@ def get_binary_op(
 
 def get_projection(
     tree: ParseTree,
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> Select:
     """
@@ -217,7 +226,7 @@ def add_alias(expression: SqlaExpression, alias: str) -> SqlaExpression:
 
 def get_expression(
     expression: Expression,
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> SqlaExpression:
     """
@@ -244,7 +253,7 @@ def get_expression(
 
 def get_function(
     function: Function,
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> SqlaFunction:
     """
@@ -260,7 +269,7 @@ def get_function(
 
 def get_identifier(
     identifier: Identifier,
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> SqlaColumn:
     """
@@ -273,7 +282,7 @@ def get_identifier(
 
 def get_compound_identifier(
     compound_identifier: List[Identifier],
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> SqlaColumn:
     """
@@ -288,9 +297,9 @@ def get_compound_identifier(
 
 def get_value(
     value: Value,
-    source: Optional[Select],
+    source: Optional[Select] = None,
     dialect: Optional[str] = None,
-) -> Union[int, float, text]:
+) -> Union[int, float, text, bool]:
     """
     Build a value.
     """
@@ -301,6 +310,8 @@ def get_value(
             return float(value["Number"][0])
     elif "SingleQuotedString" in value:
         return text(value["SingleQuotedString"])
+    elif "Boolean" in value:
+        return value["Boolean"]
 
     raise NotImplementedError(f"Unable to handle value: {value}")
 
