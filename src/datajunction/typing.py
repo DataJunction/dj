@@ -104,6 +104,7 @@ class QueryState(str, Enum):
 class Value(TypedDict, total=False):
     Number: Tuple[str, bool]
     SingleQuotedString: str
+    Boolean: bool
 
 
 class Limit(TypedDict):

@@ -158,7 +158,7 @@ def get_query_for_sql(sql: str) -> QueryCreate:
     new_projection, new_from = get_new_projection_and_from(session, projection, parents)
     query_select.update({"from": new_from, "projection": new_projection})
 
-    # replace dimensions with column referencs
+    # replace dimensions with column references
     replace_dimension_references(query_select, parents)
 
     database = get_database_for_sql(session, tree, parents)
