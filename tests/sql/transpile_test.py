@@ -8,9 +8,11 @@ from sqlalchemy.engine import create_engine
 from sqlalchemy.sql import Select
 from sqloxide import parse_sql
 
-from datajunction.models.database import Column, Database, Table
+from datajunction.models.column import Column
+from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
+from datajunction.models.table import Table
 from datajunction.sql.transpile import get_query, get_select_for_node, get_value
 from datajunction.typing import ColumnType
 

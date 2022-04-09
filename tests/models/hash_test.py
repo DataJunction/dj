@@ -2,7 +2,9 @@
 Tests for ``datajunction.models.database``.
 """
 
-from datajunction.models.database import Column, Database, Table
+from datajunction.models.column import Column
+from datajunction.models.database import Database
+from datajunction.models.table import Table
 from datajunction.typing import ColumnType
 
 

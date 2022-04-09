@@ -5,7 +5,7 @@ Tests for ``datajunction.sql.functions``.
 from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 
-from datajunction.models.database import Column
+from datajunction.models.column import Column
 from datajunction.sql.functions import Count, Max
 from datajunction.typing import ColumnType
 

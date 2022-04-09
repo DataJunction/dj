@@ -9,7 +9,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, SQLModel, select
 
-from datajunction.models.database import Column
+from datajunction.models.column import Column
 from datajunction.models.node import Node
 from datajunction.sql.parse import is_metric
 from datajunction.typing import ColumnType

@@ -165,7 +165,7 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
     )
     dialect = DJDialect()
 
-    assert dialect.get_columns(connection, "not-metrics") == []
+    assert not dialect.get_columns(connection, "not-metrics")
     assert dialect.get_columns(connection, "metrics") == [
         {
             "name": "core.comments.id",

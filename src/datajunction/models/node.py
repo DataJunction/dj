@@ -2,6 +2,7 @@
 Model for nodes.
 """
 
+import enum
 from collections import defaultdict
 from datetime import datetime, timezone
 from functools import partial
@@ -9,24 +10,12 @@ from typing import Dict, List, Optional, TypedDict, cast
 
 from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
+from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel
-from sqloxide import parse_sql
 
-from datajunction.models.database import Column, ColumnYAML, Table, TableYAML
-from datajunction.sql.inference import get_column_from_expression
-from datajunction.sql.parse import find_nodes_by_key
-from datajunction.utils import get_more_specific_type
-
-
-class NodeYAML(TypedDict, total=False):
-    """
-    Schema of a node in the YAML file.
-    """
-
-    description: str
-    expression: str
-    columns: Dict[str, ColumnYAML]
-    tables: Dict[str, List[TableYAML]]
+from datajunction.models.column import Column, ColumnYAML
+from datajunction.models.table import Table, TableYAML
+from datajunction.sql.parse import is_metric
 
 
 class NodeRelationship(SQLModel, table=True):  # type: ignore
@@ -46,6 +35,53 @@ class NodeRelationship(SQLModel, table=True):  # type: ignore
     )
 
 
+class NodeColumns(SQLModel, table=True):  # type: ignore
+    """
+    Join table for node columns.
+    """
+
+    node_id: Optional[int] = Field(
+        default=None,
+        foreign_key="node.id",
+        primary_key=True,
+    )
+    column_id: Optional[int] = Field(
+        default=None,
+        foreign_key="column.id",
+        primary_key=True,
+    )
+
+
+class NodeType(str, enum.Enum):
+    """
+    Node type.
+
+    A node can have 4 types, currently:
+
+    1. SOURCE nodes are root nodes in the DAG, and point to tables or views in a DB.
+    2. TRANSFORM nodes are SQL transformations, reading from SOURCE/TRANSFORM nodes.
+    3. METRIC nodes are leaves in the DAG, and have a single aggregation expression.
+    4. DIMENSION nodes are special SOURCE nodes that can be auto-joined with METRICS.
+    """
+
+    SOURCE = "source"
+    TRANSFORM = "transform"
+    METRIC = "metric"
+    DIMENSION = "dimension"
+
+
+class NodeYAML(TypedDict, total=False):
+    """
+    Schema of a node in the YAML file.
+    """
+
+    description: str
+    type: NodeType
+    expression: str
+    columns: Dict[str, ColumnYAML]
+    tables: Dict[str, List[TableYAML]]
+
+
 class Node(SQLModel, table=True):  # type: ignore
     """
     A node.
@@ -58,6 +94,7 @@ class Node(SQLModel, table=True):  # type: ignore
     created_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
     updated_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
 
+    type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
     expression: Optional[str] = None
 
     tables: List[Table] = Relationship(
@@ -68,89 +105,29 @@ class Node(SQLModel, table=True):  # type: ignore
     parents: List["Node"] = Relationship(
         back_populates="children",
         link_model=NodeRelationship,
-        sa_relationship_kwargs=dict(
-            primaryjoin="Node.id==NodeRelationship.child_id",
-            secondaryjoin="Node.id==NodeRelationship.parent_id",
-        ),
+        sa_relationship_kwargs={
+            "primaryjoin": "Node.id==NodeRelationship.child_id",
+            "secondaryjoin": "Node.id==NodeRelationship.parent_id",
+        },
     )
 
     children: List["Node"] = Relationship(
         back_populates="parents",
         link_model=NodeRelationship,
-        sa_relationship_kwargs=dict(
-            primaryjoin="Node.id==NodeRelationship.parent_id",
-            secondaryjoin="Node.id==NodeRelationship.child_id",
-        ),
+        sa_relationship_kwargs={
+            "primaryjoin": "Node.id==NodeRelationship.parent_id",
+            "secondaryjoin": "Node.id==NodeRelationship.child_id",
+        },
     )
 
-    @property
-    def columns(self) -> List[Column]:
-        """
-        Return the node schema.
-
-        The schema is the superset of the columns across all tables, with the strictest
-        type. Eg, if a node has a table with these types:
-
-            timestamp: str
-            user_id: int
-
-        And another table with a single column:
-
-            timestamp: datetime
-
-        The node will have these columns:
-
-            timestamp: datetime
-            user_id: int
-
-        """
-        if self.expression:
-            return self._infer_columns()
-
-        columns: Dict[str, Column] = {}
-        for table in self.tables:  # pylint: disable=not-an-iterable
-            for column in table.columns:
-                name = column.name
-                columns[name] = Column(
-                    name=name,
-                    type=get_more_specific_type(columns[name].type, column.type)
-                    if name in columns
-                    else column.type,
-                )
-
-        return list(columns.values())
-
-    def _infer_columns(self) -> List[Column]:
-        """
-        Infer columns based on parent nodes.
-        """
-        tree = parse_sql(self.expression, dialect="ansi")
-
-        # Use the first projection. We actually want to check that all the projections
-        # produce the same columns, and raise an error if not.
-        projection = next(find_nodes_by_key(tree, "projection"))
-
-        columns = []
-        for expression in projection:
-            alias: Optional[str] = None
-            if "UnnamedExpr" in expression:
-                expression = expression["UnnamedExpr"]
-            elif "ExprWithAlias" in expression:
-                alias = expression["ExprWithAlias"]["alias"]["value"]
-                expression = expression["ExprWithAlias"]["expr"]
-            else:
-                raise NotImplementedError(f"Unable to handle expression: {expression}")
-
-            columns.append(get_column_from_expression(self.parents, expression, alias))
-
-        # name nameless columns
-        i = 0
-        for column in columns:
-            if column.name is None:
-                column.name = f"_col{i}"
-                i += 1
-
-        return columns
+    columns: List[Column] = Relationship(
+        link_model=NodeColumns,
+        sa_relationship_kwargs={
+            "primaryjoin": "Node.id==NodeColumns.node_id",
+            "secondaryjoin": "Column.id==NodeColumns.column_id",
+            "cascade": "all, delete",
+        },
+    )
 
     def to_yaml(self) -> NodeYAML:
         """
@@ -164,13 +141,40 @@ class Node(SQLModel, table=True):  # type: ignore
 
         data = {
             "description": self.description,
+            "type": self.type.value,  # pylint: disable=no-member
             "expression": self.expression,
-            "columns": {column.name: column.to_yaml() for column in self.columns},
+            "columns": {
+                column.name: column.to_yaml()
+                for column in self.columns  # pylint: disable=not-an-iterable
+            },
             "tables": dict(tables),
         }
         filtered = {key: value for key, value in data.items() if value}
 
         return cast(NodeYAML, filtered)
 
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.id)
+
+    def extra_validation(self) -> None:
+        """
+        Extra validation for node data.
+
+        This checks that node marked as source/dimension have tables associated with them, and
+        that metric nodes have a valid expression.
+        """
+        if self.type in {NodeType.SOURCE.value, NodeType.DIMENSION.value}:
+            if not self.tables:
+                raise Exception(
+                    f"Node {self.name} of type {self.type_} needs at least one table",
+                )
+        elif self.type == NodeType.METRIC:
+            if not self.expression:
+                raise Exception(
+                    f"Node {self.name} of type metric needs to have an expression",
+                )
+            if not is_metric(self.expression):
+                raise Exception(
+                    f"Node {self.name} of type metric has an invalid expression, "
+                    "should have a single aggregation",
+                )

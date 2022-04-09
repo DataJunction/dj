@@ -5,8 +5,10 @@ Tests for ``datajunction.sql.inference``.
 import pytest
 from sqloxide import parse_sql
 
-from datajunction.models.database import Column, Database, Table
+from datajunction.models.column import Column
+from datajunction.models.database import Database
 from datajunction.models.node import Node
+from datajunction.models.table import Table
 from datajunction.sql.inference import evaluate_expression, get_column_from_expression
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import ColumnType, Expression

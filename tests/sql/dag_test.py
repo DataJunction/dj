@@ -4,8 +4,10 @@ Tests for ``datajunction.sql.dag``.
 
 import pytest
 
-from datajunction.models.database import Column, Database, Table
+from datajunction.models.column import Column
+from datajunction.models.database import Database
 from datajunction.models.node import Node
+from datajunction.models.table import Table
 from datajunction.sql.dag import (
     get_computable_databases,
     get_referenced_columns_from_sql,
