@@ -11,7 +11,7 @@ from sqloxide import parse_sql
 from datajunction.models.database import Column, Database, Table
 from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
-from datajunction.sql.transpile import get_query, get_select_for_node
+from datajunction.sql.transpile import get_query, get_select_for_node, get_value
 from datajunction.typing import ColumnType
 
 
@@ -356,3 +356,14 @@ def test_get_query_invalid() -> None:
     with pytest.raises(Exception) as excinfo:
         get_query(None, [], tree, database)
     assert str(excinfo.value) == "Unable to return identifier without a source"
+
+
+def test_get_value() -> None:
+    """
+    Test ``get_value``.
+    """
+    assert get_value({"Number": ("1", False)}) == 1
+    assert get_value({"Number": ("2.0", False)}) == 2.0
+    assert str(get_value({"SingleQuotedString": "test"})) == "test"
+    assert get_value({"Boolean": True})
+    assert not get_value({"Boolean": False})

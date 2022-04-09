@@ -71,11 +71,11 @@ class Connection:
         self.close()
 
 
-def connect(url: Union[str, URL], database_id: int = DJ_DATABASE_ID) -> Connection:
+def connect(base_url: Union[str, URL], database_id: int = DJ_DATABASE_ID) -> Connection:
     """
     Create a connection to the database.
     """
-    if not isinstance(url, URL):
-        url = URL(url)
+    if not isinstance(base_url, URL):
+        base_url = URL(base_url)
 
-    return Connection(url, database_id)
+    return Connection(base_url, database_id)

@@ -146,7 +146,7 @@ class Column(SQLModel, table=True):  # type: ignore
     name: str
     type: ColumnType
 
-    table_id: int = Field(foreign_key="table.id")
+    table_id: Optional[int] = Field(default=None, foreign_key="table.id")
     table: Table = Relationship(back_populates="columns")
 
     def to_yaml(self) -> ColumnYAML:

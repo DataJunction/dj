@@ -20,7 +20,7 @@ class Wildcard:  # pylint: disable=too-few-public-methods
     """
 
 
-def evaluate_identifier(parents: List["Node"], identifier: Identifier) -> "Column":
+def evaluate_identifier(parents: List["Node"], identifier: Identifier) -> Column:
     """
     Evaluate an "Identifier" node.
     """
@@ -41,7 +41,7 @@ def evaluate_identifier(parents: List["Node"], identifier: Identifier) -> "Colum
 def evaluate_compound_identifier(
     parents: List["Node"],
     compound_identifier: List[Identifier],
-) -> "Column":
+) -> Column:
     """
     Evaluate a "CompoundIdentifier" node.
     """
@@ -70,7 +70,7 @@ def evaluate_function(
     parents: List["Node"],
     function: Function,
     alias: Optional[str] = None,
-) -> "Column":
+) -> Column:
     """
     Evaluate a "Function" node.
     """
@@ -104,7 +104,7 @@ def evaluate_expression(
     parents: List["Node"],
     expression: Expression,
     alias: Optional[str] = None,
-) -> Union["Column", int, float, str, Type[Wildcard]]:
+) -> Union[Column, int, float, str, Type[Wildcard]]:
     """
     Evaluates an expression from a projection.
     """
@@ -130,7 +130,7 @@ def get_column_from_expression(
     parents: List["Node"],
     expression: Expression,
     alias: Optional[str] = None,
-) -> "Column":
+) -> Column:
     """
     Return a column from an expression from a projection.
     """
