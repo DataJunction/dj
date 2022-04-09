@@ -9,9 +9,10 @@ from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from datajunction.models.database import Column, Table
+from datajunction.models.column import Column
 from datajunction.models.node import Node
 from datajunction.models.query import Database, QueryCreate, QueryWithResults
+from datajunction.models.table import Table
 from datajunction.typing import ColumnType
 
 

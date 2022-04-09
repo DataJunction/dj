@@ -14,7 +14,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Set, TypedDict, Union
+from typing import Dict, List, Optional, Set, TypedDict, Union
 
 import yaml
 from rich.text import Text
@@ -24,18 +24,27 @@ from sqlmodel import Session, create_engine, select
 from watchfiles import Change, awatch
 
 from datajunction.constants import DJ_DATABASE_ID, SQLITE_DATABASE_ID
-from datajunction.models.database import Column, Database, Table
+from datajunction.fixes import patch_druid_get_columns
+from datajunction.models.column import Column
+from datajunction.models.database import Database
 from datajunction.models.node import Node, NodeYAML
 from datajunction.models.query import Query  # pylint: disable=unused-import
+from datajunction.models.table import Table
 from datajunction.sql.dag import render_dag
+from datajunction.sql.inference import infer_columns
 from datajunction.sql.parse import get_dependencies
 from datajunction.typing import ColumnType
-from datajunction.utils import create_db_and_tables, get_name_from_path, get_session
+from datajunction.utils import (
+    create_db_and_tables,
+    get_more_specific_type,
+    get_name_from_path,
+    get_session,
+)
 
 _logger = logging.getLogger(__name__)
 
 
-# Database YAML with extra information
+# Database YAML with added nformation for processing
 EnrichedDatabaseYAML = TypedDict(
     "EnrichedDatabaseYAML",
     {
@@ -44,10 +53,9 @@ EnrichedDatabaseYAML = TypedDict(
         "read-only": bool,
         "async_": bool,
         "cost": float,
+        # this is added:
         "name": str,
         "path": Path,
-        "created_at": datetime,
-        "updated_at": datetime,
     },
     total=False,
 )
@@ -60,8 +68,6 @@ class EnrichedNodeYAML(NodeYAML):
 
     name: str
     path: Path
-    created_at: datetime
-    updated_at: datetime
 
 
 async def load_data(
@@ -149,15 +155,17 @@ async def index_databases(
             session.delete(database)
             session.flush()
         else:
-            created_at = None
+            created_at = datetime.now(timezone.utc)
 
         _logger.info("Loading database from config %s", path)
         data = await load_data(repository, path)
 
         _logger.info("Creating database %s", name)
-        data["created_at"] = created_at or datetime.now(timezone.utc)
-        data["updated_at"] = datetime.now(timezone.utc)
-        database = Database(**data)
+        database = Database(
+            created_at=created_at,
+            updated_at=datetime.now(timezone.utc),
+            **data,
+        )
 
         session.add(database)
         session.flush()
@@ -170,21 +178,18 @@ async def index_databases(
     return databases
 
 
-def get_columns(table: Table) -> List[Column]:
+def get_columns(uri: str, schema: Optional[str], table: str) -> List[Column]:
     """
     Return all columns in a given table.
     """
-    engine = create_engine(table.database.URI)
+    engine = create_engine(uri)
     try:
         inspector = inspect(engine)
         column_metadata = inspector.get_columns(
-            table.table,
-            schema=table.schema_,
+            table,
+            schema=schema,
         )
     except Exception:  # pylint: disable=broad-except
-        # Druid currently doesn't work with SQLAlchemy 1.4, and raises an exception. Once
-        # we've merged https://github.com/druid-io/pydruid/pull/275 we can modify this to
-        # re-raise the exception.
         _logger.exception("Unable to get table metadata")
         return []
 
@@ -255,7 +260,14 @@ async def index_nodes(  # pylint: disable=too-many-locals
             break
         started |= {config["name"] for config in to_process}
         new_tasks = {
-            add_node(session, databases, config, force) for config in to_process
+            add_node(
+                session,
+                databases,
+                config,
+                parents=[nodes[parent] for parent in dependencies[config["name"]]],
+                force=force,
+            )
+            for config in to_process
         }
 
         done, pending_tasks = await asyncio.wait(
@@ -264,7 +276,6 @@ async def index_nodes(  # pylint: disable=too-many-locals
         )
         for future in done:
             node = future.result()
-            node.parents = [nodes[parent] for parent in dependencies[node.name]]
             nodes[node.name] = node
             finished.add(node.name)
 
@@ -275,6 +286,7 @@ async def add_node(
     session: Session,
     databases: Dict[str, Database],
     data: EnrichedNodeYAML,
+    parents: List[Node],
     force: bool = False,
 ) -> Node:
     """
@@ -307,32 +319,73 @@ async def add_node(
         session.delete(node)
         session.flush()
     else:
-        created_at = None
+        created_at = datetime.now(timezone.utc)
+
+    config = {
+        "name": name,
+        "description": data["description"],
+        "created_at": created_at,
+        "updated_at": datetime.now(timezone.utc),
+        "type": data["type"],
+        "expression": data.get("expression"),
+        "tables": [],
+        "parents": parents,
+    }
 
     # create tables and columns
-    tables = []
     for database_name, tables_data in data.get("tables", {}).items():
         for table_data in tables_data:
-            table = Table(database=databases[database_name], **table_data)
-            table.columns = get_columns(table)
-            tables.append(table)
+            config["tables"].append(
+                Table(
+                    database=databases[database_name],
+                    columns=get_columns(
+                        databases[database_name].URI,
+                        table_data["schema"],
+                        table_data["table"],
+                    ),
+                    **table_data,
+                ),
+            )
+
+    config["columns"] = (
+        infer_columns(data["expression"], parents)
+        if data.get("expression")
+        else get_columns_from_tables(config["tables"])
+    )
 
     _logger.info("Creating node %s", name)
-    data["created_at"] = created_at or datetime.now(timezone.utc)
-    data["updated_at"] = datetime.now(timezone.utc)
-    data.pop("tables", None)
-    node = Node(tables=tables, **data)
+
+    node = Node(**config)
+    node.extra_validation()
 
     session.add(node)
     session.flush()
 
     # write node back to YAML, with column information
-    update_node_config(node, data["path"])
+    await update_node_config(node, path)
 
     return node
 
 
-def update_node_config(node: Node, path: Path) -> None:
+def get_columns_from_tables(tables: List[Table]) -> List[Column]:
+    """
+    Return the superset of columns from a list of tables.
+    """
+    columns: Dict[str, Column] = {}
+    for table in tables:
+        for column in table.columns:
+            name = column.name
+            columns[name] = Column(
+                name=name,
+                type=get_more_specific_type(columns[name].type, column.type)
+                if name in columns
+                else column.type,
+            )
+
+    return list(columns.values())
+
+
+async def update_node_config(node: Node, path: Path) -> None:
     """
     Update the node config with information about columns.
     """
@@ -340,7 +393,13 @@ def update_node_config(node: Node, path: Path) -> None:
         original = yaml.safe_load(input_)
     updated = node.to_yaml()
 
-    updated.update(original)
+    # preserve column attributes entered by the user
+    if "columns" in original:
+        for name, column in original["columns"].items():
+            for key, value in column.items():
+                if key not in updated["columns"][name]:
+                    updated["columns"][name][key] = value  # type: ignore
+
     if updated == original:
         _logger.info("Node %s is up-do-date, skipping", node.name)
         return
@@ -353,6 +412,8 @@ def update_node_config(node: Node, path: Path) -> None:
 def yaml_file_changed(_: Change, path: str) -> bool:
     """
     Return if the modified file is a YAML file.
+
+    Used for the watchdog.
     """
     return Path(path).suffix in {".yaml", ".yml"}
 
@@ -361,6 +422,8 @@ async def run(repository: Path, force: bool = False, reload: bool = False) -> No
     """
     Compile the metrics repository.
     """
+    patch_druid_get_columns()
+
     create_db_and_tables()
 
     session = next(get_session())

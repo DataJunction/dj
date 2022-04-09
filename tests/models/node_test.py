@@ -6,8 +6,10 @@ Tests for ``datajunction.models.node``.
 
 from sqlmodel import Session
 
-from datajunction.models.database import Column, Database, Table
+from datajunction.models.column import Column
+from datajunction.models.database import Database
 from datajunction.models.node import Node
+from datajunction.models.table import Table
 from datajunction.typing import ColumnType
 
 

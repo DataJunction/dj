@@ -27,9 +27,11 @@ from datajunction.cli.compile import (
     update_node_config,
     yaml_file_changed,
 )
-from datajunction.models.database import Column, Database, Table
+from datajunction.models.column import Column
+from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
+from datajunction.models.table import Table
 from datajunction.typing import ColumnType
 
 
@@ -172,8 +174,7 @@ def test_get_columns(mocker: MockerFixture) -> None:
         {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
     ]
 
-    table = mocker.MagicMock()
-    assert get_columns(table) == [
+    assert get_columns("sqlite://", "schema", "table") == [
         Column(id=None, name="ds", type=ColumnType.DATETIME),
         Column(id=None, name="cnt", type=ColumnType.FLOAT),
     ]
@@ -189,8 +190,7 @@ def test_get_columns_error(mocker: MockerFixture) -> None:
         "An unexpected error occurred",
     )
 
-    table = mocker.MagicMock()
-    assert get_columns(table) == []
+    assert get_columns("sqlite://", "schema", "table") == []
 
 
 @pytest.mark.asyncio
@@ -338,7 +338,7 @@ async def test_add_node_force(
 
     data = {"name": "test", "path": Path("/path/to/repository/nodes/test.yaml")}
 
-    await add_node(session, databases, data, force=False)  # type: ignore
+    await add_node(session, databases, data, [], force=False)  # type: ignore
 
     _logger.info.assert_has_calls(
         [
@@ -347,7 +347,7 @@ async def test_add_node_force(
         ],
     )
 
-    await add_node(session, databases, data, force=True)  # type: ignore
+    await add_node(session, databases, data, [], force=True)  # type: ignore
 
     _logger.info.assert_has_calls(
         [
