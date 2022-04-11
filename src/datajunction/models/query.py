@@ -23,7 +23,10 @@ class BaseQuery(SQLModel):
 
     database_id: int = Field(foreign_key="database.id")
     catalog: Optional[str] = None
-    schema_: Optional[str] = None
+    schema_: Optional[str] = Field(default=None, alias="schema")
+
+    class Config:  # pylint: disable=too-few-public-methods, missing-class-docstring
+        allow_population_by_field_name = True
 
 
 class Query(BaseQuery, table=True):  # type: ignore
