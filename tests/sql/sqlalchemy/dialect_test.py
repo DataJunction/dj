@@ -83,17 +83,19 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
         "http://localhost:8000/metrics/",
         json=[
             {
-                "id": 6,
+                "id": 3,
                 "name": "core.num_comments",
                 "description": "Number of comments",
-                "created_at": "2022-04-08T14:24:20.281542",
-                "updated_at": "2022-04-08T16:03:13.224116",
+                "created_at": "2022-04-10T20:23:01.961078",
+                "updated_at": "2022-04-10T20:23:01.961083",
                 "expression": "SELECT COUNT(*) FROM core.comments",
                 "dimensions": [
                     "core.comments.id",
                     "core.comments.user_id",
                     "core.comments.timestamp",
                     "core.comments.text",
+                    "core.comments.__time",
+                    "core.comments.count",
                 ],
             },
         ],
@@ -102,70 +104,99 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
         "http://localhost:8000/nodes/",
         json=[
             {
-                "id": 4,
+                "id": 1,
                 "name": "core.comments",
                 "description": "A fact table with comments",
-                "created_at": "2022-04-08T14:24:17.912559",
-                "updated_at": "2022-04-08T16:03:12.839833",
+                "created_at": "2022-04-10T20:22:58.345198",
+                "updated_at": "2022-04-10T20:22:58.345201",
+                "type": "source",
                 "expression": None,
-                "is_metric": False,
                 "columns": [
-                    {"id": None, "name": "id", "type": "INT", "table_id": None},
-                    {"id": None, "name": "user_id", "type": "INT", "table_id": None},
                     {
-                        "id": None,
+                        "name": "id",
+                        "type": "INT",
+                    },
+                    {
+                        "name": "user_id",
+                        "type": "INT",
+                    },
+                    {
                         "name": "timestamp",
                         "type": "DATETIME",
-                        "table_id": None,
                     },
-                    {"id": None, "name": "text", "type": "STR", "table_id": None},
+                    {
+                        "name": "text",
+                        "type": "STR",
+                    },
+                    {
+                        "name": "__time",
+                        "type": "DATETIME",
+                    },
+                    {
+                        "name": "count",
+                        "type": "INT",
+                    },
                 ],
             },
             {
-                "id": 5,
+                "id": 2,
                 "name": "core.users",
                 "description": "A user dimension table",
-                "created_at": "2022-04-08T14:24:20.269593",
-                "updated_at": "2022-04-08T16:03:13.208912",
+                "created_at": "2022-04-10T20:23:01.333020",
+                "updated_at": "2022-04-10T20:23:01.333024",
+                "type": "dimension",
                 "expression": None,
-                "is_metric": False,
                 "columns": [
-                    {"id": None, "name": "id", "type": "INT", "table_id": None},
-                    {"id": None, "name": "full_name", "type": "STR", "table_id": None},
-                    {"id": None, "name": "age", "type": "INT", "table_id": None},
-                    {"id": None, "name": "country", "type": "STR", "table_id": None},
-                    {"id": None, "name": "gender", "type": "STR", "table_id": None},
                     {
-                        "id": None,
-                        "name": "preferred_language",
-                        "type": "STR",
-                        "table_id": None,
+                        "name": "id",
+                        "type": "INT",
                     },
                     {
-                        "id": None,
+                        "name": "full_name",
+                        "type": "STR",
+                    },
+                    {
+                        "name": "age",
+                        "type": "INT",
+                    },
+                    {
+                        "name": "country",
+                        "type": "STR",
+                    },
+                    {
+                        "name": "gender",
+                        "type": "STR",
+                    },
+                    {
+                        "name": "preferred_language",
+                        "type": "STR",
+                    },
+                    {
                         "name": "secret_number",
                         "type": "FLOAT",
-                        "table_id": None,
                     },
                 ],
             },
             {
-                "id": 6,
+                "id": 3,
                 "name": "core.num_comments",
                 "description": "Number of comments",
-                "created_at": "2022-04-08T14:24:20.281542",
-                "updated_at": "2022-04-08T16:03:13.224116",
+                "created_at": "2022-04-10T20:23:01.961078",
+                "updated_at": "2022-04-10T20:23:01.961083",
+                "type": "metric",
                 "expression": "SELECT COUNT(*) FROM core.comments",
-                "is_metric": True,
                 "columns": [
-                    {"id": None, "name": "_col0", "type": "INT", "table_id": None},
+                    {
+                        "name": "_col0",
+                        "type": "INT",
+                    },
                 ],
             },
         ],
     )
     dialect = DJDialect()
 
-    assert dialect.get_columns(connection, "not-metrics") == []
+    assert not dialect.get_columns(connection, "not-metrics")
     assert dialect.get_columns(connection, "metrics") == [
         {
             "name": "core.comments.id",
@@ -188,6 +219,18 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
         {
             "name": "core.comments.text",
             "type": sqltypes.TEXT,
+            "nullable": True,
+            "default": None,
+        },
+        {
+            "name": "core.comments.__time",
+            "type": sqltypes.DATETIME,
+            "nullable": True,
+            "default": None,
+        },
+        {
+            "name": "core.comments.count",
+            "type": sqltypes.INTEGER,
             "nullable": True,
             "default": None,
         },

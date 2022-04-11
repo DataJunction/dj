@@ -11,9 +11,8 @@ from sqlmodel import Session, SQLModel, select
 from datajunction.api.queries import save_query_and_run
 from datajunction.config import Settings
 from datajunction.engine import get_query_for_node
-from datajunction.models.node import Node
+from datajunction.models.node import Node, NodeType
 from datajunction.models.query import QueryWithResults
-from datajunction.sql.parse import is_metric
 from datajunction.utils import get_session, get_settings
 
 router = APIRouter()
@@ -59,8 +58,7 @@ def read_metrics(*, session: Session = Depends(get_session)) -> List[Metric]:
                 for column in parent.columns
             ],
         )
-        for node in session.exec(select(Node))
-        if node.expression and is_metric(node.expression)
+        for node in session.exec(select(Node).where(Node.type == NodeType.METRIC))
     ]
 
 
@@ -87,7 +85,7 @@ def get_metric(session: Session, node_id: int) -> Node:
     node = session.get(Node, node_id)
     if not node:
         raise HTTPException(status_code=404, detail="Metric node not found")
-    if not node.expression or not is_metric(node.expression):
+    if node.type != NodeType.METRIC:
         raise HTTPException(status_code=400, detail="Not a metric node")
     return node
 

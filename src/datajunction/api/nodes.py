@@ -9,22 +9,19 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, SQLModel, select
 
-from datajunction.models.database import Column
-from datajunction.models.node import Node
-from datajunction.sql.parse import is_metric
-from datajunction.typing import ColumnType
+from datajunction.models.column import ColumnType
+from datajunction.models.node import Node, NodeType
 from datajunction.utils import get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-class ColumnMetadata(SQLModel):
+class SimpleColumn(SQLModel):
     """
-    Metadata about a column.
+    A simplified column schema, without ID or dimensions.
     """
 
-    id: Optional[int] = None
     name: str
     type: ColumnType
 
@@ -41,10 +38,10 @@ class NodeMetadata(SQLModel):
     created_at: datetime
     updated_at: datetime
 
+    type: NodeType
     expression: Optional[str] = None
 
-    is_metric: bool = False
-    columns: List[Column]
+    columns: List[SimpleColumn]
 
 
 @router.get("/nodes/", response_model=List[NodeMetadata])
@@ -52,15 +49,4 @@ def read_nodes(*, session: Session = Depends(get_session)) -> List[NodeMetadata]
     """
     List the available nodes.
     """
-    nodes = []
-    for node in session.exec(select(Node)):
-        enriched_node = NodeMetadata(
-            **node.dict(),
-            columns=[ColumnMetadata(**column.dict()) for column in node.columns]
-        )
-        if node.expression:
-            enriched_node.is_metric = is_metric(node.expression)
-
-        nodes.append(enriched_node)
-
-    return nodes
+    return session.exec(select(Node)).all()

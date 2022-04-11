@@ -5,9 +5,15 @@ Tests for ``datajunction.sql.inference``.
 import pytest
 from sqloxide import parse_sql
 
-from datajunction.models.database import Column, Database, Table
+from datajunction.models.column import Column
+from datajunction.models.database import Database
 from datajunction.models.node import Node
-from datajunction.sql.inference import evaluate_expression, get_column_from_expression
+from datajunction.models.table import Table
+from datajunction.sql.inference import (
+    evaluate_expression,
+    get_column_from_expression,
+    infer_columns,
+)
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import ColumnType, Expression
 
@@ -50,6 +56,11 @@ def test_evaluate_expression() -> None:
                     Column(name="foo", type=ColumnType.FLOAT),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+            Column(name="foo", type=ColumnType.FLOAT),
         ],
     )
 
@@ -103,6 +114,11 @@ def test_evaluate_expression_ambiguous() -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+            Column(name="foo", type=ColumnType.FLOAT),
+        ],
     )
 
     node_b = Node(
@@ -115,6 +131,9 @@ def test_evaluate_expression_ambiguous() -> None:
                     Column(name="ds", type=ColumnType.STR),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
         ],
     )
 
@@ -172,6 +191,11 @@ def test_evaluate_expression_parent_no_columns() -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+            Column(name="foo", type=ColumnType.FLOAT),
+        ],
     )
 
     assert evaluate_expression([node_a, node_b], get_expression("SELECT ds")) == Column(
@@ -200,3 +224,38 @@ def test_get_column_from_expression() -> None:
     with pytest.raises(Exception) as excinfo:
         get_column_from_expression([], get_expression("SELECT * FROM A"))
     assert str(excinfo.value) == "Invalid expression for column: Wildcard"
+
+
+def test_infer_columns() -> None:
+    """
+    Test ``infer_columns``.
+    """
+    parent = Node(
+        name="A",
+        tables=[
+            Table(
+                database=Database(name="test", URI="sqlite://"),
+                table="A",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="foo", type=ColumnType.FLOAT),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+            Column(name="foo", type=ColumnType.FLOAT),
+        ],
+    )
+
+    assert infer_columns("SELECT COUNT(*) AS cnt FROM A", [parent]) == [
+        Column(
+            id=None,
+            name="cnt",
+            type=ColumnType.INT,
+            dimension_id=None,
+            dimension_column=None,
+        ),
+    ]
