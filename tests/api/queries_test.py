@@ -103,7 +103,6 @@ def test_submit_query_with_catalog_and_schema(
     with freeze_time("2021-01-01T00:00:00Z"):
         response = client.post("/queries/", data=payload)
     data = response.json()
-    print(data)
 
     assert response.status_code == 200
     assert data["database_id"] == 1
