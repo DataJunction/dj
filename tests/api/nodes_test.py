@@ -5,16 +5,31 @@ Tests for the nodes API.
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from datajunction.models.node import Node
+from datajunction.models.column import Column, ColumnType
+from datajunction.models.node import Node, NodeType
 
 
 def test_read_nodes(session: Session, client: TestClient) -> None:
     """
     Test ``GET /nodes/``.
     """
-    node1 = Node(name="not-a-metric")
-    node2 = Node(name="also-not-a-metric", expression="SELECT 42 AS answer")
-    node3 = Node(name="a-metric", expression="SELECT COUNT(*) FROM my_table")
+    node1 = Node(name="not-a-metric", type=NodeType.SOURCE)
+    node2 = Node(
+        name="also-not-a-metric",
+        expression="SELECT 42 AS answer",
+        type=NodeType.TRANSFORM,
+        columns=[
+            Column(name="answer", type=ColumnType.INT),
+        ],
+    )
+    node3 = Node(
+        name="a-metric",
+        expression="SELECT COUNT(*) FROM my_table",
+        columns=[
+            Column(name="_col0", type=ColumnType.INT),
+        ],
+        type=NodeType.METRIC,
+    )
     session.add(node1)
     session.add(node2)
     session.add(node3)
@@ -33,10 +48,16 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
 
     assert nodes["also-not-a-metric"]["expression"] == "SELECT 42 AS answer"
     assert nodes["also-not-a-metric"]["columns"] == [
-        {"id": None, "name": "answer", "table_id": None, "type": "INT"},
+        {
+            "name": "answer",
+            "type": "INT",
+        },
     ]
 
     assert nodes["a-metric"]["expression"] == "SELECT COUNT(*) FROM my_table"
     assert nodes["a-metric"]["columns"] == [
-        {"id": None, "name": "_col0", "table_id": None, "type": "INT"},
+        {
+            "name": "_col0",
+            "type": "INT",
+        },
     ]

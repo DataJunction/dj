@@ -8,9 +8,11 @@ from sqlalchemy.engine import create_engine
 from sqlalchemy.sql import Select
 from sqloxide import parse_sql
 
-from datajunction.models.database import Column, Database, Table
+from datajunction.models.column import Column
+from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
+from datajunction.models.table import Table
 from datajunction.sql.transpile import get_query, get_select_for_node, get_value
 from datajunction.typing import ColumnType
 
@@ -138,6 +140,10 @@ def test_get_select_for_node_choose_slow(mocker: MockerFixture) -> None:
                 cost=0.1,
             ),
         ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
+        ],
     )
 
     engine = create_engine(database.URI)
@@ -181,6 +187,10 @@ def test_get_select_for_node_projection(mocker: MockerFixture) -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
+        ],
     )
 
     engine = create_engine(database.URI)
@@ -221,6 +231,10 @@ def test_get_select_for_node_where(mocker: MockerFixture) -> None:
                     Column(name="two", type=ColumnType.STR),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
         ],
     )
 
@@ -264,6 +278,10 @@ def test_get_select_for_node_groupby(mocker: MockerFixture) -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
+        ],
     )
 
     engine = create_engine(database.URI)
@@ -304,6 +322,10 @@ def test_get_select_for_node_limit(mocker: MockerFixture) -> None:
                     Column(name="two", type=ColumnType.STR),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
         ],
     )
 

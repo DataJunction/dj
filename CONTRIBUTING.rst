@@ -36,56 +36,79 @@ You can check that everything is working by querying the list of available datab
     % curl http://localhost:8000/databases/ | jq
     [
       {
-        "id": 7,
+        "id": 0,
+        "description": "The DJ meta database",
+        "read_only": true,
+        "async_": false,
+        "cost": 1,
+        "created_at": "2022-04-10T20:22:58.274082",
+        "updated_at": "2022-04-10T20:22:58.274092",
+        "name": "dj",
+        "URI": "dj://localhost:8000/0"
+      },
+      {
+        "id": 1,
+        "description": "An in memory SQLite database for tableless queries",
+        "read_only": true,
+        "async_": false,
+        "cost": 0,
+        "created_at": "2022-04-10T20:22:58.275177",
+        "updated_at": "2022-04-10T20:22:58.275183",
+        "name": "in-memory",
+        "URI": "sqlite://"
+      },
+      {
+        "id": 2,
         "description": "An Apache Druid database",
         "read_only": true,
         "async_": false,
         "cost": 1,
-        "created_at": "2022-01-17T19:06:05.225506",
-        "updated_at": "2022-04-04T14:41:28.643585",
+        "created_at": "2022-04-10T20:22:58.285035",
+        "updated_at": "2022-04-10T20:22:58.291059",
         "name": "druid",
         "URI": "druid://host.docker.internal:8082/druid/v2/sql/"
       },
       {
-        "id": 8,
-        "description": "A Google Sheets connector",
-        "read_only": true,
-        "async_": false,
-        "cost": 100,
-        "created_at": "2022-01-17T19:06:05.309414",
-        "updated_at": "2022-04-04T14:41:28.669827",
-        "name": "gsheets",
-        "URI": "gsheets://"
-      },
-      {
-        "id": 9,
+        "id": 3,
         "description": "A Postgres database",
         "read_only": false,
         "async_": false,
         "cost": 10,
-        "created_at": "2022-01-17T19:06:05.334377",
-        "updated_at": "2022-04-04T14:41:28.684467",
+        "created_at": "2022-04-10T20:22:58.298188",
+        "updated_at": "2022-04-10T20:22:58.305128",
         "name": "postgres",
         "URI": "postgresql://username:FoolishPassword@host.docker.internal:5433/examples"
+      },
+      {
+        "id": 4,
+        "description": "A Google Sheets connector",
+        "read_only": true,
+        "async_": false,
+        "cost": 100,
+        "created_at": "2022-04-10T20:22:58.310020",
+        "updated_at": "2022-04-10T20:22:58.317108",
+        "name": "gsheets",
+        "URI": "gsheets://"
       }
+    ]
 
 You can run queries against any of these databases:
 
 .. code-block:: bash
 
     $ curl -H "Content-Type: application/json" \
-    > -d '{"database_id":9,"submitted_query":"SELECT 1 AS foo"}' \
+    > -d '{"database_id":1,"submitted_query":"SELECT 1 AS foo"}' \
     > http://127.0.0.1:8000/queries/ | jq
     {
-      "database_id": 9,
+      "database_id": 1,
       "catalog": null,
       "schema_": null,
-      "id": "24bdf341-71a6-496d-9731-758be1ca685d",
+      "id": "5cc9cc71-02c2-4c73-a0d9-f9c752f0762b",
       "submitted_query": "SELECT 1 AS foo",
       "executed_query": "SELECT 1 AS foo",
-      "scheduled": "2022-04-04T17:35:23.116790",
-      "started": "2022-04-04T17:35:23.116955",
-      "finished": "2022-04-04T17:35:23.167996",
+      "scheduled": "2022-04-11T01:02:56.221241",
+      "started": "2022-04-11T01:02:56.221289",
+      "finished": "2022-04-11T01:02:56.222603",
       "state": "FINISHED",
       "progress": 1,
       "results": [
@@ -94,7 +117,7 @@ You can run queries against any of these databases:
           "columns": [
             {
               "name": "foo",
-              "type": "NUMBER"
+              "type": "STR"
             }
           ],
           "rows": [
@@ -110,51 +133,151 @@ You can run queries against any of these databases:
       "errors": []
     }
 
-To see the list of available metrics:
+To see the list of available nodes:
+
+.. code-block:: bash
+
+    $ curl http://localhost:8000/nodes/ | jq
+    [
+      {
+        "id": 1,
+        "name": "core.comments",
+        "description": "A fact table with comments",
+        "created_at": "2022-04-10T20:22:58.345198",
+        "updated_at": "2022-04-10T20:22:58.345201",
+        "type": "source",
+        "expression": null,
+        "columns": [
+          {
+            "name": "id",
+            "type": "INT"
+          },
+          {
+            "name": "user_id",
+            "type": "INT"
+          },
+          {
+            "name": "timestamp",
+            "type": "DATETIME"
+          },
+          {
+            "name": "text",
+            "type": "STR"
+          },
+          {
+            "name": "__time",
+            "type": "DATETIME"
+          },
+          {
+            "name": "count",
+            "type": "INT"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "name": "core.users",
+        "description": "A user dimension table",
+        "created_at": "2022-04-10T20:23:01.333020",
+        "updated_at": "2022-04-10T20:23:01.333024",
+        "type": "dimension",
+        "expression": null,
+        "columns": [
+          {
+            "name": "id",
+            "type": "INT"
+          },
+          {
+            "name": "full_name",
+            "type": "STR"
+          },
+          {
+            "name": "age",
+            "type": "INT"
+          },
+          {
+            "name": "country",
+            "type": "STR"
+          },
+          {
+            "name": "gender",
+            "type": "STR"
+          },
+          {
+            "name": "preferred_language",
+            "type": "STR"
+          },
+          {
+            "name": "secret_number",
+            "type": "FLOAT"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "name": "core.num_comments",
+        "description": "Number of comments",
+        "created_at": "2022-04-10T20:23:01.961078",
+        "updated_at": "2022-04-10T20:23:01.961083",
+        "type": "metric",
+        "expression": "SELECT COUNT(*) FROM core.comments",
+        "columns": [
+          {
+            "name": "_col0",
+            "type": "INT"
+          }
+        ]
+      }
+    ]
+
+And metrics:
 
 .. code-block:: bash
 
     $ curl http://localhost:8000/metrics/ | jq
     [
       {
-        "id": 6,
+        "id": 3,
         "name": "core.num_comments",
         "description": "Number of comments",
-        "created_at": "2022-01-17T19:06:09.215689",
-        "updated_at": "2022-04-04T16:27:53.374001",
+        "created_at": "2022-04-10T20:23:01.961078",
+        "updated_at": "2022-04-10T20:23:01.961083",
         "expression": "SELECT COUNT(*) FROM core.comments",
         "dimensions": [
           "core.comments.id",
           "core.comments.user_id",
           "core.comments.timestamp",
-          "core.comments.text"
+          "core.comments.text",
+          "core.comments.__time",
+          "core.comments.count"
         ]
       }
     ]
+
 
 To get data for a given metric:
 
 .. code-block:: bash
 
-    $ curl http://localhost:8000/metrics/6/data/ | jq
+    $ curl http://localhost:8000/metrics/3/data/ | jq
 
 You can also pass query parameters to group by a dimension (``d``) or filter (``f``):
 
 .. code-block:: bash
 
-    $ curl "http://localhost:8000/metrics/6/data/?d=core.comments/user_id&f=core.comments/user_id<4" | jq
+    $ curl "http://localhost:8000/metrics/3/data/?d=core.comments/user_id&f=core.comments/user_id<4" | jq
 
 Similarly, you can request the SQL for a given metric with given constraints:
 
 .. code-block:: bash
 
-    $ curl "http://localhost:8000/metrics/6/sql/?d=core.comments.user_id" | jq
+    $ curl "http://localhost:8000/metrics/3/sql/?d=core.comments.user_id" | jq
     {
       "database_id": 7,
       "sql": "SELECT count('*') AS \"count_1\" \nFROM (SELECT \"druid\".\"comments\".\"__time\" AS \"__time\", \"druid\".\"comments\".\"count\" AS \"count\", \"druid\".\"comments\".\"id\" AS \"id\", \"druid\".\"comments\".\"text\" AS \"text\", \"druid\".\"comments\".\"user_id\" AS \"user_id\" \nFROM \"druid\".\"comments\") AS \"core.comments\" GROUP BY \"core.comments\".\"user_id\""
     }
 
-Soon DJ will also have an API allowing metrics to be queried via SQL, eg:
+You can also run SQL queries against the metrics in DJ, using the special database with ID 0 and referencing a table called ``metrics``:
 
 .. code-block:: sql
 

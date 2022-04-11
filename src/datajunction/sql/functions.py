@@ -45,7 +45,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from datajunction.typing import ColumnType
 
 if TYPE_CHECKING:
-    from datajunction.models.database import Column
+    from datajunction.models.column import Column
     from datajunction.sql.lib import Wildcard
 
 

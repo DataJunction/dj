@@ -1,5 +1,5 @@
 """
-Models for databases, tables, and columns.
+Models for databases.
 """
 
 from datetime import datetime, timezone
@@ -10,31 +10,11 @@ from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
 
-from datajunction.typing import ColumnType
-
 if TYPE_CHECKING:
+    from datajunction.models.column import Column
     from datajunction.models.node import Node
     from datajunction.models.query import Query
-
-
-class ColumnYAML(TypedDict, total=False):
-    """
-    Schema of a column in the YAML file.
-    """
-
-    type: str
-    dimension: str
-
-
-class TableYAML(TypedDict, total=False):
-    """
-    Schema of a table in the YAML file.
-    """
-
-    catalog: Optional[str]
-    schema: Optional[str]
-    table: str
-    cost: float
+    from datajunction.models.table import Table
 
 
 # Schema of a database in the YAML file.
@@ -93,69 +73,5 @@ class Database(SQLModel, table=True):  # type: ignore
             "cost": self.cost,
         }
 
-    def __hash__(self):
-        return hash(self.id)
-
-
-class Table(SQLModel, table=True):  # type: ignore
-    """
-    A table with data.
-
-    Nodes can data in multiple tables, in different databases.
-    """
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-
-    node_id: int = Field(foreign_key="node.id")
-    node: "Node" = Relationship(back_populates="tables")
-
-    database_id: int = Field(foreign_key="database.id")
-    database: Database = Relationship(back_populates="tables")
-    catalog: Optional[str] = None
-    schema_: Optional[str] = Field(None, alias="schema")
-    table: str
-
-    cost: float = 1.0
-
-    columns: List["Column"] = Relationship(
-        back_populates="table",
-        sa_relationship_kwargs={"cascade": "all, delete"},
-    )
-
-    def to_yaml(self) -> TableYAML:
-        """
-        Serialize the table for YAML.
-        """
-        return {
-            "catalog": self.catalog,
-            "schema": self.schema_,
-            "table": self.table,
-            "cost": self.cost,
-        }
-
-    def __hash__(self):
-        return hash(self.id)
-
-
-class Column(SQLModel, table=True):  # type: ignore
-    """
-    A column.
-    """
-
-    id: Optional[int] = Field(default=None, primary_key=True)
-    name: str
-    type: ColumnType
-
-    table_id: Optional[int] = Field(default=None, foreign_key="table.id")
-    table: Table = Relationship(back_populates="columns")
-
-    def to_yaml(self) -> ColumnYAML:
-        """
-        Serialize the column for YAML.
-        """
-        return {
-            "type": self.type.value,
-        }
-
-    def __hash__(self):
+    def __hash__(self) -> int:
         return hash(self.id)

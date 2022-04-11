@@ -6,8 +6,11 @@ Functions for type inference.
 
 from typing import TYPE_CHECKING, List, Optional, Type, Union
 
-from datajunction.models.database import Column
+from sqloxide import parse_sql
+
+from datajunction.models.column import Column
 from datajunction.sql.functions import function_registry
+from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import ColumnType, Expression, Function, Identifier, Value
 
 if TYPE_CHECKING:
@@ -18,6 +21,39 @@ class Wildcard:  # pylint: disable=too-few-public-methods
     """
     Represents the star in a SQL expression.
     """
+
+
+def infer_columns(sql: str, parents: List["Node"]) -> List[Column]:
+    """
+    Given a a SQL expression and parents, infer schema.
+    """
+    tree = parse_sql(sql, dialect="ansi")
+
+    # Use the first projection. We actually want to check that all the projections
+    # produce the same columns, and raise an error if not.
+    projection = next(find_nodes_by_key(tree, "projection"))
+
+    columns = []
+    for expression in projection:
+        alias: Optional[str] = None
+        if "UnnamedExpr" in expression:
+            expression = expression["UnnamedExpr"]
+        elif "ExprWithAlias" in expression:
+            alias = expression["ExprWithAlias"]["alias"]["value"]
+            expression = expression["ExprWithAlias"]["expr"]
+        else:
+            raise NotImplementedError(f"Unable to handle expression: {expression}")
+
+        columns.append(get_column_from_expression(parents, expression, alias))
+
+    # name nameless columns
+    i = 0
+    for column in columns:
+        if column.name is None:
+            column.name = f"_col{i}"
+            i += 1
+
+    return columns
 
 
 def evaluate_identifier(parents: List["Node"], identifier: Identifier) -> Column:

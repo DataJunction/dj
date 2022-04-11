@@ -18,8 +18,8 @@ from sqlmodel import Session
 
 from datajunction.cli.compile import (
     add_node,
-    get_columns,
-    get_dependencies,
+    get_columns_from_tables,
+    get_table_columns,
     index_databases,
     index_nodes,
     load_data,
@@ -27,9 +27,12 @@ from datajunction.cli.compile import (
     update_node_config,
     yaml_file_changed,
 )
-from datajunction.models.database import Column, Database, Table
-from datajunction.models.node import Node
+from datajunction.models.column import Column
+from datajunction.models.database import Database
+from datajunction.models.node import Node, NodeType
 from datajunction.models.query import Query  # pylint: disable=unused-import
+from datajunction.models.table import Table
+from datajunction.sql.parse import get_dependencies
 from datajunction.typing import ColumnType
 
 
@@ -161,36 +164,34 @@ async def test_index_databases_force(mocker: MockerFixture, fs: FakeFilesystem) 
     )
 
 
-def test_get_columns(mocker: MockerFixture) -> None:
+def test_get_table_columns(mocker: MockerFixture) -> None:
     """
-    Test ``get_columns``.
+    Test ``get_table_columns``.
     """
     mocker.patch("datajunction.cli.compile.create_engine")
     inspect = mocker.patch("datajunction.cli.compile.inspect")
-    inspect().get_columns.return_value = [
+    inspect().get_table_columns.return_value = [
         {"name": "ds", "type": sqlalchemy.sql.sqltypes.DateTime()},
         {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
     ]
 
-    table = mocker.MagicMock()
-    assert get_columns(table) == [
+    assert get_table_columns("sqlite://", "schema", "table") == [
         Column(id=None, name="ds", type=ColumnType.DATETIME),
         Column(id=None, name="cnt", type=ColumnType.FLOAT),
     ]
 
 
-def test_get_columns_error(mocker: MockerFixture) -> None:
+def test_get_table_columns_error(mocker: MockerFixture) -> None:
     """
-    Test ``get_columns`` raising an exception.
+    Test ``get_table_columns`` raising an exception.
     """
     mocker.patch("datajunction.cli.compile.create_engine")
     inspect = mocker.patch("datajunction.cli.compile.inspect")
-    inspect().get_columns.side_effect = Exception(
+    inspect().get_table_columns.side_effect = Exception(
         "An unexpected error occurred",
     )
 
-    table = mocker.MagicMock()
-    assert get_columns(table) == []
+    assert get_table_columns("sqlite://", "schema", "table") == []
 
 
 @pytest.mark.asyncio
@@ -203,46 +204,10 @@ async def test_index_nodes(
     Test ``index_nodes``.
     """
     mocker.patch(
-        "datajunction.cli.compile.get_columns",
-        side_effect=[
-            [
-                Column(id=None, name="ds", type=ColumnType.DATETIME),
-                Column(id=None, name="cnt", type=ColumnType.INT),
-            ],
-            [
-                Column(id=None, name="ds", type=ColumnType.DATETIME),
-                Column(id=None, name="cnt", type=ColumnType.INT),
-            ],
-            [
-                Column(id=None, name="ds", type=ColumnType.DATETIME),
-                Column(id=None, name="cnt", type=ColumnType.INT),
-            ],
-            [
-                Column(id=None, name="ds", type=ColumnType.DATETIME),
-                Column(id=None, name="cnt", type=ColumnType.INT),
-            ],
-            [
-                Column(id=None, name="ds", type=ColumnType.DATETIME),
-                Column(id=None, name="cnt", type=ColumnType.INT),
-            ],
-            [
-                Column(id=None, name="ds", type=ColumnType.DATETIME),
-                Column(id=None, name="cnt", type=ColumnType.INT),
-            ],
-            [
-                Column(id=None, name="ds", type=ColumnType.DATETIME),
-                Column(id=None, name="cnt", type=ColumnType.INT),
-            ],
-            [
-                Column(id=None, name="ds", type=ColumnType.DATETIME),
-                Column(id=None, name="cnt", type=ColumnType.INT),
-            ],
-            [
-                Column(id=None, name="ds", type=ColumnType.DATETIME),
-                Column(id=None, name="cnt", type=ColumnType.INT),
-            ],
-        ],
+        "datajunction.cli.compile.get_table_columns",
+        return_value=[],
     )
+    mocker.patch("datajunction.cli.compile.update_node_config")
 
     session.add(
         Database(name="druid", URI="druid://host.docker.internal:8082/druid/v2/sql/"),
@@ -267,6 +232,7 @@ async def test_index_nodes(
         {
             "name": "core.comments",
             "description": "A fact table with comments",
+            "type": NodeType.SOURCE,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "expression": None,
@@ -274,6 +240,7 @@ async def test_index_nodes(
         {
             "name": "core.num_comments",
             "description": "Number of comments",
+            "type": NodeType.METRIC,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "expression": "SELECT COUNT(*) FROM core.comments",
@@ -281,6 +248,7 @@ async def test_index_nodes(
         {
             "name": "core.users",
             "description": "A user dimension table",
+            "type": NodeType.DIMENSION,
             "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
             "expression": None,
@@ -318,7 +286,7 @@ async def test_add_node_force(
     fs: FakeFilesystem,
 ) -> None:
     """
-    Test ``add_nodes`` with the ``--force`` option.
+    Test ``add_node`` with the ``--force`` option.
     """
     _logger = mocker.patch("datajunction.cli.compile._logger")
     session = mocker.MagicMock()
@@ -336,9 +304,14 @@ async def test_add_node_force(
     with freeze_time("2021-01-01T00:00:00Z"):
         fs.create_file("/path/to/repository/nodes/test.yaml")
 
-    data = {"name": "test", "path": Path("/path/to/repository/nodes/test.yaml")}
+    data = {
+        "name": "test",
+        "path": Path("/path/to/repository/nodes/test.yaml"),
+        "description": "",
+        "type": "transform",
+    }
 
-    await add_node(session, databases, data, force=False)  # type: ignore
+    await add_node(session, databases, data, [], force=False)  # type: ignore
 
     _logger.info.assert_has_calls(
         [
@@ -347,7 +320,7 @@ async def test_add_node_force(
         ],
     )
 
-    await add_node(session, databases, data, force=True)  # type: ignore
+    await add_node(session, databases, data, [], force=True)  # type: ignore
 
     _logger.info.assert_has_calls(
         [
@@ -421,7 +394,8 @@ def test_get_dependencies() -> None:
     assert get_dependencies("SELECT 1 FROM a UNION SELECT 2 FROM b") == {"a", "b"}
 
 
-def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> None:
+@pytest.mark.asyncio
+async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> None:
     """
     Test ``update_node_config``.
     """
@@ -444,29 +418,144 @@ def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> None:
         columns=[Column(name="ds", type=ColumnType.DATETIME)],
     )
 
-    node = Node(name="C", tables=[table_a, table_b])
+    node = Node(
+        name="C",
+        tables=[table_a, table_b],
+        columns=[
+            Column(name="ds", type=ColumnType.DATETIME),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
+        type=NodeType.SOURCE,
+    )
     path = Path("/path/to/repository/configs/nodes/C.yaml")
-    fs.create_file(path, contents="{}\n")
+    fs.create_file(
+        path,
+        contents=yaml.safe_dump({}),
+    )
 
-    update_node_config(node, path)
+    await update_node_config(node, path)
 
     with open(path, encoding="utf-8") as input_:
         assert yaml.safe_load(input_) == {
-            "columns": {"ds": {"type": "DATETIME"}, "user_id": {"type": "INT"}},
+            "columns": {
+                "ds": {"type": "DATETIME"},
+                "user_id": {"type": "INT"},
+            },
             "tables": {
                 "test": [
                     {"catalog": None, "cost": 1.0, "schema": None, "table": "A"},
                     {"catalog": None, "cost": 1.0, "schema": None, "table": "B"},
                 ],
             },
+            "type": "source",
         }
     _logger.info.assert_called_with(
         "Updating node %s config with column information",
         "C",
     )
 
-    update_node_config(node, path)
+    await update_node_config(node, path)
     _logger.info.assert_called_with(
         "Node %s is up-do-date, skipping",
         "C",
     )
+
+
+@pytest.mark.asyncio
+async def test_update_node_config_user_attributes(
+    mocker: MockerFixture,
+    fs: FakeFilesystem,
+) -> None:
+    """
+    Test ``update_node_config`` when the user has added attributes to a column.
+    """
+    _logger = mocker.patch("datajunction.cli.compile._logger")
+
+    database = Database(name="test", URI="sqlite://")
+
+    table_a = Table(
+        database=database,
+        table="A",
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
+    )
+
+    table_b = Table(
+        database=database,
+        table="B",
+        columns=[Column(name="ds", type=ColumnType.DATETIME)],
+    )
+
+    node = Node(
+        name="C",
+        tables=[table_a, table_b],
+        columns=[
+            Column(name="ds", type=ColumnType.DATETIME),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
+        type=NodeType.SOURCE,
+    )
+    path = Path("/path/to/repository/configs/nodes/C.yaml")
+    fs.create_file(
+        path,
+        contents=yaml.safe_dump(
+            {
+                "columns": {
+                    "old_column": {"type": "INT"},
+                    "ds": {"user_attribute": "Hello, world!"},
+                },
+            },
+        ),
+    )
+
+    await update_node_config(node, path)
+
+    with open(path, encoding="utf-8") as input_:
+        assert yaml.safe_load(input_) == {
+            "columns": {
+                "ds": {"type": "DATETIME", "user_attribute": "Hello, world!"},
+                "user_id": {"type": "INT"},
+            },
+            "tables": {
+                "test": [
+                    {"catalog": None, "cost": 1.0, "schema": None, "table": "A"},
+                    {"catalog": None, "cost": 1.0, "schema": None, "table": "B"},
+                ],
+            },
+            "type": "source",
+        }
+    _logger.info.assert_called_with(
+        "Updating node %s config with column information",
+        "C",
+    )
+
+    await update_node_config(node, path)
+    _logger.info.assert_called_with(
+        "Node %s is up-do-date, skipping",
+        "C",
+    )
+
+
+def test_get_columns_from_tables() -> None:
+    """
+    Test ``get_columns_from_tables``.
+    """
+    table_a = Table(
+        table="A",
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
+    )
+
+    table_b = Table(
+        table="B",
+        columns=[Column(name="ds", type=ColumnType.DATETIME)],
+    )
+
+    assert get_columns_from_tables([table_a, table_b]) == [
+        Column(name="ds", type=ColumnType.DATETIME),
+        Column(name="user_id", type=ColumnType.INT),
+    ]

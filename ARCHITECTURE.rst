@@ -14,6 +14,8 @@ The source of truth in DataJunction (DJ) is a repository of YAML files (see the 
         schema: public
         table: parent_table
 
+.. code-block:: YAML
+
     # child.yaml
     description: A child node
     expression: SELECT * FROM parent

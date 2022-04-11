@@ -4,8 +4,10 @@ Tests for ``datajunction.sql.dag``.
 
 import pytest
 
-from datajunction.models.database import Column, Database, Table
+from datajunction.models.column import Column
+from datajunction.models.database import Database
 from datajunction.models.node import Node
+from datajunction.models.table import Table
 from datajunction.sql.dag import (
     get_computable_databases,
     get_referenced_columns_from_sql,
@@ -79,6 +81,10 @@ def test_get_computable_databases_heterogeneous_columns() -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
     )
 
     child_1 = Node(
@@ -120,6 +126,10 @@ def test_get_referenced_columns_from_sql() -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
     )
     parent_2 = Node(
         name="core.B",
@@ -132,6 +142,10 @@ def test_get_referenced_columns_from_sql() -> None:
                     Column(name="event_id", type=ColumnType.INT),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="event_id", type=ColumnType.INT),
         ],
     )
 
