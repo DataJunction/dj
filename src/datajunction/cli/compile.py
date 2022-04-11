@@ -44,7 +44,7 @@ from datajunction.utils import (
 _logger = logging.getLogger(__name__)
 
 
-# Database YAML with added nformation for processing
+# Database YAML with added information for processing
 EnrichedDatabaseYAML = TypedDict(
     "EnrichedDatabaseYAML",
     {
@@ -178,14 +178,14 @@ async def index_databases(
     return databases
 
 
-def get_columns(uri: str, schema: Optional[str], table: str) -> List[Column]:
+def get_table_columns(uri: str, schema: Optional[str], table: str) -> List[Column]:
     """
     Return all columns in a given table.
     """
     engine = create_engine(uri)
     try:
         inspector = inspect(engine)
-        column_metadata = inspector.get_columns(
+        column_metadata = inspector.get_table_columns(
             table,
             schema=schema,
         )
@@ -338,7 +338,7 @@ async def add_node(
             config["tables"].append(
                 Table(
                     database=databases[database_name],
-                    columns=get_columns(
+                    columns=get_table_columns(
                         databases[database_name].URI,
                         table_data["schema"],
                         table_data["table"],
@@ -396,6 +396,8 @@ async def update_node_config(node: Node, path: Path) -> None:
     # preserve column attributes entered by the user
     if "columns" in original:
         for name, column in original["columns"].items():
+            if name not in updated["columns"]:
+                continue
             for key, value in column.items():
                 if key not in updated["columns"][name]:
                     updated["columns"][name][key] = value  # type: ignore

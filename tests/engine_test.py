@@ -370,6 +370,10 @@ def test_get_query_for_sql_multiple_databases(
                 ],
             ),
         ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
+        ],
     )
 
     engine = create_engine(database_1.URI)
@@ -423,6 +427,10 @@ def test_get_query_for_sql_multiple_metrics(
                     Column(name="two", type=ColumnType.STR),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
         ],
     )
 
@@ -482,6 +490,10 @@ def test_get_query_for_sql_non_identifiers(
                     Column(name="two", type=ColumnType.STR),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
         ],
     )
 

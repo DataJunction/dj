@@ -10,7 +10,7 @@ from pytest_mock import MockerFixture
 from sqlmodel import Session
 
 from datajunction.models.column import Column
-from datajunction.models.node import Node
+from datajunction.models.node import Node, NodeType
 from datajunction.models.query import Database, QueryCreate, QueryWithResults
 from datajunction.models.table import Table
 from datajunction.typing import ColumnType
@@ -22,7 +22,11 @@ def test_read_metrics(session: Session, client: TestClient) -> None:
     """
     node1 = Node(name="not-a-metric")
     node2 = Node(name="also-not-a-metric", expression="SELECT 42")
-    node3 = Node(name="a-metric", expression="SELECT COUNT(*) FROM my_table")
+    node3 = Node(
+        name="a-metric",
+        expression="SELECT COUNT(*) FROM my_table",
+        type=NodeType.METRIC,
+    )
     session.add(node1)
     session.add(node2)
     session.add(node3)
@@ -54,12 +58,18 @@ def test_read_metric(session: Session, client: TestClient) -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+            Column(name="foo", type=ColumnType.FLOAT),
+        ],
     )
 
     child = Node(
         name="child",
         expression="SELECT COUNT(*) FROM parent",
         parents=[parent],
+        type=NodeType.METRIC,
     )
 
     session.add(child)
@@ -83,7 +93,11 @@ def test_read_metrics_data(
     Test ``GET /metrics/{node_id}/data/``.
     """
     database = Database(name="test", URI="sqlite://")
-    node = Node(name="a-metric", expression="SELECT COUNT(*) FROM my_table")
+    node = Node(
+        name="a-metric",
+        expression="SELECT COUNT(*) FROM my_table",
+        type=NodeType.METRIC,
+    )
     session.add(database)
     session.add(node)
     session.execute("CREATE TABLE my_table (one TEXT)")
@@ -145,7 +159,11 @@ def test_read_metrics_sql(
     Test ``GET /metrics/{node_id}/sql/``.
     """
     database = Database(name="test", URI="sqlite://")
-    node = Node(name="a-metric", expression="SELECT COUNT(*) FROM my_table")
+    node = Node(
+        name="a-metric",
+        expression="SELECT COUNT(*) FROM my_table",
+        type=NodeType.METRIC,
+    )
     session.add(database)
     session.add(node)
     session.execute("CREATE TABLE my_table (one TEXT)")

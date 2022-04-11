@@ -4,13 +4,10 @@ Tests for ``datajunction.models.node``.
 
 # pylint: disable=use-implicit-booleaness-not-comparison
 
+import pytest
 from sqlmodel import Session
 
-from datajunction.models.column import Column
-from datajunction.models.database import Database
-from datajunction.models.node import Node
-from datajunction.models.table import Table
-from datajunction.typing import ColumnType
+from datajunction.models.node import Node, NodeType
 
 
 def test_node_relationship(session: Session) -> None:
@@ -32,67 +29,24 @@ def test_node_relationship(session: Session) -> None:
     assert node_c.parents == [node_a, node_b]
 
 
-def test_node_columns(session: Session) -> None:
+def test_extra_validation() -> None:
     """
-    Test that the node schema is derived from its tables.
+    Test ``extra_validation``.
     """
-    database = Database(name="test", URI="sqlite://")
+    node = Node(name="A", type=NodeType.SOURCE)
+    with pytest.raises(Exception) as excinfo:
+        node.extra_validation()
+    assert str(excinfo.value) == "Node A of type source needs at least one table"
 
-    table_a = Table(
-        database_id=database.id,
-        table="A",
-        columns=[
-            Column(name="ds", type=ColumnType.STR),
-            Column(name="user_id", type=ColumnType.INT),
-        ],
+    node = Node(name="A", type=NodeType.METRIC)
+    with pytest.raises(Exception) as excinfo:
+        node.extra_validation()
+    assert str(excinfo.value) == "Node A of type metric needs an expression"
+
+    node = Node(name="A", type=NodeType.METRIC, expression="SELECT 42")
+    with pytest.raises(Exception) as excinfo:
+        node.extra_validation()
+    assert str(excinfo.value) == (
+        "Node A of type metric has an invalid expression, "
+        "should have a single aggregation"
     )
-
-    table_b = Table(
-        database_id=database.id,
-        table="B",
-        columns=[Column(name="ds", type=ColumnType.DATETIME)],
-    )
-
-    node = Node(name="C", tables=[table_a, table_b])
-
-    session.add(node)
-
-    assert node.columns == [
-        Column(name="ds", type=ColumnType.DATETIME),
-        Column(name="user_id", type=ColumnType.INT),
-    ]
-
-
-def test_node_schema_downstream_nodes(session: Session) -> None:
-    """
-    Test computing the schema of downstream nodes.
-    """
-
-    node_a = Node(
-        name="A",
-        tables=[
-            Table(
-                database=Database(name="test", URI="sqlite://"),
-                table="A",
-                columns=[
-                    Column(name="ds", type=ColumnType.STR),
-                    Column(name="user_id", type=ColumnType.INT),
-                    Column(name="foo", type=ColumnType.FLOAT),
-                ],
-            ),
-        ],
-    )
-
-    node_b = Node(
-        name="B",
-        expression="SELECT ds, COUNT(*) AS cnt, MAX(foo) FROM A GROUP BY ds",
-        parents=[node_a],
-    )
-
-    session.add(node_b)
-
-    assert node_b.columns == [
-        Column(name="ds", type=ColumnType.STR),
-        Column(name="cnt", type=ColumnType.INT),
-        Column(name="_col0", type=ColumnType.FLOAT),
-    ]

@@ -166,12 +166,12 @@ class Node(SQLModel, table=True):  # type: ignore
         if self.type in {NodeType.SOURCE.value, NodeType.DIMENSION.value}:
             if not self.tables:
                 raise Exception(
-                    f"Node {self.name} of type {self.type_} needs at least one table",
+                    f"Node {self.name} of type {self.type} needs at least one table",
                 )
         elif self.type == NodeType.METRIC:
             if not self.expression:
                 raise Exception(
-                    f"Node {self.name} of type metric needs to have an expression",
+                    f"Node {self.name} of type metric needs an expression",
                 )
             if not is_metric(self.expression):
                 raise Exception(
