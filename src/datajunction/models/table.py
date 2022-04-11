@@ -55,7 +55,7 @@ class Table(SQLModel, table=True):  # type: ignore
     database_id: int = Field(foreign_key="database.id")
     database: "Database" = Relationship(back_populates="tables")
     catalog: Optional[str] = None
-    schema_: Optional[str] = Field(None, alias="schema")
+    schema_: Optional[str] = Field(default=None, alias="schema")
     table: str
 
     cost: float = 1.0
