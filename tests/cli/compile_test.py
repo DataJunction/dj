@@ -170,7 +170,7 @@ def test_get_table_columns(mocker: MockerFixture) -> None:
     """
     mocker.patch("datajunction.cli.compile.create_engine")
     inspect = mocker.patch("datajunction.cli.compile.inspect")
-    inspect().get_table_columns.return_value = [
+    inspect().get_columns.return_value = [
         {"name": "ds", "type": sqlalchemy.sql.sqltypes.DateTime()},
         {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
     ]
@@ -187,7 +187,7 @@ def test_get_table_columns_error(mocker: MockerFixture) -> None:
     """
     mocker.patch("datajunction.cli.compile.create_engine")
     inspect = mocker.patch("datajunction.cli.compile.inspect")
-    inspect().get_table_columns.side_effect = Exception(
+    inspect().get_columns.side_effect = Exception(
         "An unexpected error occurred",
     )
 

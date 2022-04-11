@@ -185,7 +185,7 @@ def get_table_columns(uri: str, schema: Optional[str], table: str) -> List[Colum
     engine = create_engine(uri)
     try:
         inspector = inspect(engine)
-        column_metadata = inspector.get_table_columns(
+        column_metadata = inspector.get_columns(
             table,
             schema=schema,
         )
