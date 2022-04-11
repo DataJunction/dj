@@ -3,6 +3,7 @@ Tests for ``datajunction.fixes``.
 """
 # pylint: disable=invalid-name
 
+import pytest
 from pytest_mock import MockerFixture
 
 from datajunction.fixes import patch_druid_get_columns
@@ -12,6 +13,8 @@ def test_patch_druid_get_columns(mocker: MockerFixture) -> None:
     """
     Test ``patch_druid_get_columns``.
     """
+    pytest.importorskip("pydruid")
+
     DruidDialect = mocker.patch("datajunction.fixes.DruidDialect")
     connection = mocker.MagicMock()
 

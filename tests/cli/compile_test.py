@@ -463,7 +463,8 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
 
 @pytest.mark.asyncio
 async def test_update_node_config_user_attributes(
-    mocker: MockerFixture, fs: FakeFilesystem,
+    mocker: MockerFixture,
+    fs: FakeFilesystem,
 ) -> None:
     """
     Test ``update_node_config`` when the user has added attributes to a column.

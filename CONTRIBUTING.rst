@@ -149,44 +149,26 @@ To see the list of available nodes:
         "expression": null,
         "columns": [
           {
-            "id": 14,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "id",
             "type": "INT"
           },
           {
-            "id": 15,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "user_id",
             "type": "INT"
           },
           {
-            "id": 16,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "timestamp",
             "type": "DATETIME"
           },
           {
-            "id": 17,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "text",
             "type": "STR"
           },
           {
-            "id": 18,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "__time",
             "type": "DATETIME"
           },
           {
-            "id": 19,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "count",
             "type": "INT"
           }
@@ -202,51 +184,30 @@ To see the list of available nodes:
         "expression": null,
         "columns": [
           {
-            "id": 33,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "id",
             "type": "INT"
           },
           {
-            "id": 34,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "full_name",
             "type": "STR"
           },
           {
-            "id": 35,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "age",
             "type": "INT"
           },
           {
-            "id": 36,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "country",
             "type": "STR"
           },
           {
-            "id": 37,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "gender",
             "type": "STR"
           },
           {
-            "id": 38,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "preferred_language",
             "type": "STR"
           },
           {
-            "id": 39,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "secret_number",
             "type": "FLOAT"
           }
@@ -262,9 +223,6 @@ To see the list of available nodes:
         "expression": "SELECT COUNT(*) FROM core.comments",
         "columns": [
           {
-            "id": 40,
-            "dimension_id": null,
-            "dimension_column": null,
             "name": "_col0",
             "type": "INT"
           }
@@ -295,7 +253,7 @@ And metrics:
         ]
       }
     ]
-        
+
 
 To get data for a given metric:
 

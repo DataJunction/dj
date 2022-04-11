@@ -49,21 +49,15 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert nodes["also-not-a-metric"]["expression"] == "SELECT 42 AS answer"
     assert nodes["also-not-a-metric"]["columns"] == [
         {
-            "id": 1,
             "name": "answer",
             "type": "INT",
-            "dimension_column": None,
-            "dimension_id": None,
         },
     ]
 
     assert nodes["a-metric"]["expression"] == "SELECT COUNT(*) FROM my_table"
     assert nodes["a-metric"]["columns"] == [
         {
-            "id": 2,
             "name": "_col0",
             "type": "INT",
-            "dimension_column": None,
-            "dimension_id": None,
         },
     ]
