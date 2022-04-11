@@ -9,12 +9,21 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends
 from sqlmodel import Session, SQLModel, select
 
-from datajunction.models.column import Column
+from datajunction.models.column import ColumnType
 from datajunction.models.node import Node, NodeType
 from datajunction.utils import get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
+
+
+class SimpleColumn(SQLModel):
+    """
+    A simplified column schema, without ID or dimensions.
+    """
+
+    name: str
+    type: ColumnType
 
 
 class NodeMetadata(SQLModel):
@@ -32,7 +41,7 @@ class NodeMetadata(SQLModel):
     type: NodeType
     expression: Optional[str] = None
 
-    columns: List[Column]
+    columns: List[SimpleColumn]
 
 
 @router.get("/nodes/", response_model=List[NodeMetadata])
