@@ -81,6 +81,10 @@ def test_get_computable_databases_heterogeneous_columns() -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
     )
 
     child_1 = Node(
@@ -122,6 +126,10 @@ def test_get_referenced_columns_from_sql() -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
     )
     parent_2 = Node(
         name="core.B",
@@ -134,6 +142,10 @@ def test_get_referenced_columns_from_sql() -> None:
                     Column(name="event_id", type=ColumnType.INT),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="event_id", type=ColumnType.INT),
         ],
     )
 

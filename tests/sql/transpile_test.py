@@ -140,6 +140,10 @@ def test_get_select_for_node_choose_slow(mocker: MockerFixture) -> None:
                 cost=0.1,
             ),
         ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
+        ],
     )
 
     engine = create_engine(database.URI)
@@ -183,6 +187,10 @@ def test_get_select_for_node_projection(mocker: MockerFixture) -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
+        ],
     )
 
     engine = create_engine(database.URI)
@@ -223,6 +231,10 @@ def test_get_select_for_node_where(mocker: MockerFixture) -> None:
                     Column(name="two", type=ColumnType.STR),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
         ],
     )
 
@@ -266,6 +278,10 @@ def test_get_select_for_node_groupby(mocker: MockerFixture) -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
+        ],
     )
 
     engine = create_engine(database.URI)
@@ -306,6 +322,10 @@ def test_get_select_for_node_limit(mocker: MockerFixture) -> None:
                     Column(name="two", type=ColumnType.STR),
                 ],
             ),
+        ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
         ],
     )
 
