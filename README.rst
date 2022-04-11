@@ -39,6 +39,7 @@ Now imagine we have a table in those databases, also represented as a YAML file:
 .. code-block:: YAML
 
     # nodes/comments.yaml
+    type: source
     description: A fact table with comments
     tables:
       hive:
@@ -55,6 +56,7 @@ So far we've only described what already exists. Let's add a metric called ``num
 .. code-block:: YAML
 
     # nodes/num_comments.yaml
+    type: metric
     description: The number of comments
     expression: SELECT COUNT(*) FROM comments
 
