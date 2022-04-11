@@ -73,7 +73,7 @@ def save_query_and_run(
     """
     Store a new query to the DB and run it.
     """
-    query = Query.from_orm(create_query)
+    query = Query(**create_query.dict(by_alias=True))
     query.state = QueryState.ACCEPTED
 
     session.add(query)

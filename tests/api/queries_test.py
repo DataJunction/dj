@@ -40,15 +40,75 @@ def test_submit_query(session: Session, client: TestClient) -> None:
         database_id=database.id,
         submitted_query="SELECT 1 AS col",
     )
+    payload = query_create.json(by_alias=True)
+    assert payload == json.dumps(
+        {
+            "database_id": 1,
+            "catalog": None,
+            "schema": None,
+            "submitted_query": "SELECT 1 AS col",
+        },
+    )
 
     with freeze_time("2021-01-01T00:00:00Z"):
-        response = client.post("/queries/", data=query_create.json())
+        response = client.post("/queries/", data=payload)
     data = response.json()
 
     assert response.status_code == 200
     assert data["database_id"] == 1
     assert data["catalog"] is None
-    assert data["schema_"] is None
+    assert data["schema"] is None
+    assert data["submitted_query"] == "SELECT 1 AS col"
+    assert data["executed_query"] == "SELECT 1 AS col"
+    assert data["scheduled"] == "2021-01-01T00:00:00"
+    assert data["started"] == "2021-01-01T00:00:00"
+    assert data["finished"] == "2021-01-01T00:00:00"
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1 AS col"
+    assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
+    assert data["results"][0]["rows"] == [[1]]
+    assert data["errors"] == []
+
+
+def test_submit_query_with_catalog_and_schema(
+    session: Session,
+    client: TestClient,
+) -> None:
+    """
+    Test ``POST /queries/`` with a catalog and schema.
+    """
+    database = Database(name="test", URI="sqlite://")
+    session.add(database)
+    session.commit()
+    session.refresh(database)
+
+    query_create = QueryCreate(
+        database_id=database.id,
+        catalog="hive",
+        schema="production",
+        submitted_query="SELECT 1 AS col",
+    )
+    payload = query_create.json(by_alias=True)
+    assert payload == json.dumps(
+        {
+            "database_id": 1,
+            "catalog": "hive",
+            "schema": "production",
+            "submitted_query": "SELECT 1 AS col",
+        },
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post("/queries/", data=payload)
+    data = response.json()
+    print(data)
+
+    assert response.status_code == 200
+    assert data["database_id"] == 1
+    assert data["catalog"] == "hive"
+    assert data["schema"] == "production"
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] == "SELECT 1 AS col"
     assert data["scheduled"] == "2021-01-01T00:00:00"
@@ -110,7 +170,7 @@ def test_submit_query_multiple_statements(session: Session, client: TestClient) 
     assert response.status_code == 200
     assert data["database_id"] == 1
     assert data["catalog"] is None
-    assert data["schema_"] is None
+    assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1 AS col; SELECT 2 AS another_col"
     assert data["executed_query"] == "SELECT 1 AS col; SELECT 2 AS another_col"
     assert data["scheduled"] == "2021-01-01T00:00:00"
@@ -188,7 +248,7 @@ def test_submit_query_async(
     assert response.status_code == 201
     assert data["database_id"] == 1
     assert data["catalog"] is None
-    assert data["schema_"] is None
+    assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] is None
     assert data["scheduled"] is None
@@ -305,7 +365,7 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
     assert response.status_code == 200
     assert data["database_id"] == 1
     assert data["catalog"] is None
-    assert data["schema_"] is None
+    assert data["schema"] is None
     assert data["submitted_query"] == "SELECT FROM"
     assert data["executed_query"] == "SELECT FROM"
     assert data["state"] == "FAILED"
@@ -351,7 +411,7 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
     assert response.status_code == 200
     assert data["database_id"] == 1
     assert data["catalog"] is None
-    assert data["schema_"] is None
+    assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1"
     assert data["executed_query"] == "SELECT 1"
     assert data["state"] == "RUNNING"
@@ -391,7 +451,7 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
     assert response.status_code == 200
     assert data["database_id"] == 1
     assert data["catalog"] is None
-    assert data["schema_"] is None
+    assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1"
     assert data["executed_query"] == "SELECT 1"
     assert data["state"] == "RUNNING"
