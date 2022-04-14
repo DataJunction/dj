@@ -20,7 +20,8 @@ from sqlmodel import Session
 
 from datajunction.config import Settings
 from datajunction.constants import DJ_DATABASE_ID
-from datajunction.engine import get_query_for_sql, process_query
+from datajunction.engine import process_query
+from datajunction.sql.build import get_query_for_sql
 from datajunction.models.query import (
     Query,
     QueryCreate,
