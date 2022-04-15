@@ -186,9 +186,9 @@ Top = Fetch
 
 
 class BinaryOp(TypedDict):
-    left: Union["BinaryOp", Expression]  # type: ignore
+    left: Expression
     op: str
-    right: Union["BinaryOp", Expression]  # type: ignore
+    right: Expression
 
 
 class LateralView(TypedDict):
@@ -291,7 +291,9 @@ Query = TypedDict(
 
 
 # We could support more than just ``SELECT`` here.
-Statement = Query  # type: ignore
+class Statement(TypedDict):
+    Query: Query
+
 
 # A parse tree, result of ``sqloxide.parse_sql``.
 ParseTree = List[Statement]  # type: ignore
