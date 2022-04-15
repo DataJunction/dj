@@ -23,11 +23,15 @@ from sqlalchemy.engine.url import URL
 from sqlmodel import Session, create_engine, select
 from watchfiles import Change, awatch
 
-from datajunction.constants import DJ_DATABASE_ID, SQLITE_DATABASE_ID
+from datajunction.constants import (
+    DEFAULT_DIMENSION_COLUMN,
+    DJ_DATABASE_ID,
+    SQLITE_DATABASE_ID,
+)
 from datajunction.fixes import patch_druid_get_columns
 from datajunction.models.column import Column
 from datajunction.models.database import Database
-from datajunction.models.node import Node, NodeYAML
+from datajunction.models.node import Node, NodeType, NodeYAML
 from datajunction.models.query import Query  # pylint: disable=unused-import
 from datajunction.models.table import Table
 from datajunction.sql.dag import render_dag
@@ -353,8 +357,10 @@ async def add_node(
         else get_columns_from_tables(config["tables"])
     )
 
-    _logger.info("Creating node %s", name)
+    # enrich columns with dimensions
+    add_dimensions_to_columns(session, data, config["columns"])
 
+    _logger.info("Creating node %s", name)
     node = Node(**config)
     node.extra_validation()
 
@@ -365,6 +371,50 @@ async def add_node(
     await update_node_config(node, path)
 
     return node
+
+
+def add_dimensions_to_columns(
+    session: Session,
+    data: EnrichedNodeYAML,
+    columns: List[Column],
+) -> None:
+    """
+    Add dimension information to columns.
+
+    While the columns are determined by reflecting the table via SQLAlchemy, the
+    information about dimensions is added manually by the user, so we need to extract it
+    from the YAML file.
+    """
+    original_columns = data.get("columns", {})
+    for column in columns:
+        if (
+            column.name in original_columns
+            and "dimension" in original_columns[column.name]
+        ):
+            # this can be a node (``core.users``) or include a column (``core.users.id``)
+            dimension_target = original_columns[column.name]["dimension"]
+
+            query = (
+                select(Node)
+                .where(Node.name == dimension_target)
+                .where(Node.type == NodeType.DIMENSION)
+            )
+            dimension = session.exec(query).one_or_none()
+            if dimension:
+                dimension_column = DEFAULT_DIMENSION_COLUMN
+            elif "." in dimension_target:
+                dimension_target, dimension_column = dimension_target.rsplit(".", 1)
+                query = (
+                    select(Node)
+                    .where(Node.name == dimension_target)
+                    .where(Node.type == NodeType.DIMENSION)
+                )
+                dimension = session.exec(query).one()
+            else:
+                raise Exception(f"Invalid dimension: {dimension_target}")
+
+            column.dimension = dimension
+            column.dimension_column = dimension_column
 
 
 def get_columns_from_tables(tables: List[Table]) -> List[Column]:

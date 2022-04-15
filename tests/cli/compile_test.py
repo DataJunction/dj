@@ -17,6 +17,7 @@ from pytest_mock import MockerFixture
 from sqlmodel import Session
 
 from datajunction.cli.compile import (
+    add_dimensions_to_columns,
     add_node,
     get_columns_from_tables,
     get_table_columns,
@@ -27,6 +28,7 @@ from datajunction.cli.compile import (
     update_node_config,
     yaml_file_changed,
 )
+from datajunction.constants import DEFAULT_DIMENSION_COLUMN
 from datajunction.models.column import Column
 from datajunction.models.database import Database
 from datajunction.models.node import Node, NodeType
@@ -559,3 +561,51 @@ def test_get_columns_from_tables() -> None:
         Column(name="ds", type=ColumnType.DATETIME),
         Column(name="user_id", type=ColumnType.INT),
     ]
+
+
+def test_add_dimensions_to_columns(mocker: MockerFixture, repository: Path) -> None:
+    """
+    Test ``add_dimensions_to_columns``.
+    """
+    session = mocker.MagicMock()
+    dimension = Node(
+        name="users",
+        type=NodeType.DIMENSION,
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="uuid", type=ColumnType.INT),
+            Column(name="city", type=ColumnType.STR),
+        ],
+    )
+    session.exec().one_or_none.return_value = dimension
+
+    with open(repository / "nodes/core/comments.yaml", encoding="utf-8") as input_:
+        data = yaml.safe_load(input_)
+
+    columns = [
+        Column(name="id", type=ColumnType.INT),
+        Column(name="user_id", type=ColumnType.INT),
+    ]
+
+    add_dimensions_to_columns(session, data, columns)
+
+    assert columns[1].dimension == dimension
+    assert columns[1].dimension_column == DEFAULT_DIMENSION_COLUMN
+
+    # custom column
+    data["columns"]["user_id"]["dimension"] = "users.uuid"
+    session.exec().one_or_none.return_value = None
+    session.exec().one.return_value = dimension
+
+    add_dimensions_to_columns(session, data, columns)
+
+    assert columns[1].dimension == dimension
+    assert columns[1].dimension_column == "uuid"
+
+    # invalid column
+    data["columns"]["user_id"]["dimension"] = "invalid"
+    session.exec().one_or_none.return_value = None
+
+    with pytest.raises(Exception) as excinfo:
+        add_dimensions_to_columns(session, data, columns)
+    assert str(excinfo.value) == "Invalid dimension: invalid"

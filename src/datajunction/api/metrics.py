@@ -13,6 +13,7 @@ from datajunction.config import Settings
 from datajunction.models.node import Node, NodeType
 from datajunction.models.query import QueryWithResults
 from datajunction.sql.build import get_query_for_node
+from datajunction.sql.dag import get_dimensions
 from datajunction.utils import get_session, get_settings
 
 router = APIRouter()
@@ -50,14 +51,7 @@ def read_metrics(*, session: Session = Depends(get_session)) -> List[Metric]:
     List all available metrics.
     """
     return [
-        Metric(
-            **node.dict(),
-            dimensions=[
-                f"{parent.name}.{column.name}"
-                for parent in node.parents
-                for column in parent.columns
-            ],
-        )
+        Metric(**node.dict(), dimensions=get_dimensions(node))
         for node in session.exec(select(Node).where(Node.type == NodeType.METRIC))
     ]
 
@@ -68,14 +62,7 @@ def read_metric(node_id: int, *, session: Session = Depends(get_session)) -> Met
     Return a metric by ID.
     """
     node = session.get(Node, node_id)
-    return Metric(
-        **node.dict(),
-        dimensions=[
-            f"{parent.name}.{column.name}"
-            for parent in node.parents
-            for column in parent.columns
-        ],
-    )
+    return Metric(**node.dict(), dimensions=get_dimensions(node))
 
 
 def get_metric(session: Session, node_id: int) -> Node:
