@@ -8,7 +8,7 @@ queries which can be then executed in specific databases.
 # pylint: disable=unused-argument
 
 import operator
-from typing import Any, List, Optional, Set, Union, cast
+from typing import Any, Dict, List, Optional, Set, Union, cast
 
 from sqlalchemy import text
 from sqlalchemy.engine import create_engine
@@ -29,7 +29,9 @@ from datajunction.typing import (
     Expression,
     Function,
     Identifier,
+    JoinOperator,
     ParseTree,
+    Relation,
     Value,
 )
 
@@ -63,11 +65,14 @@ def get_select_for_node(
     """
     Build a SQLAlchemy ``select()`` for a given node.
     """
-    columns = columns or set()
+    # if no columns are specified, require all
+    if columns is None:
+        columns = {column.name for column in node.columns}
 
     engine = create_engine(database.URI)
 
-    # if the node is materialized we use the table with the cheapest cost
+    # if the node is materialized we use the table with the cheapest cost, as long as it
+    # has all the requested columns (see #104)
     tables = [
         table
         for table in node.tables
@@ -169,14 +174,15 @@ def get_selection(
 
 def get_binary_op(
     selection: BinaryOp,
-    source: Optional[Select] = None,
+    left_source: Optional[Select] = None,
+    right_source: Optional[Select] = None,
     dialect: Optional[str] = None,
 ) -> ClauseElement:
     """
     Build a binary operation (eg, >).
     """
-    left = get_expression(selection["left"], source, dialect)
-    right = get_expression(selection["right"], source, dialect)
+    left = get_expression(selection["left"], left_source, dialect)
+    right = get_expression(selection["right"], right_source, dialect)
     op = selection["op"]  # pylint: disable=invalid-name
 
     if op not in OPERATIONS:
@@ -245,7 +251,7 @@ def get_expression(
     if "Value" in expression:
         return get_value(expression["Value"], source, dialect)
     if "BinaryOp" in expression:
-        return get_binary_op(expression["BinaryOp"], source, dialect)
+        return get_binary_op(expression["BinaryOp"], source, source, dialect)
     if expression == "Wildcard":
         return "*"
     raise NotImplementedError(f"Unable to handle expression: {expression}")
@@ -292,7 +298,14 @@ def get_compound_identifier(
     """
     if source is None:
         raise Exception("Unable to return identifier without a source")
-    return getattr(source.columns, compound_identifier[1]["value"])
+
+    table_name = compound_identifier[0]["value"]
+    column_name = compound_identifier[1]["value"]
+    for column in source.columns:
+        if column.table.name == table_name and column.name == column_name:
+            return column
+
+    raise Exception("No column found")  # pragma: no cover
 
 
 def get_value(
@@ -316,7 +329,15 @@ def get_value(
     raise NotImplementedError(f"Unable to handle value: {value}")
 
 
-def get_source(
+def get_node_from_relation(relation: Relation, parent_map: Dict[str, Node]) -> Node:
+    """
+    Return a node from a relation.
+    """
+    name = ".".join(part["value"] for part in relation["Table"]["name"])
+    return parent_map[name]
+
+
+def get_source(  # pylint: disable=too-many-locals
     expression: Optional[str],
     parents: List[Node],
     database: Database,
@@ -326,9 +347,40 @@ def get_source(
     """
     Build the ``FROM`` part of a query.
     """
-    # for now assume no JOINs or multiple relations
     parent_columns = get_referenced_columns_from_sql(expression, parents)
-    parent = parents[0]
-    return get_select_for_node(parent, database, parent_columns[parent.name]).alias(
-        parent.name,
-    )
+    parent_map = {parent.name: parent for parent in parents}
+
+    # Parse the ``FROM`` clause. We only support single statements, so ``tree`` should
+    # have a single element. We also don't support ``CROSS JOIN``, so there should be
+    # only 1 element in the ``from`` key.
+    from_ = tree[0]["Query"]["body"]["Select"]["from"][0]
+
+    # find the first node
+    from_node = get_node_from_relation(from_["relation"], parent_map)
+    source = get_select_for_node(
+        from_node,
+        database,
+        parent_columns[from_node.name],
+    ).alias(from_node.name)
+
+    # apply joins, if any
+    previous_subquery = source
+    for join in from_["joins"]:
+        join_node = get_node_from_relation(join["relation"], parent_map)
+        subquery = get_select_for_node(
+            join_node,
+            database,
+            parent_columns[join_node.name],
+        ).alias(join_node.name)
+
+        join_operator = cast(JoinOperator, join["join_operator"])
+        condition = get_binary_op(
+            join_operator["Inner"]["On"]["BinaryOp"],
+            previous_subquery,
+            subquery,
+            dialect,
+        )
+        source = source.join(subquery, condition)
+        previous_subquery = subquery
+
+    return source

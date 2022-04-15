@@ -1,6 +1,7 @@
 """
 Tests for ``datajunction.sql.build``.
 """
+# pylint: disable=invalid-name
 
 import pytest
 from pytest_mock import MockerFixture
@@ -8,17 +9,18 @@ from sqlalchemy.engine import create_engine
 from sqlmodel import Session
 from sqloxide import parse_sql
 
+from datajunction.models.column import Column
+from datajunction.models.database import Database
+from datajunction.models.node import Node
+from datajunction.models.table import Table
 from datajunction.sql.build import (
     get_database_for_sql,
     get_filter,
     get_query_for_node,
     get_query_for_sql,
 )
-from datajunction.models.column import Column
-from datajunction.models.database import Database
-from datajunction.models.node import Node
-from datajunction.models.table import Table
 from datajunction.typing import ColumnType
+
 
 def test_get_query_for_node(mocker: MockerFixture) -> None:
     """

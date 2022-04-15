@@ -10,9 +10,9 @@ from sqlmodel import Session, SQLModel, select
 
 from datajunction.api.queries import save_query_and_run
 from datajunction.config import Settings
-from datajunction.sql.build import get_query_for_node
 from datajunction.models.node import Node, NodeType
 from datajunction.models.query import QueryWithResults
+from datajunction.sql.build import get_query_for_node
 from datajunction.utils import get_session, get_settings
 
 router = APIRouter()
