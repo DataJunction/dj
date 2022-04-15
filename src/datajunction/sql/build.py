@@ -44,6 +44,7 @@ COMPARISONS = {
     "!=": operator.ne,
 }
 
+
 def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression:
     """
     Build a SQLAlchemy filter.
@@ -112,6 +113,7 @@ def get_query_for_node(
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
 
+
 def get_query_for_sql(sql: str) -> QueryCreate:
     """
     Return a query given a SQL expression querying the repo.
@@ -146,6 +148,7 @@ def get_query_for_sql(sql: str) -> QueryCreate:
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
 
+
 def replace_dimension_references(query_select: Select, parents: List[Node]) -> None:
     """
     Update a query inplace, replacing dimensions with proper column names.
@@ -167,6 +170,7 @@ def replace_dimension_references(query_select: Select, parents: List[Node]) -> N
                 {"quote_style": '"', "value": name},
                 {"quote_style": '"', "value": column},
             ]
+
 
 def get_database_for_sql(
     session: Session,
@@ -194,6 +198,7 @@ def get_database_for_sql(
     if not databases:
         raise Exception("Unable to run SQL (no common database)")
     return sorted(databases, key=operator.attrgetter("cost"))[0]
+
 
 def get_new_projection_and_from(
     session: Session,
@@ -258,6 +263,6 @@ def get_new_projection_and_from(
                 },
             },
         )
-        new_from.append(subtree[0]["Query"]["body"]["Select"]["from"])
+        new_from.append(subtree[0]["Query"]["body"]["Select"]["from"][0])
 
     return new_projection, new_from
