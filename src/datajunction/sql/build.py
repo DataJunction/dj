@@ -1,3 +1,7 @@
+"""
+Functions for building queries, from nodes or SQL.
+"""
+
 import ast
 import operator
 import re
@@ -24,15 +28,8 @@ from datajunction.sql.parse import (
     is_metric,
 )
 from datajunction.sql.transpile import get_query, get_select_for_node
-from datajunction.typing import (
-    From,
-    Identifier,
-    ParseTree,
-    Projection,
-    Select,
-)
+from datajunction.typing import From, Identifier, ParseTree, Projection, Select
 from datajunction.utils import get_session
-
 
 FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
 COMPARISONS = {

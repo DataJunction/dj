@@ -18,13 +18,7 @@ from datajunction.models.query import (
     QueryWithResults,
     StatementResults,
 )
-from datajunction.typing import (
-    ColumnType,
-    Description,
-    SQLADialect,
-    Stream,
-    TypeEnum,
-)
+from datajunction.typing import ColumnType, Description, SQLADialect, Stream, TypeEnum
 
 
 def get_columns_from_description(
