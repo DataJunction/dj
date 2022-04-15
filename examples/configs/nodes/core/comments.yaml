@@ -3,9 +3,9 @@ type: source
 columns:
   id:
     type: INT
-    dimension: core.user
   user_id:
     type: INT
+    dimension: core.users
   timestamp:
     type: DATETIME
   text:

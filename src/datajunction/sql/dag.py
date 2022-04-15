@@ -141,3 +141,21 @@ def get_referenced_columns_from_tree(
         referenced_columns[parent].add(column)
 
     return referenced_columns
+
+
+def get_dimensions(node: Node) -> List[str]:
+    """
+    Return the available dimensions in a given node.
+    """
+    dimensions = []
+    for parent in node.parents:
+        for column in parent.columns:
+            dimensions.append(f"{parent.name}.{column.name}")
+
+            if column.dimension:
+                for dimension_column in column.dimension.columns:
+                    dimensions.append(
+                        f"{column.dimension.name}.{dimension_column.name}",
+                    )
+
+    return sorted(dimensions)
