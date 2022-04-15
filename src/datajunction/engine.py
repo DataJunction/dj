@@ -26,6 +26,7 @@ from datajunction.typing import (
     TypeEnum,
 )
 
+
 def get_columns_from_description(
     description: Description,
     dialect: SQLADialect,

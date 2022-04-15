@@ -389,3 +389,68 @@ def test_get_value() -> None:
     assert str(get_value({"SingleQuotedString": "test"})) == "test"
     assert get_value({"Boolean": True})
     assert not get_value({"Boolean": False})
+
+
+def test_get_select_for_node_with_join(mocker: MockerFixture) -> None:
+    """
+    Test ``get_select_for_node`` when the node expression has a join.
+    """
+    database = Database(id=1, name="db", URI="sqlite://")
+
+    parent_1 = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="one", type=ColumnType.STR),
+                    Column(name="two", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="one", type=ColumnType.STR),
+            Column(name="two", type=ColumnType.STR),
+        ],
+    )
+    parent_2 = Node(
+        name="B",
+        tables=[
+            Table(
+                database=database,
+                table="B",
+                columns=[
+                    Column(name="two", type=ColumnType.STR),
+                    Column(name="three", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="two", type=ColumnType.STR),
+            Column(name="three", type=ColumnType.STR),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
+    connection.execute("CREATE TABLE B (two TEXT, three TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    child = Node(
+        name="B",
+        expression="SELECT COUNT(*) FROM A JOIN B ON A.two = B.two WHERE B.three > 1",
+        parents=[parent_1, parent_2],
+    )
+
+    space = " "
+
+    assert (
+        query_to_string(get_select_for_node(child, database))
+        == f"""SELECT count('*') AS count_1{space}
+FROM (SELECT "A".one AS one, "A".two AS two{space}
+FROM "A") AS "A" JOIN (SELECT "B".two AS two, "B".three AS three{space}
+FROM "B") AS "B" ON "A".two = "B".two{space}
+WHERE "B".three > 1"""
+    )
