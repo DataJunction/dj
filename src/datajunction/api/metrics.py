@@ -93,7 +93,7 @@ def read_metrics_data(
     Return data for a metric.
     """
     node = get_metric(session, node_id)
-    create_query = get_query_for_node(node, d, f, database_id)
+    create_query = get_query_for_node(session, node, d, f, database_id)
 
     return save_query_and_run(
         create_query,
@@ -120,7 +120,7 @@ def read_metrics_sql(
     will be used.
     """
     node = get_metric(session, node_id)
-    create_query = get_query_for_node(node, d, f, database_id)
+    create_query = get_query_for_node(session, node, d, f, database_id)
 
     return TranslatedSQL(
         database_id=create_query.database_id,

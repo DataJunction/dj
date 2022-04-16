@@ -4,7 +4,7 @@ DAG related functions.
 
 from collections import defaultdict
 from io import StringIO
-from typing import Any, Dict, List, Optional, Set
+from typing import Any, DefaultDict, Dict, List, Optional, Set
 
 import asciidag.graph
 import asciidag.node
@@ -69,7 +69,8 @@ def get_computable_databases(
     This takes into consideration the node expression, since some of the columns might
     not be present in all databases.
     """
-    columns = columns or set()
+    if columns is None:
+        columns = {column.name for column in node.columns}
 
     # add all the databases where the node is explicitly materialized
     tables = [
@@ -94,7 +95,7 @@ def get_computable_databases(
 def get_referenced_columns_from_sql(
     sql: Optional[str],
     parents: List[Node],
-) -> Dict[str, Set[str]]:
+) -> DefaultDict[str, Set[str]]:
     """
     Given a SQL expression, return the referenced columns.
 
@@ -111,11 +112,11 @@ def get_referenced_columns_from_sql(
 def get_referenced_columns_from_tree(
     tree: ParseTree,
     parents: List[Node],
-) -> Dict[str, Set[str]]:
+) -> DefaultDict[str, Set[str]]:
     """
     Return the columns referenced in parents given a parse tree.
     """
-    referenced_columns: Dict[str, Set[str]] = defaultdict(set)
+    referenced_columns: DefaultDict[str, Set[str]] = defaultdict(set)
 
     parent_columns = {
         parent.name: {column.name for column in parent.columns} for parent in parents
