@@ -13,10 +13,11 @@ from sqlmodel import Session
 
 from datajunction.models.column import Column
 from datajunction.models.database import Database
-from datajunction.models.node import Node
+from datajunction.models.node import Node, NodeType
 from datajunction.models.table import Table
 from datajunction.sql.build import (
     get_database_for_nodes,
+    get_dimensions_from_filters,
     get_filter,
     get_query_for_node,
     get_query_for_sql,
@@ -169,6 +170,90 @@ def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
     with pytest.raises(Exception) as excinfo:
         get_query_for_node(session, child, [], [])
     assert str(excinfo.value) == "No valid database was found"
+
+
+def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node`` when filtering/grouping by a dimension.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    child = Node(
+        name="core.num_comments",
+        expression="SELECT COUNT(*) FROM core.comments",
+        parents=[parent],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
+    connection.execute("CREATE TABLE comments (ds TEXT, user_id INTEGER, text TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
+    session.exec().one.return_value = dimension
+
+    create_query = get_query_for_node(
+        session, child, ["core.users.gender"], ["core.users.age>25"],
+    )
+    space = " "
+    assert create_query.database_id == 1
+    assert (
+        create_query.submitted_query
+        == f"""SELECT count('*') AS count_1, "core.users".gender{space}
+FROM (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_users.id AS id, dim_users.age AS age, dim_users.gender AS gender{space}
+FROM dim_users) AS "core.users" ON "core.comments".user_id = "core.users".id{space}
+WHERE "core.users".age > 25 GROUP BY "core.users".gender"""
+    )
+
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_node(session, child, ["aaaa"], [])
+    assert str(excinfo.value) == "Invalid dimension: aaaa"
+
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_node(session, child, ["aaaa", "bbbb"], [])
+    assert str(excinfo.value) == "Invalid dimensions: aaaa, bbbb"
 
 
 def test_get_filter(mocker: MockerFixture) -> None:
@@ -805,3 +890,14 @@ def test_get_database_for_nodes(mocker: MockerFixture) -> None:
 
     # without parents, return the cheapest DB
     assert get_database_for_nodes(session, [], referenced_columns) == database_1
+
+
+def test_get_dimensions_from_filters() -> None:
+    """
+    Test ``get_dimensions_from_filters``.
+    """
+    assert get_dimensions_from_filters(["a>1", "b=10"]) == {"a", "b"}
+
+    with pytest.raises(Exception) as excinfo:
+        get_dimensions_from_filters(["aaaa"])
+    assert str(excinfo.value) == "Invalid filter: aaaa"

@@ -100,7 +100,7 @@ def get_query_for_node(  # pylint: disable=too-many-locals
     requested_dimensions = set(groupbys) | get_dimensions_from_filters(filters)
     valid_dimensions = set(get_dimensions(node))
     if not requested_dimensions <= valid_dimensions:
-        invalid = requested_dimensions - valid_dimensions
+        invalid = sorted(requested_dimensions - valid_dimensions)
         plural = "s" if len(invalid) > 1 else ""
         raise Exception(f"Invalid dimension{plural}: {', '.join(invalid)}")
 
