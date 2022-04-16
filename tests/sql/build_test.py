@@ -3,18 +3,20 @@ Tests for ``datajunction.sql.build``.
 """
 # pylint: disable=invalid-name
 
+from collections import defaultdict
+from typing import Dict, Set
+
 import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
 from sqlmodel import Session
-from sqloxide import parse_sql
 
 from datajunction.models.column import Column
 from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.table import Table
 from datajunction.sql.build import (
-    get_database_for_sql,
+    get_database_for_nodes,
     get_filter,
     get_query_for_node,
     get_query_for_sql,
@@ -47,8 +49,9 @@ def test_get_query_for_node(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE B (cnt INTEGER)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
 
-    create_query = get_query_for_node(child, [], [])
+    create_query = get_query_for_node(session, child, [], [])
     assert create_query.database_id == 1
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
@@ -71,6 +74,10 @@ def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="user_id", type=ColumnType.INT),
+            Column(name="comment", type=ColumnType.STR),
+        ],
     )
 
     child = Node(
@@ -83,8 +90,9 @@ def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE A (user_id INTEGER, comment TEXT)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
 
-    create_query = get_query_for_node(child, ["A.user_id"], [])
+    create_query = get_query_for_node(session, child, ["A.user_id"], [])
     space = " "
     assert create_query.database_id == 1
     assert (
@@ -114,20 +122,23 @@ def test_get_query_for_node_specify_database(mocker: MockerFixture) -> None:
         ],
         expression="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
+        columns=[Column(name="cnt", type=ColumnType.INT)],
     )
 
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE B (cnt INTEGER)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
+    session.exec().one.return_value = database
 
-    create_query = get_query_for_node(child, [], [], 1)
+    create_query = get_query_for_node(session, child, [], [], 1)
     assert create_query.database_id == 1
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(child, [], [], 2)
-    assert str(excinfo.value) == "Unable to compute B on database 2"
+        get_query_for_node(session, child, [], [], 2)
+    assert str(excinfo.value) == "Database ID 2 is not valid"
 
 
 def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
@@ -149,13 +160,15 @@ def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
         ],
         expression="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
+        columns=[Column(name="one", type=ColumnType.STR)],
     )
 
-    mocker.patch("datajunction.sql.build.get_computable_databases", return_value=[])
+    mocker.patch("datajunction.sql.build.get_computable_databases", return_value=set())
+    session = mocker.MagicMock()
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(child, [], [])
-    assert str(excinfo.value) == "Unable to compute B (no common database)"
+        get_query_for_node(session, child, [], [])
+    assert str(excinfo.value) == "No valid database was found"
 
 
 def test_get_filter(mocker: MockerFixture) -> None:
@@ -603,7 +616,7 @@ def test_get_query_for_sql_no_databases(
     sql = "SELECT B FROM metrics"
     with pytest.raises(Exception) as excinfo:
         get_query_for_sql(sql)
-    assert str(excinfo.value) == "Unable to run SQL (no common database)"
+    assert str(excinfo.value) == "No valid database was found"
 
 
 def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) -> None:
@@ -762,9 +775,9 @@ WHERE "core.some_other_parent.user_id" > 1
     assert str(excinfo.value) == "Invalid identifier: core.some_other_parent"
 
 
-def test_get_database_for_sql(mocker: MockerFixture) -> None:
+def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     """
-    Test ``get_database_for_sql``.
+    Test ``get_database_for_nodes``.
     """
     database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
     database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
@@ -787,9 +800,8 @@ def test_get_database_for_sql(mocker: MockerFixture) -> None:
         ],
     )
 
-    tree = parse_sql("SELECT COUNT(*) FROM comments", dialect="ansi")
-    assert get_database_for_sql(session, tree, [parent]) == database_2
+    referenced_columns: Dict[str, Set[str]] = defaultdict(set)
+    assert get_database_for_nodes(session, [parent], referenced_columns) == database_2
 
     # without parents, return the cheapest DB
-    tree = parse_sql("SELECT 1, 'two'", dialect="ansi")
-    assert get_database_for_sql(session, tree, []) == database_1
+    assert get_database_for_nodes(session, [], referenced_columns) == database_1
