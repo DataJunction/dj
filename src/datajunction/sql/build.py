@@ -32,7 +32,7 @@ from datajunction.sql.parse import (
     is_metric,
 )
 from datajunction.sql.transpile import get_query, get_select_for_node
-from datajunction.typing import From, Identifier, ParseTree, Projection, Select
+from datajunction.typing import From, Identifier, Projection, Select
 from datajunction.utils import get_session
 
 FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
@@ -77,7 +77,13 @@ def get_dimensions_from_filters(filters: List[str]) -> Set[str]:
     """
     Extract dimensions from filters passed to the metric API.
     """
-    return {FILTER_RE.match(filter_).group(1) for filter_ in filters}
+    dimensions: Set[str] = set()
+    for filter_ in filters:
+        match = FILTER_RE.match(filter_)
+        if not match:
+            raise Exception(f"Invalid filter: {filter_}")
+        dimensions.add(match.group(1))
+    return dimensions
 
 
 def get_query_for_node(  # pylint: disable=too-many-locals
@@ -106,19 +112,17 @@ def get_query_for_node(  # pylint: disable=too-many-locals
     dimensions: Dict[str, Node] = {}
     for dimension in requested_dimensions:
         name, column = dimension.rsplit(".", 1)
-        if name != node.name and name not in dimensions:
+        if (
+            name not in {parent.name for parent in node.parents}
+            and name not in dimensions
+        ):
             dimensions[name] = session.exec(select(Node).where(Node.name == name)).one()
             referenced_columns[name].add(column)
 
     # find database
-    if database_id:
-        database = session.exec(
-            select(Database).where(Database.id == database_id)
-        ).one()
-    else:
-        parents = node.parents[:]
-        parents.extend(dimensions.values())
-        database = get_database_for_nodes(session, parents, referenced_columns)
+    nodes = [node]
+    nodes.extend(dimensions.values())
+    database = get_database_for_nodes(session, nodes, referenced_columns, database_id)
 
     # base query
     node_select = get_select_for_node(node, database)
@@ -126,11 +130,10 @@ def get_query_for_node(  # pylint: disable=too-many-locals
     # join with dimensions
     for dimension in dimensions.values():
         source = node_select.froms[0]
-        referenced_columns = {column.split(".")[-1] for column in requested_dimensions}
         subquery = get_select_for_node(
             dimension,
             database,
-            referenced_columns,
+            {column.split(".")[-1] for column in requested_dimensions},
         ).alias(dimension.name)
         condition = find_on_clause(node, source, dimension, subquery)
         node_select = node_select.select_from(source.join(subquery, condition))
@@ -177,8 +180,8 @@ def find_on_clause(
             if column.dimension == dimension:
                 dimension_column = column.dimension_column or DEFAULT_DIMENSION_COLUMN
                 return (
-                    node_select.columns[column.name]
-                    == subquery.columns[dimension_column]
+                    node_select.columns[column.name]  # type: ignore
+                    == subquery.columns[dimension_column]  # type: ignore
                 )
 
     raise Exception(f"Node {node.name} has no columns with dimension {dimension.name}")
@@ -247,6 +250,7 @@ def get_database_for_nodes(
     session: Session,
     nodes: List[Node],
     node_columns: Dict[str, Set[str]],
+    database_id: Optional[int] = None,
 ) -> Database:
     """
     Given a list of nodes, return the best database to compute metric.
@@ -263,7 +267,14 @@ def get_database_for_nodes(
         ).all()
 
     if not databases:
-        raise Exception("Unable to run SQL (no common database)")
+        raise Exception("No valid database was found")
+
+    if database_id is not None:
+        for database in databases:
+            if database.id == database_id:
+                return database
+        raise Exception(f"Database ID {database_id} is not valid")
+
     return sorted(databases, key=operator.attrgetter("cost"))[0]
 
 
