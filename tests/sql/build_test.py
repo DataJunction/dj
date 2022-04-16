@@ -1,20 +1,24 @@
 """
 Tests for ``datajunction.sql.build``.
 """
-# pylint: disable=invalid-name
+# pylint: disable=invalid-name, too-many-lines
+
+from collections import defaultdict
+from typing import Dict, Set
 
 import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
 from sqlmodel import Session
-from sqloxide import parse_sql
 
 from datajunction.models.column import Column
 from datajunction.models.database import Database
-from datajunction.models.node import Node
+from datajunction.models.node import Node, NodeType
 from datajunction.models.table import Table
 from datajunction.sql.build import (
-    get_database_for_sql,
+    find_on_clause,
+    get_database_for_nodes,
+    get_dimensions_from_filters,
     get_filter,
     get_query_for_node,
     get_query_for_sql,
@@ -47,8 +51,9 @@ def test_get_query_for_node(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE B (cnt INTEGER)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
 
-    create_query = get_query_for_node(child, [], [])
+    create_query = get_query_for_node(session, child, [], [])
     assert create_query.database_id == 1
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
@@ -71,6 +76,10 @@ def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
                 ],
             ),
         ],
+        columns=[
+            Column(name="user_id", type=ColumnType.INT),
+            Column(name="comment", type=ColumnType.STR),
+        ],
     )
 
     child = Node(
@@ -83,8 +92,9 @@ def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE A (user_id INTEGER, comment TEXT)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
 
-    create_query = get_query_for_node(child, ["A.user_id"], [])
+    create_query = get_query_for_node(session, child, ["A.user_id"], [])
     space = " "
     assert create_query.database_id == 1
     assert (
@@ -114,20 +124,23 @@ def test_get_query_for_node_specify_database(mocker: MockerFixture) -> None:
         ],
         expression="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
+        columns=[Column(name="cnt", type=ColumnType.INT)],
     )
 
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE B (cnt INTEGER)")
     mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
+    session.exec().one.return_value = database
 
-    create_query = get_query_for_node(child, [], [], 1)
+    create_query = get_query_for_node(session, child, [], [], 1)
     assert create_query.database_id == 1
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(child, [], [], 2)
-    assert str(excinfo.value) == "Unable to compute B on database 2"
+        get_query_for_node(session, child, [], [], 2)
+    assert str(excinfo.value) == "Database ID 2 is not valid"
 
 
 def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
@@ -149,13 +162,214 @@ def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
         ],
         expression="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
+        columns=[Column(name="one", type=ColumnType.STR)],
     )
 
-    mocker.patch("datajunction.sql.build.get_computable_databases", return_value=[])
+    mocker.patch("datajunction.sql.build.get_computable_databases", return_value=set())
+    session = mocker.MagicMock()
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(child, [], [])
-    assert str(excinfo.value) == "Unable to compute B (no common database)"
+        get_query_for_node(session, child, [], [])
+    assert str(excinfo.value) == "No valid database was found"
+
+
+def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node`` when filtering/grouping by a dimension.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    child = Node(
+        name="core.num_comments",
+        expression="SELECT COUNT(*) FROM core.comments",
+        parents=[parent],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
+    connection.execute("CREATE TABLE comments (ds TEXT, user_id INTEGER, text TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
+    session.exec().one.return_value = dimension
+
+    create_query = get_query_for_node(
+        session,
+        child,
+        ["core.users.gender"],
+        ["core.users.age>25"],
+    )
+    space = " "
+    assert create_query.database_id == 1
+    assert (
+        create_query.submitted_query
+        == f"""SELECT count('*') AS count_1, "core.users".gender{space}
+FROM (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_users.id AS id, dim_users.age AS age, dim_users.gender AS gender{space}
+FROM dim_users) AS "core.users" ON "core.comments".user_id = "core.users".id{space}
+WHERE "core.users".age > 25 GROUP BY "core.users".gender"""
+    )
+
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_node(session, child, ["aaaa"], [])
+    assert str(excinfo.value) == "Invalid dimension: aaaa"
+
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_node(session, child, ["aaaa", "bbbb"], [])
+    assert str(excinfo.value) == "Invalid dimensions: aaaa, bbbb"
+
+
+def test_get_query_for_node_with_multiple_dimensions(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node`` when filtering/grouping by a dimension.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension_1 = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    dimension_2 = Node(
+        name="core.bands",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_bands",
+                columns=[
+                    Column(name="uuid", type=ColumnType.INT),
+                    Column(name="name", type=ColumnType.STR),
+                    Column(name="genre", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="uuid", type=ColumnType.INT),
+            Column(name="name", type=ColumnType.STR),
+            Column(name="genre", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="band_id", type=ColumnType.INT),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT, dimension=dimension_1),
+            Column(
+                name="band_id",
+                type=ColumnType.INT,
+                dimension=dimension_2,
+                dimension_column="uuid",
+            ),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    child = Node(
+        name="core.num_comments",
+        expression="SELECT COUNT(*) FROM core.comments",
+        parents=[parent],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
+    connection.execute("CREATE TABLE dim_bands (uuid INTEGER, name TEXT, genre TEXT)")
+    connection.execute(
+        "CREATE TABLE comments (ds TEXT, user_id INTEGER, band_id INTEGER, text TEXT)",
+    )
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
+    session.exec().one.side_effect = [dimension_1, dimension_2]
+
+    create_query = get_query_for_node(
+        session,
+        child,
+        ["core.users.gender"],
+        ["core.bands.genre='rock'"],
+    )
+    space = " "
+    assert create_query.database_id == 1
+    assert (
+        create_query.submitted_query
+        == f"""SELECT count('*') AS count_1, "core.users".gender{space}
+FROM (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.band_id AS band_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_users.id AS id, dim_users.age AS age, dim_users.gender AS gender{space}
+FROM dim_users) AS "core.users" ON "core.comments".user_id = "core.users".id, (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.band_id AS band_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_bands.uuid AS uuid, dim_bands.name AS name, dim_bands.genre AS genre{space}
+FROM dim_bands) AS "core.bands" ON "core.comments".band_id = "core.bands".uuid{space}
+WHERE "core.bands".genre = 'rock' GROUP BY "core.users".gender"""
+    )
 
 
 def test_get_filter(mocker: MockerFixture) -> None:
@@ -603,7 +817,7 @@ def test_get_query_for_sql_no_databases(
     sql = "SELECT B FROM metrics"
     with pytest.raises(Exception) as excinfo:
         get_query_for_sql(sql)
-    assert str(excinfo.value) == "Unable to run SQL (no common database)"
+    assert str(excinfo.value) == "No valid database was found"
 
 
 def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) -> None:
@@ -762,9 +976,9 @@ WHERE "core.some_other_parent.user_id" > 1
     assert str(excinfo.value) == "Invalid identifier: core.some_other_parent"
 
 
-def test_get_database_for_sql(mocker: MockerFixture) -> None:
+def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     """
-    Test ``get_database_for_sql``.
+    Test ``get_database_for_nodes``.
     """
     database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
     database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
@@ -787,9 +1001,209 @@ def test_get_database_for_sql(mocker: MockerFixture) -> None:
         ],
     )
 
-    tree = parse_sql("SELECT COUNT(*) FROM comments", dialect="ansi")
-    assert get_database_for_sql(session, tree, [parent]) == database_2
+    referenced_columns: Dict[str, Set[str]] = defaultdict(set)
+    assert get_database_for_nodes(session, [parent], referenced_columns) == database_2
 
     # without parents, return the cheapest DB
-    tree = parse_sql("SELECT 1, 'two'", dialect="ansi")
-    assert get_database_for_sql(session, tree, []) == database_1
+    assert get_database_for_nodes(session, [], referenced_columns) == database_1
+
+
+def test_get_dimensions_from_filters() -> None:
+    """
+    Test ``get_dimensions_from_filters``.
+    """
+    assert get_dimensions_from_filters(["a>1", "b=10"]) == {"a", "b"}
+
+    with pytest.raises(Exception) as excinfo:
+        get_dimensions_from_filters(["aaaa"])
+    assert str(excinfo.value) == "Invalid filter: aaaa"
+
+
+def test_find_on_clause(mocker: MockerFixture) -> None:
+    """
+    Test ``find_on_clause``.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    child = Node(name="core.num_comments", parents=[parent])
+
+    node_select = mocker.MagicMock()
+    subquery = mocker.MagicMock()
+    find_on_clause(child, node_select, dimension, subquery)
+
+    assert node_select.columns.__getitem__.called_with("user_id")
+    assert subquery.columns.__getitem__.called_with("id")
+
+
+def test_find_on_clause_parent_no_columns(mocker: MockerFixture) -> None:
+    """
+    Test ``find_on_clause`` when a parent has no columns.
+
+    I think we expect all nodes to have at least one column, so this test is just for
+    completeness.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    parent_1 = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    parent_2 = Node(
+        name="a_weird_node",
+        tables=[
+            Table(
+                database=database,
+                table="empty",
+                columns=[],
+            ),
+        ],
+        columns=[],
+    )
+
+    child = Node(name="core.num_comments", parents=[parent_2, parent_1])
+
+    node_select = mocker.MagicMock()
+    subquery = mocker.MagicMock()
+    find_on_clause(child, node_select, dimension, subquery)
+
+    assert node_select.columns.__getitem__.called_with("user_id")
+
+
+def test_find_on_clause_parent_invalid_reference(mocker: MockerFixture) -> None:
+    """
+    Test ``find_on_clause`` when a parent has no columns.
+
+    The compiler should check that the dimension is valid, but the table could change.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    child = Node(name="core.num_comments", parents=[parent])
+
+    node_select = mocker.MagicMock()
+    subquery = mocker.MagicMock()
+
+    with pytest.raises(Exception) as excinfo:
+        find_on_clause(child, node_select, dimension, subquery)
+    assert (
+        str(excinfo.value)
+        == "Node core.num_comments has no columns with dimension core.users"
+    )
