@@ -1,7 +1,7 @@
 """
 Tests for ``datajunction.sql.build``.
 """
-# pylint: disable=invalid-name
+# pylint: disable=invalid-name, too-many-lines
 
 from collections import defaultdict
 from typing import Dict, Set
@@ -16,6 +16,7 @@ from datajunction.models.database import Database
 from datajunction.models.node import Node, NodeType
 from datajunction.models.table import Table
 from datajunction.sql.build import (
+    find_on_clause,
     get_database_for_nodes,
     get_dimensions_from_filters,
     get_filter,
@@ -234,7 +235,10 @@ def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None:
     session.exec().one.return_value = dimension
 
     create_query = get_query_for_node(
-        session, child, ["core.users.gender"], ["core.users.age>25"],
+        session,
+        child,
+        ["core.users.gender"],
+        ["core.users.age>25"],
     )
     space = " "
     assert create_query.database_id == 1
@@ -901,3 +905,193 @@ def test_get_dimensions_from_filters() -> None:
     with pytest.raises(Exception) as excinfo:
         get_dimensions_from_filters(["aaaa"])
     assert str(excinfo.value) == "Invalid filter: aaaa"
+
+
+def test_find_on_clause(mocker: MockerFixture) -> None:
+    """
+    Test ``find_on_clause``.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    child = Node(name="core.num_comments", parents=[parent])
+
+    node_select = mocker.MagicMock()
+    subquery = mocker.MagicMock()
+    find_on_clause(child, node_select, dimension, subquery)
+
+    assert node_select.columns.__getitem__.called_with("user_id")
+    assert subquery.columns.__getitem__.called_with("id")
+
+
+def test_find_on_clause_parent_no_columns(mocker: MockerFixture) -> None:
+    """
+    Test ``find_on_clause`` when a parent has no columns.
+
+    I think we expect all nodes to have at least one column, so this test is just for
+    completeness.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    parent_1 = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    parent_2 = Node(
+        name="a_weird_node",
+        tables=[
+            Table(
+                database=database,
+                table="empty",
+                columns=[],
+            ),
+        ],
+        columns=[],
+    )
+
+    child = Node(name="core.num_comments", parents=[parent_2, parent_1])
+
+    node_select = mocker.MagicMock()
+    subquery = mocker.MagicMock()
+    find_on_clause(child, node_select, dimension, subquery)
+
+    assert node_select.columns.__getitem__.called_with("user_id")
+
+
+def test_find_on_clause_parent_invalid_reference(mocker: MockerFixture) -> None:
+    """
+    Test ``find_on_clause`` when a parent has no columns.
+
+    The compiler should check that the dimension is valid, but the table could change.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    child = Node(name="core.num_comments", parents=[parent])
+
+    node_select = mocker.MagicMock()
+    subquery = mocker.MagicMock()
+
+    with pytest.raises(Exception) as excinfo:
+        find_on_clause(child, node_select, dimension, subquery)
+    assert (
+        str(excinfo.value)
+        == "Node core.num_comments has no columns with dimension core.users"
+    )
