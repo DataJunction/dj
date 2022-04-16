@@ -2,14 +2,17 @@
 DAG related functions.
 """
 
+import operator
 from collections import defaultdict
 from io import StringIO
 from typing import Any, DefaultDict, Dict, List, Optional, Set
 
 import asciidag.graph
 import asciidag.node
+from sqlmodel import Session, select
 from sqloxide import parse_sql
 
+from datajunction.constants import DJ_DATABASE_ID
 from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.sql.parse import find_nodes_by_key
@@ -90,6 +93,38 @@ def get_computable_databases(
         databases |= set.intersection(*parent_databases)
 
     return databases
+
+
+def get_database_for_nodes(
+    session: Session,
+    nodes: List[Node],
+    node_columns: Dict[str, Set[str]],
+    database_id: Optional[int] = None,
+) -> Database:
+    """
+    Given a list of nodes, return the best database to compute metric.
+
+    When no nodes are passed, the database with the lowest cost is returned.
+    """
+    if nodes:
+        databases = set.intersection(
+            *[get_computable_databases(node, node_columns[node.name]) for node in nodes]
+        )
+    else:
+        databases = session.exec(
+            select(Database).where(Database.id != DJ_DATABASE_ID),
+        ).all()
+
+    if not databases:
+        raise Exception("No valid database was found")
+
+    if database_id is not None:
+        for database in databases:
+            if database.id == database_id:
+                return database
+        raise Exception(f"Database ID {database_id} is not valid")
+
+    return sorted(databases, key=operator.attrgetter("cost"))[0]
 
 
 def get_referenced_columns_from_sql(
