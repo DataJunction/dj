@@ -5,20 +5,24 @@ Functions for building queries, from nodes or SQL.
 import ast
 import operator
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from sqlalchemy.engine import create_engine as sqla_create_engine
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.sql.elements import BinaryExpression
+from sqlalchemy.sql.expression import ClauseElement
 from sqlmodel import Session, select
 from sqloxide import parse_sql
 
-from datajunction.constants import DJ_DATABASE_ID
+from datajunction.constants import DEFAULT_DIMENSION_COLUMN, DJ_DATABASE_ID
+from datajunction.models.column import Column
 from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.query import QueryCreate
 from datajunction.sql.dag import (
     get_computable_databases,
+    get_dimensions,
+    get_referenced_columns_from_sql,
     get_referenced_columns_from_tree,
 )
 from datajunction.sql.parse import (
@@ -28,7 +32,7 @@ from datajunction.sql.parse import (
     is_metric,
 )
 from datajunction.sql.transpile import get_query, get_select_for_node
-from datajunction.typing import From, Identifier, ParseTree, Projection, Select
+from datajunction.typing import From, Identifier, Projection, Select
 from datajunction.utils import get_session
 
 FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
@@ -69,7 +73,21 @@ def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression
     return comparison(column, value)
 
 
-def get_query_for_node(
+def get_dimensions_from_filters(filters: List[str]) -> Set[str]:
+    """
+    Extract dimensions from filters passed to the metric API.
+    """
+    dimensions: Set[str] = set()
+    for filter_ in filters:
+        match = FILTER_RE.match(filter_)
+        if not match:
+            raise Exception(f"Invalid filter: {filter_}")
+        dimensions.add(match.group(1))
+    return dimensions
+
+
+def get_query_for_node(  # pylint: disable=too-many-locals
+    session: Session,
     node: Node,
     groupbys: List[str],
     filters: List[str],
@@ -78,37 +96,95 @@ def get_query_for_node(
     """
     Return a DJ QueryCreate object from a given node.
     """
-    databases = get_computable_databases(node)
-    if not databases:
-        raise Exception(f"Unable to compute {node.name} (no common database)")
-    if database_id:
-        for database in databases:
-            if database.id == database_id:
-                break
-        else:
-            raise Exception(f"Unable to compute {node.name} on database {database_id}")
-    else:
-        database = sorted(databases, key=operator.attrgetter("cost"))[0]
+    # check that groupbys and filters are valid dimensions
+    requested_dimensions = set(groupbys) | get_dimensions_from_filters(filters)
+    valid_dimensions = set(get_dimensions(node))
+    if not requested_dimensions <= valid_dimensions:
+        invalid = sorted(requested_dimensions - valid_dimensions)
+        plural = "s" if len(invalid) > 1 else ""
+        raise Exception(f"Invalid dimension{plural}: {', '.join(invalid)}")
 
-    engine = sqla_create_engine(database.URI)
+    # which columns are needed from the parents; this is used to determine the database
+    # where the query will run
+    referenced_columns = get_referenced_columns_from_sql(node.expression, node.parents)
+
+    # extract all referenced dimensions so we can join the node with them
+    dimensions: Dict[str, Node] = {}
+    for dimension in requested_dimensions:
+        name, column = dimension.rsplit(".", 1)
+        if (
+            name not in {parent.name for parent in node.parents}
+            and name not in dimensions
+        ):
+            dimensions[name] = session.exec(select(Node).where(Node.name == name)).one()
+            referenced_columns[name].add(column)
+
+    # find database
+    nodes = [node]
+    nodes.extend(dimensions.values())
+    database = get_database_for_nodes(session, nodes, referenced_columns, database_id)
+
+    # base query
     node_select = get_select_for_node(node, database)
+    source = node_select.froms[0]
+
+    # join with dimensions
+    for dimension in dimensions.values():
+        subquery = get_select_for_node(
+            dimension,
+            database,
+            referenced_columns[dimension.name],
+        ).alias(dimension.name)
+        condition = find_on_clause(node, source, dimension, subquery)
+        node_select = node_select.select_from(source.join(subquery, condition))
 
     columns = {
-        f"{from_.name}.{column.name}": column
+        f"{column.table.name}.{column.name}": column
         for from_ in node_select.froms
         for column in from_.columns
     }
+
+    # filter
     node_select = node_select.filter(
         *[get_filter(columns, filter_) for filter_ in filters]
-    ).group_by(*[columns[groupby] for groupby in groupbys])
+    )
+
+    # groupby
+    node_select = node_select.group_by(*[columns[groupby] for groupby in groupbys])
 
     # add groupbys to projection as well
     for groupby in groupbys:
         node_select.append_column(columns[groupby])
 
+    engine = sqla_create_engine(database.URI)
     sql = str(node_select.compile(engine, compile_kwargs={"literal_binds": True}))
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
+
+
+def find_on_clause(
+    node: Node,
+    node_select: Select,
+    dimension: Node,
+    subquery: Select,
+) -> ClauseElement:
+    """
+    Return the on clause for a node/dimension selects.
+    """
+    for parent in node.parents:
+        if not parent.columns:
+            continue
+
+        column: Optional[Column] = None
+        for column in parent.columns:
+            if column.dimension == dimension:
+                dimension_column = column.dimension_column or DEFAULT_DIMENSION_COLUMN
+                return (
+                    node_select.columns[column.name]  # type: ignore
+                    == subquery.columns[dimension_column]  # type: ignore
+                )
+
+    raise Exception(f"Node {node.name} has no columns with dimension {dimension.name}")
 
 
 def get_query_for_sql(sql: str) -> QueryCreate:
@@ -138,7 +214,8 @@ def get_query_for_sql(sql: str) -> QueryCreate:
     # replace dimensions with column references
     replace_dimension_references(query_select, parents)
 
-    database = get_database_for_sql(session, tree, parents)
+    parent_columns = get_referenced_columns_from_tree(tree, parents)
+    database = get_database_for_nodes(session, parents, parent_columns)
     query = get_query(None, parents, tree, database)
     engine = sqla_create_engine(database.URI)
     sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
@@ -169,23 +246,20 @@ def replace_dimension_references(query_select: Select, parents: List[Node]) -> N
             ]
 
 
-def get_database_for_sql(
+def get_database_for_nodes(
     session: Session,
-    tree: ParseTree,
-    parents: List[Node],
+    nodes: List[Node],
+    node_columns: Dict[str, Set[str]],
+    database_id: Optional[int] = None,
 ) -> Database:
     """
-    Given a list of parents, return the best database to compute metric.
+    Given a list of nodes, return the best database to compute metric.
 
-    When no parents are passed, the database with the lowest cost is returned.
+    When no nodes are passed, the database with the lowest cost is returned.
     """
-    if parents:
-        parent_columns = get_referenced_columns_from_tree(tree, parents)
+    if nodes:
         databases = set.intersection(
-            *[
-                get_computable_databases(parent, parent_columns[parent.name])
-                for parent in parents
-            ]
+            *[get_computable_databases(node, node_columns[node.name]) for node in nodes]
         )
     else:
         databases = session.exec(
@@ -193,7 +267,14 @@ def get_database_for_sql(
         ).all()
 
     if not databases:
-        raise Exception("Unable to run SQL (no common database)")
+        raise Exception("No valid database was found")
+
+    if database_id is not None:
+        for database in databases:
+            if database.id == database_id:
+                return database
+        raise Exception(f"Database ID {database_id} is not valid")
+
     return sorted(databases, key=operator.attrgetter("cost"))[0]
 
 

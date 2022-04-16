@@ -341,7 +341,7 @@ def get_source(  # pylint: disable=too-many-locals
     expression: Optional[str],
     parents: List[Node],
     database: Database,
-    tree: ParseTree,  # pylint: disable=unused-argument
+    tree: ParseTree,
     dialect: Optional[str] = None,
 ) -> Select:
     """
