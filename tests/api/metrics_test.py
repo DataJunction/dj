@@ -81,7 +81,7 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     assert response.status_code == 200
     assert data["name"] == "child"
     assert data["expression"] == "SELECT COUNT(*) FROM parent"
-    assert data["dimensions"] == ["parent.ds", "parent.user_id", "parent.foo"]
+    assert data["dimensions"] == ["parent.ds", "parent.foo", "parent.user_id"]
 
 
 def test_read_metrics_data(
