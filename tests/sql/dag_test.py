@@ -6,10 +6,11 @@ import pytest
 
 from datajunction.models.column import Column
 from datajunction.models.database import Database
-from datajunction.models.node import Node
+from datajunction.models.node import Node, NodeType
 from datajunction.models.table import Table
 from datajunction.sql.dag import (
     get_computable_databases,
+    get_dimensions,
     get_referenced_columns_from_sql,
 )
 from datajunction.typing import ColumnType
@@ -197,3 +198,55 @@ def test_get_referenced_columns_from_sql() -> None:
     with pytest.raises(Exception) as excinfo:
         get_referenced_columns_from_sql("SELECT invalid FROM core.A", [parent_1])
     assert str(excinfo.value) == "Column invalid not found in any parent"
+
+
+def test_get_dimensions() -> None:
+    """
+    Test ``get_dimensions``.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension = Node(
+        name="B",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="B",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="attribute", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="attribute", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="A",
+        tables=[
+            Table(
+                database=database,
+                table="A",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="b_id", type=ColumnType.INT, dimension=dimension),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="b_id", type=ColumnType.INT, dimension=dimension),
+        ],
+    )
+
+    child = Node(
+        name="C",
+        expression="SELECT COUNT(*) FROM A",
+        parents=[parent],
+    )
+
+    assert get_dimensions(child) == ["A.b_id", "A.ds", "B.attribute", "B.id"]
