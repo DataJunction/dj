@@ -208,7 +208,7 @@ def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None:
                 table="comments",
                 columns=[
                     Column(name="ds", type=ColumnType.STR),
-                    Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+                    Column(name="user_id", type=ColumnType.INT),
                     Column(name="text", type=ColumnType.STR),
                 ],
             ),
@@ -258,6 +258,118 @@ WHERE "core.users".age > 25 GROUP BY "core.users".gender"""
     with pytest.raises(Exception) as excinfo:
         get_query_for_node(session, child, ["aaaa", "bbbb"], [])
     assert str(excinfo.value) == "Invalid dimensions: aaaa, bbbb"
+
+
+def test_get_query_for_node_with_multiple_dimensions(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node`` when filtering/grouping by a dimension.
+    """
+    database = Database(id=1, name="one", URI="sqlite://")
+
+    dimension_1 = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    dimension_2 = Node(
+        name="core.bands",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_bands",
+                columns=[
+                    Column(name="uuid", type=ColumnType.INT),
+                    Column(name="name", type=ColumnType.STR),
+                    Column(name="genre", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="uuid", type=ColumnType.INT),
+            Column(name="name", type=ColumnType.STR),
+            Column(name="genre", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="band_id", type=ColumnType.INT),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT, dimension=dimension_1),
+            Column(
+                name="band_id",
+                type=ColumnType.INT,
+                dimension=dimension_2,
+                dimension_column="uuid",
+            ),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    child = Node(
+        name="core.num_comments",
+        expression="SELECT COUNT(*) FROM core.comments",
+        parents=[parent],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
+    connection.execute("CREATE TABLE dim_bands (uuid INTEGER, name TEXT, genre TEXT)")
+    connection.execute(
+        "CREATE TABLE comments (ds TEXT, user_id INTEGER, band_id INTEGER, text TEXT)",
+    )
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    session = mocker.MagicMock()
+    session.exec().one.side_effect = [dimension_1, dimension_2]
+
+    create_query = get_query_for_node(
+        session,
+        child,
+        ["core.users.gender"],
+        ["core.bands.genre='rock'"],
+    )
+    space = " "
+    assert create_query.database_id == 1
+    assert (
+        create_query.submitted_query
+        == f"""SELECT count('*') AS count_1, "core.users".gender{space}
+FROM (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.band_id AS band_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_users.id AS id, dim_users.age AS age, dim_users.gender AS gender{space}
+FROM dim_users) AS "core.users" ON "core.comments".user_id = "core.users".id, (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.band_id AS band_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_bands.uuid AS uuid, dim_bands.name AS name, dim_bands.genre AS genre{space}
+FROM dim_bands) AS "core.bands" ON "core.comments".band_id = "core.bands".uuid{space}
+WHERE "core.bands".genre = 'rock' GROUP BY "core.users".gender"""
+    )
 
 
 def test_get_filter(mocker: MockerFixture) -> None:

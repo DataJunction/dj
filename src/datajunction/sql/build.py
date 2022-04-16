@@ -126,14 +126,14 @@ def get_query_for_node(  # pylint: disable=too-many-locals
 
     # base query
     node_select = get_select_for_node(node, database)
+    source = node_select.froms[0]
 
     # join with dimensions
     for dimension in dimensions.values():
-        source = node_select.froms[0]
         subquery = get_select_for_node(
             dimension,
             database,
-            {column.split(".")[-1] for column in requested_dimensions},
+            referenced_columns[dimension.name],
         ).alias(dimension.name)
         condition = find_on_clause(node, source, dimension, subquery)
         node_select = node_select.select_from(source.join(subquery, condition))
