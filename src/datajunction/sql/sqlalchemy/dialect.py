@@ -1,13 +1,14 @@
 """
 SQLAlchemy dialect.
 """
-# pylint: disable=abstract-method
+# pylint: disable=abstract-method, no-self-use, unused-argument
 
 from types import ModuleType
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
 
 import requests
 import sqlalchemy.types
+from sqlalchemy.engine.base import Connection as SqlaConnection
 from sqlalchemy.engine.default import DefaultDialect
 from sqlalchemy.engine.url import URL as SqlaURL
 from sqlalchemy.sql import compiler
@@ -49,7 +50,7 @@ def get_sqla_type(type_: ColumnType) -> VisitableType:
         ColumnType.LIST: sqlalchemy.types.ARRAY,
         ColumnType.DICT: sqlalchemy.types.JSON,
     }
-    return type_map[type_]
+    return type_map[type_]()
 
 
 class DJDialect(DefaultDialect):
@@ -62,8 +63,8 @@ class DJDialect(DefaultDialect):
 
     statement_compiler = compiler.SQLCompiler
     ddl_compiler = compiler.DDLCompiler
-    type_compiler = compiler.TypeCompiler
-    preparer = compiler.GenericTypeCompiler
+    type_compiler = compiler.GenericTypeCompiler
+    preparer = compiler.IdentifierPreparer
 
     supports_alter = False
     supports_comments = True
@@ -121,7 +122,7 @@ class DJDialect(DefaultDialect):
 
     def has_table(
         self,
-        connection: Connection,
+        connection: SqlaConnection,
         table_name: str,
         schema: Optional[str] = None,
         **kw: Any,
@@ -133,7 +134,7 @@ class DJDialect(DefaultDialect):
 
     def get_table_names(
         self,
-        connection: Connection,
+        connection: SqlaConnection,
         schema: Optional[str] = None,
         **kw: Any,
     ) -> List[str]:
@@ -144,7 +145,7 @@ class DJDialect(DefaultDialect):
 
     def get_columns(
         self,
-        connection: Connection,
+        connection: SqlaConnection,
         table_name: str,
         schema: Optional[str] = None,
         **kw: Any,
@@ -157,13 +158,16 @@ class DJDialect(DefaultDialect):
         if table_name != "metrics":
             return []
 
-        response = requests.get(connection.base_url / "metrics/")
+        # extract base URL from the DB API connection
+        base_url = connection.engine.connect().connection.base_url
+
+        response = requests.get(base_url / "metrics/")
         payload = response.json()
         dimensions = {
             dimension for metric in payload for dimension in metric["dimensions"]
         }
 
-        response = requests.get(connection.base_url / "nodes/")
+        response = requests.get(base_url / "nodes/")
         payload = response.json()
         columns: Dict[str, SQLAlchemyColumn] = {}
         for node in payload:
@@ -183,3 +187,35 @@ class DJDialect(DefaultDialect):
         """
         DJ doesn't support rollbacks.
         """
+
+    # methods that are needed for integration with Apache Superset
+    def get_schema_names(self, connection: SqlaConnection, **kw: Any):
+        """
+        Return the list of schemas.
+        """
+        return ["main"]
+
+    def get_pk_constraint(
+        self,
+        connection: SqlaConnection,
+        table_name: str,
+        schema: Optional[str] = None,
+        **kw: Any,
+    ):
+        return {"constrained_columns": [], "name": None}
+
+    def get_foreign_keys(
+        self,
+        connection: SqlaConnection,
+        table_name: str,
+        schema: Optional[str] = None,
+        **kw: Any,
+    ):
+        return []
+
+    get_check_constraints = get_foreign_keys
+    get_indexes = get_foreign_keys
+    get_unique_constraints = get_foreign_keys
+
+    def get_table_comment(self, connection, table_name, schema=None, **kwargs):
+        return {"text": ""}

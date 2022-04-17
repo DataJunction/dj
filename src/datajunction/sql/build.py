@@ -246,6 +246,77 @@ def get_query_for_sql(sql: str) -> QueryCreate:
 
         requested_dimensions.add(node)
 
+    # update ``FROM``/``JOIN`` based on requests metrics and dimensions
+    parents = process_metrics(query_select, requested_metrics, requested_dimensions)
+
+    # update metric references in the projection
+    projection = query_select["projection"]
+    metric_names = {metric.name for metric in requested_metrics}
+    for expression, parent in list(
+        find_nodes_by_key_with_parent(projection, "UnnamedExpr"),
+    ):
+        replace_metric_identifier(expression, parent, nodes, metric_names)
+    for expression_with_alias, parent in list(
+        find_nodes_by_key_with_parent(projection, "ExprWithAlias"),
+    ):
+        alias = expression_with_alias["alias"]
+        expression = expression_with_alias["expr"]
+        replace_metric_identifier(expression, parent, nodes, metric_names, alias)
+
+    # update metric references in ``ORDER BY`` and ``HAVING``
+    for part in (tree[0]["Query"]["order_by"], query_select["having"]):
+        for identifier, parent in list(
+            find_nodes_by_key_with_parent(part, "Identifier"),
+        ):
+            name = identifier["value"]
+            node = nodes[name]
+            metric_tree = parse_sql(node.expression, dialect="ansi")
+            parent.pop("Identifier")
+            parent.update(
+                get_expression_from_projection(
+                    metric_tree[0]["Query"]["body"]["Select"]["projection"][0],
+                ),
+            )
+
+    # replace dimension references
+    for part in ("projection", "selection", "group_by", "sort_by"):
+        for identifier, parent in list(
+            find_nodes_by_key_with_parent(query_select[part], "Identifier"),
+        ):
+            if identifier["value"] not in identifiers:
+                continue
+
+            name, column = identifier["value"].rsplit(".", 1)
+            parent.pop("Identifier")
+            parent["CompoundIdentifier"] = [
+                {"quote_style": '"', "value": name},
+                {"quote_style": '"', "value": column},
+            ]
+
+    parents.extend(requested_dimensions)
+    referenced_columns = get_referenced_columns_from_tree(tree, parents)
+
+    database = get_database_for_nodes(session, parents, referenced_columns)
+    query = get_query(None, parents, tree, database)
+    engine = sqla_create_engine(database.URI)
+    sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
+
+    return QueryCreate(database_id=database.id, submitted_query=sql)
+
+
+def process_metrics(
+    query_select: Select,
+    requested_metrics: Set[Node],
+    requested_dimensions: Set[Node],
+) -> List[Node]:
+    """
+    Process metrics in the query, updating ``FROM`` and adding any joins.
+
+    Modifies ``query_select`` inplace and Returns the parents.
+    """
+    if not requested_metrics:
+        return []
+
     # check that there is a metric with the superset of parents from all metrics
     main_metric = sorted(
         requested_metrics,
@@ -269,58 +340,7 @@ def get_query_for_sql(sql: str) -> QueryCreate:
             get_dimension_join(main_metric, dimension),
         )
 
-    # update metric references in the projection
-    projection = query_select["projection"]
-    metric_names = {metric.name for metric in requested_metrics}
-    for expression, parent in list(
-        find_nodes_by_key_with_parent(projection, "UnnamedExpr"),
-    ):
-        replace_metric_identifier(expression, parent, nodes, metric_names)
-    for expression_with_alias, parent in list(
-        find_nodes_by_key_with_parent(projection, "ExprWithAlias"),
-    ):
-        alias = expression_with_alias["alias"]
-        expression = expression_with_alias["expr"]
-        replace_metric_identifier(expression, parent, nodes, metric_names, alias)
-
-    # update metric references in ``HAVING``
-    for identifier, parent in list(
-        find_nodes_by_key_with_parent(query_select["having"], "Identifier"),
-    ):
-        name = identifier["value"]
-        node = nodes[name]
-        metric_tree = parse_sql(node.expression, dialect="ansi")
-        parent.pop("Identifier")
-        parent.update(
-            get_expression_from_projection(
-                metric_tree[0]["Query"]["body"]["Select"]["projection"][0],
-            ),
-        )
-
-    # replace dimension references
-    for part in ("projection", "selection", "group_by", "sort_by"):
-        for identifier, parent in list(
-            find_nodes_by_key_with_parent(query_select[part], "Identifier"),
-        ):
-            if identifier["value"] not in identifiers:
-                continue
-
-            name, column = identifier["value"].rsplit(".", 1)
-            parent.pop("Identifier")
-            parent["CompoundIdentifier"] = [
-                {"quote_style": '"', "value": name},
-                {"quote_style": '"', "value": column},
-            ]
-
-    parents = main_metric.parents + list(requested_dimensions)
-    referenced_columns = get_referenced_columns_from_tree(tree, parents)
-
-    database = get_database_for_nodes(session, parents, referenced_columns)
-    query = get_query(None, parents, tree, database)
-    engine = sqla_create_engine(database.URI)
-    sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
-
-    return QueryCreate(database_id=database.id, submitted_query=sql)
+    return main_metric.parents
 
 
 def replace_metric_identifier(

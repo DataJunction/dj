@@ -3,12 +3,10 @@ Tests for ``datajunction.sql.dbapi.connection``.
 """
 # pylint: disable=redefined-builtin, invalid-name
 
-import pytest
 from pytest_mock import MockerFixture
 from yarl import URL
 
 from datajunction.sql.dbapi.connection import connect
-from datajunction.sql.dbapi.exceptions import NotSupportedError
 
 
 def test_connection() -> None:
@@ -32,13 +30,9 @@ def test_connection() -> None:
 
     connection = connect(URL("http://localhost:8000/"))
 
-    with pytest.raises(NotSupportedError) as excinfo:
-        connection.commit()
-    assert str(excinfo.value) == "Commits are not supported"
-
-    with pytest.raises(NotSupportedError) as excinfo:
-        connection.rollback()
-    assert str(excinfo.value) == "Rollbacks are not supported"
+    # these are no-ops
+    assert connection.commit() is None
+    assert connection.rollback() is None
 
     with connection:
         assert not connection.closed

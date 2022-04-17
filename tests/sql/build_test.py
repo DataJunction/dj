@@ -1,7 +1,7 @@
 """
 Tests for ``datajunction.sql.build``.
 """
-# pylint: disable=invalid-name, too-many-lines
+# pylint: disable=invalid-name, too-many-lines, line-too-long
 
 import pytest
 from pytest_mock import MockerFixture
@@ -455,6 +455,24 @@ FROM "A") AS "A"'''
     )
 
 
+def test_get_query_for_sql_no_tables(mocker: MockerFixture, session: Session) -> None:
+    """
+    Test ``get_query_for_sql`` when no tables are involved.
+    """
+    get_session = mocker.patch("datajunction.sql.build.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="memory", URI="sqlite://")
+    session.add(database)
+    session.commit()
+
+    sql = "SELECT 1"
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+    assert create_query.submitted_query == "SELECT 1"
+
+
 def test_get_query_for_sql_having(mocker: MockerFixture, session: Session) -> None:
     """
     Test ``get_query_for_sql``.
@@ -611,6 +629,118 @@ GROUP BY "core.users.invalid"
     with pytest.raises(Exception) as excinfo:
         get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid dimension: core.users.invalid"
+
+
+def test_get_query_for_sql_with_dimensions_order_by(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` with dimensions in the query and ``ORDER BY``.
+    """
+    get_session = mocker.patch("datajunction.sql.build.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    parent = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="ds", type=ColumnType.STR),
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="text", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="ds", type=ColumnType.STR),
+            Column(name="user_id", type=ColumnType.INT, dimension=dimension),
+            Column(name="text", type=ColumnType.STR),
+        ],
+    )
+
+    child = Node(
+        name="core.num_comments",
+        type=NodeType.METRIC,
+        expression="SELECT COUNT(*) FROM core.comments",
+        parents=[parent],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
+    connection.execute("CREATE TABLE comments (ds TEXT, user_id INTEGER, text TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    session.add(child)
+    session.add(dimension)
+    session.commit()
+
+    sql = """
+SELECT "core.users.gender" AS "core.users.gender",
+       "core.num_comments" AS "core.num_comments"
+FROM main.metrics
+GROUP BY "core.users.gender"
+ORDER BY "core.num_comments" DESC
+LIMIT 100;
+    """
+    create_query = get_query_for_sql(sql)
+
+    space = " "
+
+    assert create_query.database_id == 1
+    assert (
+        create_query.submitted_query
+        == f"""SELECT "core.users".gender AS "core.users.gender", count('*') AS "core.num_comments"{space}
+FROM (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_users.id AS id, dim_users.age AS age, dim_users.gender AS gender{space}
+FROM dim_users) AS "core.users" ON "core.comments".user_id = "core.users".id GROUP BY "core.users".gender ORDER BY count('*') DESC
+ LIMIT 100 OFFSET 0"""
+    )
+
+    sql = """
+SELECT "core.users.gender" AS "core.users.gender",
+       "core.num_comments" AS "core.num_comments"
+FROM main.metrics
+GROUP BY "core.users.gender"
+ORDER BY "core.num_comments" ASC
+LIMIT 100;
+    """
+    create_query = get_query_for_sql(sql)
+
+    assert (
+        create_query.submitted_query
+        == f"""SELECT "core.users".gender AS "core.users.gender", count('*') AS "core.num_comments"{space}
+FROM (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_users.id AS id, dim_users.age AS age, dim_users.gender AS gender{space}
+FROM dim_users) AS "core.users" ON "core.comments".user_id = "core.users".id GROUP BY "core.users".gender ORDER BY count('*')
+ LIMIT 100 OFFSET 0"""
+    )
 
 
 def test_get_query_for_sql_compound_names(
