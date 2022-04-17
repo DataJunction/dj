@@ -37,12 +37,10 @@ class Connection:
     @check_closed
     def commit(self) -> None:
         """Commit any pending transaction to the database."""
-        raise NotSupportedError("Commits are not supported")
 
     @check_closed
     def rollback(self) -> None:
         """Rollback any transactions."""
-        raise NotSupportedError("Rollbacks are not supported")
 
     @check_closed
     def cursor(self) -> Cursor:
