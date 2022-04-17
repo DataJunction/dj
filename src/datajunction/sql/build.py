@@ -187,7 +187,7 @@ def find_on_clause(
     raise Exception(f"Node {node.name} has no columns with dimension {dimension.name}")
 
 
-# pylint: disable=too-many-branches, too-many-locals
+# pylint: disable=too-many-branches, too-many-locals, too-many-statements
 def get_query_for_sql(sql: str) -> QueryCreate:
     """
     Return a query given a SQL expression querying the repo.
@@ -282,6 +282,20 @@ def get_query_for_sql(sql: str) -> QueryCreate:
         alias = expression_with_alias["alias"]
         expression = expression_with_alias["expr"]
         replace_metric_identifier(expression, parent, nodes, metric_names, alias)
+
+    # update metric references in ``HAVING``
+    for identifier, parent in list(
+        find_nodes_by_key_with_parent(query_select["having"], "Identifier"),
+    ):
+        name = identifier["value"]
+        node = nodes[name]
+        metric_tree = parse_sql(node.expression, dialect="ansi")
+        parent.pop("Identifier")
+        parent.update(
+            get_expression_from_projection(
+                metric_tree[0]["Query"]["body"]["Select"]["projection"][0],
+            ),
+        )
 
     # replace dimension references
     for part in ("projection", "selection", "group_by", "sort_by"):
