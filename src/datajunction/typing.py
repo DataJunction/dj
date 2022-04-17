@@ -149,7 +149,7 @@ class Function(TypedDict):
     args: List[Argument]
     distinct: bool
     name: List[Identifier]
-    over: Over
+    over: Optional[Over]
 
 
 class ExpressionWithAlias(TypedDict):
