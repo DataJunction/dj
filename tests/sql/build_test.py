@@ -455,6 +455,76 @@ FROM "A") AS "A"'''
     )
 
 
+def test_get_query_for_sql_no_metrics(mocker: MockerFixture, session: Session) -> None:
+    """
+    Test ``get_query_for_sql`` when no metrics are requested.
+    """
+    get_session = mocker.patch("datajunction.sql.build.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="db", URI="sqlite://")
+
+    dimension = Node(
+        name="core.users",
+        type=NodeType.DIMENSION,
+        tables=[
+            Table(
+                database=database,
+                table="dim_users",
+                columns=[
+                    Column(name="id", type=ColumnType.INT),
+                    Column(name="age", type=ColumnType.INT),
+                    Column(name="gender", type=ColumnType.STR),
+                ],
+            ),
+        ],
+        columns=[
+            Column(name="id", type=ColumnType.INT),
+            Column(name="age", type=ColumnType.INT),
+            Column(name="gender", type=ColumnType.STR),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    session.add(dimension)
+    session.commit()
+
+    sql = 'SELECT "core.users.gender", "core.users.age" FROM metrics'
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+
+    space = " "
+    assert (
+        create_query.submitted_query
+        == f'''SELECT "core.users".gender, "core.users".age{space}
+FROM (SELECT dim_users.id AS id, dim_users.age AS age, dim_users.gender AS gender{space}
+FROM dim_users) AS "core.users"'''
+    )
+
+    other_dimension = Node(
+        name="core.other_dim",
+        type=NodeType.DIMENSION,
+        columns=[
+            Column(name="full_name", type=ColumnType.STR),
+        ],
+    )
+    session.add(other_dimension)
+    session.commit()
+
+    sql = 'SELECT "core.users.gender", "core.other_dim.full_name" FROM metrics'
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_sql(sql)
+    assert (
+        str(excinfo.value)
+        == "Cannot query from multiple dimensions when no metric is specified"
+    )
+
+
 def test_get_query_for_sql_no_tables(mocker: MockerFixture, session: Session) -> None:
     """
     Test ``get_query_for_sql`` when no tables are involved.

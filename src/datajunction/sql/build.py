@@ -315,7 +315,29 @@ def process_metrics(
     Modifies ``query_select`` inplace and Returns the parents.
     """
     if not requested_metrics:
-        return []
+        if not requested_dimensions:
+            return []
+
+        if len(requested_dimensions) > 1:
+            raise Exception(
+                "Cannot query from multiple dimensions when no metric is specified",
+            )
+
+        dimension = list(requested_dimensions)[0]
+        query_select["from"] = [
+            {
+                "joins": [],
+                "relation": {
+                    "Table": {
+                        "alias": None,
+                        "args": [],
+                        "name": [{"quote_style": '"', "value": dimension.name}],
+                        "with_hints": [],
+                    },
+                },
+            },
+        ]
+        return [dimension]
 
     # check that there is a metric with the superset of parents from all metrics
     main_metric = sorted(
