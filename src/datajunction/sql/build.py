@@ -14,13 +14,11 @@ from sqlalchemy.sql.expression import ClauseElement
 from sqlmodel import Session, select
 from sqloxide import parse_sql
 
-from datajunction.constants import DEFAULT_DIMENSION_COLUMN, DJ_DATABASE_ID
-from datajunction.models.column import Column
-from datajunction.models.database import Database
-from datajunction.models.node import Node
+from datajunction.constants import DEFAULT_DIMENSION_COLUMN
+from datajunction.models.node import Node, NodeType
 from datajunction.models.query import QueryCreate
 from datajunction.sql.dag import (
-    get_computable_databases,
+    get_database_for_nodes,
     get_dimensions,
     get_referenced_columns_from_sql,
     get_referenced_columns_from_tree,
@@ -29,10 +27,16 @@ from datajunction.sql.parse import (
     find_nodes_by_key,
     find_nodes_by_key_with_parent,
     get_expression_from_projection,
-    is_metric,
 )
 from datajunction.sql.transpile import get_query, get_select_for_node
-from datajunction.typing import From, Identifier, Projection, Select
+from datajunction.typing import (
+    Expression,
+    Identifier,
+    Join,
+    Projection,
+    Relation,
+    Select,
+)
 from datajunction.utils import get_session
 
 FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
@@ -172,10 +176,6 @@ def find_on_clause(
     Return the on clause for a node/dimension selects.
     """
     for parent in node.parents:
-        if not parent.columns:
-            continue
-
-        column: Optional[Column] = None
         for column in parent.columns:
             if column.dimension == dimension:
                 dimension_column = column.dimension_column or DEFAULT_DIMENSION_COLUMN
@@ -187,35 +187,121 @@ def find_on_clause(
     raise Exception(f"Node {node.name} has no columns with dimension {dimension.name}")
 
 
+# pylint: disable=too-many-branches, too-many-locals
 def get_query_for_sql(sql: str) -> QueryCreate:
     """
     Return a query given a SQL expression querying the repo.
 
     Eg:
 
-        SELECT "core.num_comments" FROM metrics
+        SELECT
+            "core.users.gender", "core.num_comments"
+        FROM metrics
         WHERE "core.comments.user_id" > 1
-        GROUP BY "core.comments.user_id"
+        GROUP BY
+            "core.users.gender"
 
+    This works by converting metrics (``core.num_comments``) into their selection
+    definition (``COUNT(*)``), updating the sources to include the metrics parents
+    (including joining with dimensions), and updating column references in the
+    ``WHERE``, ``GROUP BY``, etc.
     """
     session = next(get_session())
 
     tree = parse_sql(sql, dialect="ansi")
     query_select = tree[0]["Query"]["body"]["Select"]
 
-    # all metrics should share the same parent(s)
-    parents: List[Node] = []
+    # fetch all metric and dimension nodes
+    nodes = {node.name: node for node in session.exec(select(Node))}
 
-    # replace metrics with their definitions
-    projection = next(find_nodes_by_key(tree, "projection"))
-    new_projection, new_from = get_new_projection_and_from(session, projection, parents)
-    query_select.update({"from": new_from, "projection": new_projection})
+    # extract metrics and dimensions from the query
+    identifiers = {
+        identifier["value"]
+        for identifier in find_nodes_by_key(query_select, "Identifier")
+    }
+    for compound_identifier in find_nodes_by_key(query_select, "CompoundIdentifier"):
+        identifiers.add(".".join(part["value"] for part in compound_identifier))
 
-    # replace dimensions with column references
-    replace_dimension_references(query_select, parents)
+    requested_metrics: Set[Node] = set()
+    requested_dimensions: Set[Node] = set()
+    for identifier in identifiers:
+        if identifier in nodes and nodes[identifier].type == NodeType.METRIC:
+            requested_metrics.add(nodes[identifier])
+            continue
 
-    parent_columns = get_referenced_columns_from_tree(tree, parents)
-    database = get_database_for_nodes(session, parents, parent_columns)
+        if "." not in identifier:
+            raise Exception(f"Invalid dimension: {identifier}")
+
+        name, column = identifier.rsplit(".", 1)
+        if name not in nodes:
+            raise Exception(f"Invalid dimension: {identifier}")
+
+        node = nodes[name]
+        if node.type != NodeType.DIMENSION:
+            continue
+
+        column_names = {column.name for column in node.columns}
+        if column not in column_names:
+            raise Exception(f"Invalid dimension: {identifier}")
+
+        requested_dimensions.add(node)
+
+    # check that there is a metric with the superset of parents from all metrics
+    main_metric = sorted(
+        requested_metrics,
+        key=lambda metric: (len(metric.parents), metric.name),
+        reverse=True,
+    )[0]
+    for metric in requested_metrics:
+        if not set(metric.parents) <= set(main_metric.parents):
+            raise Exception(
+                f"Metrics {metric.name} and {main_metric.name} have non-shared parents",
+            )
+
+    # replace the ``from`` part of the parse tree with the ``from`` from the metric that
+    # has all the necessary parents
+    metric_tree = parse_sql(main_metric.expression, dialect="ansi")
+    query_select["from"] = metric_tree[0]["Query"]["body"]["Select"]["from"]
+
+    # join to any dimensions
+    for dimension in requested_dimensions:
+        query_select["from"][0]["joins"].append(
+            get_dimension_join(main_metric, dimension),
+        )
+
+    # update metric references in the projection
+    projection = query_select["projection"]
+    metric_names = {metric.name for metric in requested_metrics}
+    for expression, parent in list(
+        find_nodes_by_key_with_parent(projection, "UnnamedExpr"),
+    ):
+        replace_metric_identifier(expression, parent, nodes, metric_names)
+    for expression_with_alias, parent in list(
+        find_nodes_by_key_with_parent(projection, "ExprWithAlias"),
+    ):
+        alias = expression_with_alias["alias"]
+        expression = expression_with_alias["expr"]
+        replace_metric_identifier(expression, parent, nodes, metric_names, alias)
+
+    # replace dimension references
+    for part in ("projection", "selection", "group_by", "sort_by"):
+        for identifier, parent in list(
+            find_nodes_by_key_with_parent(query_select[part], "Identifier"),
+        ):
+            if identifier["value"] not in identifiers:
+                continue
+
+            name, column = identifier["value"].rsplit(".", 1)
+            parent.pop("Identifier")
+            parent["CompoundIdentifier"] = [
+                {"quote_style": '"', "value": name},
+                {"quote_style": '"', "value": column},
+            ]
+
+    parents = main_metric.parents + list(requested_dimensions)
+    referenced_columns = get_referenced_columns_from_tree(tree, parents)
+
+    database = get_database_for_nodes(session, parents, referenced_columns)
     query = get_query(None, parents, tree, database)
     engine = sqla_create_engine(database.URI)
     sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
@@ -223,124 +309,96 @@ def get_query_for_sql(sql: str) -> QueryCreate:
     return QueryCreate(database_id=database.id, submitted_query=sql)
 
 
-def replace_dimension_references(query_select: Select, parents: List[Node]) -> None:
+def replace_metric_identifier(
+    expression: Expression,
+    parent: Projection,
+    nodes: Dict[str, Node],
+    metric_names: Set[str],
+    alias: Optional[Identifier] = None,
+) -> None:
     """
-    Update a query inplace, replacing dimensions with proper column names.
+    Replace any metric reference in ``expression`` with its SQL.
     """
-    for part in ("projection", "selection", "group_by", "sort_by"):
-        for identifier, parent in list(
-            find_nodes_by_key_with_parent(query_select[part], "Identifier"),  # type: ignore
-        ):
-            if "." not in identifier["value"]:
-                # metric already processed
-                continue
+    if "CompoundIdentifier" in expression:
+        expression["Identifier"] = {
+            "quote_style": None,
+            "value": ".".join(
+                part["value"] for part in expression.pop("CompoundIdentifier")
+            ),
+        }
+    elif "Identifier" not in expression:
+        return
 
-            name, column = identifier["value"].rsplit(".", 1)
-            if name not in {parent.name for parent in parents}:
-                raise Exception(f"Invalid identifier: {name}")
+    name = expression["Identifier"]["value"]
+    if name not in metric_names:
+        return
 
-            parent.pop("Identifier")
-            parent["CompoundIdentifier"] = [
-                {"quote_style": '"', "value": name},
-                {"quote_style": '"', "value": column},
-            ]
+    # if this is an unnamed expression remove the key from the parent, since it will be
+    # replaced with an expression with alias
+    parent.pop("UnnamedExpr", None)
+
+    node = nodes[name]
+    metric_tree = parse_sql(node.expression, dialect="ansi")
+    parent["ExprWithAlias"] = {
+        "alias": alias or {"quote_style": '"', "value": node.name},
+        "expr": get_expression_from_projection(
+            metric_tree[0]["Query"]["body"]["Select"]["projection"][0],
+        ),
+    }
 
 
-def get_database_for_nodes(
-    session: Session,
-    nodes: List[Node],
-    node_columns: Dict[str, Set[str]],
-    database_id: Optional[int] = None,
-) -> Database:
+def get_join_columns(node: Node, dimension: Node) -> Tuple[str, str, str]:
     """
-    Given a list of nodes, return the best database to compute metric.
-
-    When no nodes are passed, the database with the lowest cost is returned.
+    Return the columns to perform a join between a node and a dimension.
     """
-    if nodes:
-        databases = set.intersection(
-            *[get_computable_databases(node, node_columns[node.name]) for node in nodes]
-        )
-    else:
-        databases = session.exec(
-            select(Database).where(Database.id != DJ_DATABASE_ID),
-        ).all()
+    for parent in node.parents:
+        for column in parent.columns:
+            if column.dimension == dimension:
+                return (
+                    parent.name,
+                    column.name,
+                    column.dimension_column or DEFAULT_DIMENSION_COLUMN,
+                )
 
-    if not databases:
-        raise Exception("No valid database was found")
-
-    if database_id is not None:
-        for database in databases:
-            if database.id == database_id:
-                return database
-        raise Exception(f"Database ID {database_id} is not valid")
-
-    return sorted(databases, key=operator.attrgetter("cost"))[0]
+    raise Exception(f"Node {node.name} has no columns with dimension {dimension.name}")
 
 
-def get_new_projection_and_from(
-    session: Session,
-    projection: List[Projection],
-    parents: List[Node],
-) -> Tuple[List[Projection], List[From]]:
+def get_dimension_join(node: Node, dimension: Node) -> Join:
     """
-    Replace node references in the ``SELECT`` clause and update ``FROM`` clause.
-
-    Node names in the ``SELECT`` clause are replaced by the corresponding node expression
-    (only the ``SELECT`` part), while the ``FROM`` clause is updated to point to the
-    node parent(s).
-
-    This assumes that all nodes referenced in the ``SELECT`` share the same parents.
+    Return the join between a node and a dimension.
     """
-    new_from: List[From] = []
-    new_projection: List[Projection] = []
-    for projection_expression in projection:
-        alias: Optional[Identifier] = None
-        if "UnnamedExpr" in projection_expression:
-            expression = projection_expression["UnnamedExpr"]
-        elif "ExprWithAlias" in projection_expression:
-            expression = projection_expression["ExprWithAlias"]["expr"]
-            alias = projection_expression["ExprWithAlias"]["alias"]
-        else:
-            raise NotImplementedError(f"Unable to handle expression: {expression}")
+    parent_name, node_column, dimension_column = get_join_columns(node, dimension)
+    relation: Relation = {
+        "Table": {
+            "alias": None,
+            "args": [],
+            "name": [{"quote_style": None, "value": dimension.name}],
+            "with_hints": [],
+        },
+    }
 
-        if "Identifier" in expression:
-            name = expression["Identifier"]["value"]
-        elif "CompoundIdentifier" in expression:
-            name = ".".join(part["value"] for part in expression["CompoundIdentifier"])
-        else:
-            new_projection.append(projection_expression)
-            continue
-
-        if alias is None:
-            alias = {
-                "quote_style": '"',
-                "value": name,
-            }
-
-        node = session.exec(select(Node).where(Node.name == name)).one_or_none()
-        if node is None:
-            # skip, since this is probably a dimension
-            new_projection.append(projection_expression)
-            continue
-        if not node.expression or not is_metric(node.expression):
-            raise Exception(f"Not a valid metric: {name}")
-        if not parents:
-            parents.extend(node.parents)
-        elif set(parents) != set(node.parents):
-            raise Exception("All metrics should have the same parents")
-
-        subtree = parse_sql(node.expression, dialect="ansi")
-        new_projection.append(
-            {
-                "ExprWithAlias": {
-                    "alias": alias,
-                    "expr": get_expression_from_projection(
-                        subtree[0]["Query"]["body"]["Select"]["projection"][0],
-                    ),
+    return {
+        "join_operator": {
+            "Inner": {
+                "On": {
+                    "BinaryOp": {
+                        "left": {
+                            "CompoundIdentifier": [
+                                {"quote_style": None, "value": parent_name},
+                                {"quote_style": None, "value": node_column},
+                            ],
+                        },
+                        "op": "Eq",
+                        "right": {
+                            "CompoundIdentifier": [
+                                {"quote_style": None, "value": dimension.name},
+                                {"quote_style": None, "value": dimension_column},
+                            ],
+                        },
+                    },
                 },
+                "Using": [],
             },
-        )
-        new_from.append(subtree[0]["Query"]["body"]["Select"]["from"][0])
-
-    return new_projection, new_from
+        },
+        "relation": relation,
+    }
