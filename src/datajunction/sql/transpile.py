@@ -122,6 +122,11 @@ def get_query(
     if groupby:
         query = query.group_by(*groupby)
 
+    # HAVING ...
+    having = get_having(tree, source, dialect)
+    if having is not None:
+        query = query.having(having)
+
     # LIMIT ...
     limit = get_limit(tree, source, dialect)
     if limit:
@@ -155,6 +160,21 @@ def get_groupby(
     """
     groupby = next(find_nodes_by_key(tree, "group_by"))
     return [get_expression(expression, source, dialect) for expression in groupby]
+
+
+def get_having(
+    tree: ParseTree,
+    source: Optional[Select] = None,
+    dialect: Optional[str] = None,
+) -> Optional[ClauseElement]:
+    """
+    Build the ``HAVING`` clause of a query.
+    """
+    having = next(find_nodes_by_key(tree, "having"))
+    if having is None:
+        return None
+
+    return get_binary_op(having["BinaryOp"], source, source, dialect)
 
 
 def get_selection(
