@@ -5,7 +5,9 @@ Tests for ``datajunction.sql.transpile``.
 import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
-from sqlalchemy.sql import Select
+from sqlalchemy.schema import MetaData
+from sqlalchemy.schema import Table as SqlaTable
+from sqlalchemy.sql import Select, select
 from sqloxide import parse_sql
 
 from datajunction.models.column import Column
@@ -13,8 +15,13 @@ from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
 from datajunction.models.table import Table
-from datajunction.sql.transpile import get_query, get_select_for_node, get_value
-from datajunction.typing import ColumnType
+from datajunction.sql.transpile import (
+    get_function,
+    get_query,
+    get_select_for_node,
+    get_value,
+)
+from datajunction.typing import ColumnType, Function
 
 
 def query_to_string(query: Select) -> str:
@@ -454,3 +461,148 @@ FROM "A") AS "A" JOIN (SELECT "B".two AS two, "B".three AS three{space}
 FROM "B") AS "B" ON "A".two = "B".two{space}
 WHERE "B".three > 1"""
     )
+
+
+def test_date_trunc() -> None:
+    """
+    Test transpiling the ``DATE_TRUNC`` function.
+    """
+    engine = create_engine("sqlite://")
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (col TEXT)")
+    source = select(SqlaTable("A", MetaData(bind=engine), autoload=True))
+
+    function: Function = {
+        "args": [
+            {"Unnamed": {"Value": {"SingleQuotedString": "second"}}},
+            {"Unnamed": {"Identifier": {"quote_style": None, "value": "col"}}},
+        ],
+        "distinct": False,
+        "name": [{"quote_style": None, "value": "DATE_TRUNC"}],
+        "over": None,
+    }
+
+    assert (
+        query_to_string(get_function(function, source, dialect="postgresql"))
+        == "date_trunc(second, anon_1.col)"
+    )
+
+
+def test_date_trunc_invalid() -> None:
+    """
+    Test invalid uses of ``DATE_TRUNC``.
+    """
+    engine = create_engine("sqlite://")
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (col TEXT)")
+    source = select(SqlaTable("A", MetaData(bind=engine), autoload=True))
+
+    function: Function = {
+        "args": [
+            {"Unnamed": {"Value": {"SingleQuotedString": "second"}}},
+            {"Unnamed": {"Identifier": {"quote_style": None, "value": "col"}}},
+        ],
+        "distinct": False,
+        "name": [{"quote_style": None, "value": "DATE_TRUNC"}],
+        "over": None,
+    }
+
+    with pytest.raises(Exception) as excinfo:
+        query_to_string(get_function(function, source))
+    assert str(excinfo.value) == "A dialect is needed for `DATE_TRUNC`"
+
+    with pytest.raises(Exception) as excinfo:
+        query_to_string(get_function(function, source, dialect="unknown"))
+    assert str(excinfo.value) == (
+        "Dialect unknown doesn't support `DATE_TRUNC`. Please file a ticket at "
+        "https://github.com/DataJunction/datajunction/issues/new?"
+        "title=date_trunc+for+unknown."
+    )
+
+    function["args"][0]["Unnamed"]["Value"]["SingleQuotedString"] = "invalid"
+    with pytest.raises(Exception) as excinfo:
+        query_to_string(get_function(function, source, dialect="sqlite"))
+    assert str(excinfo.value) == "Resolution invalid not supported by SQLite"
+
+    with pytest.raises(Exception) as excinfo:
+        query_to_string(get_function(function, source, dialect="druid"))
+    assert str(excinfo.value) == "Resolution invalid not supported by Druid"
+
+
+@pytest.mark.parametrize(
+    "resolution,expected",
+    [
+        # simple ones
+        ("second", "datetime(strftime('%Y-%m-%dT%H:%M:%S', anon_1.col))"),
+        ("minute", "datetime(strftime('%Y-%m-%dT%H:%M:00', anon_1.col))"),
+        ("hour", "datetime(strftime('%Y-%m-%dT%H:00:00', anon_1.col))"),
+        # simpler ones
+        ("day", "datetime(anon_1.col, 'start of day')"),
+        ("month", "datetime(anon_1.col, 'start of month')"),
+        ("year", "datetime(anon_1.col, 'start of year')"),
+        # weird ones
+        (
+            "week",
+            "datetime(anon_1.col, '1 day', 'weekday 0', '-7 days', 'start of day')",
+        ),
+        (
+            "quarter",
+            "datetime(anon_1.col, printf('-%d month', (strftime('%m', anon_1.col) - 1) % 3 + 1))",
+        ),
+    ],
+)
+def test_date_trunc_sqlite(resolution: str, expected: str) -> None:
+    """
+    Tests for the SQLite version of ``DATE_TRUNC``.
+    """
+    engine = create_engine("sqlite://")
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (col TEXT)")
+    source = select(SqlaTable("A", MetaData(bind=engine), autoload=True))
+
+    function: Function = {
+        "args": [
+            {"Unnamed": {"Value": {"SingleQuotedString": resolution}}},
+            {"Unnamed": {"Identifier": {"quote_style": None, "value": "col"}}},
+        ],
+        "distinct": False,
+        "name": [{"quote_style": None, "value": "DATE_TRUNC"}],
+        "over": None,
+    }
+
+    assert query_to_string(get_function(function, source, dialect="sqlite")) == expected
+
+
+@pytest.mark.parametrize(
+    "resolution,expected",
+    [
+        ("second", "time_floor(CAST(anon_1.col AS TIMESTAMP), 'PT1S')"),
+        ("minute", "time_floor(CAST(anon_1.col AS TIMESTAMP), 'PT1M')"),
+        ("hour", "time_floor(CAST(anon_1.col AS TIMESTAMP), 'PT1H')"),
+        ("day", "time_floor(CAST(anon_1.col AS TIMESTAMP), 'P1D')"),
+        ("week", "time_floor(CAST(anon_1.col AS TIMESTAMP), 'P1W')"),
+        ("month", "time_floor(CAST(anon_1.col AS TIMESTAMP), 'P1M')"),
+        ("quarter", "time_floor(CAST(anon_1.col AS TIMESTAMP), 'P3M')"),
+        ("year", "time_floor(CAST(anon_1.col AS TIMESTAMP), 'P1Y')"),
+    ],
+)
+def test_date_trunc_druid(resolution: str, expected: str) -> None:
+    """
+    Tests for the Druid version of ``DATE_TRUNC``.
+    """
+    engine = create_engine("sqlite://")
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (col TEXT)")
+    source = select(SqlaTable("A", MetaData(bind=engine), autoload=True))
+
+    function: Function = {
+        "args": [
+            {"Unnamed": {"Value": {"SingleQuotedString": resolution}}},
+            {"Unnamed": {"Identifier": {"quote_style": None, "value": "col"}}},
+        ],
+        "distinct": False,
+        "name": [{"quote_style": None, "value": "DATE_TRUNC"}],
+        "over": None,
+    }
+
+    assert query_to_string(get_function(function, source, dialect="druid")) == expected
