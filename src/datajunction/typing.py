@@ -204,14 +204,21 @@ class TableAlias(TypedDict):
 
 
 class Table(TypedDict):
-    alias: TableAlias
+    alias: Optional[TableAlias]
     args: List[Argument]
     name: List[Identifier]
     with_hints: List[Expression]
 
 
-class Relation(TypedDict):
+class Derived(TypedDict):
+    lateral: bool
+    subquery: "Body"  # type: ignore
+    alias: Optional[TableAlias]
+
+
+class Relation(TypedDict, total=False):
     Table: Table
+    Derived: Derived
 
 
 class JoinConstraint(TypedDict):

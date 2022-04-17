@@ -2,7 +2,11 @@
 Tests for ``datajunction.sql.dag``.
 """
 
+from collections import defaultdict
+from typing import Dict, Set
+
 import pytest
+from pytest_mock import MockerFixture
 
 from datajunction.models.column import Column
 from datajunction.models.database import Database
@@ -10,6 +14,7 @@ from datajunction.models.node import Node, NodeType
 from datajunction.models.table import Table
 from datajunction.sql.dag import (
     get_computable_databases,
+    get_database_for_nodes,
     get_dimensions,
     get_referenced_columns_from_sql,
 )
@@ -250,3 +255,35 @@ def test_get_dimensions() -> None:
     )
 
     assert get_dimensions(child) == ["A.b_id", "A.ds", "B.attribute", "B.id"]
+
+
+def test_get_database_for_nodes(mocker: MockerFixture) -> None:
+    """
+    Test ``get_database_for_nodes``.
+    """
+    database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
+    database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
+
+    get_session = mocker.patch("datajunction.sql.build.get_session")
+    session = get_session().__next__()
+    session.exec().all.return_value = [database_1, database_2]
+
+    parent = Node(
+        name="parent",
+        tables=[
+            Table(
+                database=database_2,
+                table="comments",
+                columns=[
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="comment", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    referenced_columns: Dict[str, Set[str]] = defaultdict(set)
+    assert get_database_for_nodes(session, [parent], referenced_columns) == database_2
+
+    # without parents, return the cheapest DB
+    assert get_database_for_nodes(session, [], referenced_columns) == database_1
