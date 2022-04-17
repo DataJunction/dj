@@ -179,7 +179,8 @@ class DateTrunc(Function):
                 raise Exception(f"Resolution {resolution} not supported by Druid")
 
             return func.time_floor(
-                cast(column, TIMESTAMP), ISO_DURATIONS[str(resolution)],
+                cast(column, TIMESTAMP),
+                ISO_DURATIONS[str(resolution)],
             )
 
         raise Exception(

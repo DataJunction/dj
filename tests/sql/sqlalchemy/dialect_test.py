@@ -5,7 +5,6 @@ Tests for the SQLAlchemy dialect.
 from pytest_mock import MockerFixture
 from requests_mock.mocker import Mocker
 from sqlalchemy.engine.url import make_url
-from sqlalchemy.sql import sqltypes
 from yarl import URL
 
 from datajunction.sql import dbapi
@@ -52,6 +51,34 @@ def test_do_ping(mocker: MockerFixture) -> None:
     dbapi_connection.cursor().execute.assert_called_with("SELECT 1")
 
 
+def test_get_schema_names(mocker: MockerFixture) -> None:
+    """
+    Test ``get_schema_names``.
+    """
+    connection = mocker.MagicMock()
+    dialect = DJDialect()
+
+    assert dialect.get_schema_names(connection) == ["main"]
+
+
+def test_superset_methods(mocker: MockerFixture) -> None:
+    """
+    Test the methods that are needed for Apache Superset integration.
+    """
+    connection = mocker.MagicMock()
+    dialect = DJDialect()
+
+    assert dialect.get_pk_constraint(connection, "metrics") == {
+        "constrained_columns": [],
+        "name": None,
+    }
+    assert not dialect.get_foreign_keys(connection, "metrics")
+    assert not dialect.get_check_constraints(connection, "metrics")
+    assert not dialect.get_indexes(connection, "metrics")
+    assert not dialect.get_unique_constraints(connection, "metrics")
+    assert dialect.get_table_comment(connection, "metrics") == {"text": ""}
+
+
 def test_has_table(mocker: MockerFixture) -> None:
     """
     Test ``has_table``.
@@ -78,7 +105,7 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
     Test ``get_columns``.
     """
     connection = mocker.MagicMock()
-    connection.base_url = URL("http://localhost:8000/")
+    connection.engine.connect().connection.base_url = URL("http://localhost:8000/")
     requests_mock.get(
         "http://localhost:8000/metrics/",
         json=[
@@ -197,41 +224,23 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
     dialect = DJDialect()
 
     assert not dialect.get_columns(connection, "not-metrics")
-    assert dialect.get_columns(connection, "metrics") == [
-        {
-            "name": "core.comments.id",
-            "type": sqltypes.INTEGER,
-            "nullable": True,
-            "default": None,
-        },
-        {
-            "name": "core.comments.user_id",
-            "type": sqltypes.INTEGER,
-            "nullable": True,
-            "default": None,
-        },
-        {
-            "name": "core.comments.timestamp",
-            "type": sqltypes.DATETIME,
-            "nullable": True,
-            "default": None,
-        },
-        {
-            "name": "core.comments.text",
-            "type": sqltypes.TEXT,
-            "nullable": True,
-            "default": None,
-        },
-        {
-            "name": "core.comments.__time",
-            "type": sqltypes.DATETIME,
-            "nullable": True,
-            "default": None,
-        },
-        {
-            "name": "core.comments.count",
-            "type": sqltypes.INTEGER,
-            "nullable": True,
-            "default": None,
-        },
+    assert [
+        column["name"] for column in dialect.get_columns(connection, "metrics")
+    ] == [
+        "core.comments.id",
+        "core.comments.user_id",
+        "core.comments.timestamp",
+        "core.comments.text",
+        "core.comments.__time",
+        "core.comments.count",
+    ]
+    assert [
+        str(column["type"]) for column in dialect.get_columns(connection, "metrics")
+    ] == [
+        "INTEGER",
+        "INTEGER",
+        "DATETIME",
+        "TEXT",
+        "DATETIME",
+        "INTEGER",
     ]

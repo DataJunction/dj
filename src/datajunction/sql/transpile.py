@@ -10,7 +10,7 @@ queries which can be then executed in specific databases.
 import operator
 from typing import Any, Dict, List, Optional, Set, Union, cast
 
-from sqlalchemy import text
+from sqlalchemy import desc, text
 from sqlalchemy.engine import create_engine
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.schema import MetaData, Table
@@ -127,6 +127,11 @@ def get_query(
     if having is not None:
         query = query.having(having)
 
+    # ORDER BY ...
+    orderby = get_orderby(tree, source, dialect)
+    if orderby:
+        query = query.order_by(*orderby)
+
     # LIMIT ...
     limit = get_limit(tree, source, dialect)
     if limit:
@@ -148,6 +153,26 @@ def get_limit(
         return None
 
     return cast(int, get_expression(limit, source, dialect))
+
+
+def get_orderby(
+    tree: ParseTree,
+    source: Optional[Select] = None,
+    dialect: Optional[str] = None,
+) -> List[Any]:
+    """
+    Build the ``ORDER BY`` clause of a query.
+    """
+    orderbys = next(find_nodes_by_key(tree, "order_by"))
+
+    expressions = []
+    for orderby in orderbys:
+        expression = get_expression(orderby["expr"], source, dialect)
+        if orderby.get("asc") is False:
+            expression = desc(expression)
+        expressions.append(expression)
+
+    return expressions
 
 
 def get_groupby(
