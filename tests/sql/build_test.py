@@ -811,6 +811,55 @@ FROM comments) AS "core.comments" JOIN (SELECT dim_users.id AS id, dim_users.age
 FROM dim_users) AS "core.users" ON "core.comments".user_id = "core.users".id GROUP BY "core.users".gender ORDER BY count('*')
  LIMIT 100 OFFSET 0"""
     )
+    sql = """
+SELECT "core.users.gender" AS "core.users.gender",
+       "core.num_comments" AS "core.num_comments"
+FROM main.metrics
+GROUP BY "core.users.gender"
+ORDER BY "core.num_comments" ASC
+LIMIT 100;
+    """
+    create_query = get_query_for_sql(sql)
+
+    assert (
+        create_query.submitted_query
+        == f"""SELECT "core.users".gender AS "core.users.gender", count('*') AS "core.num_comments"{space}
+FROM (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_users.id AS id, dim_users.age AS age, dim_users.gender AS gender{space}
+FROM dim_users) AS "core.users" ON "core.comments".user_id = "core.users".id GROUP BY "core.users".gender ORDER BY count('*')
+ LIMIT 100 OFFSET 0"""
+    )
+
+    sql = """
+SELECT "core.users.gender" AS "core.users.gender",
+       "core.num_comments" AS "core.num_comments"
+FROM main.metrics
+GROUP BY "core.users.gender"
+ORDER BY "core.users.gender" ASC
+LIMIT 100;
+    """
+    create_query = get_query_for_sql(sql)
+
+    assert (
+        create_query.submitted_query
+        == f"""SELECT "core.users".gender AS "core.users.gender", count('*') AS "core.num_comments"{space}
+FROM (SELECT comments.ds AS ds, comments.user_id AS user_id, comments.text AS text{space}
+FROM comments) AS "core.comments" JOIN (SELECT dim_users.id AS id, dim_users.age AS age, dim_users.gender AS gender{space}
+FROM dim_users) AS "core.users" ON "core.comments".user_id = "core.users".id GROUP BY "core.users".gender ORDER BY "core.users".gender
+ LIMIT 100 OFFSET 0"""
+    )
+
+    sql = """
+SELECT "core.users.gender" AS "core.users.gender",
+       "core.num_comments" AS "core.num_comments"
+FROM main.metrics
+GROUP BY "core.users.gender"
+ORDER BY invalid ASC
+LIMIT 100;
+    """
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_sql(sql)
+    assert str(excinfo.value) == "Invalid identifier: invalid"
 
 
 def test_get_query_for_sql_compound_names(
