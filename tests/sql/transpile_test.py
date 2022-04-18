@@ -484,7 +484,7 @@ def test_date_trunc() -> None:
 
     assert (
         query_to_string(get_function(function, source, dialect="postgresql"))
-        == "date_trunc(second, anon_1.col)"
+        == "date_trunc('second', anon_1.col)"
     )
 
 
