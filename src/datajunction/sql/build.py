@@ -5,7 +5,7 @@ Functions for building queries, from nodes or SQL.
 import ast
 import operator
 import re
-from typing import Dict, List, Optional, Set, Tuple
+from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple, cast
 
 from sqlalchemy.engine import create_engine as sqla_create_engine
 from sqlalchemy.engine.url import make_url
@@ -16,6 +16,7 @@ from sqlmodel import Session, select
 from sqloxide import parse_sql
 
 from datajunction.constants import DEFAULT_DIMENSION_COLUMN
+from datajunction.errors import DJError, DJInvalidInputException, ErrorCode
 from datajunction.models.node import Node, NodeType
 from datajunction.models.query import QueryCreate
 from datajunction.sql.dag import (
@@ -41,7 +42,8 @@ from datajunction.typing import (
 from datajunction.utils import get_session
 
 FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
-COMPARISONS = {
+FilterOperator = Literal[">", ">=", "<", "<=", "=", "!="]
+COMPARISONS: Dict[FilterOperator, Callable[[Any, Any], bool]] = {
     ">": operator.gt,
     ">=": operator.ge,
     "<": operator.lt,
@@ -51,30 +53,51 @@ COMPARISONS = {
 }
 
 
+def parse_filter(filter_: str) -> Tuple[str, FilterOperator, str]:
+    """
+    Parse a filter into name, op, value.
+    """
+    match = FILTER_RE.match(filter_)
+    if not match:
+        raise DJInvalidInputException(
+            message=f'The filter "{filter_}" is invalid',
+            errors=[
+                DJError(
+                    code=ErrorCode.INVALID_FILTER_PATTERN,
+                    message=(
+                        f'The filter "{filter_}" is not a valid filter. Filters should '
+                        "consist of a dimension name, follow by a valid operator "
+                        "(<=|<|>=|>|!=|=), followed by a value. If the value is a "
+                        "string or date/time it should be enclosed in single quotes."
+                    ),
+                    debug={
+                        "filter": filter_,
+                    },
+                ),
+            ],
+        )
+
+    name, operator_, value = match.groups()
+    operator_ = cast(FilterOperator, operator_)
+    return name, operator_, value
+
+
 def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression:
     """
     Build a SQLAlchemy filter.
     """
-    match = FILTER_RE.match(filter_)
-    if not match:
-        raise Exception(f"Invalid filter: {filter_}")
-
-    name, op, value = match.groups()  # pylint: disable=invalid-name
+    name, operator_, value = parse_filter(filter_)
 
     if name not in columns:
         raise Exception(f"Invalid column name: {name}")
     column = columns[name]
-
-    if op not in COMPARISONS:
-        valid = ", ".join(COMPARISONS)
-        raise Exception(f"Invalid operation: {op} (valid: {valid})")
-    comparison = COMPARISONS[op]
 
     try:
         value = ast.literal_eval(value)
     except Exception as ex:
         raise Exception(f"Invalid value: {value}") from ex
 
+    comparison = COMPARISONS[operator_]
     return comparison(column, value)
 
 
@@ -82,13 +105,7 @@ def get_dimensions_from_filters(filters: List[str]) -> Set[str]:
     """
     Extract dimensions from filters passed to the metric API.
     """
-    dimensions: Set[str] = set()
-    for filter_ in filters:
-        match = FILTER_RE.match(filter_)
-        if not match:
-            raise Exception(f"Invalid filter: {filter_}")
-        dimensions.add(match.group(1))
-    return dimensions
+    return {parse_filter(filter_)[0] for filter_ in filters}
 
 
 def get_query_for_node(  # pylint: disable=too-many-locals
