@@ -16,6 +16,7 @@ from datajunction.api.queries import dispatch_query
 from datajunction.config import Settings
 from datajunction.constants import DJ_DATABASE_ID
 from datajunction.engine import process_query
+from datajunction.errors import DJError, DJException, DJWarning, ErrorCode
 from datajunction.models.query import (
     Database,
     Query,
@@ -146,6 +147,61 @@ def test_submit_query_native(mocker: MockerFixture, client: TestClient) -> None:
     client.post("/queries/", data=query_create.json())
 
     get_query_for_sql.assert_called_with("SELECT A FROM metrics")
+
+
+def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) -> None:
+    """
+    Test ``POST /queries/`` with a native DJ query.
+    """
+    mocker.patch("datajunction.api.queries.get_query_for_sql")
+    mocker.patch(
+        "datajunction.api.queries.save_query_and_run",
+        side_effect=DJException(
+            message="The query is invalid",
+            errors=[
+                DJError(
+                    code=ErrorCode.UNKWNON_ERROR,
+                    message="An unknown error occurred",
+                    debug={"query": "SELECT A FROM metrics"},
+                ),
+            ],
+            warnings=[
+                DJWarning(
+                    code=None,
+                    message="Your quote is low",
+                    debug={"current": 4, "limit": 5},
+                ),
+            ],
+            dbapi_exception="ProgrammingError",
+            http_status_code=422,
+        ),
+    )
+
+    query_create = QueryCreate(
+        database_id=DJ_DATABASE_ID,
+        submitted_query="SELECT A FROM metrics",
+    )
+
+    response = client.post("/queries/", data=query_create.json())
+    assert response.json() == {
+        "message": "The query is invalid",
+        "errors": [
+            {
+                "code": 0,
+                "message": "An unknown error occurred",
+                "debug": {"query": "SELECT A FROM metrics"},
+            },
+        ],
+        "warnings": [
+            {
+                "code": None,
+                "message": "Your quote is low",
+                "debug": {"current": 4, "limit": 5},
+            },
+        ],
+        "dbapi_exception": "ProgrammingError",
+        "http_status_code": 422,
+    }
 
 
 def test_submit_query_multiple_statements(session: Session, client: TestClient) -> None:

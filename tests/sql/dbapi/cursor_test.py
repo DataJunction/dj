@@ -5,10 +5,12 @@ Tests for ``datajunction.sql.dbapi.cursor``.
 
 import pytest
 from pytest_mock import MockerFixture
+from requests_mock.mocker import Mocker
 from yarl import URL
 
 from datajunction.sql.dbapi.cursor import Cursor
 from datajunction.sql.dbapi.exceptions import (
+    InternalError,
     NotSupportedError,
     ProgrammingError,
     Warning,
@@ -39,6 +41,51 @@ def test_cursor_execute(mocker: MockerFixture) -> None:
             "submitted_query": "SELECT * FROM some_table WHERE name = 'Alice'",
         },
         headers=headers,
+    )
+
+
+def test_cursor_execute_error(requests_mock: Mocker) -> None:
+    """
+    Test the ``execute`` method when an error is returned.
+    """
+    requests_mock.post(
+        "http://localhost:8000/queries/",
+        json={
+            "message": "The query is invalid",
+            "errors": [
+                {
+                    "code": 0,
+                    "message": "An unknown error occurred",
+                    "debug": {"query": "SELECT A FROM metrics"},
+                },
+            ],
+            "warnings": [
+                {
+                    "code": None,
+                    "message": "Your quote is low",
+                    "debug": {"current": 4, "limit": 5},
+                },
+            ],
+            "dbapi_exception": "ProgrammingError",
+            "http_status_code": 422,
+        },
+        status_code=422,
+        headers={"X-DJ-Error": "true", "Content-Type": "application/json"},
+    )
+
+    url = URL("http://localhost:8000/")
+    cursor = Cursor(url)
+
+    with pytest.raises(ProgrammingError) as excinfo:
+        cursor.execute("SELECT 1")
+    assert str(excinfo.value) == "The query is invalid"
+
+    requests_mock.post("http://localhost:8000/queries/", status_code=500)
+
+    with pytest.raises(InternalError) as excinfo:
+        cursor.execute("SELECT 1")
+    assert (
+        str(excinfo.value) == "It is pitch black. You are likely to be eaten by a grue."
     )
 
 
