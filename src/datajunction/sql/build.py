@@ -8,6 +8,7 @@ import re
 from typing import Dict, List, Optional, Set, Tuple
 
 from sqlalchemy.engine import create_engine as sqla_create_engine
+from sqlalchemy.engine.url import make_url
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.expression import ClauseElement
@@ -297,7 +298,8 @@ def get_query_for_sql(sql: str) -> QueryCreate:
     referenced_columns = get_referenced_columns_from_tree(tree, parents)
 
     database = get_database_for_nodes(session, parents, referenced_columns)
-    query = get_query(None, parents, tree, database)
+    dialect = make_url(database.URI).get_dialect().name
+    query = get_query(None, parents, tree, database, dialect)
     engine = sqla_create_engine(database.URI)
     sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
 

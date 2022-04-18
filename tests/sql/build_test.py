@@ -1301,6 +1301,67 @@ WHERE "core.comments".user_id > 1 GROUP BY "core.comments".user_id"""
     )
 
 
+def test_get_query_for_sql_date_trunc(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` with a call to ``DATE_TRUNC``.
+    """
+    get_session = mocker.patch("datajunction.sql.build.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="db", URI="sqlite://")
+
+    comments = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="timestamp", type=ColumnType.DATETIME),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE comments (user_id INT, timestamp DATETIME)")
+    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+
+    num_comments = Node(
+        name="core.num_comments",
+        type=NodeType.METRIC,
+        expression="SELECT COUNT(*) FROM core.comments",
+        parents=[comments],
+    )
+    session.add(num_comments)
+    session.commit()
+
+    sql = """
+SELECT
+    DATE_TRUNC('day', "core.comments.timestamp") AS "__timestamp",
+    "core.num_comments"
+FROM metrics
+GROUP BY
+    DATE_TRUNC('day', "core.comments.timestamp")
+    """
+    create_query = get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+
+    space = " "
+    assert (
+        create_query.submitted_query
+        == f"""SELECT datetime("core.comments".timestamp, 'start of day') AS __timestamp, count('*') AS "core.num_comments"{space}
+FROM (SELECT comments.user_id AS user_id, comments.timestamp AS timestamp{space}
+FROM comments) AS "core.comments" GROUP BY datetime("core.comments".timestamp, 'start of day')"""
+    )
+
+
 def test_get_query_for_sql_invalid_column(
     mocker: MockerFixture,
     session: Session,
