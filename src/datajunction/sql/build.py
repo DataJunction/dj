@@ -270,6 +270,12 @@ def get_query_for_sql(sql: str) -> QueryCreate:
             find_nodes_by_key_with_parent(part, "Identifier"),
         ):
             name = identifier["value"]
+            if name not in nodes:
+                if "." in name and name.rsplit(".", 1)[0] in nodes:
+                    # not a metric, but a column reference
+                    continue
+                raise Exception(f"Invalid identifier: {name}")
+
             node = nodes[name]
             metric_tree = parse_sql(node.expression, dialect="ansi")
             parent.pop("Identifier")
@@ -280,9 +286,14 @@ def get_query_for_sql(sql: str) -> QueryCreate:
             )
 
     # replace dimension references
-    for part in ("projection", "selection", "group_by", "sort_by"):
+    parts = [
+        query_select[part]
+        for part in ("projection", "selection", "group_by", "sort_by")
+    ]
+    parts.append(tree[0]["Query"]["order_by"])
+    for part in parts:
         for identifier, parent in list(
-            find_nodes_by_key_with_parent(query_select[part], "Identifier"),
+            find_nodes_by_key_with_parent(part, "Identifier"),
         ):
             if identifier["value"] not in identifiers:
                 continue
@@ -298,10 +309,9 @@ def get_query_for_sql(sql: str) -> QueryCreate:
     referenced_columns = get_referenced_columns_from_tree(tree, parents)
 
     database = get_database_for_nodes(session, parents, referenced_columns)
-    dialect = make_url(database.URI).get_dialect().name
-    query = get_query(None, parents, tree, database, dialect)
-    engine = sqla_create_engine(database.URI)
-    sql = str(query.compile(engine, compile_kwargs={"literal_binds": True}))
+    dialect = make_url(database.URI).get_dialect()
+    query = get_query(None, parents, tree, database, dialect.name)
+    sql = str(query.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}))
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
 

@@ -142,7 +142,7 @@ class DateTrunc(Function):
             raise Exception("A dialect is needed for `DATE_TRUNC`")
 
         if dialect in DATE_TRUNC_DIALECTS:
-            return func.date_trunc(resolution, column)
+            return func.date_trunc(str(resolution), column)
 
         if dialect in SQLITE_DIALECTS:
             if str(resolution) == "second":
