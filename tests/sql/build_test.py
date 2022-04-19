@@ -389,15 +389,11 @@ def test_get_filter(mocker: MockerFixture) -> None:
 
     with pytest.raises(Exception) as excinfo:
         get_filter(columns, "invalid")
-    assert str(excinfo.value) == "Invalid filter: invalid"
+    assert str(excinfo.value) == 'The filter "invalid" is invalid'
 
     with pytest.raises(Exception) as excinfo:
         get_filter(columns, "b>0")
     assert str(excinfo.value) == "Invalid column name: b"
-
-    with pytest.raises(Exception) as excinfo:
-        get_filter(columns, "a>=0")
-    assert str(excinfo.value) == "Invalid operation: >= (valid: >)"
 
     with pytest.raises(Exception) as excinfo:
         get_filter(columns, "a>open('/etc/passwd').read()")
@@ -1468,7 +1464,7 @@ def test_get_dimensions_from_filters() -> None:
 
     with pytest.raises(Exception) as excinfo:
         get_dimensions_from_filters(["aaaa"])
-    assert str(excinfo.value) == "Invalid filter: aaaa"
+    assert str(excinfo.value) == 'The filter "aaaa" is invalid'
 
 
 def test_find_on_clause(mocker: MockerFixture) -> None:

@@ -9,10 +9,12 @@ Main DJ server app.
 
 import logging
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 
 from datajunction import __version__
 from datajunction.api import databases, metrics, nodes, queries
+from datajunction.errors import DJException
 from datajunction.models.column import Column
 from datajunction.models.database import Database
 from datajunction.models.node import Node
@@ -44,3 +46,18 @@ def on_startup() -> None:
     Ensure the database and tables exist on startup.
     """
     create_db_and_tables()
+
+
+@app.exception_handler(DJException)
+async def dj_exception_handler(  # pylint: disable=unused-argument
+    request: Request,
+    exc: DJException,
+) -> JSONResponse:
+    """
+    Capture errors and return JSON.
+    """
+    return JSONResponse(
+        status_code=exc.http_status_code,
+        content=exc.to_dict(),
+        headers={"X-DJ-Error": "true"},
+    )
