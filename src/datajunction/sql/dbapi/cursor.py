@@ -11,8 +11,11 @@ from sqloxide import parse_sql
 from yarl import URL
 
 from datajunction.constants import DJ_DATABASE_ID
+from datajunction.errors import DJException
+from datajunction.sql.dbapi import exceptions
 from datajunction.sql.dbapi.decorators import check_closed, check_result
 from datajunction.sql.dbapi.exceptions import (  # pylint: disable=redefined-builtin
+    InternalError,
     NotSupportedError,
     ProgrammingError,
     Warning,
@@ -88,6 +91,19 @@ class Cursor:
             json={"database_id": self.database_id, "submitted_query": operation},
             headers={"Content-Type": "application/json"},
         )
+        if not response.ok:
+            if (
+                response.headers.get("X-DJ-Error", "").lower() == "true"
+                and response.headers.get("content-type") == "application/json"
+            ):
+                exc = DJException.from_dict(response.json())
+                dbapi_exc = getattr(exceptions, exc.dbapi_exception)
+                raise dbapi_exc(exc.message)
+
+            raise InternalError(
+                "It is pitch black. You are likely to be eaten by a grue.",
+            )
+
         payload = response.json()
         results = payload["results"][0]
         self._results = (tuple(row) for row in results["rows"])
