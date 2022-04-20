@@ -199,9 +199,8 @@ def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) ->
                 "debug": {"current": 4, "limit": 5},
             },
         ],
-        "dbapi_exception": "ProgrammingError",
-        "http_status_code": 422,
     }
+    assert response.headers["X-DBAPI-Exception"] == "ProgrammingError"
 
 
 def test_submit_query_multiple_statements(session: Session, client: TestClient) -> None:
