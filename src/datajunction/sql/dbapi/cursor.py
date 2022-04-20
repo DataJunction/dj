@@ -94,11 +94,13 @@ class Cursor:
         if not response.ok:
             if (
                 response.headers.get("X-DJ-Error", "").lower() == "true"
+                and response.headers.get("X-DBAPI-Exception")
                 and response.headers.get("content-type") == "application/json"
             ):
-                exc = DJException.from_dict(response.json())
-                dbapi_exc = getattr(exceptions, exc.dbapi_exception)
-                raise dbapi_exc(exc.message)
+                exc_name = response.headers["X-DBAPI-Exception"]
+                exc = getattr(exceptions, exc_name)
+                payload = response.json()
+                raise exc(payload["message"])
 
             raise InternalError(
                 "It is pitch black. You are likely to be eaten by a grue.",
