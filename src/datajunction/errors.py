@@ -20,6 +20,9 @@ class ErrorCode(int, Enum):
     INVALID_COLUMN_IN_FILTER = 101
     INVALID_VALUE_IN_FILTER = 102
 
+    # SQL API
+    INVALID_ARGUMENTS_TO_FUNCTION = 200
+
 
 class DJErrorType(TypedDict):
     """

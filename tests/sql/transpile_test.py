@@ -7,7 +7,7 @@ from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
 from sqlalchemy.schema import MetaData
 from sqlalchemy.schema import Table as SqlaTable
-from sqlalchemy.sql import Select, select
+from sqlalchemy.sql import select
 from sqloxide import parse_sql
 
 from datajunction.models.column import Column
@@ -23,12 +23,7 @@ from datajunction.sql.transpile import (
 )
 from datajunction.typing import ColumnType, Function
 
-
-def query_to_string(query: Select) -> str:
-    """
-    Helper function to compile a SQLAlchemy query to a string.
-    """
-    return str(query.compile(compile_kwargs={"literal_binds": True}))
+from .utils import query_to_string
 
 
 def test_get_select_for_node_materialized(mocker: MockerFixture) -> None:
