@@ -162,14 +162,14 @@ def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) ->
                 DJError(
                     code=ErrorCode.UNKWNON_ERROR,
                     message="An unknown error occurred",
-                    debug={"query": "SELECT A FROM metrics"},
+                    debug={"context": {"query": "SELECT A FROM metrics"}},
                 ),
             ],
             warnings=[
                 DJWarning(
                     code=None,
                     message="Your quote is low",
-                    debug={"current": 4, "limit": 5},
+                    debug={"context": {"current": 4, "limit": 5}},
                 ),
             ],
             dbapi_exception="ProgrammingError",
@@ -189,14 +189,14 @@ def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) ->
             {
                 "code": 0,
                 "message": "An unknown error occurred",
-                "debug": {"query": "SELECT A FROM metrics"},
+                "debug": {"context": {"query": "SELECT A FROM metrics"}},
             },
         ],
         "warnings": [
             {
                 "code": None,
                 "message": "Your quote is low",
-                "debug": {"current": 4, "limit": 5},
+                "debug": {"context": {"current": 4, "limit": 5}},
             },
         ],
     }

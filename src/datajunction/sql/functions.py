@@ -44,9 +44,15 @@ from sqlalchemy.sql.functions import Function as SqlaFunction
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.sql.sqltypes import TIMESTAMP, DateTime
 
-from datajunction.errors import DJError, DJInvalidInputException, ErrorCode
+from datajunction.errors import (
+    DJError,
+    DJInvalidInputException,
+    DJNotImplementedException,
+    ErrorCode,
+)
 from datajunction.models.column import Column
 from datajunction.typing import ColumnType
+from datajunction.utils import get_issue_url
 
 if TYPE_CHECKING:
     from datajunction.sql.lib import Wildcard
@@ -264,7 +270,7 @@ class Coalesce(Function):
                             "type. If the columns have different types they need to be "
                             "cast to a common type."
                         ),
-                        debug={"types": types},
+                        debug={"context": {"types": types}},
                     ),
                 ],
             )
@@ -279,9 +285,50 @@ class Coalesce(Function):
         return func.coalesce(*args)
 
 
-function_registry: Dict[str, Type[Function]] = {
-    "COALESCE": Coalesce,
-    "COUNT": Count,
-    "DATE_TRUNC": DateTrunc,
-    "MAX": Max,
-}
+class FunctionRegistry:  # pylint: disable=too-few-public-methods
+    """
+    A simple object for registering functions.
+    """
+
+    def __init__(self, functions: Dict[str, Type[Function]]):
+        self.functions = functions
+
+    def __getitem__(self, name: str) -> Type[Function]:
+        name = name.upper()
+
+        if name in self.functions:
+            return self.functions[name]
+
+        issue_url = str(get_issue_url(title=f"Function missing: {name}"))
+        docs_url = (
+            "https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst"
+        )
+
+        raise DJNotImplementedException(
+            message=f'The function "{name}" hasn\'t been implemented yet',
+            errors=[
+                DJError(
+                    code=ErrorCode.NOT_IMPLEMENTED_ERROR,
+                    message=(
+                        f'The function "{name}" hasn\'t been implemented in DJ yet. '
+                        f"You can file an issue at {issue_url} to request it to be "
+                        f"added, or use the documentation at {docs_url} to implement it."
+                    ),
+                    debug={
+                        "issue": issue_url,
+                        "documentation": docs_url,
+                        "context": {"function": name},
+                    },
+                ),
+            ],
+        )
+
+
+function_registry = FunctionRegistry(
+    {
+        "COALESCE": Coalesce,
+        "COUNT": Count,
+        "DATE_TRUNC": DateTrunc,
+        "MAX": Max,
+    },
+)

@@ -389,7 +389,12 @@ def test_get_filter(mocker: MockerFixture) -> None:
 
     with pytest.raises(Exception) as excinfo:
         get_filter(columns, "invalid")
-    assert str(excinfo.value) == 'The filter "invalid" is invalid'
+    assert (
+        str(excinfo.value)
+        == """The filter "invalid" is invalid
+The following error happened:
+- The filter "invalid" is not a valid filter. Filters should consist of a dimension name, follow by a valid operator (<=|<|>=|>|!=|=), followed by a value. If the value is a string or date/time it should be enclosed in single quotes. (error code: 100)"""
+    )
 
     with pytest.raises(Exception) as excinfo:
         get_filter(columns, "b>0")
@@ -1464,7 +1469,12 @@ def test_get_dimensions_from_filters() -> None:
 
     with pytest.raises(Exception) as excinfo:
         get_dimensions_from_filters(["aaaa"])
-    assert str(excinfo.value) == 'The filter "aaaa" is invalid'
+    assert (
+        str(excinfo.value)
+        == """The filter "aaaa" is invalid
+The following error happened:
+- The filter "aaaa" is not a valid filter. Filters should consist of a dimension name, follow by a valid operator (<=|<|>=|>|!=|=), followed by a value. If the value is a string or date/time it should be enclosed in single quotes. (error code: 100)"""
+    )
 
 
 def test_find_on_clause(mocker: MockerFixture) -> None:
