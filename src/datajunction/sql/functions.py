@@ -25,7 +25,7 @@ For tranpilation:
 
     @staticmethod
     def get_sqla_function(
-        argument: Union["Wildcard", "Column", int], dialect: Optional[str] = None
+        argument: Union["Wildcard", Column, int], dialect: Optional[str] = None
     ) -> SqlaFunction:
         return func.count(argument)
 
@@ -36,18 +36,19 @@ The ``dialect`` can be used to build custom functions.
 # pylint: disable=unused-argument, missing-function-docstring, arguments-differ, too-many-return-statements
 
 import abc
-from typing import TYPE_CHECKING, Any, Dict, Optional, Type, Union
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
 
 from sqlalchemy.sql import cast, func
 from sqlalchemy.sql.expression import TextClause
 from sqlalchemy.sql.functions import Function as SqlaFunction
 from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy.sql.sqltypes import TIMESTAMP
+from sqlalchemy.sql.sqltypes import TIMESTAMP, DateTime
 
+from datajunction.errors import DJError, DJInvalidInputException, ErrorCode
+from datajunction.models.column import Column
 from datajunction.typing import ColumnType
 
 if TYPE_CHECKING:
-    from datajunction.models.column import Column
     from datajunction.sql.lib import Wildcard
 
 
@@ -104,7 +105,7 @@ class Count(Function):
     is_aggregation = True
 
     @staticmethod
-    def infer_type(argument: Union["Wildcard", "Column", int]) -> ColumnType:  # type: ignore
+    def infer_type(argument: Union["Wildcard", Column, int]) -> ColumnType:  # type: ignore
         return ColumnType.INT
 
     @staticmethod
@@ -127,7 +128,7 @@ class DateTrunc(Function):
     is_aggregation = False
 
     @staticmethod
-    def infer_type(resolution: str, column: "Column") -> ColumnType:  # type: ignore
+    def infer_type(resolution: str, column: Column) -> ColumnType:  # type: ignore
         return ColumnType.DATETIME
 
     # pylint: disable=too-many-branches
@@ -142,17 +143,26 @@ class DateTrunc(Function):
             raise Exception("A dialect is needed for `DATE_TRUNC`")
 
         if dialect in DATE_TRUNC_DIALECTS:
-            return func.date_trunc(str(resolution), column)
+            return func.date_trunc(str(resolution), column, type_=DateTime)
 
         if dialect in SQLITE_DIALECTS:
             if str(resolution) == "second":
-                return func.datetime(func.strftime("%Y-%m-%dT%H:%M:%S", column))
+                return func.datetime(
+                    func.strftime("%Y-%m-%dT%H:%M:%S", column),
+                    type_=DateTime,
+                )
             if str(resolution) == "minute":
-                return func.datetime(func.strftime("%Y-%m-%dT%H:%M:00", column))
+                return func.datetime(
+                    func.strftime("%Y-%m-%dT%H:%M:00", column),
+                    type_=DateTime,
+                )
             if str(resolution) == "hour":
-                return func.datetime(func.strftime("%Y-%m-%dT%H:00:00", column))
+                return func.datetime(
+                    func.strftime("%Y-%m-%dT%H:00:00", column),
+                    type_=DateTime,
+                )
             if str(resolution) == "day":
-                return func.datetime(column, "start of day")
+                return func.datetime(column, "start of day", type_=DateTime)
             if str(resolution) == "week":
                 # https://stackoverflow.com/a/51666243
                 return func.datetime(
@@ -161,16 +171,18 @@ class DateTrunc(Function):
                     "weekday 0",
                     "-7 days",
                     "start of day",
+                    type_=DateTime,
                 )
             if str(resolution) == "month":
-                return func.datetime(column, "start of month")
+                return func.datetime(column, "start of month", type_=DateTime)
             if str(resolution) == "quarter":
                 return func.datetime(
                     column,
                     func.printf("-%d month", (func.strftime("%m", column) - 1) % 3 + 1),
+                    type_=DateTime,
                 )
             if str(resolution) == "year":
-                return func.datetime(column, "start of year")
+                return func.datetime(column, "start of year", type_=DateTime)
 
             raise Exception(f"Resolution {resolution} not supported by SQLite")
 
@@ -181,6 +193,7 @@ class DateTrunc(Function):
             return func.time_floor(
                 cast(column, TIMESTAMP),
                 ISO_DURATIONS[str(resolution)],
+                type_=DateTime,
             )
 
         raise Exception(
@@ -198,7 +211,7 @@ class Max(Function):
     is_aggregation = True
 
     @staticmethod
-    def infer_type(column: "Column") -> ColumnType:  # type: ignore
+    def infer_type(column: Column) -> ColumnType:  # type: ignore
         return column.type
 
     @staticmethod
@@ -210,7 +223,64 @@ class Max(Function):
         return func.max(column)
 
 
+class Coalesce(Function):
+    """
+    The ``COALESCE`` function.
+    """
+
+    is_aggregation = False
+
+    @staticmethod
+    def infer_type(*args: Any) -> ColumnType:
+        """
+        Coalesce requires that all arguments have the same type.
+        """
+        types: List[ColumnType] = [
+            arg.type
+            if isinstance(arg, Column)
+            else ColumnType(type(arg).__name__.upper())
+            for arg in args
+        ]
+
+        if not types:
+            raise DJInvalidInputException(
+                message="Wrong number of arguments to function",
+                errors=[
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message="You need to pass at least one argument to `COALESCE`.",
+                    ),
+                ],
+            )
+
+        if len(set(types)) > 1:
+            raise DJInvalidInputException(
+                message="All arguments MUST have the same type",
+                errors=[
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message=(
+                            "All arguments passed to `COALESCE` MUST have the same "
+                            "type. If the columns have different types they need to be "
+                            "cast to a common type."
+                        ),
+                        debug={"types": types},
+                    ),
+                ],
+            )
+
+        return types.pop()
+
+    @staticmethod
+    def get_sqla_function(  # type: ignore
+        *args: Any,
+        dialect: Optional[str] = None,
+    ) -> SqlaFunction:
+        return func.coalesce(*args)
+
+
 function_registry: Dict[str, Type[Function]] = {
+    "COALESCE": Coalesce,
     "COUNT": Count,
     "DATE_TRUNC": DateTrunc,
     "MAX": Max,
