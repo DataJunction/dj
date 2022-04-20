@@ -313,7 +313,7 @@ def get_function(
     name = function["name"][0]["value"]
     args = function["args"]
     evaluated_args = [get_expression(arg["Unnamed"], source, dialect) for arg in args]
-    func = function_registry[name.upper()]
+    func = function_registry[name]
 
     return func.get_sqla_function(*evaluated_args, dialect=dialect)
 

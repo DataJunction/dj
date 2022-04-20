@@ -24,6 +24,7 @@ from docopt import docopt
 
 from datajunction import __version__
 from datajunction.cli import compile as compile_
+from datajunction.errors import DJException
 from datajunction.utils import get_settings, setup_logging
 
 _logger = logging.getLogger(__name__)
@@ -45,7 +46,14 @@ async def main() -> None:
 
     try:
         if arguments["compile"]:
-            await compile_.run(repository, arguments["--force"], arguments["--reload"])
+            try:
+                await compile_.run(
+                    repository,
+                    arguments["--force"],
+                    arguments["--reload"],
+                )
+            except DJException as exc:
+                _logger.error(exc)
     except asyncio.CancelledError:
         _logger.info("Canceled")
 

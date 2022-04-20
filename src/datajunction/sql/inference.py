@@ -113,7 +113,7 @@ def evaluate_function(
     name = ".".join(part["value"] for part in function["name"])
     args = function["args"]
     evaluated_args = [evaluate_expression(parents, arg["Unnamed"]) for arg in args]
-    type_ = function_registry[name.upper()].infer_type(*evaluated_args)
+    type_ = function_registry[name].infer_type(*evaluated_args)
 
     return Column(name=alias, type=type_)
 
