@@ -44,7 +44,7 @@ Let's look at the ``COUNT()`` function in DJ:
             return func.count(argument)
 
 
-The first method, ``infer_type``, is responsible for type inference. The function is usually called as ``COUNT(column)``, ``COUNT(1)`` or ``COUNT(*)``, so we define the input argument as either a column, a star, or a number. In retrospect we could have also added a default value, to make ``COUNT()`` valid.
+The first method, ``infer_type``, is responsible for type inference. The function is usually called as ``COUNT(column)``, ``COUNT(1)`` or ``COUNT(*)``, so we define the input argument as either a column, a star, or a number. In retrospect we could have also added a default value, to make ``COUNT()`` valid. We can see that the method always return an integer.
 
 Compare that to the same method in the ``MAX()`` function
 
@@ -58,7 +58,7 @@ Compare that to the same method in the ``MAX()`` function
 
 ``MAX()`` takes a column, and returns a value with the same type as the column.
 
-The second method, ``get_sqla_function``, is responsible for translating the function and its arguments to a SQLAlchemy function. For ``COUNT`` the method is very simple, because SQLAlchemy already has the `function defined <https://github.com/sqlalchemy/sqlalchemy/blob/13a8552053c21a9fa7ff6f992ed49ee92cca73e4/lib/sqlalchemy/sql/functions.py#L1278>`_.
+Now let's look at the second method, ``get_sqla_function``, which is responsible for translating the function and its arguments to a SQLAlchemy function. For ``COUNT`` the method is very simple, because SQLAlchemy already has the `function defined <https://github.com/sqlalchemy/sqlalchemy/blob/13a8552053c21a9fa7ff6f992ed49ee92cca73e4/lib/sqlalchemy/sql/functions.py#L1278>`_.
 
 But what should we do when the function is not defined in SQLAlchemy? The ``func`` object in SQLAlchemy is a special function generator, and it accepts **any** attribute. If the function exists, like ``func.count``, SQLAlchemy will know how to translate that function to different dialects, and also its return type. If the function doesn't exist, on the other hand, SQLAlchemy will just translate it as-is. For example, the code ``func.my_function(1)`` will be translated to ``my_function(1)``, and will probably fail when ran in a database.
 
@@ -100,7 +100,7 @@ Let's take a look at the ``DATE_TRUNC()`` function to understand this better. So
                 ...
             ...
 
-The first thing to notice is that ``DATE_TRUNC()`` **requires** a dialect, since it's not a standard function. If the dialect is in the set of dialects that support ``DATE_TRUNC()`` natively we can simply translate the function to that using ``func.date_trunc``. Note that when using a custom function we should inform SQLAlchemy of the return type, using the `type_` argument.
+The first thing to notice is that ``DATE_TRUNC()`` **requires** a dialect, since it's not a standard function. If the dialect is in the set of dialects that support ``DATE_TRUNC()`` natively we can simply translate the function to that using ``func.date_trunc``. Note that when using a custom function we should inform SQLAlchemy of the return type, using the ``type_`` argument.
 
 If the dialet doesn't support ``DATE_TRUNC()`` and is part of the SQLite family we can implement the function using other functions supported by the dialect. In the code above we're translating a call like this:
 
