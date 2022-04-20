@@ -59,5 +59,5 @@ async def dj_exception_handler(  # pylint: disable=unused-argument
     return JSONResponse(
         status_code=exc.http_status_code,
         content=exc.to_dict(),
-        headers={"X-DJ-Error": "true"},
+        headers={"X-DJ-Error": "true", "X-DBAPI-Exception": exc.dbapi_exception},
     )
