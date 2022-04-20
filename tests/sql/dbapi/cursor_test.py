@@ -66,11 +66,13 @@ def test_cursor_execute_error(requests_mock: Mocker) -> None:
                     "debug": {"current": 4, "limit": 5},
                 },
             ],
-            "dbapi_exception": "ProgrammingError",
-            "http_status_code": 422,
         },
         status_code=422,
-        headers={"X-DJ-Error": "true", "Content-Type": "application/json"},
+        headers={
+            "X-DJ-Error": "true",
+            "X-DBAPI-Exception": "ProgrammingError",
+            "Content-Type": "application/json",
+        },
     )
 
     url = URL("http://localhost:8000/")

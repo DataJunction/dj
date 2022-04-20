@@ -84,9 +84,6 @@ class DJExceptionType(TypedDict):
     errors: List[DJErrorType]
     warnings: List[DJWarningType]
 
-    dbapi_exception: DBAPIExceptions
-    http_status_code: int
-
 
 class DJException(Exception):
     """
@@ -130,22 +127,7 @@ class DJException(Exception):
             "message": self.message,
             "errors": [error.dict() for error in self.errors],
             "warnings": [warning.dict() for warning in self.warnings],
-            "dbapi_exception": self.dbapi_exception,
-            "http_status_code": self.http_status_code,
         }
-
-    @classmethod
-    def from_dict(cls, content: DJExceptionType) -> "DJException":
-        """
-        Instantiate class from a dict.
-        """
-        return cls(
-            message=content["message"],
-            errors=[DJError(**error) for error in content["errors"]],
-            warnings=[DJWarning(**warning) for warning in content["warnings"]],
-            dbapi_exception=content["dbapi_exception"],
-            http_status_code=content["http_status_code"],
-        )
 
 
 class DJInvalidInputException(DJException):
