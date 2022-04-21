@@ -13,7 +13,9 @@ class ErrorCode(int, Enum):
     Error codes.
     """
 
+    # generic errors
     UNKWNON_ERROR = 0
+    NOT_IMPLEMENTED_ERROR = 1
 
     # metric API
     INVALID_FILTER_PATTERN = 100
@@ -24,6 +26,21 @@ class ErrorCode(int, Enum):
     INVALID_ARGUMENTS_TO_FUNCTION = 200
 
 
+class DebugType(TypedDict, total=False):
+    """
+    Type for debug information.
+    """
+
+    # link to where an issue can be filed
+    issue: str
+
+    # link to documentation about the problem
+    documentation: str
+
+    # any additional context
+    context: Dict[str, Any]
+
+
 class DJErrorType(TypedDict):
     """
     Type for serialized errors.
@@ -31,7 +48,7 @@ class DJErrorType(TypedDict):
 
     code: int
     message: str
-    debug: Optional[Dict[str, Any]]
+    debug: Optional[DebugType]
 
 
 class DJError(SQLModel):
@@ -43,6 +60,12 @@ class DJError(SQLModel):
     message: str
     debug: Optional[Dict[str, Any]]
 
+    def __str__(self) -> str:
+        """
+        Format the error nicely.
+        """
+        return f"{self.message} (error code: {self.code})"
+
 
 class DJWarningType(TypedDict):
     """
@@ -51,7 +74,7 @@ class DJWarningType(TypedDict):
 
     code: Optional[int]
     message: str
-    debug: Optional[Dict[str, Any]]
+    debug: Optional[DebugType]
 
 
 class DJWarning(SQLModel):
@@ -132,12 +155,33 @@ class DJException(Exception):
             "warnings": [warning.dict() for warning in self.warnings],
         }
 
+    def __str__(self) -> str:
+        """
+        Format the exception nicely.
+        """
+        if not self.errors:
+            return self.message
+
+        plural = "s" if len(self.errors) > 1 else ""
+        combined_errors = "\n".join(f"- {error}" for error in self.errors)
+        errors = f"The following error{plural} happened:\n{combined_errors}"
+
+        return f"{self.message}\n{errors}"
+
 
 class DJInvalidInputException(DJException):
-
     """
     Exception raised when the input provided by the user is invalid.
     """
 
     dbapi_exception: DBAPIExceptions = "ProgrammingError"
     http_status_code: int = 422
+
+
+class DJNotImplementedException(DJException):
+    """
+    Exception raised when some functionality hasn't been implemented in DJ yet.
+    """
+
+    dbapi_exception: DBAPIExceptions = "NotSupportedError"
+    http_status_code: int = 500
