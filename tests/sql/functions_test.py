@@ -1,14 +1,15 @@
 """
 Tests for ``datajunction.sql.functions``.
 """
+# pylint: disable=line-too-long
 
 import pytest
 from sqlalchemy import String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 
-from datajunction.errors import DJInvalidInputException
+from datajunction.errors import DJInvalidInputException, DJNotImplementedException
 from datajunction.models.column import Column
-from datajunction.sql.functions import Coalesce, Count, Max
+from datajunction.sql.functions import Coalesce, Count, Max, function_registry
 from datajunction.typing import ColumnType
 
 from .utils import query_to_string
@@ -51,16 +52,28 @@ def test_coalesce_infer_type() -> None:
             Column(name="user_id", type=ColumnType.INT),
             Column(name="name", type=ColumnType.STR),
         )
-    assert str(excinfo.value) == "All arguments MUST have the same type"
+    assert (
+        str(excinfo.value)
+        == """All arguments MUST have the same type
+The following error happened:
+- All arguments passed to `COALESCE` MUST have the same type. If the columns have different types they need to be cast to a common type. (error code: 200)"""
+    )
     assert excinfo.value.errors[0].message == (
         "All arguments passed to `COALESCE` MUST have the same type. If the columns "
         "have different types they need to be cast to a common type."
     )
-    assert excinfo.value.errors[0].debug == {"types": [ColumnType.INT, ColumnType.STR]}
+    assert excinfo.value.errors[0].debug == {
+        "context": {"types": [ColumnType.INT, ColumnType.STR]},
+    }
 
     with pytest.raises(DJInvalidInputException) as excinfo:
         Coalesce.infer_type()
-    assert str(excinfo.value) == "Wrong number of arguments to function"
+    assert (
+        str(excinfo.value)
+        == """Wrong number of arguments to function
+The following error happened:
+- You need to pass at least one argument to `COALESCE`. (error code: 200)"""
+    )
     assert excinfo.value.errors[0].message == (
         "You need to pass at least one argument to `COALESCE`."
     )
@@ -74,4 +87,18 @@ def test_coalesce_get_sqla_function() -> None:
     assert (
         query_to_string(Coalesce.get_sqla_function(sqla_column, "test"))
         == "coalesce(ds, 'test')"
+    )
+
+
+def test_missing_functions() -> None:
+    """
+    Test missing functions.
+    """
+    with pytest.raises(DJNotImplementedException) as excinfo:
+        function_registry["INVALID_FUNCTION"]  # pylint: disable=pointless-statement
+    assert (
+        str(excinfo.value)
+        == """The function "INVALID_FUNCTION" hasn't been implemented yet
+The following error happened:
+- The function "INVALID_FUNCTION" hasn't been implemented in DJ yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Function+missing:+INVALID_FUNCTION to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst to implement it. (error code: 1)"""
     )

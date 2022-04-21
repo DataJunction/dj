@@ -7,9 +7,11 @@ from pathlib import Path
 
 import pytest
 from pytest_mock import MockerFixture
+from yarl import URL
 
 from datajunction.typing import ColumnType
 from datajunction.utils import (
+    get_issue_url,
     get_more_specific_type,
     get_name_from_path,
     get_session,
@@ -121,3 +123,21 @@ def test_get_more_specific_type() -> None:
     )
     assert get_more_specific_type(ColumnType.STR, ColumnType.INT) == ColumnType.INT
     assert get_more_specific_type(None, ColumnType.INT) == ColumnType.INT
+
+
+def test_get_issue_url() -> None:
+    """
+    Test ``get_issue_url``.
+    """
+    assert get_issue_url() == URL(
+        "https://github.com/DataJunction/datajunction/issues/new",
+    )
+    assert get_issue_url(
+        baseurl=URL("https://example.org/"),
+        title="Title with spaces",
+        body="This is the body",
+        labels=["help", "troubleshoot"],
+    ) == URL(
+        "https://example.org/?title=Title+with+spaces&"
+        "body=This+is+the+body&labels=help,troubleshoot",
+    )

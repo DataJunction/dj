@@ -102,7 +102,7 @@ Let's take a look at the ``DATE_TRUNC()`` function to understand this better. So
 
 The first thing to notice is that ``DATE_TRUNC()`` **requires** a dialect, since it's not a standard function. If the dialect is in the set of dialects that support ``DATE_TRUNC()`` natively we can simply translate the function to that using ``func.date_trunc``. Note that when using a custom function we should inform SQLAlchemy of the return type, using the ``type_`` argument.
 
-If the dialet doesn't support ``DATE_TRUNC()`` and is part of the SQLite family we can implement the function using other functions supported by the dialect. In the code above we're translating a call like this:
+If the dialect doesn't support ``DATE_TRUNC()`` and is part of the SQLite family we can implement the function using other functions supported by the dialect. In the code above we're translating a call like this:
 
 .. code-block:: sql
 

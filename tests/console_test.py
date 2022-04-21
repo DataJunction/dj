@@ -10,6 +10,7 @@ from pytest_mock import MockerFixture
 
 from datajunction import console
 from datajunction.config import Settings
+from datajunction.errors import DJException
 
 
 @pytest.mark.asyncio
@@ -88,6 +89,32 @@ async def test_main_canceled(mocker: MockerFixture) -> None:
     await console.main()
 
     _logger.info.assert_called_with("Canceled")
+
+
+@pytest.mark.asyncio
+async def test_main_error(mocker: MockerFixture) -> None:
+    """
+    Test canceling the ``main`` coroutine.
+    """
+    exc = DJException("An error occurred")
+    compile_ = mocker.patch("datajunction.console.compile_")
+    compile_.run = mocker.AsyncMock(side_effect=exc)
+    _logger = mocker.patch("datajunction.console._logger")
+
+    mocker.patch(
+        "datajunction.console.docopt",
+        return_value={
+            "--loglevel": "debug",
+            "--force": False,
+            "--reload": False,
+            "compile": True,
+            "REPOSITORY": "/path/to/another/repository",
+        },
+    )
+
+    await console.main()
+
+    _logger.error.assert_called_with(exc)
 
 
 @pytest.mark.asyncio

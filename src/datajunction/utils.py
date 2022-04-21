@@ -6,12 +6,13 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator, List, Optional
 
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, SQLModel, create_engine
+from yarl import URL
 
 from datajunction.config import Settings
 from datajunction.typing import ColumnType
@@ -148,3 +149,24 @@ def get_more_specific_type(
     ]
 
     return sorted([current_type, new_type], key=hierarchy.index)[1]
+
+
+def get_issue_url(
+    baseurl: URL = URL("https://github.com/DataJunction/datajunction/issues/new"),
+    title: Optional[str] = None,
+    body: Optional[str] = None,
+    labels: Optional[List[str]] = None,
+) -> URL:
+    """
+    Return the URL to file an issue on GitHub.
+
+    https://docs.github.com/en/issues/tracking-your-work-with-issues/creating-an-issue#creating-an-issue-from-a-url-query
+    """
+    query_arguments = {
+        "title": title,
+        "body": body,
+        "labels": ",".join(label.strip() for label in labels) if labels else None,
+    }
+    query_arguments = {k: v for k, v in query_arguments.items() if v is not None}
+
+    return baseurl % query_arguments

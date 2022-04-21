@@ -70,9 +70,7 @@ def parse_filter(filter_: str) -> Tuple[str, FilterOperator, str]:
                         "(<=|<|>=|>|!=|=), followed by a value. If the value is a "
                         "string or date/time it should be enclosed in single quotes."
                     ),
-                    debug={
-                        "filter": filter_,
-                    },
+                    debug={"context": {"filter": filter_}},
                 ),
             ],
         )
