@@ -471,8 +471,12 @@ def test_date_trunc() -> None:
 
     function: Function = {
         "args": [
-            {"Unnamed": {"Value": {"SingleQuotedString": "second"}}},
-            {"Unnamed": {"Identifier": {"quote_style": None, "value": "col"}}},
+            {"Unnamed": {"Expr": {"Value": {"SingleQuotedString": "second"}}}},
+            {
+                "Unnamed": {
+                    "Expr": {"Identifier": {"quote_style": None, "value": "col"}},
+                },
+            },
         ],
         "distinct": False,
         "name": [{"quote_style": None, "value": "DATE_TRUNC"}],
@@ -496,8 +500,12 @@ def test_date_trunc_invalid() -> None:
 
     function: Function = {
         "args": [
-            {"Unnamed": {"Value": {"SingleQuotedString": "second"}}},
-            {"Unnamed": {"Identifier": {"quote_style": None, "value": "col"}}},
+            {"Unnamed": {"Expr": {"Value": {"SingleQuotedString": "second"}}}},
+            {
+                "Unnamed": {
+                    "Expr": {"Identifier": {"quote_style": None, "value": "col"}},
+                },
+            },
         ],
         "distinct": False,
         "name": [{"quote_style": None, "value": "DATE_TRUNC"}],
@@ -514,17 +522,29 @@ def test_date_trunc_invalid() -> None:
         str(excinfo.value)
         == """Dialect "unknown" doesn't support `DATE_TRUNC`
 The following error happened:
-- The function "DATE_TRUNC" hasn't been implemented for dialect "unknown" in DJ yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=DATE_TRUNC+for+unknown to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst#date-trunc to implement it. (error code: 1)"""
+- The function "DATE_TRUNC" hasn't been implemented for dialect "unknown" in DJ yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=DATE_TRUNC+for+unknown to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst#date_trunc to implement it. (error code: 1)"""
     )
 
-    function["args"][0]["Unnamed"]["Value"]["SingleQuotedString"] = "invalid"
+    function = {
+        "args": [
+            {"Unnamed": {"Expr": {"Value": {"SingleQuotedString": "invalid"}}}},
+            {
+                "Unnamed": {
+                    "Expr": {"Identifier": {"quote_style": None, "value": "col"}},
+                },
+            },
+        ],
+        "distinct": False,
+        "name": [{"quote_style": None, "value": "DATE_TRUNC"}],
+        "over": None,
+    }
     with pytest.raises(Exception) as excinfo:
         query_to_string(get_function(function, source, dialect="sqlite"))
     assert (
         str(excinfo.value)
         == """Resolution "invalid" not supported by dialect "sqlite"
 The following error happened:
-- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "sqlite" yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Resolution+missing+for+sqlite:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst#date-trunc to implement it. (error code: 1)"""
+- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "sqlite" yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Resolution+missing+for+sqlite:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst#date_trunc to implement it. (error code: 1)"""
     )
 
     with pytest.raises(Exception) as excinfo:
@@ -533,7 +553,7 @@ The following error happened:
         str(excinfo.value)
         == """Resolution "invalid" not supported by dialect "druid"
 The following error happened:
-- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "druid" yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Resolution+missing+for+druid:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst#date-trunc to implement it. (error code: 1)"""
+- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "druid" yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Resolution+missing+for+druid:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst#date_trunc to implement it. (error code: 1)"""
     )
 
 
@@ -570,8 +590,12 @@ def test_date_trunc_sqlite(resolution: str, expected: str) -> None:
 
     function: Function = {
         "args": [
-            {"Unnamed": {"Value": {"SingleQuotedString": resolution}}},
-            {"Unnamed": {"Identifier": {"quote_style": None, "value": "col"}}},
+            {"Unnamed": {"Expr": {"Value": {"SingleQuotedString": resolution}}}},
+            {
+                "Unnamed": {
+                    "Expr": {"Identifier": {"quote_style": None, "value": "col"}},
+                },
+            },
         ],
         "distinct": False,
         "name": [{"quote_style": None, "value": "DATE_TRUNC"}],
@@ -605,8 +629,12 @@ def test_date_trunc_druid(resolution: str, expected: str) -> None:
 
     function: Function = {
         "args": [
-            {"Unnamed": {"Value": {"SingleQuotedString": resolution}}},
-            {"Unnamed": {"Identifier": {"quote_style": None, "value": "col"}}},
+            {"Unnamed": {"Expr": {"Value": {"SingleQuotedString": resolution}}}},
+            {
+                "Unnamed": {
+                    "Expr": {"Identifier": {"quote_style": None, "value": "col"}},
+                },
+            },
         ],
         "distinct": False,
         "name": [{"quote_style": None, "value": "DATE_TRUNC"}],

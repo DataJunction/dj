@@ -4,7 +4,7 @@ Functions for type inference.
 
 # pylint: disable=unused-argument
 
-from typing import TYPE_CHECKING, List, Optional, Type, Union
+from typing import TYPE_CHECKING, List, Optional, Type, Union, cast
 
 from sqloxide import parse_sql
 
@@ -111,8 +111,14 @@ def evaluate_function(
     Evaluate a "Function" node.
     """
     name = ".".join(part["value"] for part in function["name"])
-    args = function["args"]
-    evaluated_args = [evaluate_expression(parents, arg["Unnamed"]) for arg in args]
+
+    args: List[Expression] = []
+    for arg in function["args"]:
+        if isinstance(arg["Unnamed"], dict) and "Expr" in arg["Unnamed"]:
+            args.append(arg["Unnamed"]["Expr"])
+        else:
+            args.append(cast(Expression, arg["Unnamed"]))
+    evaluated_args = [evaluate_expression(parents, arg) for arg in args]
     type_ = function_registry[name].infer_type(*evaluated_args)
 
     return Column(name=alias, type=type_)

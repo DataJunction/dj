@@ -135,8 +135,12 @@ class Expression(TypedDict, total=False):
     BinaryOp: BinaryOp  # type: ignore
 
 
+class UnnamedArgument(TypedDict):
+    Expr: Expression
+
+
 class Argument(TypedDict, total=False):
-    Unnamed: Expression
+    Unnamed: Union[UnnamedArgument, Wildcard]
 
 
 class Over(TypedDict):
@@ -169,8 +173,8 @@ class OrderBy(TypedDict, total=False):
 
 
 class Projection(TypedDict, total=False):
-    UnnamedExpr: Expression
     ExprWithAlias: ExpressionWithAlias
+    UnnamedExpr: Expression
 
 
 Wildcard = Literal["Wildcard"]
