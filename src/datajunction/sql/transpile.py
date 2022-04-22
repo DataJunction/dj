@@ -275,7 +275,7 @@ def add_alias(expression: SqlaExpression, alias: str) -> SqlaExpression:
     return literal(expression).label(alias)
 
 
-def get_expression(
+def get_expression(  # pylint: disable=too-many-return-statements
     expression: Expression,
     source: Optional[Select] = None,
     dialect: Optional[str] = None,
@@ -311,8 +311,14 @@ def get_function(
     Build a function.
     """
     name = function["name"][0]["value"]
-    args = function["args"]
-    evaluated_args = [get_expression(arg["Unnamed"], source, dialect) for arg in args]
+
+    args: List[Expression] = []
+    for arg in function["args"]:
+        if isinstance(arg["Unnamed"], dict) and "Expr" in arg["Unnamed"]:
+            args.append(arg["Unnamed"]["Expr"])
+        else:
+            args.append(cast(Expression, arg["Unnamed"]))
+    evaluated_args = [get_expression(arg, source, dialect) for arg in args]
     func = function_registry[name]
 
     return func.get_sqla_function(*evaluated_args, dialect=dialect)

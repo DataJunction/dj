@@ -135,7 +135,7 @@ class DateTruncNotImplementException(DJNotImplementedException):
         )
         docs_url = (
             "https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst"
-            "#date-trunc"
+            "#date_trunc"
         )
         super().__init__(
             message=f'Resolution "{resolution}" not supported by dialect "{dialect}"',
@@ -247,7 +247,7 @@ class DateTrunc(Function):
         issue_url = get_issue_url(title=f"DATE_TRUNC for {dialect}")
         docs_url = (
             "https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst"
-            "#date-trunc"
+            "#date_trunc"
         )
         raise DJNotImplementedException(
             message=f'Dialect "{dialect}" doesn\'t support `DATE_TRUNC`',
