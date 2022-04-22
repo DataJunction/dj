@@ -6,14 +6,67 @@ Functions
 
 Currently DJ supports only a small subset of SQL functions, limiting the definition of metrics. In order to add new functions to DJ we need to implement two things:
 
-1. Type inference for the function. This is easier in some functions and harder in others. For example, the ``COUNT()`` function always return an integer, so its return type is the same regardless of the input arguments. The ``MAX()`` function, on the other hands, return a value with the same type as the input argument.
+1. Type inference for the function. This is easier in some functions and harder in others. For example, the ``COUNT`` function always return an integer, so its return type is the same regardless of the input arguments. The ``MAX`` function, on the other hands, return a value with the same type as the input argument.
 
 2. Tranpilation to SQLAlchemy. In order to run queries, DJ parses the metric definitions (written in ANSI SQL), and converts them to a SQLAlchemy query object, so it can be translated to different dialects (Hive, Trino, Postgres, etc.). Some functions are easier to translate, specially if they are already defined in ``sqlalchemy.sql.functions``. Others, like ``DATE_TRUNC``, are more complex because they are dialect specific.
 
-Anatomy of a function
-=====================
+Supported functions
+===================
 
-Let's look at the ``COUNT()`` function in DJ:
+``COUNT``
+---------
+
+The humble ``COUNT()``.
+
+.. code-block:: sql
+
+    > SELECT COUNT(*) FROM some_table;
+    10
+    > SELECT COUNT(1) FROM some_table;
+    10
+    > SELECT COUNT(column) FROM some_table;  -- ignores NULLs
+    5
+
+``COALESCE``
+------------
+
+Return the first non-null value:
+
+.. code-block:: sql
+
+    > SELECT column_a, column_b FROM some_table;
+    1, NULL
+    NULL, 10
+    NULL, NULL
+    > SELECT COALESCE(column_a, column_b, -1) FROM some_table;
+    1
+    10
+    -1
+
+``MAX``
+-------
+
+Return the maximum value from a column:
+
+.. code-block:: sql
+
+    > SELECT MAX(column);
+    1000
+
+``DATE_TRUNC``
+--------------
+
+Truncate a ``DATETIME`` column to a given resolution:
+
+.. code-block:: sql
+
+    > SELECT DATE_TRUNC('minute', CAST('2022-01-01T12:34:56Z' AS TIMESTAMP);
+    2022-01-01T12:34:00Z
+
+Adding new functions
+====================
+
+Let's look at the ``COUNT`` function in DJ:
 
 .. code-block:: python
 
@@ -44,9 +97,9 @@ Let's look at the ``COUNT()`` function in DJ:
             return func.count(argument)
 
 
-The first method, ``infer_type``, is responsible for type inference. The function is usually called as ``COUNT(column)``, ``COUNT(1)`` or ``COUNT(*)``, so we define the input argument as either a column, a star, or a number. In retrospect we could have also added a default value, to make ``COUNT()`` valid. We can see that the method always return an integer.
+The first method, ``infer_type``, is responsible for type inference. The function is usually called as ``COUNT(column)``, ``COUNT(1)`` or ``COUNT(*)``, so we define the input argument as either a column, a star, or a number. In retrospect we could have also added a default value, to make ``COUNT`` valid. We can see that the method always return an integer.
 
-Compare that to the same method in the ``MAX()`` function
+Compare that to the same method in the ``MAX`` function
 
 .. code-block:: python
 
@@ -56,13 +109,13 @@ Compare that to the same method in the ``MAX()`` function
         def infer_type(column: Column) -> ColumnType:
             return column.type
 
-``MAX()`` takes a column, and returns a value with the same type as the column.
+``MAX`` takes a column, and returns a value with the same type as the column.
 
 Now let's look at the second method, ``get_sqla_function``, which is responsible for translating the function and its arguments to a SQLAlchemy function. For ``COUNT`` the method is very simple, because SQLAlchemy already has the `function defined <https://github.com/sqlalchemy/sqlalchemy/blob/13a8552053c21a9fa7ff6f992ed49ee92cca73e4/lib/sqlalchemy/sql/functions.py#L1278>`_.
 
 But what should we do when the function is not defined in SQLAlchemy? The ``func`` object in SQLAlchemy is a special function generator, and it accepts **any** attribute. If the function exists, like ``func.count``, SQLAlchemy will know how to translate that function to different dialects, and also its return type. If the function doesn't exist, on the other hand, SQLAlchemy will just translate it as-is. For example, the code ``func.my_function(1)`` will be translated to ``my_function(1)``, and will probably fail when ran in a database.
 
-Let's take a look at the ``DATE_TRUNC()`` function to understand this better. Some databases (like Trino and Postgres) support ``DATE_TRUNC()``, while others (like Druid and SQLite) don't. We can write our method like this, then:
+Let's take a look at the ``DATE_TRUNC`` function to understand this better. Some databases (like Trino and Postgres) support ``DATE_TRUNC``, while others (like Druid and SQLite) don't. We can write our method like this, then:
 
 .. code-block:: python
 
@@ -100,9 +153,9 @@ Let's take a look at the ``DATE_TRUNC()`` function to understand this better. So
                 ...
             ...
 
-The first thing to notice is that ``DATE_TRUNC()`` **requires** a dialect, since it's not a standard function. If the dialect is in the set of dialects that support ``DATE_TRUNC()`` natively we can simply translate the function to that using ``func.date_trunc``. Note that when using a custom function we should inform SQLAlchemy of the return type, using the ``type_`` argument.
+The first thing to notice is that ``DATE_TRUNC`` **requires** a dialect, since it's not a standard function. If the dialect is in the set of dialects that support ``DATE_TRUNC`` natively we can simply translate the function to that using ``func.date_trunc``. Note that when using a custom function we should inform SQLAlchemy of the return type, using the ``type_`` argument.
 
-If the dialect doesn't support ``DATE_TRUNC()`` and is part of the SQLite family we can implement the function using other functions supported by the dialect. In the code above we're translating a call like this:
+If the dialect doesn't support ``DATE_TRUNC`` and is part of the SQLite family we can implement the function using other functions supported by the dialect. In the code above we're translating a call like this:
 
 .. code-block:: sql
 

@@ -46,6 +46,7 @@ from sqlalchemy.sql.sqltypes import TIMESTAMP, DateTime
 
 from datajunction.errors import (
     DJError,
+    DJInternalErrorException,
     DJInvalidInputException,
     DJNotImplementedException,
     ErrorCode,
@@ -123,6 +124,45 @@ class Count(Function):
         return func.count(argument)
 
 
+class DateTruncNotImplementException(DJNotImplementedException):
+    """
+    Custom exception for resolutions not implemented in ``DATE_TRUNC``.
+    """
+
+    def __init__(self, dialect: str, resolution: str):
+        issue_url = str(
+            get_issue_url(title=f"Resolution missing for {dialect}: {resolution}"),
+        )
+        docs_url = (
+            "https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst"
+            "#date-trunc"
+        )
+        super().__init__(
+            message=f'Resolution "{resolution}" not supported by dialect "{dialect}"',
+            errors=[
+                DJError(
+                    code=ErrorCode.NOT_IMPLEMENTED_ERROR,
+                    message=(
+                        f'The resolution "{resolution}" in the `DATE_TRUNC` function '
+                        f'hasn\'t been implemented in DJ for the dialect "{dialect}" '
+                        f"yet. You can file an issue at {issue_url} to request it to "
+                        f"be added, or use the documentation at {docs_url} to implement "
+                        "it."
+                    ),
+                    debug={
+                        "issue": issue_url,
+                        "documentation": docs_url,
+                        "context": {
+                            "dialect": dialect,
+                            "function": "DATE_TRUNC",
+                            "resolution": resolution,
+                        },
+                    },
+                ),
+            ],
+        )
+
+
 class DateTrunc(Function):
     """
     The ``DATE_TRUNC`` function.
@@ -146,7 +186,9 @@ class DateTrunc(Function):
         dialect: Optional[str] = None,
     ) -> SqlaFunction:
         if dialect is None:
-            raise Exception("A dialect is needed for `DATE_TRUNC`")
+            raise DJInternalErrorException(
+                message="A dialect is needed for `DATE_TRUNC`",
+            )
 
         if dialect in DATE_TRUNC_DIALECTS:
             return func.date_trunc(str(resolution), column, type_=DateTime)
@@ -190,11 +232,11 @@ class DateTrunc(Function):
             if str(resolution) == "year":
                 return func.datetime(column, "start of year", type_=DateTime)
 
-            raise Exception(f"Resolution {resolution} not supported by SQLite")
+            raise DateTruncNotImplementException(dialect, resolution)
 
         if dialect == "druid":
             if str(resolution) not in ISO_DURATIONS:
-                raise Exception(f"Resolution {resolution} not supported by Druid")
+                raise DateTruncNotImplementException(dialect, resolution)
 
             return func.time_floor(
                 cast(column, TIMESTAMP),
@@ -202,10 +244,29 @@ class DateTrunc(Function):
                 type_=DateTime,
             )
 
-        raise Exception(
-            f"Dialect {dialect} doesn't support `DATE_TRUNC`. Please file a ticket at "
-            "https://github.com/DataJunction/datajunction/issues/new?"
-            f"title=date_trunc+for+{dialect}.",
+        issue_url = get_issue_url(title=f"DATE_TRUNC for {dialect}")
+        docs_url = (
+            "https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst"
+            "#date-trunc"
+        )
+        raise DJNotImplementedException(
+            message=f'Dialect "{dialect}" doesn\'t support `DATE_TRUNC`',
+            errors=[
+                DJError(
+                    code=ErrorCode.NOT_IMPLEMENTED_ERROR,
+                    message=(
+                        f'The function "DATE_TRUNC" hasn\'t been implemented for '
+                        f'dialect "{dialect}" in DJ yet. You can file an issue at '
+                        f"{issue_url} to request it to be added, or use the "
+                        f"documentation at {docs_url} to implement it."
+                    ),
+                    debug={
+                        "issue": issue_url,
+                        "documentation": docs_url,
+                        "context": {"dialect": dialect},
+                    },
+                ),
+            ],
         )
 
 
@@ -305,12 +366,12 @@ class FunctionRegistry:  # pylint: disable=too-few-public-methods
         )
 
         raise DJNotImplementedException(
-            message=f'The function "{name}" hasn\'t been implemented yet',
+            message=f"The function `{name}` hasn't been implemented yet",
             errors=[
                 DJError(
                     code=ErrorCode.NOT_IMPLEMENTED_ERROR,
                     message=(
-                        f'The function "{name}" hasn\'t been implemented in DJ yet. '
+                        f"The function `{name}` hasn't been implemented in DJ yet. "
                         f"You can file an issue at {issue_url} to request it to be "
                         f"added, or use the documentation at {docs_url} to implement it."
                     ),

@@ -185,3 +185,12 @@ class DJNotImplementedException(DJException):
 
     dbapi_exception: DBAPIExceptions = "NotSupportedError"
     http_status_code: int = 500
+
+
+class DJInternalErrorException(DJException):
+    """
+    Exception raised when we do something wrong in the code.
+    """
+
+    dbapi_exception: DBAPIExceptions = "InternalError"
+    http_status_code: int = 500

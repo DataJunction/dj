@@ -2,6 +2,8 @@
 Tests for ``datajunction.sql.transpile``.
 """
 
+# pylint: disable=line-too-long
+
 import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
@@ -508,20 +510,31 @@ def test_date_trunc_invalid() -> None:
 
     with pytest.raises(Exception) as excinfo:
         query_to_string(get_function(function, source, dialect="unknown"))
-    assert str(excinfo.value) == (
-        "Dialect unknown doesn't support `DATE_TRUNC`. Please file a ticket at "
-        "https://github.com/DataJunction/datajunction/issues/new?"
-        "title=date_trunc+for+unknown."
+    assert (
+        str(excinfo.value)
+        == """Dialect "unknown" doesn't support `DATE_TRUNC`
+The following error happened:
+- The function "DATE_TRUNC" hasn't been implemented for dialect "unknown" in DJ yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=DATE_TRUNC+for+unknown to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst#date-trunc to implement it. (error code: 1)"""
     )
 
     function["args"][0]["Unnamed"]["Value"]["SingleQuotedString"] = "invalid"
     with pytest.raises(Exception) as excinfo:
         query_to_string(get_function(function, source, dialect="sqlite"))
-    assert str(excinfo.value) == "Resolution invalid not supported by SQLite"
+    assert (
+        str(excinfo.value)
+        == """Resolution "invalid" not supported by dialect "sqlite"
+The following error happened:
+- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "sqlite" yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Resolution+missing+for+sqlite:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst#date-trunc to implement it. (error code: 1)"""
+    )
 
     with pytest.raises(Exception) as excinfo:
         query_to_string(get_function(function, source, dialect="druid"))
-    assert str(excinfo.value) == "Resolution invalid not supported by Druid"
+    assert (
+        str(excinfo.value)
+        == """Resolution "invalid" not supported by dialect "druid"
+The following error happened:
+- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "druid" yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Resolution+missing+for+druid:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst#date-trunc to implement it. (error code: 1)"""
+    )
 
 
 @pytest.mark.parametrize(
