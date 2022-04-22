@@ -98,7 +98,7 @@ def test_missing_functions() -> None:
         function_registry["INVALID_FUNCTION"]  # pylint: disable=pointless-statement
     assert (
         str(excinfo.value)
-        == """The function "INVALID_FUNCTION" hasn't been implemented yet
+        == """The function `INVALID_FUNCTION` hasn't been implemented yet
 The following error happened:
-- The function "INVALID_FUNCTION" hasn't been implemented in DJ yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Function+missing:+INVALID_FUNCTION to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst to implement it. (error code: 1)"""
+- The function `INVALID_FUNCTION` hasn't been implemented in DJ yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Function+missing:+INVALID_FUNCTION to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst to implement it. (error code: 1)"""
     )
