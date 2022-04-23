@@ -96,7 +96,7 @@ def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression
 
     if column.type.python_type in [datetime.date, datetime.datetime]:
         try:
-            value = parse(value)
+            value = str(parse(value))
         except Exception as ex:
             raise Exception(f"Invalid date or datetime value: {value}") from ex
     else:
@@ -186,7 +186,8 @@ def get_query_for_node(  # pylint: disable=too-many-locals
         node_select.append_column(columns[groupby])
 
     engine = sqla_create_engine(database.URI)
-    sql = str(node_select.compile(engine, compile_kwargs={"literal_binds": True}))
+    dialect = make_url(database.URI).get_dialect()
+    sql = str(node_select.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}))
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
 

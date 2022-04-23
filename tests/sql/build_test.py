@@ -402,15 +402,15 @@ def test_get_filter(mocker: MockerFixture) -> None:
 
     # date
     get_filter(columns, "day=2020-01-01")
-    equals.assert_called_with(column_date, datetime.datetime(year=2020, month=1, day=1))
+    equals.assert_called_with(column_date, '2020-01-01 00:00:00')
     get_filter(columns, "day<20200202")
-    less_than.assert_called_with(column_date, datetime.datetime(year=2020, month=2, day=2))
+    less_than.assert_called_with(column_date, '2020-02-02 00:00:00')
     get_filter(columns, "day=3/3/2020")
-    equals.assert_called_with(column_date, datetime.datetime(year=2020, month=3, day=3))
+    equals.assert_called_with(column_date, '2020-03-03 00:00:00')
 
     # datetime
     get_filter(columns, "dt=2012-01-19 17:21:00")
-    equals.assert_called_with(column_dt, datetime.datetime(2012, 1, 19, 17, 21))
+    equals.assert_called_with(column_dt, '2012-01-19 17:21:00')
     with pytest.raises(Exception) as excinfo:
         get_filter(columns, "dt>foo/bar-baz")
     assert str(excinfo.value) == "Invalid date or datetime value: foo/bar-baz"
