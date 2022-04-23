@@ -5,6 +5,7 @@ Functions for building queries, from nodes or SQL.
 import ast
 import operator
 import re
+import datetime
 from dateutil.parser import parse
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple, cast
 
@@ -93,7 +94,7 @@ def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression
     column = columns[name]
     comparison = COMPARISONS[operator_]
 
-    if type(column.type) in [Date, DateTime]:
+    if column.type.python_type in [datetime.date, datetime.datetime]:
         try:
             value = parse(value)
         except Exception as ex:
@@ -104,7 +105,6 @@ def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression
         except Exception as ex:
             raise Exception(f"Invalid value: {value}") from ex
 
-    print('ccv', comparison, column, value)
     return comparison(column, value)
 
 
