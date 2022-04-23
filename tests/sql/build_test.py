@@ -3,7 +3,7 @@ Tests for ``datajunction.sql.build``.
 """
 # pylint: disable=invalid-name, too-many-lines, line-too-long
 
-from datetime import datetime
+import datetime
 import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
@@ -391,9 +391,9 @@ def test_get_filter(mocker: MockerFixture) -> None:
     })
     column_a = mocker.MagicMock()
     column_date = mocker.MagicMock()
-    column_date.type = Date()
+    column_date.type.python_type = datetime.date
     column_dt = mocker.MagicMock()
-    column_dt.type = DateTime()
+    column_dt.type.python_type = datetime.datetime
     columns = {"a": column_a, "day": column_date, "dt": column_dt}
 
     # basic
@@ -402,15 +402,15 @@ def test_get_filter(mocker: MockerFixture) -> None:
 
     # date
     get_filter(columns, "day=2020-01-01")
-    equals.assert_called_with(column_date, datetime(year=2020, month=1, day=1))
+    equals.assert_called_with(column_date, datetime.datetime(year=2020, month=1, day=1))
     get_filter(columns, "day<20200202")
-    less_than.assert_called_with(column_date, datetime(year=2020, month=2, day=2))
+    less_than.assert_called_with(column_date, datetime.datetime(year=2020, month=2, day=2))
     get_filter(columns, "day=3/3/2020")
-    equals.assert_called_with(column_date, datetime(year=2020, month=3, day=3))
-    
+    equals.assert_called_with(column_date, datetime.datetime(year=2020, month=3, day=3))
+
     # datetime
     get_filter(columns, "dt=2012-01-19 17:21:00")
-    equals.assert_called_with(column_dt, datetime(2012, 1, 19, 17, 21))
+    equals.assert_called_with(column_dt, datetime.datetime(2012, 1, 19, 17, 21))
     with pytest.raises(Exception) as excinfo:
         get_filter(columns, "dt>foo/bar-baz")
     assert str(excinfo.value) == "Invalid date or datetime value: foo/bar-baz"
