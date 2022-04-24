@@ -11,10 +11,10 @@ pyenv: .python-version
 	touch .python-version
 
 test: pyenv
-	pytest --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction --without-integration --without-slow-integration
+	pytest --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction --without-integration --without-slow-integration --envfile .env-test
 
 integration: pyenv
-	pytest --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction --with-integration --with-slow-integration
+	pytest --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction --with-integration --with-slow-integration --envfile .env-test
 
 clean:
 	pyenv virtualenv-delete datajunction
