@@ -1,4 +1,4 @@
 description: A Postgres database
-URI: postgresql://username:FoolishPassword@host.docker.internal:5433/examples
+URI: postgresql://username:FoolishPassword@postgres_examples:5432/examples
 read_only: false
 cost: 10
