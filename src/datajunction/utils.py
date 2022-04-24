@@ -59,7 +59,8 @@ def get_engine() -> Engine:
     Create the metadata engine.
     """
     settings = get_settings()
-    connect_args = {"check_same_thread": False}
+    # connect_args = {"check_same_thread": False}
+    connect_args = {}
     engine = create_engine(settings.index, echo=False, connect_args=connect_args)
 
     return engine
