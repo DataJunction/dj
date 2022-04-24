@@ -34,6 +34,8 @@ volumes:
 services:
   dj:
     container_name: dj
+    environment:
+      - DOTENV_FILE=.env-docker
     build: .
     volumes:
       - .:/code
@@ -43,9 +45,12 @@ services:
       - redis
       - postgres_examples
       - druid_coordinator
+      - postgres_metadata
 
   celery:
     container_name: celery
+    environment:
+      - DOTENV_FILE=.env-docker
     build: .
     volumes:
       - .:/code
@@ -55,6 +60,8 @@ services:
 
   watchdog:
     container_name: watchdog
+    environment:
+      - DOTENV_FILE=.env-docker
     build: .
     volumes:
       - .:/code
