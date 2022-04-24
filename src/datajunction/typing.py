@@ -294,6 +294,7 @@ Query = TypedDict(
         "body": Body,
         "fetch": Optional[Fetch],
         "limit": Optional[Limit],
+        "lock": Optional[Literal["Share", "Update"]],
         "offset": Optional[Offset],
         "order_by": List[OrderBy],
         "with": Optional[With],
