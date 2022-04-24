@@ -42,7 +42,7 @@ sqlalchemy==1.4.25
 sqlalchemy-utils==0.38.2
 sqlalchemy2-stubs==0.0.2a19
 sqlmodel==0.0.5
-sqloxide==0.1.13
+sqloxide==0.1.15
 sqlparse==0.4.2
 starlette==0.16.0
 typing-extensions==4.0.1
