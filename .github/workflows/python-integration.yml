@@ -23,7 +23,7 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Run containers
       run: |
-        docker-compose -f "docker-compose.yml" up -d --build
+        docker-compose -f "docker-compose-ci.yml" up -d --build
     - name: Check databases and nodes
       run: |
         sleep 30
@@ -40,4 +40,4 @@ jobs:
         pytest --cov-fail-under=100 --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction --with-integration --with-slow-integration
     - name: Stop containers
       if: always()
-      run: docker compose -f "docker-compose.yml" down
+      run: docker-compose -f "docker-compose-ci.yml" down
