@@ -172,19 +172,17 @@ async def index_databases(
         data = await load_data(repository, path)
 
         _logger.info("Creating database %s", name)
-        database = Database(
+        return Database(
             created_at=created_at,
             updated_at=datetime.now(timezone.utc),
             **data,
         )
 
-        session.add(database)
-        session.flush()
-
-        return database
-
     tasks = [add_from_path(path) for path in directory.glob("**/*.yaml")]
     databases = await asyncio.gather(*tasks)
+    for database in databases:
+        session.add(database)
+        session.flush()
 
     return databases
 
@@ -253,6 +251,10 @@ async def index_nodes(  # pylint: disable=too-many-locals
             dependencies[config["name"]] = get_dependencies(config["expression"])
         else:
             dependencies[config["name"]] = set()
+        # add dimensions
+        for column in config.get("columns", {}).values():
+            if "dimension" in column:
+                dependencies[config["name"]].add(column["dimension"])
     _logger.info("DAG:\n%s", Text.from_ansi(render_dag(dependencies)))
 
     # compute the schema of nodes with upstream nodes already indexed
