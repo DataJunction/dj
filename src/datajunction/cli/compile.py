@@ -104,7 +104,14 @@ async def add_special_databases(session: Session) -> None:
                 id=DJ_DATABASE_ID,
                 name="dj",
                 description="The DJ meta database",
-                URI=str(URL("dj", host="localhost", port=8000, database="0")),
+                URI=str(
+                    URL(
+                        "dj",
+                        host="localhost",
+                        port=8000,
+                        database=str(DJ_DATABASE_ID),
+                    ),
+                ),
                 read_only=True,
             ),
         )
