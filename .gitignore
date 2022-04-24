@@ -102,3 +102,4 @@ ENV/
 *.sqlite
 *.db
 *.swp
+.env
