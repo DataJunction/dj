@@ -27,24 +27,30 @@ volumes:
   router_var: {}
   druid_shared: {}
   postgres_data: {}
+  postgres_metadata: {}
   redis_data: {}
 
 
 services:
   dj:
     container_name: dj
+    environment:
+      - DOTENV_FILE=.env-docker
     build: .
     volumes:
       - .:/code
     ports:
       - "8000:8000"
     depends_on:
-      - redis
+      - postgres_metadata
       - postgres_examples
+      - redis
       - druid_coordinator
 
   celery:
     container_name: celery
+    environment:
+      - DOTENV_FILE=.env-docker
     build: .
     volumes:
       - .:/code
@@ -54,6 +60,8 @@ services:
 
   watchdog:
     container_name: watchdog
+    environment:
+      - DOTENV_FILE=.env-docker
     build: .
     volumes:
       - .:/code
@@ -69,6 +77,18 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+
+  postgres_metadata:
+    container_name: postgres_metadata
+    image: postgres:latest
+    volumes:
+      - postgres_metadata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=FoolishPassword
+      - POSTGRES_USER=username
+      - POSTGRES_DB=dj
+    ports:
+      - "5434:5432"
 
   postgres_examples:
     container_name: postgres_examples
