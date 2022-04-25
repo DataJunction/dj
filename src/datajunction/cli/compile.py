@@ -152,9 +152,7 @@ async def index_databases(
 
             # SQLite will drop the timezone info; in that case we assume it's UTC
             if database.updated_at.tzinfo is None:
-                database.updated_at = database.updated_at.replace(  # pragma: no cover
-                    tzinfo=timezone.utc,
-                )
+                database.updated_at = database.updated_at.replace(tzinfo=timezone.utc)
 
             if not force and database.updated_at > datetime.fromtimestamp(
                 mtime,
@@ -179,8 +177,10 @@ async def index_databases(
             )
 
         database.updated_at = datetime.now(timezone.utc)
+
         session.add(database)
         session.flush()
+        session.refresh(database)
 
         return database
 
