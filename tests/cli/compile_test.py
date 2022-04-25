@@ -69,8 +69,8 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         {
             "async_": False,
             "cost": 1.0,
-            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
             "name": "druid",
             "description": "An Apache Druid database",
             "URI": "druid://host.docker.internal:8082/druid/v2/sql/",
@@ -79,8 +79,8 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         {
             "async_": False,
             "cost": 100.0,
-            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
             "name": "gsheets",
             "description": "A Google Sheets connector",
             "URI": "gsheets://",
@@ -89,8 +89,8 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         {
             "async_": False,
             "cost": 10.0,
-            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
             "name": "postgres",
             "description": "A Postgres database",
             "URI": "postgresql://username:FoolishPassword@host.docker.internal:5433/examples",
@@ -105,9 +105,9 @@ async def test_index_databases(repository: Path, session: Session) -> None:
     databases = sorted(databases, key=lambda database: database.name)
 
     assert [(database.name, database.updated_at) for database in databases] == [
-        ("druid", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
-        ("gsheets", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
-        ("postgres", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
+        ("druid", datetime(2021, 1, 3, 0, 0)),
+        ("gsheets", datetime(2021, 1, 2, 0, 0)),
+        ("postgres", datetime(2021, 1, 2, 0, 0)),
     ]
 
     # test that a missing timezone is treated as UTC
@@ -117,9 +117,9 @@ async def test_index_databases(repository: Path, session: Session) -> None:
     databases = sorted(databases, key=lambda database: database.name)
 
     assert [(database.name, database.updated_at) for database in databases] == [
-        ("druid", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
-        ("gsheets", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
-        ("postgres", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
+        ("druid", datetime(2021, 1, 3, 0, 0)),
+        ("gsheets", datetime(2021, 1, 2, 0, 0)),
+        ("postgres", datetime(2021, 1, 2, 0, 0)),
     ]
 
 
@@ -161,7 +161,7 @@ async def test_index_databases_force(mocker: MockerFixture, fs: FakeFilesystem) 
                 "Loading database from config %s",
                 Path("/path/to/another/repository/databases/druid.yaml"),
             ),
-            mock.call("Creating database %s", "druid"),
+            mock.call("Updating database %s", "druid"),
         ],
     )
 
@@ -221,6 +221,7 @@ async def test_index_nodes(
         ),
     )
     session.add(Database(name="gsheets", URI="gsheets://"))
+    session.flush()
 
     with freeze_time("2021-01-01T00:00:00Z"):
         Path("/path/to/repository/nodes/core/comments.yaml").touch()
@@ -235,24 +236,24 @@ async def test_index_nodes(
             "name": "core.comments",
             "description": "A fact table with comments",
             "type": NodeType.SOURCE,
-            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
             "expression": None,
         },
         {
             "name": "core.num_comments",
             "description": "Number of comments",
             "type": NodeType.METRIC,
-            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
             "expression": "SELECT COUNT(*) FROM core.comments",
         },
         {
             "name": "core.users",
             "description": "A user dimension table",
             "type": NodeType.DIMENSION,
-            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
             "expression": None,
         },
     ]
@@ -264,9 +265,9 @@ async def test_index_nodes(
     nodes = sorted(nodes, key=lambda node: node.name)
 
     assert [(node.name, node.updated_at) for node in nodes] == [
-        ("core.comments", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
-        ("core.num_comments", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
-        ("core.users", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
+        ("core.comments", datetime(2021, 1, 2, 0, 0)),
+        ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
+        ("core.users", datetime(2021, 1, 3, 0, 0)),
     ]
 
     # test that a missing timezone is treated as UTC
@@ -276,9 +277,9 @@ async def test_index_nodes(
     nodes = sorted(nodes, key=lambda node: node.name)
 
     assert [(node.name, node.updated_at) for node in nodes] == [
-        ("core.comments", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
-        ("core.num_comments", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
-        ("core.users", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
+        ("core.comments", datetime(2021, 1, 2, 0, 0)),
+        ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
+        ("core.users", datetime(2021, 1, 3, 0, 0)),
     ]
 
 
@@ -322,12 +323,13 @@ async def test_add_node_force(
         ],
     )
 
+    _logger.info.reset_mock()
     await add_node(session, databases, data, [], force=True)  # type: ignore
 
     _logger.info.assert_has_calls(
         [
             mock.call("Processing node %s", "test"),
-            mock.call("Creating node %s", "test"),
+            mock.call("Updating node %s", "test"),
         ],
     )
 
