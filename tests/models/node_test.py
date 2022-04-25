@@ -50,3 +50,5 @@ def test_extra_validation() -> None:
         "Node A of type metric has an invalid expression, "
         "should have a single aggregation"
     )
+    node = Node(name="A", type=NodeType.TRANSFORM)
+    node.extra_validation()
