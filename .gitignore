@@ -102,3 +102,6 @@ ENV/
 *.sqlite
 *.db
 *.swp
+
+# https://pypi.org/project/python-dotenv/
+.env

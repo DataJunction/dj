@@ -73,7 +73,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "updated_at": datetime(2021, 1, 2, 0, 0),
             "name": "druid",
             "description": "An Apache Druid database",
-            "URI": "druid://host.docker.internal:8082/druid/v2/sql/",
+            "URI": "druid://druid_broker:8082/druid/v2/sql/",
             "read_only": True,
         },
         {
@@ -93,7 +93,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "updated_at": datetime(2021, 1, 2, 0, 0),
             "name": "postgres",
             "description": "A Postgres database",
-            "URI": "postgresql://username:FoolishPassword@host.docker.internal:5433/examples",
+            "URI": "postgresql://username:FoolishPassword@postgres_examples:5432/examples",
             "read_only": False,
         },
     ]
@@ -212,12 +212,12 @@ async def test_index_nodes(
     mocker.patch("datajunction.cli.compile.update_node_config")
 
     session.add(
-        Database(name="druid", URI="druid://host.docker.internal:8082/druid/v2/sql/"),
+        Database(name="druid", URI="druid://druid_broker:8082/druid/v2/sql/"),
     )
     session.add(
         Database(
             name="postgres",
-            URI="postgresql://username:FoolishPassword@host.docker.internal:5433/examples",
+            URI="postgresql://username:FoolishPassword@postgres_examples:5432/examples",
         ),
     )
     session.add(Database(name="gsheets", URI="gsheets://"))
