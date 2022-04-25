@@ -1,0 +1,211 @@
+#
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+#
+version: "2.2"
+
+volumes:
+  metadata_data: {}
+  middle_var: {}
+  historical_var: {}
+  broker_var: {}
+  coordinator_var: {}
+  router_var: {}
+  druid_shared: {}
+  postgres_data: {}
+  postgres_metadata: {}
+  redis_data: {}
+
+
+services:
+  dj:
+    container_name: dj
+    environment:
+      - DOTENV_FILE=.env-docker
+    build: .
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres_metadata
+      - postgres_examples
+      - redis
+      - druid_coordinator
+
+  celery:
+    container_name: celery
+    environment:
+      - DOTENV_FILE=.env-docker
+    build: .
+    depends_on:
+      - dj
+    command: celery -A datajunction.api.queries.celery worker --loglevel=info
+
+  watchdog:
+    container_name: watchdog
+    environment:
+      - DOTENV_FILE=.env-docker
+    build: .
+    depends_on:
+      - dj
+    command: dj compile --reload
+
+  redis:
+    image: redis:latest
+    container_name: query_broker
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  postgres_metadata:
+    container_name: postgres_metadata
+    image: postgres:latest
+    volumes:
+      - postgres_metadata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=FoolishPassword
+      - POSTGRES_USER=username
+      - POSTGRES_DB=dj
+    ports:
+      - "5434:5432"
+
+  postgres_examples:
+    container_name: postgres_examples
+    image: postgres:latest
+    volumes:
+      - ./examples/docker/postgres_init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=FoolishPassword
+      - POSTGRES_USER=username
+      - POSTGRES_DB=examples
+    ports:
+      - "5433:5432"
+
+  druid_postgres:
+    container_name: druid_postgres
+    image: postgres:latest
+    volumes:
+      - metadata_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=FoolishPassword
+      - POSTGRES_USER=druid
+      - POSTGRES_DB=druid
+
+  # Need 3.5 or later for container nodes
+  druid_zookeeper:
+    container_name: druid_zookeeper
+    image: zookeeper:3.5
+    ports:
+      - "2181:2181"
+    environment:
+      - ZOO_MY_ID=1
+
+  druid_coordinator:
+    image: apache/druid:0.20.0
+    container_name: druid_coordinator
+    volumes:
+      - druid_shared:/opt/shared
+      - coordinator_var:/opt/druid/var
+    depends_on:
+      - druid_zookeeper
+      - druid_postgres
+    ports:
+      - "8081:8081"
+    command:
+      - coordinator
+    env_file:
+      - ./examples/docker/druid_environment
+
+  druid_broker:
+    image: apache/druid:0.20.0
+    container_name: druid_broker
+    volumes:
+      - broker_var:/opt/druid/var
+    depends_on:
+      - druid_zookeeper
+      - druid_postgres
+      - druid_coordinator
+    ports:
+      - "8082:8082"
+    command:
+      - broker
+    env_file:
+      - ./examples/docker/druid_environment
+
+  druid_historical:
+    image: apache/druid:0.20.0
+    container_name: druid_historical
+    volumes:
+      - druid_shared:/opt/shared
+      - historical_var:/opt/druid/var
+    depends_on:
+      - druid_zookeeper
+      - druid_postgres
+      - druid_coordinator
+    ports:
+      - "8083:8083"
+    command:
+      - historical
+    env_file:
+      - ./examples/docker/druid_environment
+
+  druid_middlemanager:
+    image: apache/druid:0.20.0
+    container_name: druid_middlemanager
+    volumes:
+      - druid_shared:/opt/shared
+      - middle_var:/opt/druid/var
+    depends_on:
+      - druid_zookeeper
+      - druid_postgres
+      - druid_coordinator
+    ports:
+      - "8091:8091"
+      - "8100-8105:8100-8105"
+    command:
+      - middleManager
+    env_file:
+      - ./examples/docker/druid_environment
+
+  druid_router:
+    image: apache/druid:0.20.0
+    container_name: druid_router
+    volumes:
+      - router_var:/opt/druid/var
+    depends_on:
+      - druid_zookeeper
+      - druid_postgres
+      - druid_coordinator
+    ports:
+      - "8888:8888"
+    command:
+      - router
+    env_file:
+      - ./examples/docker/druid_environment
+
+  druid_ingest:
+    image: curlimages/curl
+    depends_on:
+      - druid_router
+    container_name: druid_ingest
+    volumes:
+      - ./examples/docker/druid_init.sh:/druid_init.sh
+      - ./examples/docker/druid_spec.json:/druid_spec.json
+      - ./examples/docker/wait-for:/wait-for
+    entrypoint: sh -c './wait-for coordinator:8081 -- /druid_init.sh'

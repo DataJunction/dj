@@ -22,9 +22,12 @@ jobs:
       with:
         python-version: ${{ matrix.python-version }}
     - name: Run containers
-      run: docker compose -f "docker-compose.yml" up -d --build
+      run: docker compose -f "docker-compose-ci.yml" up -d --build
     - name: Install dependencies
       run: |
+        sleep 30
+        docker ps -a
+        docker logs watchdog
         python -m pip install --upgrade pip
         pip install -e '.[testing]'
     - name: Test with pytest
