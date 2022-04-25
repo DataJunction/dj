@@ -152,7 +152,9 @@ async def index_databases(
 
             # SQLite will drop the timezone info; in that case we assume it's UTC
             if database.updated_at.tzinfo is None:
-                database.updated_at = database.updated_at.replace(tzinfo=timezone.utc)
+                database.updated_at = database.updated_at.replace(  # pragma: no cover
+                    tzinfo=timezone.utc,
+                )
 
             if not force and database.updated_at > datetime.fromtimestamp(
                 mtime,
@@ -161,28 +163,29 @@ async def index_databases(
                 _logger.info("Database %s is up-to-date, skipping", name)
                 return database
 
-            # delete existing database
-            created_at = database.created_at
-            session.delete(database)
-            session.flush()
-        else:
-            created_at = datetime.now(timezone.utc)
-
         _logger.info("Loading database from config %s", path)
         data = await load_data(repository, path)
 
-        _logger.info("Creating database %s", name)
-        return Database(
-            created_at=created_at,
-            updated_at=datetime.now(timezone.utc),
-            **data,
-        )
+        if database:
+            _logger.info("Updating database %s", name)
+            for attr, value in data.items():
+                if attr not in {"name", "path"}:
+                    setattr(database, attr, value)
+        else:
+            _logger.info("Creating database %s", name)
+            database = Database(
+                created_at=datetime.now(timezone.utc),
+                **data,
+            )
+
+        database.updated_at = datetime.now(timezone.utc)
+        session.add(database)
+        session.flush()
+
+        return database
 
     tasks = [add_from_path(path) for path in directory.glob("**/*.yaml")]
     databases = await asyncio.gather(*tasks)
-    for database in databases:
-        session.add(database)
-        session.flush()
 
     return databases
 
