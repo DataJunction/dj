@@ -50,7 +50,8 @@ def get_settings() -> Settings:
     """
     Return a cached settings object.
     """
-    load_dotenv()
+    dotenv_file = os.environ.get("DOTENV_FILE", ".env")
+    load_dotenv(dotenv_file)
     return Settings()
 
 
@@ -59,8 +60,7 @@ def get_engine() -> Engine:
     Create the metadata engine.
     """
     settings = get_settings()
-    connect_args = {"check_same_thread": False}
-    engine = create_engine(settings.index, echo=False, connect_args=connect_args)
+    engine = create_engine(settings.index)
 
     return engine
 
