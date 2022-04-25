@@ -3,18 +3,16 @@ Functions for building queries, from nodes or SQL.
 """
 
 import ast
+import datetime
 import operator
 import re
-import datetime
-from dateutil.parser import parse
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple, cast
 
-from sqlalchemy.engine import create_engine as sqla_create_engine
+from dateutil.parser import parse
 from sqlalchemy.engine.url import make_url
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.expression import ClauseElement
-from sqlalchemy.sql.sqltypes import Date, DateTime
 from sqlmodel import Session, select
 from sqloxide import parse_sql
 
@@ -100,7 +98,7 @@ def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression
         except Exception as ex:
             raise Exception(f"Invalid date or datetime value: {value}") from ex
     else:
-        try:        
+        try:
             value = ast.literal_eval(value)
         except Exception as ex:
             raise Exception(f"Invalid value: {value}") from ex
@@ -185,9 +183,10 @@ def get_query_for_node(  # pylint: disable=too-many-locals
     for groupby in groupbys:
         node_select.append_column(columns[groupby])
 
-    engine = sqla_create_engine(database.URI)
     dialect = make_url(database.URI).get_dialect()
-    sql = str(node_select.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}))
+    sql = str(
+        node_select.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}),
+    )
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
 

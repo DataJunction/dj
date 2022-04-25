@@ -104,7 +104,14 @@ async def add_special_databases(session: Session) -> None:
                 id=DJ_DATABASE_ID,
                 name="dj",
                 description="The DJ meta database",
-                URI=str(URL("dj", host="localhost", port=8000, database="0")),
+                URI=str(
+                    URL(
+                        "dj",
+                        host="localhost",
+                        port=8000,
+                        database=str(DJ_DATABASE_ID),
+                    ),
+                ),
                 read_only=True,
             ),
         )
@@ -142,37 +149,38 @@ async def index_databases(
         if database:
             # compare file modification time with timestamp on DB
             mtime = path.stat().st_mtime
+            updated_at = database.updated_at
 
             # SQLite will drop the timezone info; in that case we assume it's UTC
-            if database.updated_at.tzinfo is None:
-                database.updated_at = database.updated_at.replace(tzinfo=timezone.utc)
+            if updated_at.tzinfo is None:
+                updated_at = updated_at.replace(tzinfo=timezone.utc)
 
-            if not force and database.updated_at > datetime.fromtimestamp(
+            if not force and updated_at > datetime.fromtimestamp(
                 mtime,
                 tz=timezone.utc,
             ):
                 _logger.info("Database %s is up-to-date, skipping", name)
                 return database
 
-            # delete existing database
-            created_at = database.created_at
-            session.delete(database)
-            session.flush()
-        else:
-            created_at = datetime.now(timezone.utc)
-
         _logger.info("Loading database from config %s", path)
         data = await load_data(repository, path)
 
-        _logger.info("Creating database %s", name)
-        database = Database(
-            created_at=created_at,
-            updated_at=datetime.now(timezone.utc),
-            **data,
-        )
+        if database:
+            _logger.info("Updating database %s", name)
+            for attr, value in data.items():
+                if attr not in {"name", "path"}:
+                    setattr(database, attr, value)
+        else:
+            _logger.info("Creating database %s", name)
+            database = Database(
+                created_at=datetime.now(timezone.utc),
+                **data,
+            )
 
+        database.updated_at = datetime.now(timezone.utc)
         session.add(database)
         session.flush()
+        session.refresh(database)
 
         return database
 
@@ -246,6 +254,10 @@ async def index_nodes(  # pylint: disable=too-many-locals
             dependencies[config["name"]] = get_dependencies(config["expression"])
         else:
             dependencies[config["name"]] = set()
+        # add dimensions to dependencies
+        for column in config.get("columns", {}).values():
+            if "dimension" in column:
+                dependencies[config["name"]].add(column["dimension"])
     _logger.info("DAG:\n%s", Text.from_ansi(render_dag(dependencies)))
 
     # compute the schema of nodes with upstream nodes already indexed
@@ -286,7 +298,7 @@ async def index_nodes(  # pylint: disable=too-many-locals
     return list(nodes.values())
 
 
-async def add_node(
+async def add_node(  # pylint: disable=too-many-locals
     session: Session,
     databases: Dict[str, Database],
     data: EnrichedNodeYAML,
@@ -306,29 +318,20 @@ async def add_node(
     if node:
         # compare file modification time with timestamp on DB
         mtime = path.stat().st_mtime
+        updated_at = node.updated_at
 
         # SQLite will drop the timezone info; in that case we assume it's UTC
-        if node.updated_at.tzinfo is None:
-            node.updated_at = node.updated_at.replace(tzinfo=timezone.utc)
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
 
-        if not force and node.updated_at > datetime.fromtimestamp(
-            mtime,
-            tz=timezone.utc,
-        ):
+        if not force and updated_at > datetime.fromtimestamp(mtime, tz=timezone.utc):
             _logger.info("Node %s is up-do-date, skipping", name)
             return node
-
-        # delete existing node
-        created_at = node.created_at
-        session.delete(node)
-        session.flush()
-    else:
-        created_at = datetime.now(timezone.utc)
 
     config = {
         "name": name,
         "description": data["description"],
-        "created_at": created_at,
+        "created_at": node.created_at if node else datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
         "type": data["type"],
         "expression": data.get("expression"),
@@ -360,12 +363,25 @@ async def add_node(
     # enrich columns with dimensions
     add_dimensions_to_columns(session, data, config["columns"])
 
-    _logger.info("Creating node %s", name)
-    node = Node(**config)
+    if node:
+        _logger.info("Updating node %s", name)
+
+        # delete old tables, otherwise they're left behind without a node id
+        for table in node.tables:
+            session.delete(table)
+
+        for attr, value in config.items():
+            if attr not in {"name", "path"}:
+                setattr(node, attr, value)
+    else:
+        _logger.info("Creating node %s", name)
+        node = Node(**config)
+
     node.extra_validation()
 
     session.add(node)
     session.flush()
+    session.refresh(node)
 
     # write node back to YAML, with column information
     await update_node_config(node, path)

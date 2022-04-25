@@ -68,7 +68,7 @@ def session() -> Iterator[Session]:
     )
     SQLModel.metadata.create_all(engine)
 
-    with Session(engine) as session:
+    with Session(engine, autoflush=False) as session:
         yield session
 
 
