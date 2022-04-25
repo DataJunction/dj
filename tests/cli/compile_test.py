@@ -65,6 +65,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         databases = await index_databases(repository, session)
 
     configs = [database.dict(exclude={"id": True}) for database in databases]
+    print(configs)
     assert sorted(configs, key=itemgetter("name")) == [
         {
             "async_": False,
@@ -161,7 +162,7 @@ async def test_index_databases_force(mocker: MockerFixture, fs: FakeFilesystem) 
                 "Loading database from config %s",
                 Path("/path/to/another/repository/databases/druid.yaml"),
             ),
-            mock.call("Creating database %s", "druid"),
+            mock.call("Updating database %s", "druid"),
         ],
     )
 
