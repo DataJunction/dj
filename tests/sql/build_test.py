@@ -3,9 +3,11 @@ Tests for ``datajunction.sql.build``.
 """
 # pylint: disable=invalid-name, too-many-lines, line-too-long
 
+import datetime
 import pytest
 from pytest_mock import MockerFixture
 from sqlalchemy.engine import create_engine
+from sqlalchemy.sql.sqltypes import Date, DateTime
 from sqlmodel import Session
 
 from datajunction.models.column import Column
@@ -380,13 +382,40 @@ def test_get_filter(mocker: MockerFixture) -> None:
     Test ``get_filter``.
     """
     greater_than = mocker.MagicMock()
-    mocker.patch("datajunction.sql.build.COMPARISONS", new={">": greater_than})
+    less_than = mocker.MagicMock()
+    equals = mocker.MagicMock()
+    mocker.patch("datajunction.sql.build.COMPARISONS", new={
+        ">": greater_than,
+        "<": less_than,
+        "=": equals,
+    })
     column_a = mocker.MagicMock()
-    columns = {"a": column_a}
+    column_date = mocker.MagicMock()
+    column_date.type.python_type = datetime.date
+    column_dt = mocker.MagicMock()
+    column_dt.type.python_type = datetime.datetime
+    columns = {"a": column_a, "day": column_date, "dt": column_dt}
 
+    # basic
     get_filter(columns, "a>0")
     greater_than.assert_called_with(column_a, 0)
 
+    # date
+    get_filter(columns, "day=2020-01-01")
+    equals.assert_called_with(column_date, '2020-01-01 00:00:00')
+    get_filter(columns, "day<20200202")
+    less_than.assert_called_with(column_date, '2020-02-02 00:00:00')
+    get_filter(columns, "day=3/3/2020")
+    equals.assert_called_with(column_date, '2020-03-03 00:00:00')
+
+    # datetime
+    get_filter(columns, "dt=2012-01-19 17:21:00")
+    equals.assert_called_with(column_dt, '2012-01-19 17:21:00')
+    with pytest.raises(Exception) as excinfo:
+        get_filter(columns, "dt>foo/bar-baz")
+    assert str(excinfo.value) == "Invalid date or datetime value: foo/bar-baz"
+
+    # exceptions
     with pytest.raises(Exception) as excinfo:
         get_filter(columns, "invalid")
     assert (
