@@ -178,14 +178,14 @@ async def index_databases(
 
         database.updated_at = datetime.now(timezone.utc)
 
-        session.add(database)
-        session.flush()
-        session.refresh(database)
-
         return database
 
     tasks = [add_from_path(path) for path in directory.glob("**/*.yaml")]
     databases = await asyncio.gather(*tasks)
+
+    for database in databases:
+        session.add(database)
+    session.flush()
 
     return databases
 
