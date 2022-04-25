@@ -5,6 +5,8 @@ Functions for building queries, from nodes or SQL.
 import ast
 import operator
 import re
+import datetime
+from dateutil.parser import parse
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple, cast
 
 from sqlalchemy.engine import create_engine as sqla_create_engine
@@ -12,6 +14,7 @@ from sqlalchemy.engine.url import make_url
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.sql.elements import BinaryExpression
 from sqlalchemy.sql.expression import ClauseElement
+from sqlalchemy.sql.sqltypes import Date, DateTime
 from sqlmodel import Session, select
 from sqloxide import parse_sql
 
@@ -89,13 +92,19 @@ def get_filter(columns: Dict[str, SqlaColumn], filter_: str) -> BinaryExpression
     if name not in columns:
         raise Exception(f"Invalid column name: {name}")
     column = columns[name]
-
-    try:
-        value = ast.literal_eval(value)
-    except Exception as ex:
-        raise Exception(f"Invalid value: {value}") from ex
-
     comparison = COMPARISONS[operator_]
+
+    if column.type.python_type in [datetime.date, datetime.datetime]:
+        try:
+            value = str(parse(value))
+        except Exception as ex:
+            raise Exception(f"Invalid date or datetime value: {value}") from ex
+    else:
+        try:        
+            value = ast.literal_eval(value)
+        except Exception as ex:
+            raise Exception(f"Invalid value: {value}") from ex
+
     return comparison(column, value)
 
 
@@ -177,7 +186,8 @@ def get_query_for_node(  # pylint: disable=too-many-locals
         node_select.append_column(columns[groupby])
 
     engine = sqla_create_engine(database.URI)
-    sql = str(node_select.compile(engine, compile_kwargs={"literal_binds": True}))
+    dialect = make_url(database.URI).get_dialect()
+    sql = str(node_select.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}))
 
     return QueryCreate(database_id=database.id, submitted_query=sql)
 
