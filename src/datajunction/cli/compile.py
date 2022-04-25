@@ -330,17 +330,9 @@ async def add_node(
             _logger.info("Node %s is up-do-date, skipping", name)
             return node
 
-        # delete existing node
-        created_at = node.created_at
-        session.delete(node)
-        session.flush()
-    else:
-        created_at = datetime.now(timezone.utc)
-
     config = {
         "name": name,
         "description": data["description"],
-        "created_at": created_at,
         "updated_at": datetime.now(timezone.utc),
         "type": data["type"],
         "expression": data.get("expression"),
@@ -372,12 +364,21 @@ async def add_node(
     # enrich columns with dimensions
     add_dimensions_to_columns(session, data, config["columns"])
 
-    _logger.info("Creating node %s", name)
-    node = Node(**config)
+    if node:
+        _logger.info("Updating node %s", name)
+        for attr, value in config.items():
+            if attr not in {"name", "path"}:
+                setattr(node, attr, value)
+    else:
+        _logger.info("Creating node %s", name)
+        node = Node(**config)
+
+    node.updated_at = datetime.now(timezone.utc)
     node.extra_validation()
 
     session.add(node)
     session.flush()
+    session.refresh(node)
 
     # write node back to YAML, with column information
     await update_node_config(node, path)
