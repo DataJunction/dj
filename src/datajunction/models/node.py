@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import Dict, List, Optional, TypedDict, cast
 
-from sqlalchemy import String
+from sqlalchemy import DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel
@@ -91,8 +91,14 @@ class Node(SQLModel, table=True):  # type: ignore
     name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
     description: str = ""
 
-    created_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
-    updated_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
+    created_at: datetime = Field(
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default_factory=partial(datetime.now, timezone.utc),
+    )
+    updated_at: datetime = Field(
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default_factory=partial(datetime.now, timezone.utc),
+    )
 
     type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
     expression: Optional[str] = None

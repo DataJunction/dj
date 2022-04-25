@@ -65,13 +65,12 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         databases = await index_databases(repository, session)
 
     configs = [database.dict(exclude={"id": True}) for database in databases]
-    print(configs)
     assert sorted(configs, key=itemgetter("name")) == [
         {
             "async_": False,
             "cost": 1.0,
-            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
             "name": "druid",
             "description": "An Apache Druid database",
             "URI": "druid://druid_broker:8082/druid/v2/sql/",
@@ -80,8 +79,8 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         {
             "async_": False,
             "cost": 100.0,
-            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
             "name": "gsheets",
             "description": "A Google Sheets connector",
             "URI": "gsheets://",
@@ -90,8 +89,8 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         {
             "async_": False,
             "cost": 10.0,
-            "created_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
-            "updated_at": datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc),
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
             "name": "postgres",
             "description": "A Postgres database",
             "URI": "postgresql://username:FoolishPassword@postgres_examples:5432/examples",
@@ -106,7 +105,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
     databases = sorted(databases, key=lambda database: database.name)
 
     assert [(database.name, database.updated_at) for database in databases] == [
-        ("druid", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
+        ("druid", datetime(2021, 1, 3, 0, 0)),
         ("gsheets", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
         ("postgres", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
     ]
@@ -118,7 +117,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
     databases = sorted(databases, key=lambda database: database.name)
 
     assert [(database.name, database.updated_at) for database in databases] == [
-        ("druid", datetime(2021, 1, 3, 0, 0, tzinfo=timezone.utc)),
+        ("druid", datetime(2021, 1, 3, 0, 0)),
         ("gsheets", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
         ("postgres", datetime(2021, 1, 2, 0, 0, tzinfo=timezone.utc)),
     ]
