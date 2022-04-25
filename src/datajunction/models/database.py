@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import TYPE_CHECKING, List, Optional, TypedDict
 
-from sqlalchemy import String
+from sqlalchemy import DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -48,8 +48,14 @@ class Database(SQLModel, table=True):  # type: ignore
     async_: bool = Field(default=False, sa_column_kwargs={"name": "async"})
     cost: float = 1.0
 
-    created_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
-    updated_at: datetime = Field(default_factory=partial(datetime.now, timezone.utc))
+    created_at: datetime = Field(
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default_factory=partial(datetime.now, timezone.utc),
+    )
+    updated_at: datetime = Field(
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default_factory=partial(datetime.now, timezone.utc),
+    )
 
     tables: List["Table"] = Relationship(
         back_populates="database",
