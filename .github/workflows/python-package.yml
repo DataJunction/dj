@@ -30,4 +30,4 @@ jobs:
         pip install -e '.[testing]'
     - name: Test with pytest
       run: |
-        pytest --cov-fail-under=100 --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction
+        pytest --cov-fail-under=100 --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction --without-integration --without-slow-integration
