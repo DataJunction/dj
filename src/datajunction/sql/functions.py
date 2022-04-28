@@ -270,6 +270,26 @@ class DateTrunc(Function):
         )
 
 
+class Min(Function):
+    """
+    The ``MIN`` function.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(column: Column) -> ColumnType:  # type: ignore
+        return column.type
+
+    @staticmethod
+    def get_sqla_function(  # type: ignore
+        column: SqlaColumn,
+        *,
+        dialect: Optional[str] = None,
+    ) -> SqlaFunction:
+        return func.min(column)
+
+
 class Max(Function):
     """
     The ``MAX`` function.
@@ -391,5 +411,6 @@ function_registry = FunctionRegistry(
         "COUNT": Count,
         "DATE_TRUNC": DateTrunc,
         "MAX": Max,
+        "MIN": Min,
     },
 )
