@@ -4,12 +4,12 @@ Tests for ``datajunction.sql.functions``.
 # pylint: disable=line-too-long
 
 import pytest
-from sqlalchemy import String
+from sqlalchemy import String, Integer
 from sqlalchemy.sql.schema import Column as SqlaColumn
 
 from datajunction.errors import DJInvalidInputException, DJNotImplementedException
 from datajunction.models.column import Column
-from datajunction.sql.functions import Coalesce, Count, Max, function_registry
+from datajunction.sql.functions import Coalesce, Count, Min, Max, function_registry
 from datajunction.typing import ColumnType
 
 from .utils import query_to_string
@@ -17,15 +17,26 @@ from .utils import query_to_string
 
 def test_count() -> None:
     """
-    Test ``Count``.
+    Test ``Count`` function.
     """
     assert Count.infer_type("*") == ColumnType.INT
     assert query_to_string(Count.get_sqla_function("*")) == "count('*')"
 
 
+def test_min() -> None:
+    """
+    Test ``Min`` function.
+    """
+    column = Column(name="dateint", type=ColumnType.INT)
+    sqla_column = SqlaColumn("dateint", Integer)
+
+    assert Min.infer_type(column) == ColumnType.INT
+    assert query_to_string(Min.get_sqla_function(sqla_column)) == "min(dateint)"
+
+
 def test_max() -> None:
     """
-    Test ``Max``.
+    Test ``Max`` function.
     """
     column = Column(name="ds", type=ColumnType.STR)
     sqla_column = SqlaColumn("ds", String)

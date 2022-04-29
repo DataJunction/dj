@@ -105,3 +105,6 @@ ENV/
 
 # https://pypi.org/project/python-dotenv/
 .env
+
+# VS Code
+.vscode
