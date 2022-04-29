@@ -4,12 +4,12 @@ Tests for ``datajunction.sql.functions``.
 # pylint: disable=line-too-long
 
 import pytest
-from sqlalchemy import String, Integer
+from sqlalchemy import Integer, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 
 from datajunction.errors import DJInvalidInputException, DJNotImplementedException
 from datajunction.models.column import Column
-from datajunction.sql.functions import Coalesce, Count, Min, Max, function_registry
+from datajunction.sql.functions import Coalesce, Count, Max, Min, function_registry
 from datajunction.typing import ColumnType
 
 from .utils import query_to_string
