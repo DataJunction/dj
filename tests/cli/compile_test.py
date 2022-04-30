@@ -75,6 +75,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "description": "An Apache Druid database",
             "URI": "druid://druid_broker:8082/druid/v2/sql/",
             "read_only": True,
+            "extra_params": {},
         },
         {
             "async_": False,
@@ -85,6 +86,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "description": "A Google Sheets connector",
             "URI": "gsheets://",
             "read_only": True,
+            "extra_params": {},
         },
         {
             "async_": False,
@@ -95,6 +97,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "description": "A Postgres database",
             "URI": "postgresql://username:FoolishPassword@postgres_examples:5432/examples",
             "read_only": False,
+            "extra_params": {"connect_args": {"sslmode": "prefer"}},
         },
     ]
 
@@ -177,7 +180,7 @@ def test_get_table_columns(mocker: MockerFixture) -> None:
         {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
     ]
 
-    assert get_table_columns("sqlite://", "schema", "table") == [
+    assert get_table_columns("sqlite://", {}, "schema", "table") == [
         Column(id=None, name="ds", type=ColumnType.DATETIME),
         Column(id=None, name="cnt", type=ColumnType.FLOAT),
     ]
@@ -193,7 +196,7 @@ def test_get_table_columns_error(mocker: MockerFixture) -> None:
         "An unexpected error occurred",
     )
 
-    assert get_table_columns("sqlite://", "schema", "table") == []
+    assert get_table_columns("sqlite://", {}, "schema", "table") == []
 
 
 @pytest.mark.asyncio
