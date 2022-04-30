@@ -62,7 +62,7 @@ def run_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     For each statement we return a tuple with the statement SQL, a description of the
     columns (name and type) and a stream of rows (tuples).
     """
-    engine = create_engine(query.database.URI)
+    engine = create_engine(query.database.URI, **query.database.extra_params)
     connection = engine.connect()
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []

@@ -4,11 +4,11 @@ Models for databases.
 
 from datetime import datetime, timezone
 from functools import partial
-from typing import TYPE_CHECKING, List, Optional, TypedDict
+from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict
 
 from sqlalchemy import DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import JSON, Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
     from datajunction.models.column import Column
@@ -44,6 +44,7 @@ class Database(SQLModel, table=True):  # type: ignore
     name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
     description: str = ""
     URI: str
+    extra_params: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
     read_only: bool = True
     async_: bool = Field(default=False, sa_column_kwargs={"name": "async"})
     cost: float = 1.0
