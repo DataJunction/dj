@@ -14,7 +14,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional, Set, TypedDict, Union
+from typing import Any, Dict, List, Optional, Set, TypedDict, Union
 
 import yaml
 from rich.text import Text
@@ -185,11 +185,16 @@ async def index_databases(
     return databases
 
 
-def get_table_columns(uri: str, schema: Optional[str], table: str) -> List[Column]:
+def get_table_columns(
+    uri: str,
+    extra_params: Dict[str, Any],
+    schema: Optional[str],
+    table: str,
+) -> List[Column]:
     """
     Return all columns in a given table.
     """
-    engine = create_engine(uri)
+    engine = create_engine(uri, **extra_params)
     try:
         inspector = inspect(engine)
         column_metadata = inspector.get_columns(
@@ -342,6 +347,7 @@ async def add_node(  # pylint: disable=too-many-locals
                     database=databases[database_name],
                     columns=get_table_columns(
                         databases[database_name].URI,
+                        databases[database_name].extra_params,
                         table_data["schema"],
                         table_data["table"],
                     ),
