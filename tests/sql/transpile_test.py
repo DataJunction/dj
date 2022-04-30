@@ -576,7 +576,8 @@ The following error happened:
         ),
         (
             "quarter",
-            "datetime(anon_1.col, printf('-%d month', (strftime('%m', anon_1.col) - 1) % 3 + 1))",
+            "datetime(anon_1.col, 'start of month', "
+            "printf('-%d month', (strftime('%m', anon_1.col) - 1) % 3))",
         ),
     ],
 )

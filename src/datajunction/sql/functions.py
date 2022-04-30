@@ -226,7 +226,8 @@ class DateTrunc(Function):
             if str(resolution) == "quarter":
                 return func.datetime(
                     column,
-                    func.printf("-%d month", (func.strftime("%m", column) - 1) % 3 + 1),
+                    "start of month",
+                    func.printf("-%d month", (func.strftime("%m", column) - 1) % 3),
                     type_=DateTime,
                 )
             if str(resolution) == "year":
