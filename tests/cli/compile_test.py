@@ -339,7 +339,6 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
     """
     Test the ``run`` command.
     """
-    mocker.patch("datajunction.cli.compile.create_db_and_tables")
     get_session = mocker.patch("datajunction.cli.compile.get_session")
     session = get_session().__next__()
     session.get.return_value = False
@@ -361,7 +360,6 @@ async def test_run_reload(mocker: MockerFixture, repository: Path) -> None:
     """
     Test the ``run`` command with ``--reload``.
     """
-    mocker.patch("datajunction.cli.compile.create_db_and_tables")
     get_session = mocker.patch("datajunction.cli.compile.get_session")
     session = get_session().__next__.return_value
     awatch = mocker.patch("datajunction.cli.compile.awatch")
