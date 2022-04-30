@@ -10,7 +10,7 @@ queries which can be then executed in specific databases.
 import operator
 from typing import Any, Dict, List, Optional, Set, Union, cast
 
-from sqlalchemy import desc, text
+from sqlalchemy import case, desc, text
 from sqlalchemy.engine import create_engine
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.schema import MetaData, Table
@@ -26,6 +26,7 @@ from datajunction.sql.functions import function_registry
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import (
     BinaryOp,
+    Case,
     Expression,
     Function,
     Identifier,
@@ -297,9 +298,34 @@ def get_expression(  # pylint: disable=too-many-return-statements
         return get_value(expression["Value"], source, dialect)
     if "BinaryOp" in expression:
         return get_binary_op(expression["BinaryOp"], source, source, dialect)
+    if "Case" in expression:
+        return get_case(expression["Case"], source, dialect)
     if expression == "Wildcard":
         return "*"
     raise NotImplementedError(f"Unable to handle expression: {expression}")
+
+
+def get_case(
+    case_: Case,
+    source: Optional[Select] = None,
+    dialect: Optional[str] = None,
+) -> SqlaFunction:
+    """
+    Build a ``CASE`` statement.
+    """
+    conditions = [
+        get_expression(condition, source, dialect) for condition in case_["conditions"]
+    ]
+    results = [get_expression(result, source, dialect) for result in case_["results"]]
+    value = (
+        get_expression(case_["operand"], source, dialect) if case_["operand"] else None
+    )
+    else_ = (
+        get_expression(case_["else_result"], source, dialect)
+        if case_["else_result"]
+        else None
+    )
+    return case(*zip(conditions, results), else_=else_, value=value)
 
 
 def get_function(

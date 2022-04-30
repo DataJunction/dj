@@ -18,12 +18,13 @@ from datajunction.models.node import Node
 from datajunction.models.query import Query  # pylint: disable=unused-import
 from datajunction.models.table import Table
 from datajunction.sql.transpile import (
+    get_expression,
     get_function,
     get_query,
     get_select_for_node,
     get_value,
 )
-from datajunction.typing import ColumnType, Function
+from datajunction.typing import ColumnType, Expression, Function
 
 from .utils import query_to_string
 
@@ -642,3 +643,44 @@ def test_date_trunc_druid(resolution: str, expected: str) -> None:
     }
 
     assert query_to_string(get_function(function, source, dialect="druid")) == expected
+
+
+def test_case() -> None:
+    """
+    Test for the ``CASE`` statement.
+    """
+    engine = create_engine("sqlite://")
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (col TEXT)")
+    source = select(SqlaTable("A", MetaData(bind=engine), autoload=True))
+
+    expression: Expression = {
+        "Case": {
+            "conditions": [
+                {
+                    "BinaryOp": {
+                        "left": {"Identifier": {"quote_style": None, "value": "col"}},
+                        "op": "Eq",
+                        "right": {"Value": {"Number": ("1", False)}},
+                    },
+                },
+                {
+                    "BinaryOp": {
+                        "left": {"Identifier": {"quote_style": None, "value": "col"}},
+                        "op": "Eq",
+                        "right": {"Value": {"Number": ("2", False)}},
+                    },
+                },
+            ],
+            "else_result": {"Value": {"SingleQuotedString": "a " "lot"}},
+            "operand": None,
+            "results": [
+                {"Value": {"SingleQuotedString": "one"}},
+                {"Value": {"SingleQuotedString": "two"}},
+            ],
+        },
+    }
+    assert query_to_string(get_expression(expression, source)) == (
+        "CASE WHEN (anon_1.col = 1) THEN one WHEN (anon_1.col = 2) "
+        "THEN two ELSE a lot END"
+    )
