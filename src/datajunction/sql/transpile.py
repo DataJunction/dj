@@ -70,7 +70,7 @@ def get_select_for_node(
     if columns is None:
         columns = {column.name for column in node.columns}
 
-    engine = create_engine(database.URI)
+    engine = create_engine(database.URI, **database.extra_params)
 
     # if the node is materialized we use the table with the cheapest cost, as long as it
     # has all the requested columns (see #104)
