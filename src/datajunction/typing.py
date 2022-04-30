@@ -133,6 +133,14 @@ class Expression(TypedDict, total=False):
     Value: Value
     Function: Function  # type: ignore
     BinaryOp: BinaryOp  # type: ignore
+    Case: Case  # type: ignore
+
+
+class Case(TypedDict):
+    conditions: List[Expression]
+    else_result: Optional[Expression]
+    operand: Optional[Expression]
+    results: List[Expression]
 
 
 class UnnamedArgument(TypedDict):
@@ -294,6 +302,7 @@ Query = TypedDict(
         "body": Body,
         "fetch": Optional[Fetch],
         "limit": Optional[Limit],
+        "lock": Optional[Literal["Share", "Update"]],
         "offset": Optional[Offset],
         "order_by": List[OrderBy],
         "with": Optional[With],
