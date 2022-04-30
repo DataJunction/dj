@@ -38,12 +38,7 @@ from datajunction.sql.dag import render_dag
 from datajunction.sql.inference import infer_columns
 from datajunction.sql.parse import get_dependencies
 from datajunction.typing import ColumnType
-from datajunction.utils import (
-    create_db_and_tables,
-    get_more_specific_type,
-    get_name_from_path,
-    get_session,
-)
+from datajunction.utils import get_more_specific_type, get_name_from_path, get_session
 
 _logger = logging.getLogger(__name__)
 
@@ -491,8 +486,6 @@ async def run(repository: Path, force: bool = False, reload: bool = False) -> No
     Compile the metrics repository.
     """
     patch_druid_get_columns()
-
-    create_db_and_tables()
 
     session = next(get_session())
 
