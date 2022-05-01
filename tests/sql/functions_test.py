@@ -9,7 +9,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 
 from datajunction.errors import DJInvalidInputException, DJNotImplementedException
 from datajunction.models.column import Column
-from datajunction.sql.functions import Coalesce, Count, Max, Min, function_registry
+from datajunction.sql.functions import Coalesce, Count, Max, Min, Sum, Avg, function_registry
 from datajunction.typing import ColumnType
 
 from .utils import query_to_string
@@ -113,3 +113,19 @@ def test_missing_functions() -> None:
 The following error happened:
 - The function `INVALID_FUNCTION` hasn't been implemented in DJ yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Function+missing:+INVALID_FUNCTION to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst to implement it. (error code: 1)"""
     )
+
+
+def test_sum() -> None:
+    """
+    Test ``sum`` function.
+    """
+    assert Sum.infer_type("*") == ColumnType.INT
+    assert query_to_string(Sum.get_sqla_function("*")) == "sum('*')"
+
+
+def test_avg() -> None:
+    """
+    Test ``avg`` function.
+    """
+    assert Avg.infer_type("*") == ColumnType.INT
+    assert query_to_string(Avg.get_sqla_function("*")) == "avg('*')"
