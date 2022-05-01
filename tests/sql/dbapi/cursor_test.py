@@ -22,26 +22,68 @@ def test_cursor_execute(mocker: MockerFixture) -> None:
     Test the ``execute`` method.
     """
     requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests.post().headers.get.return_value = "application/json"
     url = URL("http://localhost:8000/")
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/msgpack",
+        "Accept": "application/msgpack; q=1.0, application/json; q=0.5",
+    }
     cursor = Cursor(url)
 
     cursor.execute("SELECT 1")
     requests.post.assert_called_with(
         url / "queries/",
-        json={"database_id": 0, "submitted_query": "SELECT 1"},
+        data=b"\x82\xabdatabase_id\x00\xafsubmitted_query\xa8SELECT 1",
         headers=headers,
     )
 
     cursor.execute("SELECT * FROM some_table WHERE name = %(name)s", {"name": "Alice"})
     requests.post.assert_called_with(
         url / "queries/",
-        json={
-            "database_id": 0,
-            "submitted_query": "SELECT * FROM some_table WHERE name = 'Alice'",
-        },
+        data=(
+            b"\x82\xabdatabase_id\x00\xafsubmitted_query\xd9-SELECT * FROM some_t"
+            b"able WHERE name = 'Alice'"
+        ),
         headers=headers,
     )
+
+
+def test_cursor_execute_msgpack(mocker: MockerFixture) -> None:
+    """
+    Test the ``execute`` method with msgpack.
+    """
+    msgpack = mocker.patch("datajunction.sql.dbapi.cursor.msgpack")
+    msgpack.packb.return_value = b"data"
+    requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests.post().headers.get.return_value = "application/msgpack"
+    url = URL("http://localhost:8000/")
+    headers = {
+        "Content-Type": "application/msgpack",
+        "Accept": "application/msgpack; q=1.0, application/json; q=0.5",
+    }
+    cursor = Cursor(url)
+
+    cursor.execute("SELECT 1")
+    requests.post.assert_called_with(
+        url / "queries/",
+        data=b"data",
+        headers=headers,
+    )
+    msgpack.unpackb.assert_called()
+
+
+def test_cursor_execute_invalid_content_type(mocker: MockerFixture) -> None:
+    """
+    Test the ``execute`` method with an invalid content type.
+    """
+    requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests.post().headers.get.return_value = "application/protobuf"
+    url = URL("http://localhost:8000/")
+    cursor = Cursor(url)
+
+    with pytest.raises(Exception) as excinfo:
+        cursor.execute("SELECT 1")
+    assert str(excinfo.value) == "Unable to parse content type: application/protobuf"
 
 
 def test_cursor_execute_error(requests_mock: Mocker) -> None:
@@ -126,6 +168,7 @@ def test_fetch_methods(mocker: MockerFixture) -> None:
     Test ``fetchone``, ``fetchmany``, ``fetchall``.
     """
     requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests.post().headers.get.return_value = "application/json"
     requests.post().json.return_value = {
         "database_id": 1,
         "catalog": None,

@@ -6,11 +6,16 @@ import json
 import logging
 import urllib.parse
 import uuid
+from typing import Any, List, Optional
 
+import msgpack
+from accept_types import get_best_match
 from fastapi import (
     APIRouter,
     BackgroundTasks,
+    Body,
     Depends,
+    Header,
     HTTPException,
     Request,
     Response,
@@ -27,6 +32,9 @@ from datajunction.models.query import (
     QueryResults,
     QueryState,
     QueryWithResults,
+    StatementResults,
+    decode_results,
+    encode_results,
 )
 from datajunction.sql.build import get_query_for_sql
 from datajunction.utils import get_session, get_settings
@@ -40,27 +48,92 @@ celery = get_settings().celery  # pylint: disable=invalid-name
     "/queries/",
     response_model=QueryWithResults,
     status_code=status.HTTP_200_OK,
+    responses={
+        200: {
+            "content": {"application/msgpack": {}},
+            "description": "Return results as JSON or msgpack",
+        },
+    },
+    openapi_extra={
+        "requestBody": {
+            "content": {
+                "application/json": {
+                    "schema": QueryCreate.schema(
+                        ref_template="#/components/schemas/{model}",
+                    ),
+                },
+                "application/msgpack": {
+                    "schema": QueryCreate.schema(
+                        ref_template="#/components/schemas/{model}",
+                    ),
+                },
+            },
+        },
+    },
 )
 def submit_query(
+    accept: Optional[str] = Header(None),
     *,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
-    create_query: QueryCreate,
+    request: Request,
     response: Response,
     background_tasks: BackgroundTasks,
+    body: Any = Body(...),
 ) -> QueryWithResults:
     """
     Run or schedule a query.
+
+    This endpoint is different from others in that it accepts both JSON and msgpack, and
+    can also return JSON or msgpack, depending on HTTP headers.
     """
+    content_type = request.headers.get("content-type")
+    if content_type == "application/json":
+        data = body
+    elif content_type == "application/msgpack":
+        data = msgpack.unpackb(body, ext_hook=decode_results)
+    elif content_type is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Content type must be specified",
+        )
+    else:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Content type not accepted: {content_type}",
+        )
+    create_query = QueryCreate(**data)
+
     if create_query.database_id == DJ_DATABASE_ID:
         create_query = get_query_for_sql(create_query.submitted_query)
 
-    return save_query_and_run(
+    query_with_results = save_query_and_run(
         create_query,
         session,
         settings,
         response,
         background_tasks,
+    )
+
+    return_type = get_best_match(accept, ["application/json", "application/msgpack"])
+    if not return_type:
+        raise HTTPException(
+            status_code=406,
+            detail="Client MUST accept: application/json, application/msgpack",
+        )
+
+    if return_type == "application/msgpack":
+        content = msgpack.packb(
+            query_with_results.dict(by_alias=True),
+            default=encode_results,
+        )
+    else:
+        content = query_with_results.json(by_alias=True)
+
+    return Response(
+        content=content,
+        media_type=return_type,
+        status_code=response.status_code or status.HTTP_200_OK,
     )
 
 
@@ -108,7 +181,11 @@ def dispatch_query(query_id: uuid.UUID) -> None:
     process_query(session, settings, query).dict()
 
 
-def load_query_results(settings: Settings, key: str, paginated: bool) -> QueryResults:
+def load_query_results(
+    settings: Settings,
+    key: str,
+    paginated: bool,
+) -> List[StatementResults]:
     """
     Load results from backend, if available.
 

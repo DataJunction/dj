@@ -6,12 +6,14 @@ An implementation of a DB API 2.0 cursor.
 import itertools
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
+import msgpack
 import requests
 from sqloxide import parse_sql
 from yarl import URL
 
 from datajunction.constants import DJ_DATABASE_ID
 from datajunction.errors import DJException
+from datajunction.models.query import decode_results, encode_results
 from datajunction.sql.dbapi import exceptions
 from datajunction.sql.dbapi.decorators import check_closed, check_result
 from datajunction.sql.dbapi.exceptions import (  # pylint: disable=redefined-builtin
@@ -86,16 +88,26 @@ class Cursor:
         if len(tree) > 1:
             raise Warning("You can only execute one statement at a time")
 
+        data = msgpack.packb(
+            {"database_id": self.database_id, "submitted_query": operation},
+            default=encode_results,
+        )
+
         response = requests.post(
             self.base_url / "queries/",
-            json={"database_id": self.database_id, "submitted_query": operation},
-            headers={"Content-Type": "application/json"},
+            data=data,
+            headers={
+                "Content-Type": "application/msgpack",
+                "Accept": "application/msgpack; q=1.0, application/json; q=0.5",
+            },
         )
+        content_type = response.headers.get("content-type")
+
         if not response.ok:
             if (
                 response.headers.get("X-DJ-Error", "").lower() == "true"
                 and response.headers.get("X-DBAPI-Exception")
-                and response.headers.get("content-type") == "application/json"
+                and content_type == "application/json"
             ):
                 exc_name = response.headers["X-DBAPI-Exception"]
                 exc = getattr(exceptions, exc_name)
@@ -106,7 +118,13 @@ class Cursor:
                 "It is pitch black. You are likely to be eaten by a grue.",
             )
 
-        payload = response.json()
+        if content_type == "application/msgpack":
+            payload = msgpack.unpackb(response.content, ext_hook=decode_results)
+        elif content_type == "application/json":
+            payload = response.json()
+        else:
+            raise Exception(f"Unable to parse content type: {content_type}")
+
         results = payload["results"][0]
         self._results = (tuple(row) for row in results["rows"])
         self.description = [

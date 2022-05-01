@@ -20,4 +20,4 @@ FROM metrics
 GROUP BY "core.users.gender"
     """
     results = list(connection.execute(sql))
-    assert results == [("female", 5), ("non-binary", 9), ("male", 7)]
+    assert results == [("female", 5), ("non-binary", 10), ("male", 7)]

@@ -3,8 +3,10 @@ Tests for the queries API.
 """
 
 import json
+from datetime import datetime
 from uuid import UUID, uuid4
 
+import msgpack
 import pytest
 from fastapi.exceptions import HTTPException
 from fastapi.testclient import TestClient
@@ -25,6 +27,8 @@ from datajunction.models.query import (
     QueryState,
     QueryWithResults,
     StatementResults,
+    decode_results,
+    encode_results,
 )
 
 
@@ -52,7 +56,11 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     )
 
     with freeze_time("2021-01-01T00:00:00Z"):
-        response = client.post("/queries/", data=payload)
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
     data = response.json()
 
     assert response.status_code == 200
@@ -71,6 +79,102 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
+
+
+def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
+    """
+    Test ``POST /queries/`` using msgpack.
+    """
+    database = Database(name="test", URI="sqlite://")
+    session.add(database)
+    session.commit()
+    session.refresh(database)
+
+    query_create = QueryCreate(
+        database_id=database.id,
+        submitted_query="SELECT 1 AS col",
+    )
+    payload = query_create.dict(by_alias=True)
+    data = msgpack.packb(payload, default=encode_results)
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=data,
+            headers={
+                "Content-Type": "application/msgpack",
+                "Accept": "application/msgpack; q=1.0, application/json; q=0.5",
+            },
+        )
+    data = msgpack.unpackb(response.content, ext_hook=decode_results)
+
+    assert response.headers.get("content-type") == "application/msgpack"
+    assert response.status_code == 200
+    assert data["database_id"] == 1
+    assert data["catalog"] is None
+    assert data["schema"] is None
+    assert data["submitted_query"] == "SELECT 1 AS col"
+    assert data["executed_query"] == "SELECT 1 AS col"
+    assert data["scheduled"] == datetime(2021, 1, 1)
+    assert data["started"] == datetime(2021, 1, 1)
+    assert data["finished"] == datetime(2021, 1, 1)
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1 AS col"
+    assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
+    assert data["results"][0]["rows"] == [[1]]
+    assert data["errors"] == []
+
+
+def test_submit_query_errors(
+    session: Session,
+    client: TestClient,
+) -> None:
+    """
+    Test ``POST /queries/`` with missing/invalid content type.
+    """
+    database = Database(name="test", URI="sqlite://")
+    session.add(database)
+    session.commit()
+    session.refresh(database)
+
+    query_create = QueryCreate(
+        database_id=database.id,
+        submitted_query="SELECT 1 AS col",
+    )
+    payload = query_create.json(by_alias=True)
+
+    response = client.post(
+        "/queries/",
+        data=payload,
+        headers={"Accept": "application/json"},
+    )
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Content type must be specified"}
+
+    response = client.post(
+        "/queries/",
+        data=payload,
+        headers={
+            "Content-Type": "application/protobuf",
+            "Accept": "application/json",
+        },
+    )
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": "Content type not accepted: application/protobuf",
+    }
+
+    response = client.post(
+        "/queries/",
+        data=payload,
+        headers={"Content-Type": "application/json", "Accept": "application/protobuf"},
+    )
+    assert response.status_code == 406
+    assert response.json() == {
+        "detail": "Client MUST accept: application/json, application/msgpack",
+    }
 
 
 def test_submit_query_with_catalog_and_schema(
@@ -102,7 +206,11 @@ def test_submit_query_with_catalog_and_schema(
     )
 
     with freeze_time("2021-01-01T00:00:00Z"):
-        response = client.post("/queries/", data=payload)
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
     data = response.json()
 
     assert response.status_code == 200
@@ -144,7 +252,11 @@ def test_submit_query_native(mocker: MockerFixture, client: TestClient) -> None:
         submitted_query="SELECT A FROM metrics",
     )
 
-    client.post("/queries/", data=query_create.json())
+    client.post(
+        "/queries/",
+        data=query_create.json(),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
 
     get_query_for_sql.assert_called_with("SELECT A FROM metrics")
 
@@ -182,7 +294,11 @@ def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) ->
         submitted_query="SELECT A FROM metrics",
     )
 
-    response = client.post("/queries/", data=query_create.json())
+    response = client.post(
+        "/queries/",
+        data=query_create.json(),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
     assert response.json() == {
         "message": "The query is invalid",
         "errors": [
@@ -218,7 +334,11 @@ def test_submit_query_multiple_statements(session: Session, client: TestClient) 
     )
 
     with freeze_time("2021-01-01T00:00:00Z"):
-        response = client.post("/queries/", data=query_create.json())
+        response = client.post(
+            "/queries/",
+            data=query_create.json(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
     data = response.json()
 
     assert response.status_code == 200
@@ -261,7 +381,11 @@ def test_submit_query_results_backend(
     )
 
     with freeze_time("2021-01-01T00:00:00Z"):
-        response = client.post("/queries/", data=query_create.json())
+        response = client.post(
+            "/queries/",
+            data=query_create.json(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
     data = response.json()
 
     cached = settings.results_backend.get(data["id"])
@@ -296,7 +420,11 @@ def test_submit_query_async(
     )
 
     with freeze_time("2021-01-01T00:00:00Z", auto_tick_seconds=300):
-        response = client.post("/queries/", data=query_create.json())
+        response = client.post(
+            "/queries/",
+            data=query_create.json(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
     data = response.json()
 
     assert response.status_code == 201
@@ -348,7 +476,11 @@ def test_submit_query_async_celery(
     )
 
     with freeze_time("2021-01-01T00:00:00Z", auto_tick_seconds=300):
-        response = client.post("/queries/", data=query_create.json())
+        response = client.post(
+            "/queries/",
+            data=query_create.json(),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
     data = response.json()
 
     dispatch_query.delay.assert_called_with(UUID(data["id"]))
@@ -413,7 +545,11 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
         submitted_query="SELECT FROM",
     )
 
-    response = client.post("/queries/", data=query_create.json())
+    response = client.post(
+        "/queries/",
+        data=query_create.json(),
+        headers={"Content-Type": "application/json", "Accept": "application/json"},
+    )
     data = response.json()
 
     assert response.status_code == 200

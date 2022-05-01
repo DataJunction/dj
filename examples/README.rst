@@ -107,4 +107,5 @@ If the Druid data doesn't load, you need to fix the permissions:
     $ chmod 777 /opt/shared
     $ exit
     $ docker-compose restart druid_ingest
+    $ cd docker/
     $ curl -H 'Content-Type:application/json' -d @druid_spec.json http://localhost:8081/druid/indexer/v1/task
