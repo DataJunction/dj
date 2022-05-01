@@ -367,6 +367,45 @@ class Coalesce(Function):
         return func.coalesce(*args)
 
 
+class Sum(Function):
+    """
+    The ``SUM`` function.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(argument: Union["Wildcard", Column, int]) -> ColumnType:  # type: ignore
+        return ColumnType.INT
+
+    @staticmethod
+    def get_sqla_function(  # type: ignore
+        argument: Union[SqlaColumn, str, int],
+        *,
+        dialect: Optional[str] = None,
+    ) -> SqlaFunction:
+        return func.sum(argument)
+
+
+class Avg(Function):
+    """
+    The ``AVG`` function.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(argument: Union["Wildcard", Column, int]) -> ColumnType:  # type: ignore
+        return ColumnType.INT
+
+    @staticmethod
+    def get_sqla_function(  # type: ignore
+        argument: Union[SqlaColumn, str, int],
+        *,
+        dialect: Optional[str] = None,
+    ) -> SqlaFunction:
+        return func.avg(argument)
+
 class FunctionRegistry:  # pylint: disable=too-few-public-methods
     """
     A simple object for registering functions.
@@ -413,5 +452,7 @@ function_registry = FunctionRegistry(
         "DATE_TRUNC": DateTrunc,
         "MAX": Max,
         "MIN": Min,
+        "SUM": Sum,
+        "AVG": Avg,
     },
 )
