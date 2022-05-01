@@ -4,9 +4,11 @@ Models for queries.
 
 import uuid
 from datetime import datetime
-from typing import List, Optional
+from enum import Enum
+from typing import Any, List, Optional
 from uuid import UUID, uuid4
 
+import msgpack
 from pydantic import AnyHttpUrl
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
@@ -112,3 +114,38 @@ class QueryWithResults(BaseQuery):
     next: Optional[AnyHttpUrl] = None
     previous: Optional[AnyHttpUrl] = None
     errors: List[str]
+
+
+class QueryExtType(int, Enum):
+    """
+    Custom ext type for msgpack.
+    """
+
+    UUID = 1
+    DATETIME = 2
+
+
+def encode_results(obj: Any) -> Any:
+    """
+    Custom msgpack encoder for ``QueryWithResults``.
+    """
+    if isinstance(obj, uuid.UUID):
+        return msgpack.ExtType(QueryExtType.UUID, str(obj).encode("utf-8"))
+
+    if isinstance(obj, datetime):
+        return msgpack.ExtType(QueryExtType.DATETIME, obj.isoformat().encode("utf-8"))
+
+    return obj
+
+
+def decode_results(code: int, data: bytes) -> Any:
+    """
+    Custom msgpack decoder for ``QueryWithResults``.
+    """
+    if code == QueryExtType.UUID:
+        return uuid.UUID(data.decode())
+
+    if code == QueryExtType.DATETIME:
+        return datetime.fromisoformat(data.decode())
+
+    return msgpack.ExtType(code, data)
