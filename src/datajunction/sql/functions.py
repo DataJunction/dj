@@ -453,6 +453,6 @@ function_registry = FunctionRegistry(
         "MAX": Max,
         "MIN": Min,
         "SUM": Sum,
-        "AVG": Avg
+        "AVG": Avg,
     },
 )
