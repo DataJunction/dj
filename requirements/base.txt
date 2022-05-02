@@ -7,6 +7,8 @@
 #
 -e file:.
     # via -r requirements/base.in
+accept-types==0.4.1
+    # via datajunction
 amqp==5.1.1
     # via kombu
 anyio==3.5.0
@@ -122,7 +124,7 @@ watchfiles==0.12
     # via datajunction
 wcwidth==0.2.5
     # via prompt-toolkit
-wrapt==1.14.0
+wrapt==1.14.1
     # via deprecated
 yarl==1.7.2
     # via datajunction

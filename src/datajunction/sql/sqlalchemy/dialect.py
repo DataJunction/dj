@@ -116,8 +116,12 @@ class DJDialect(DefaultDialect):
         """
         Is the service up?
         """
-        cursor = dbapi_connection.cursor()
-        cursor.execute("SELECT 1")
+        try:
+            cursor = dbapi_connection.cursor()
+            cursor.execute("SELECT 1")
+        except Exception:  # pylint: disable=broad-except
+            return False
+
         return True
 
     def has_table(

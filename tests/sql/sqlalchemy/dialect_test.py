@@ -50,6 +50,9 @@ def test_do_ping(mocker: MockerFixture) -> None:
     assert dialect.do_ping(dbapi_connection)
     dbapi_connection.cursor().execute.assert_called_with("SELECT 1")
 
+    dbapi_connection.cursor.side_effect = Exception("BOOM!")
+    assert not dialect.do_ping(dbapi_connection)
+
 
 def test_get_schema_names(mocker: MockerFixture) -> None:
     """
