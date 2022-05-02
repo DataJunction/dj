@@ -406,6 +406,7 @@ class Avg(Function):
     ) -> SqlaFunction:
         return func.avg(argument)
 
+
 class FunctionRegistry:  # pylint: disable=too-few-public-methods
     """
     A simple object for registering functions.
