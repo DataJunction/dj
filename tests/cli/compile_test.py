@@ -86,7 +86,20 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "description": "A Google Sheets connector",
             "URI": "gsheets://",
             "read_only": True,
-            "extra_params": {},
+            "extra_params": {
+                "catalog": {
+                    "comments": (
+                        "https://docs.google.com/spreadsheets/d/"
+                        "1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#"
+                        "gid=1811447072"
+                    ),
+                    "users": (
+                        "https://docs.google.com/spreadsheets/d/"
+                        "1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#"
+                        "gid=0"
+                    ),
+                },
+            },
         },
         {
             "async_": False,
