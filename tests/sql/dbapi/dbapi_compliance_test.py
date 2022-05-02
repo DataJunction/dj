@@ -77,6 +77,7 @@ def test_cursor(requests_mock: Mocker) -> None:
             "previous": None,
             "errors": [],
         },
+        headers={"Content-Type": "application/json"},
     )
 
     connection = dbapi.connect("http://localhost:8000/")

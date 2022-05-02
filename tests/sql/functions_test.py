@@ -9,7 +9,15 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 
 from datajunction.errors import DJInvalidInputException, DJNotImplementedException
 from datajunction.models.column import Column
-from datajunction.sql.functions import Coalesce, Count, Max, Min, Sum, Avg, function_registry
+from datajunction.sql.functions import (
+    Avg,
+    Coalesce,
+    Count,
+    Max,
+    Min,
+    Sum,
+    function_registry,
+)
 from datajunction.typing import ColumnType
 
 from .utils import query_to_string

@@ -24,8 +24,12 @@ def test_types(mocker: MockerFixture) -> None:
     Test that native Python types can be used in queries.
     """
     requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests.post().headers.get.return_value = "application/json"
     url = URL("http://localhost:8000/")
-    headers = {"Content-Type": "application/json"}
+    headers = {
+        "Content-Type": "application/msgpack",
+        "Accept": "application/msgpack; q=1.0, application/json; q=0.5",
+    }
 
     connection = connect(url)
     cursor = connection.cursor()
@@ -57,16 +61,12 @@ def test_types(mocker: MockerFixture) -> None:
     )
     requests.post.assert_called_with(
         url / "queries/",
-        json={
-            "database_id": 0,
-            "submitted_query": (
-                "SELECT * FROM some_table "
-                "WHERE type_date='2020-01-01' "
-                "AND type_time='00:00:00+00:00' "
-                "AND type_timestamp='2020-01-01 00:00:00+00:00' "
-                "AND type_binary='🦥'"
-            ),
-        },
+        data=(
+            b"\x82\xabdatabase_id\x00\xafsubmitted_query\xd9\x9aSELECT * FROM so"
+            b"me_table WHERE type_date='2020-01-01' AND type_time='00:00:00+00:00'"
+            b" AND type_timestamp='2020-01-01 00:00:00+00:00' AND type_binary="
+            b"'\xf0\x9f\xa6\xa5'"
+        ),
         headers=headers,
     )
 
@@ -87,16 +87,12 @@ def test_types(mocker: MockerFixture) -> None:
     )
     requests.post.assert_called_with(
         url / "queries/",
-        json={
-            "database_id": 0,
-            "submitted_query": (
-                "SELECT * FROM some_table "
-                "WHERE type_date='1970-01-01' "
-                "AND type_time='00:00:02+00:00' "
-                "AND type_timestamp='1970-01-01 00:00:03+00:00' "
-                "AND type_binary='🦥'"
-            ),
-        },
+        data=(
+            b"\x82\xabdatabase_id\x00\xafsubmitted_query\xd9\x9aSELECT * FROM so"
+            b"me_table WHERE type_date='1970-01-01' AND type_time='00:00:02+00:00'"
+            b" AND type_timestamp='1970-01-01 00:00:03+00:00' AND type_binary="
+            b"'\xf0\x9f\xa6\xa5'"
+        ),
         headers=headers,
     )
 
