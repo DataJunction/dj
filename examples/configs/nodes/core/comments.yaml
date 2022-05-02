@@ -18,7 +18,7 @@ tables:
   gsheets:
   - catalog: null
     schema: null
-    table: https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=1811447072
+    table: comments
     cost: 100.0
   postgres:
   - catalog: null
