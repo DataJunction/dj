@@ -127,13 +127,22 @@ def test_sum() -> None:
     """
     Test ``sum`` function.
     """
-    assert Sum.infer_type("*") == ColumnType.INT
-    assert query_to_string(Sum.get_sqla_function("*")) == "sum('*')"
+    assert Sum.infer_type(Column(name="value", type=ColumnType.INT)) == ColumnType.INT
+    assert (
+        Sum.infer_type(Column(name="value", type=ColumnType.FLOAT)) == ColumnType.FLOAT
+    )
+    assert (
+        query_to_string(Sum.get_sqla_function(SqlaColumn("value", Integer)))
+        == "sum(value)"
+    )
 
 
 def test_avg() -> None:
     """
     Test ``avg`` function.
     """
-    assert Avg.infer_type("*") == ColumnType.INT
-    assert query_to_string(Avg.get_sqla_function("*")) == "avg('*')"
+    assert Avg.infer_type(Column(name="value", type=ColumnType.INT)) == ColumnType.FLOAT
+    assert (
+        query_to_string(Avg.get_sqla_function(SqlaColumn("value", Integer)))
+        == "avg(value)"
+    )
