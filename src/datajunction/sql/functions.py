@@ -375,16 +375,16 @@ class Sum(Function):
     is_aggregation = True
 
     @staticmethod
-    def infer_type(argument: Union["Wildcard", Column, int]) -> ColumnType:  # type: ignore
-        return ColumnType.INT
+    def infer_type(column: Column) -> ColumnType:  # type: ignore
+        return column.type
 
     @staticmethod
     def get_sqla_function(  # type: ignore
-        argument: Union[SqlaColumn, str, int],
+        column: SqlaColumn,
         *,
         dialect: Optional[str] = None,
     ) -> SqlaFunction:
-        return func.sum(argument)
+        return func.sum(column)
 
 
 class Avg(Function):
@@ -395,16 +395,16 @@ class Avg(Function):
     is_aggregation = True
 
     @staticmethod
-    def infer_type(argument: Union["Wildcard", Column, int]) -> ColumnType:  # type: ignore
-        return ColumnType.INT
+    def infer_type(argument: Column) -> ColumnType:  # type: ignore
+        return ColumnType.FLOAT
 
     @staticmethod
     def get_sqla_function(  # type: ignore
-        argument: Union[SqlaColumn, str, int],
+        column: SqlaColumn,
         *,
         dialect: Optional[str] = None,
     ) -> SqlaFunction:
-        return func.avg(argument)
+        return func.avg(column)
 
 
 class FunctionRegistry:  # pylint: disable=too-few-public-methods
