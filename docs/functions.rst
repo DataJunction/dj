@@ -13,19 +13,15 @@ Currently, DJ supports only a small subset of SQL functions, limiting the defini
 Supported functions
 ===================
 
-``COUNT``
----------
+``AVG``
+-------
 
-The humble ``COUNT()``.
+Return the average of a given column:
 
 .. code-block:: sql
 
-    > SELECT COUNT(*) FROM some_table;
-    10
-    > SELECT COUNT(1) FROM some_table;
-    10
-    > SELECT COUNT(column) FROM some_table;  -- ignores NULLs
-    5
+    > SELECT AVG(column);
+    1.2
 
 ``COALESCE``
 ------------
@@ -43,15 +39,19 @@ Return the first non-null value:
     10
     -1
 
-``MAX``
--------
+``COUNT``
+---------
 
-Return the maximum value from a column:
+The humble ``COUNT()``.
 
 .. code-block:: sql
 
-    > SELECT MAX(column);
-    1000
+    > SELECT COUNT(*) FROM some_table;
+    10
+    > SELECT COUNT(1) FROM some_table;
+    10
+    > SELECT COUNT(column) FROM some_table;  -- ignores NULLs
+    5
 
 ``DATE_TRUNC``
 --------------
@@ -62,6 +62,35 @@ Truncate a ``DATETIME`` column to a given resolution:
 
     > SELECT DATE_TRUNC('minute', CAST('2022-01-01T12:34:56Z' AS TIMESTAMP);
     2022-01-01T12:34:00Z
+
+``MAX``
+-------
+
+Return the maximum value from a column:
+
+.. code-block:: sql
+
+    > SELECT MAX(column);
+
+``MIN``
+-------
+
+Return the minimum value from a column:
+
+.. code-block:: sql
+
+    > SELECT MIN(column);
+    1
+
+``SUM``
+-------
+
+Return the sum of a given column:
+
+.. code-block:: sql
+
+    > SELECT SUM(sales)
+    12345
 
 Adding new functions
 ====================
