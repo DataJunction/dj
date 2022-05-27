@@ -2,6 +2,8 @@
 Tests errors.
 """
 
+from http import HTTPStatus
+
 from datajunction.errors import DJError, DJException, ErrorCode
 
 
@@ -17,9 +19,12 @@ def test_dj_exception() -> None:
     assert exc.dbapi_exception == "InternalError"
     assert exc.http_status_code == 500
 
-    exc = DJException(dbapi_exception="ProgrammingError", http_status_code=400)
+    exc = DJException(
+        dbapi_exception="ProgrammingError",
+        http_status_code=HTTPStatus.BAD_REQUEST,
+    )
     assert exc.dbapi_exception == "ProgrammingError"
-    assert exc.http_status_code == 400
+    assert exc.http_status_code == HTTPStatus.BAD_REQUEST
 
     exc = DJException("Message")
     assert str(exc) == "Message"

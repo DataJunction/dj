@@ -4,6 +4,7 @@ Tests for the queries API.
 
 import json
 from datetime import datetime
+from http import HTTPStatus
 from uuid import UUID, uuid4
 
 import msgpack
@@ -161,7 +162,7 @@ def test_submit_query_errors(
             "Accept": "application/json",
         },
     )
-    assert response.status_code == 422
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
     assert response.json() == {
         "detail": "Content type not accepted: application/protobuf",
     }
@@ -285,7 +286,7 @@ def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) ->
                 ),
             ],
             dbapi_exception="ProgrammingError",
-            http_status_code=422,
+            http_status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
         ),
     )
 
@@ -616,7 +617,7 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
     assert response.status_code == 404
 
     response = client.get("/queries/123")
-    assert response.status_code == 422
+    assert response.status_code == HTTPStatus.UNPROCESSABLE_ENTITY
 
 
 def test_read_query_no_results_backend(session: Session, client: TestClient) -> None:

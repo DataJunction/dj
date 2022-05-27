@@ -6,6 +6,7 @@ import json
 import logging
 import urllib.parse
 import uuid
+from http import HTTPStatus
 from typing import Any, List, Optional
 
 import msgpack
@@ -19,7 +20,6 @@ from fastapi import (
     HTTPException,
     Request,
     Response,
-    status,
 )
 from sqlmodel import Session
 
@@ -47,7 +47,7 @@ celery = get_settings().celery  # pylint: disable=invalid-name
 @router.post(
     "/queries/",
     response_model=QueryWithResults,
-    status_code=status.HTTP_200_OK,
+    status_code=HTTPStatus.OK,
     responses={
         200: {
             "content": {"application/msgpack": {}},
@@ -94,12 +94,12 @@ def submit_query(
         data = msgpack.unpackb(body, ext_hook=decode_results)
     elif content_type is None:
         raise HTTPException(
-            status_code=400,
+            status_code=HTTPStatus.BAD_REQUEST,
             detail="Content type must be specified",
         )
     else:
         raise HTTPException(
-            status_code=422,
+            status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
             detail=f"Content type not accepted: {content_type}",
         )
     create_query = QueryCreate(**data)
@@ -118,7 +118,7 @@ def submit_query(
     return_type = get_best_match(accept, ["application/json", "application/msgpack"])
     if not return_type:
         raise HTTPException(
-            status_code=406,
+            status_code=HTTPStatus.NOT_ACCEPTABLE,
             detail="Client MUST accept: application/json, application/msgpack",
         )
 
@@ -133,7 +133,7 @@ def submit_query(
     return Response(
         content=content,
         media_type=return_type,
-        status_code=response.status_code or status.HTTP_200_OK,
+        status_code=response.status_code or HTTPStatus.OK,
     )
 
 
@@ -160,7 +160,7 @@ def save_query_and_run(
         else:
             background_tasks.add_task(process_query, session, settings, query)
 
-        response.status_code = status.HTTP_201_CREATED
+        response.status_code = HTTPStatus.CREATED
         return QueryWithResults(results=[], errors=[], **query.dict())
 
     return process_query(session, settings, query)
@@ -176,7 +176,7 @@ def dispatch_query(query_id: uuid.UUID) -> None:
 
     query = session.get(Query, query_id)
     if not query:
-        raise HTTPException(status_code=404, detail="Query not found")
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Query not found")
 
     process_query(session, settings, query).dict()
 
@@ -231,7 +231,7 @@ def read_query(
     """
     query = session.get(Query, query_id)
     if not query:
-        raise HTTPException(status_code=404, detail="Query not found")
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Query not found")
 
     paginated = limit > 0 or offset > 0
     query_results = load_query_results(settings, str(query_id), paginated)

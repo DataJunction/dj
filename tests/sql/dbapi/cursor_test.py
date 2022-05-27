@@ -3,6 +3,8 @@ Tests for ``datajunction.sql.dbapi.cursor``.
 """
 # pylint: disable=redefined-builtin
 
+from http import HTTPStatus
+
 import pytest
 from pytest_mock import MockerFixture
 from requests_mock.mocker import Mocker
@@ -109,7 +111,7 @@ def test_cursor_execute_error(requests_mock: Mocker) -> None:
                 },
             ],
         },
-        status_code=422,
+        status_code=HTTPStatus.UNPROCESSABLE_ENTITY,
         headers={
             "X-DJ-Error": "true",
             "X-DBAPI-Exception": "ProgrammingError",
@@ -124,7 +126,10 @@ def test_cursor_execute_error(requests_mock: Mocker) -> None:
         cursor.execute("SELECT 1")
     assert str(excinfo.value) == "The query is invalid"
 
-    requests_mock.post("http://localhost:8000/queries/", status_code=500)
+    requests_mock.post(
+        "http://localhost:8000/queries/",
+        status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+    )
 
     with pytest.raises(InternalError) as excinfo:
         cursor.execute("SELECT 1")
