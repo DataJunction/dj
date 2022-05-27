@@ -311,6 +311,25 @@ class Max(Function):
         return func.max(column)
 
 
+class Now(Function):
+    """
+    The ``NOW`` function.
+    """
+
+    is_aggregation = False
+
+    @staticmethod
+    def infer_type() -> ColumnType:  # type: ignore
+        return ColumnType.DATETIME
+
+    @staticmethod
+    def get_sqla_function(  # type: ignore
+        *,
+        dialect: Optional[str] = None,
+    ) -> SqlaFunction:
+        return func.now()
+
+
 class Coalesce(Function):
     """
     The ``COALESCE`` function.
