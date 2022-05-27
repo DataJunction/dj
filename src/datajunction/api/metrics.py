@@ -3,6 +3,7 @@ Metric related APIs.
 """
 
 from datetime import datetime
+from http import HTTPStatus
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
@@ -71,9 +72,15 @@ def get_metric(session: Session, node_id: int) -> Node:
     """
     node = session.get(Node, node_id)
     if not node:
-        raise HTTPException(status_code=404, detail="Metric node not found")
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail="Metric node not found",
+        )
     if node.type != NodeType.METRIC:
-        raise HTTPException(status_code=400, detail="Not a metric node")
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail="Not a metric node",
+        )
     return node
 
 
