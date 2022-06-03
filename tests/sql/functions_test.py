@@ -15,6 +15,7 @@ from datajunction.sql.functions import (
     Count,
     Max,
     Min,
+    Now,
     Sum,
     function_registry,
 )
@@ -51,6 +52,14 @@ def test_max() -> None:
 
     assert Max.infer_type(column) == ColumnType.STR
     assert query_to_string(Max.get_sqla_function(sqla_column)) == "max(ds)"
+
+
+def test_now() -> None:
+    """
+    Test ``Now`` function.
+    """
+    assert Now.infer_type() == ColumnType.DATETIME
+    assert query_to_string(Now.get_sqla_function()) == "now()"
 
 
 def test_coalesce_infer_type() -> None:

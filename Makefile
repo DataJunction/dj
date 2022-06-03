@@ -10,6 +10,13 @@ pyenv: .python-version
 	pip install -e '.[testing]'
 	touch .python-version
 
+docker-build:
+	docker build .
+	docker compose build
+
+docker-run:
+	docker compose up
+
 test: pyenv
 	pytest --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction --without-integration --without-slow-integration
 
