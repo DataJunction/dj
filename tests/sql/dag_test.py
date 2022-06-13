@@ -4,6 +4,7 @@ Tests for ``datajunction.sql.dag``.
 
 from collections import defaultdict
 from typing import Dict, Set
+from unittest.mock import MagicMock
 
 import pytest
 from pytest_mock import MockerFixture
@@ -287,3 +288,16 @@ def test_get_database_for_nodes(mocker: MockerFixture) -> None:
 
     # without parents, return the cheapest DB
     assert get_database_for_nodes(session, [], referenced_columns) == database_1
+
+    # with no active database
+    create_engine = mocker.patch("datajunction.models.database.create_engine")
+    create_engine.side_effect = Exception("foo")
+    database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
+    database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
+
+    get_session = mocker.patch("datajunction.sql.build.get_session")
+    session = get_session().__next__()
+    session.exec().all.return_value = [database_1, database_2]
+    with pytest.raises(Exception) as excinfo:
+        get_database_for_nodes(session, [], referenced_columns)
+    assert str(excinfo.value) == "No active database was found"
