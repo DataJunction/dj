@@ -8,11 +8,9 @@ from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict
 
 from sqlalchemy import DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlmodel import JSON, Field, Relationship, SQLModel
+from sqlmodel import JSON, Field, Relationship, SQLModel, create_engine
 
 if TYPE_CHECKING:
-    from datajunction.models.column import Column
-    from datajunction.models.node import Node
     from datajunction.models.query import Query
     from datajunction.models.table import Table
 
@@ -48,6 +46,17 @@ class Database(SQLModel, table=True):  # type: ignore
     read_only: bool = True
     async_: bool = Field(default=False, sa_column_kwargs={"name": "async"})
     cost: float = 1.0
+
+    @property
+    def engine(self):
+        return create_engine(self.URI, **self.extra_params)
+
+    def ping(self):
+        try:
+            raw_connection = self.engine.raw_connection()
+            return self.engine.dialect.do_ping(raw_connection)
+        except:
+            return False
 
     created_at: datetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),

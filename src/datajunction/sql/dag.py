@@ -118,13 +118,18 @@ def get_database_for_nodes(
     if not databases:
         raise Exception("No valid database was found")
 
+    active_databases = [db for db in databases if db.ping()]
+
+    if not active_databases:
+        raise Exception("No active database was found")
+
     if database_id is not None:
-        for database in databases:
+        for database in active_databases:
             if database.id == database_id:
                 return database
         raise Exception(f"Database ID {database_id} is not valid")
 
-    return sorted(databases, key=operator.attrgetter("cost"))[0]
+    return sorted(active_databases, key=operator.attrgetter("cost"))[0]
 
 
 def get_referenced_columns_from_sql(

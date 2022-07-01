@@ -176,6 +176,38 @@ def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
     assert str(excinfo.value) == "No valid database was found"
 
 
+def test_get_query_for_node_no_active_databases(mocker: MockerFixture) -> None:
+    """
+    Test ``get_query_for_node``.
+    """
+    database = mocker.MagicMock()
+    database.ping.return_value = False
+
+    parent = Node(name="A")
+
+    child = Node(
+        name="B",
+        tables=[
+            Table(
+                database=database,
+                table="B",
+                columns=[Column(name="one", type=ColumnType.STR)],
+            ),
+        ],
+        type=NodeType.METRIC,
+        expression="SELECT COUNT(*) AS cnt FROM A",
+        parents=[parent],
+        columns=[Column(name="one", type=ColumnType.STR)],
+    )
+
+    session = mocker.MagicMock()
+    session.exec().one.return_value = database
+
+    with pytest.raises(Exception) as excinfo:
+        get_query_for_node(session, child, [], [])
+    assert str(excinfo.value) == "No active database was found"
+
+
 def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None:
     """
     Test ``get_query_for_node`` when filtering/grouping by a dimension.
