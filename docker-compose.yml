@@ -24,6 +24,7 @@ services:
     ports:
       - "8000:8000"
     depends_on:
+      - db_migration
       - postgres_metadata
       - postgres_examples
       - redis
@@ -50,6 +51,17 @@ services:
     depends_on:
       - dj
     command: dj compile --reload
+
+  db_migration:
+    container_name: db_migration
+    environment:
+      - DOTENV_FILE=.env-docker
+    build: .
+    volumes:
+      - .:/code
+    depends_on:
+      - postgres_metadata
+    command: alembic upgrade head
 
   redis:
     image: redis:latest
