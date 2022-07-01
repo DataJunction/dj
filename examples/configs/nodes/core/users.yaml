@@ -13,6 +13,8 @@ columns:
     type: STR
   preferred_language:
     type: STR
+  secret_number:
+    type: FLOAT
 tables:
   gsheets:
   - catalog: null
