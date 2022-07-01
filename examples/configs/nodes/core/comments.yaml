@@ -10,10 +10,6 @@ columns:
     type: DATETIME
   text:
     type: STR
-  __time:
-    type: DATETIME
-  count:
-    type: INT
 tables:
   gsheets:
   - catalog: null
