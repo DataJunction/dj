@@ -17,6 +17,9 @@ docker-build:
 docker-run:
 	docker compose up
 
+docker-run-with-druid:
+	docker compose -f docker-compose.yml -f docker-compose-druid.yml  up
+
 test: pyenv
 	pytest --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction --without-integration --without-slow-integration
 
