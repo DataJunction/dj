@@ -99,13 +99,21 @@ And you should see:
 Troubleshooting
 ===============
 
-If the Druid data doesn't load, you need to fix the permissions:
+1. If the Druid data doesn't load, you may need to fix these permissions:
 
-.. code-block:: bash
+  .. code-block:: bash
 
-    $ docker exec -u root -it druid_coordinator sh
-    $ chmod 777 /opt/shared
-    $ exit
-    $ docker-compose restart druid_ingest
-    $ cd docker/
-    $ curl -H 'Content-Type:application/json' -d @druid_spec.json http://localhost:8081/druid/indexer/v1/task
+      $ docker exec -u root -it druid_coordinator sh
+      $ chmod 777 /opt/shared
+      $ exit
+      $ docker-compose restart druid_ingest
+      $ cd docker/
+      $ curl -H 'Content-Type:application/json' -d @druid_spec.json http://localhost:8081/druid/indexer/v1/task
+
+2. If you see the following errors from your druid service:
+
+  .. code-block:: bash
+
+      HTML Error: org.apache.druid.java.util.common.ISE: No default server found
+
+  Then you may need to increase your Docker memory size. This likely varies per machine but for me it started working at 12GB.
