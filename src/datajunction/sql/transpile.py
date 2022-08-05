@@ -11,7 +11,6 @@ import operator
 from typing import Any, Dict, List, Optional, Set, Union, cast
 
 from sqlalchemy import case, desc, text
-from sqlalchemy.engine import create_engine
 from sqlalchemy.schema import Column as SqlaColumn
 from sqlalchemy.schema import MetaData, Table
 from sqlalchemy.sql import Select, select
@@ -75,7 +74,7 @@ def get_select_for_node(
     if columns is None:
         columns = {column.name for column in node.columns}
 
-    engine = create_engine(database.URI, **database.extra_params)
+    engine = database.engine
 
     # if the node is materialized we use the table with the cheapest cost, as long as it
     # has all the requested columns (see #104)

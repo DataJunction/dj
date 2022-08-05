@@ -8,7 +8,7 @@ from typing import List, Tuple
 
 import sqlparse
 from sqlalchemy import text
-from sqlmodel import Session, create_engine
+from sqlmodel import Session
 
 from datajunction.config import Settings
 from datajunction.models.query import (
@@ -66,7 +66,7 @@ def run_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     columns (name and type) and a stream of rows (tuples).
     """
     _logger.info("Running query on database %s", query.database.name)
-    engine = create_engine(query.database.URI, **query.database.extra_params)
+    engine = query.database.engine
     connection = engine.connect()
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
