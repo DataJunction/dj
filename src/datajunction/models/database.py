@@ -7,6 +7,7 @@ from functools import partial
 from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict
 
 from sqlalchemy import DateTime, String
+from sqlalchemy.engine import Engine
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import JSON, Field, Relationship, SQLModel, create_engine
 
@@ -48,14 +49,20 @@ class Database(SQLModel, table=True):  # type: ignore
     cost: float = 1.0
 
     @property
-    def engine(self):
+    def engine(self) -> Engine:
+        """
+        Handler to the engine associated with the database.
+        """
         return create_engine(self.URI, **self.extra_params)
 
-    def ping(self):
+    def ping(self) -> bool:
+        """
+        Ping the database to see if it's online.
+        """
         try:
             raw_connection = self.engine.raw_connection()
             return self.engine.dialect.do_ping(raw_connection)
-        except:
+        except Exception:  # pylint: disable=broad-except
             return False
 
     created_at: datetime = Field(

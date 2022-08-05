@@ -116,4 +116,4 @@ Troubleshooting
 
       HTML Error: org.apache.druid.java.util.common.ISE: No default server found
 
-  Then you may need to increase your Docker memory size. This likely varies per machine but for me it started working at 12GB.
+Then you may need to increase your Docker memory size. This likely varies per machine but 12GB is probably needed.

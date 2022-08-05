@@ -29,7 +29,7 @@ services:
       - postgres_examples
       - redis
       - druid_coordinator
-      
+
   celery:
     container_name: celery
     environment:
