@@ -132,6 +132,7 @@ class Expression(TypedDict, total=False):
     Identifier: Identifier
     Value: Value
     Function: Function  # type: ignore
+    UnaryOp: UnaryOp  # type: ignore
     BinaryOp: BinaryOp  # type: ignore
     Case: Case  # type: ignore
 
@@ -195,6 +196,11 @@ class Fetch(TypedDict):
 
 
 Top = Fetch
+
+
+class UnaryOp(TypedDict):
+    op: str
+    expr: Expression
 
 
 class BinaryOp(TypedDict):
