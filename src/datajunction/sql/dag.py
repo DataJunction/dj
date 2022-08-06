@@ -147,21 +147,34 @@ async def get_cheapest_online_database(databases: Set[Database]) -> Database:
     pings = [asyncio.create_task(database.do_ping()) for database in sorted_databases]
     pending = set(pings)
 
+    loop = asyncio.get_running_loop()
+    start = loop.time()
     while True:
         # as soon as a ping returns, check if it's the fastest database and if it's online
+        timeout = settings.do_ping_timeout.total_seconds() - (loop.time() - start)
         done, pending = await asyncio.wait(
             pending,
-            timeout=settings.do_ping_timeout.total_seconds(),
+            timeout=timeout,
             return_when=asyncio.FIRST_COMPLETED,
         )
+
+        # if no tasks were done it means we timed out
         timed_out = not done
+
         for ping, database in zip(pings, sorted_databases):
             if not ping.done():
                 if timed_out:
+                    # if we did timeout, continue to the next database, trying to find one
+                    # that's online
                     continue
+
+                # if we didn't timeout, break and wait until the next ping returns
                 break
+
             if ping.result():
+                # database is online!
                 return database
+
         else:
             raise Exception("No active database was found")
 
