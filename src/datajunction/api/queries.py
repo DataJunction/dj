@@ -71,7 +71,7 @@ celery = get_settings().celery  # pylint: disable=invalid-name
         },
     },
 )
-def submit_query(
+async def submit_query(
     accept: Optional[str] = Header(None),
     *,
     session: Session = Depends(get_session),
@@ -105,7 +105,7 @@ def submit_query(
     create_query = QueryCreate(**data)
 
     if create_query.database_id == DJ_DATABASE_ID:
-        create_query = get_query_for_sql(create_query.submitted_query)
+        create_query = await get_query_for_sql(create_query.submitted_query)
 
     query_with_results = save_query_and_run(
         create_query,

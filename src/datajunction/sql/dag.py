@@ -95,7 +95,7 @@ def get_computable_databases(
     return databases
 
 
-def get_database_for_nodes(
+async def get_database_for_nodes(
     session: Session,
     nodes: List[Node],
     node_columns: Dict[str, Set[str]],
@@ -118,7 +118,7 @@ def get_database_for_nodes(
     if not databases:
         raise Exception("No valid database was found")
 
-    active_databases = [db for db in databases if db.ping()]
+    active_databases = [db for db in databases if db.do_ping()]
 
     if not active_databases:
         raise Exception("No active database was found")

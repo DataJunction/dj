@@ -257,7 +257,8 @@ def test_get_dimensions() -> None:
     assert get_dimensions(child) == ["A.b_id", "A.ds", "B.attribute", "B.id"]
 
 
-def test_get_database_for_nodes(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     """
     Test ``get_database_for_nodes``.
     """
@@ -283,10 +284,13 @@ def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     )
 
     referenced_columns: Dict[str, Set[str]] = defaultdict(set)
-    assert get_database_for_nodes(session, [parent], referenced_columns) == database_2
+    assert (
+        await get_database_for_nodes(session, [parent], referenced_columns)
+        == database_2
+    )
 
     # without parents, return the cheapest DB
-    assert get_database_for_nodes(session, [], referenced_columns) == database_1
+    assert await get_database_for_nodes(session, [], referenced_columns) == database_1
 
     # with no active database
     create_engine = mocker.patch("datajunction.models.database.create_engine")
@@ -298,5 +302,5 @@ def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     session = get_session().__next__()
     session.exec().all.return_value = [database_1, database_2]
     with pytest.raises(Exception) as excinfo:
-        get_database_for_nodes(session, [], referenced_columns)
+        await get_database_for_nodes(session, [], referenced_columns)
     assert str(excinfo.value) == "No active database was found"

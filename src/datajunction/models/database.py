@@ -55,7 +55,7 @@ class Database(SQLModel, table=True):  # type: ignore
         """
         return create_engine(self.URI, **self.extra_params)
 
-    def ping(self) -> bool:
+    def do_ping(self) -> bool:
         """
         Ping the database to see if it's online.
         """

@@ -85,7 +85,7 @@ def get_metric(session: Session, node_id: int) -> Node:
 
 
 @router.get("/metrics/{node_id}/data/", response_model=QueryWithResults)
-def read_metrics_data(
+async def read_metrics_data(
     node_id: int,
     database_id: Optional[int] = None,
     d: List[str] = Query([]),  # pylint: disable=invalid-name
@@ -100,7 +100,7 @@ def read_metrics_data(
     Return data for a metric.
     """
     node = get_metric(session, node_id)
-    create_query = get_query_for_node(session, node, d, f, database_id)
+    create_query = await get_query_for_node(session, node, d, f, database_id)
 
     return save_query_and_run(
         create_query,
@@ -112,7 +112,7 @@ def read_metrics_data(
 
 
 @router.get("/metrics/{node_id}/sql/", response_model=TranslatedSQL)
-def read_metrics_sql(
+async def read_metrics_sql(
     node_id: int,
     database_id: Optional[int] = None,
     d: List[str] = Query([]),  # pylint: disable=invalid-name
@@ -127,7 +127,7 @@ def read_metrics_sql(
     will be used.
     """
     node = get_metric(session, node_id)
-    create_query = get_query_for_node(session, node, d, f, database_id)
+    create_query = await get_query_for_node(session, node, d, f, database_id)
 
     return TranslatedSQL(
         database_id=create_query.database_id,
