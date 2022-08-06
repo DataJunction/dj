@@ -53,7 +53,7 @@ def test_get_select_for_node_materialized(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE B (cnt INTEGER)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     assert (
         query_to_string(get_select_for_node(child, database))
@@ -92,7 +92,7 @@ def test_get_select_for_node_not_materialized(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE A_slow (one TEXT, two TEXT)")
     connection.execute("CREATE TABLE A_fast (one TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -155,7 +155,7 @@ def test_get_select_for_node_choose_slow(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE A_slow (one TEXT, two TEXT)")
     connection.execute("CREATE TABLE A_fast (one TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -201,7 +201,7 @@ def test_get_select_for_node_projection(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -246,7 +246,7 @@ def test_get_select_for_node_where(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -292,7 +292,7 @@ def test_get_select_for_node_groupby(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -337,7 +337,7 @@ def test_get_select_for_node_limit(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -441,7 +441,7 @@ def test_get_select_for_node_with_join(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
     connection.execute("CREATE TABLE B (two TEXT, three TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
