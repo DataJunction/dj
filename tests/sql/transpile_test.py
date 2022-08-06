@@ -685,3 +685,18 @@ def test_case() -> None:
         "CASE WHEN (anon_1.col = 1) THEN one WHEN (anon_1.col = 2) "
         "THEN two ELSE a lot END"
     )
+
+
+def test_unary_op() -> None:
+    """
+    Test for unary operators.
+    """
+    engine = create_engine("sqlite://")
+    connection = engine.connect()
+    connection.execute("CREATE TABLE A (col TEXT)")
+    source = select(SqlaTable("A", MetaData(bind=engine), autoload=True))
+
+    expression: Expression = {
+        "UnaryOp": {"op": "Minus", "expr": {"Value": {"Number": ("2.0", False)}}},
+    }
+    assert get_expression(expression, source) == -2.0
