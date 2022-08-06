@@ -4,7 +4,6 @@ Tests for ``datajunction.sql.dag``.
 
 from collections import defaultdict
 from typing import Dict, Set
-from unittest.mock import MagicMock
 
 import pytest
 from pytest_mock import MockerFixture

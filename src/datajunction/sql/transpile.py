@@ -33,10 +33,15 @@ from datajunction.typing import (
     JoinOperator,
     ParseTree,
     Relation,
+    UnaryOp,
     Value,
 )
 
-OPERATIONS = {
+UNARY_OPERATIONS = {
+    "Minus": lambda value: -value,
+}
+
+BINARY_OPERATIONS = {
     "Gt": operator.gt,
     "GtEq": operator.ge,
     "Lt": operator.lt,
@@ -218,6 +223,23 @@ def get_selection(
     return get_expression(selection, source, dialect)
 
 
+def get_unary_op(
+    selection: UnaryOp,
+    source: Optional[Select] = None,
+    dialect: Optional[str] = None,
+) -> ClauseElement:
+    """
+    Build a unary operation (eg, -1).
+    """
+    value = get_expression(selection["expr"], source, dialect)
+    op = selection["op"]  # pylint: disable=invalid-name
+
+    if op not in UNARY_OPERATIONS:
+        raise NotImplementedError(f"Operator not supported: {op}")
+
+    return UNARY_OPERATIONS[op](value)
+
+
 def get_binary_op(
     selection: BinaryOp,
     left_source: Optional[Select] = None,
@@ -231,10 +253,10 @@ def get_binary_op(
     right = get_expression(selection["right"], right_source, dialect)
     op = selection["op"]  # pylint: disable=invalid-name
 
-    if op not in OPERATIONS:
+    if op not in BINARY_OPERATIONS:
         raise NotImplementedError(f"Operator not supported: {op}")
 
-    return OPERATIONS[op](left, right)
+    return BINARY_OPERATIONS[op](left, right)
 
 
 def get_projection(
@@ -296,6 +318,8 @@ def get_expression(  # pylint: disable=too-many-return-statements
         )
     if "Value" in expression:
         return get_value(expression["Value"], source, dialect)
+    if "UnaryOp" in expression:
+        return get_unary_op(expression["UnaryOp"], source, dialect)
     if "BinaryOp" in expression:
         return get_binary_op(expression["BinaryOp"], source, source, dialect)
     if "Case" in expression:
