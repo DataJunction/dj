@@ -50,7 +50,7 @@ def test_get_query_for_node(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE B (cnt INTEGER)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
     session = mocker.MagicMock()
 
     create_query = get_query_for_node(session, child, [], [])
@@ -92,7 +92,7 @@ def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (user_id INTEGER, comment TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
     session = mocker.MagicMock()
 
     create_query = get_query_for_node(session, child, ["A.user_id"], [])
@@ -132,7 +132,7 @@ def test_get_query_for_node_specify_database(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE B (cnt INTEGER)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
     session = mocker.MagicMock()
     session.exec().one.return_value = database
 
@@ -266,7 +266,7 @@ def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
     connection.execute("CREATE TABLE comments (ds TEXT, user_id INTEGER, text TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
     session = mocker.MagicMock()
     session.exec().one.return_value = dimension
 
@@ -385,7 +385,7 @@ def test_get_query_for_node_with_multiple_dimensions(mocker: MockerFixture) -> N
     connection.execute(
         "CREATE TABLE comments (ds TEXT, user_id INTEGER, band_id INTEGER, text TEXT)",
     )
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
     session = mocker.MagicMock()
     session.exec().one.side_effect = [dimension_1, dimension_2]
 
@@ -495,7 +495,7 @@ def test_get_query_for_sql(mocker: MockerFixture, session: Session) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     B = Node(
         name="B",
@@ -553,7 +553,7 @@ def test_get_query_for_sql_no_metrics(mocker: MockerFixture, session: Session) -
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     session.add(dimension)
     session.commit()
@@ -634,7 +634,7 @@ def test_get_query_for_sql_having(mocker: MockerFixture, session: Session) -> No
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     B = Node(
         name="B",
@@ -729,7 +729,7 @@ def test_get_query_for_sql_with_dimensions(
     connection = engine.connect()
     connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
     connection.execute("CREATE TABLE comments (ds TEXT, user_id INTEGER, text TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     session.add(child)
     session.add(dimension)
@@ -830,7 +830,7 @@ def test_get_query_for_sql_with_dimensions_order_by(
     connection = engine.connect()
     connection.execute("CREATE TABLE dim_users (id INTEGER, age INTEGER, gender TEXT)")
     connection.execute("CREATE TABLE comments (ds TEXT, user_id INTEGER, text TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     session.add(child)
     session.add(dimension)
@@ -956,7 +956,7 @@ def test_get_query_for_sql_compound_names(
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     B = Node(
         name="core.B",
@@ -1022,7 +1022,7 @@ def test_get_query_for_sql_multiple_databases(
     engine = create_engine(database_1.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     B = Node(
         name="B",
@@ -1081,7 +1081,7 @@ def test_get_query_for_sql_multiple_metrics(
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     B = Node(
         name="B",
@@ -1146,7 +1146,7 @@ def test_get_query_for_sql_non_identifiers(
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     B = Node(
         name="B",
@@ -1331,7 +1331,7 @@ def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) -> Non
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     B = Node(
         name="B",
@@ -1385,7 +1385,7 @@ def test_get_query_for_sql_where_groupby(
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE comments (user_id INT, comment TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     num_comments = Node(
         name="core.num_comments",
@@ -1444,7 +1444,7 @@ def test_get_query_for_sql_date_trunc(
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE comments (user_id INT, timestamp DATETIME)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     num_comments = Node(
         name="core.num_comments",
@@ -1505,7 +1505,7 @@ def test_get_query_for_sql_invalid_column(
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE comments (user_id INT, comment TEXT)")
-    mocker.patch("datajunction.sql.transpile.create_engine", return_value=engine)
+    mocker.patch("datajunction.models.database.create_engine", return_value=engine)
 
     num_comments = Node(
         name="core.num_comments",
