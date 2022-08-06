@@ -355,3 +355,28 @@ async def test_get_cheapest_online_database_offline(mocker: MockerFixture) -> No
     asyncio.create_task.side_effect = [slow_ping, fast_ping]
 
     assert await get_cheapest_online_database({database_1, database_2}) == database_2
+
+
+@pytest.mark.asyncio
+async def test_get_cheapest_online_database_timeout(mocker: MockerFixture) -> None:
+    """
+    Test ``get_cheapest_online_database`` when pinging the fastest DB times out.
+    """
+    database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
+    database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
+
+    slow_ping = mocker.MagicMock()
+    slow_ping.done.side_effect = [False, False]
+    slow_ping.result.return_value = True
+
+    fast_ping = mocker.MagicMock()
+    fast_ping.done.side_effect = [True, True]
+    fast_ping.result.return_value = True
+
+    asyncio = mocker.patch("datajunction.sql.dag.asyncio")
+    asyncio.wait = mocker.AsyncMock(
+        side_effect=[([fast_ping], [slow_ping]), ([], [slow_ping])],
+    )
+    asyncio.create_task.side_effect = [slow_ping, fast_ping]
+
+    assert await get_cheapest_online_database({database_1, database_2}) == database_2

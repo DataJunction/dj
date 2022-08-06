@@ -41,6 +41,9 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     # executed using FastAPI's ``BackgroundTasks``.
     celery_broker: Optional[str] = None
 
+    # How long to wait when pinging databases to find out the fastest online database.
+    do_ping_timeout: timedelta = timedelta(seconds=5)
+
     @property
     def celery(self) -> Celery:
         """
