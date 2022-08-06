@@ -18,6 +18,9 @@ from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import ParseTree
+from datajunction.utils import get_settings
+
+settings = get_settings()
 
 
 def render_dag(dependencies: Dict[str, Set[str]], **kwargs: Any) -> str:
@@ -132,6 +135,10 @@ async def get_database_for_nodes(
 async def get_cheapest_online_database(databases: Set[Database]) -> Database:
     """
     Return the cheapest online database.
+
+    The function will try to wait until the fastest database is pinged successfully. If
+    it's offline, it will try to wait until the second fastest, and so on. After waiting
+    for ``settings.do_ping_timeout`` it will return the fastest database that is online.
     """
     # sort by cheapest
     sorted_databases = sorted(databases, key=operator.attrgetter("cost"))
@@ -142,9 +149,16 @@ async def get_cheapest_online_database(databases: Set[Database]) -> Database:
 
     while True:
         # as soon as a ping returns, check if it's the fastest database and if it's online
-        _, pending = await asyncio.wait(pending, return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(
+            pending,
+            timeout=settings.do_ping_timeout.total_seconds(),
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        timed_out = not done
         for ping, database in zip(pings, sorted_databases):
             if not ping.done():
+                if timed_out:
+                    continue
                 break
             if ping.result():
                 return database
