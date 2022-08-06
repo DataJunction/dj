@@ -186,7 +186,7 @@ async def test_get_query_for_node_no_active_databases(mocker: MockerFixture) -> 
     Test ``get_query_for_node``.
     """
     database = mocker.MagicMock()
-    database.do_ping.return_value = False
+    database.do_ping = mocker.AsyncMock(return_value=False)
 
     parent = Node(name="A")
 
