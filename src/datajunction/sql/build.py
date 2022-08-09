@@ -113,7 +113,7 @@ def get_dimensions_from_filters(filters: List[str]) -> Set[str]:
     return {parse_filter(filter_)[0] for filter_ in filters}
 
 
-def get_query_for_node(  # pylint: disable=too-many-locals
+async def get_query_for_node(  # pylint: disable=too-many-locals
     session: Session,
     node: Node,
     groupbys: List[str],
@@ -149,7 +149,12 @@ def get_query_for_node(  # pylint: disable=too-many-locals
     # find database
     nodes = [node]
     nodes.extend(dimensions.values())
-    database = get_database_for_nodes(session, nodes, referenced_columns, database_id)
+    database = await get_database_for_nodes(
+        session,
+        nodes,
+        referenced_columns,
+        database_id,
+    )
 
     # base query
     node_select = get_select_for_node(node, database)
@@ -213,7 +218,7 @@ def find_on_clause(
 
 
 # pylint: disable=too-many-branches, too-many-locals, too-many-statements
-def get_query_for_sql(sql: str) -> QueryCreate:
+async def get_query_for_sql(sql: str) -> QueryCreate:
     """
     Return a query given a SQL expression querying the repo.
 
@@ -332,7 +337,7 @@ def get_query_for_sql(sql: str) -> QueryCreate:
     parents.extend(requested_dimensions)
     referenced_columns = get_referenced_columns_from_tree(tree, parents)
 
-    database = get_database_for_nodes(session, parents, referenced_columns)
+    database = await get_database_for_nodes(session, parents, referenced_columns)
     dialect = make_url(database.URI).get_dialect()
     query = get_query(None, parents, tree, database, dialect.name)
     sql = str(query.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}))

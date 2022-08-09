@@ -25,7 +25,8 @@ from datajunction.sql.build import (
 from datajunction.typing import ColumnType
 
 
-def test_get_query_for_node(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_node(mocker: MockerFixture) -> None:
     """
     Test ``get_query_for_node``.
     """
@@ -53,12 +54,13 @@ def test_get_query_for_node(mocker: MockerFixture) -> None:
     mocker.patch("datajunction.models.database.create_engine", return_value=engine)
     session = mocker.MagicMock()
 
-    create_query = get_query_for_node(session, child, [], [])
+    create_query = await get_query_for_node(session, child, [], [])
     assert create_query.database_id == 1
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
 
-def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
     """
     Test ``get_query_for_node`` with group bys.
     """
@@ -95,7 +97,7 @@ def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
     mocker.patch("datajunction.models.database.create_engine", return_value=engine)
     session = mocker.MagicMock()
 
-    create_query = get_query_for_node(session, child, ["A.user_id"], [])
+    create_query = await get_query_for_node(session, child, ["A.user_id"], [])
     space = " "
     assert create_query.database_id == 1
     assert (
@@ -106,7 +108,8 @@ FROM "A") AS "A" GROUP BY "A".user_id"""
     )
 
 
-def test_get_query_for_node_specify_database(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_node_specify_database(mocker: MockerFixture) -> None:
     """
     Test ``get_query_for_node`` when a database is specified.
     """
@@ -136,16 +139,17 @@ def test_get_query_for_node_specify_database(mocker: MockerFixture) -> None:
     session = mocker.MagicMock()
     session.exec().one.return_value = database
 
-    create_query = get_query_for_node(session, child, [], [], 1)
+    create_query = await get_query_for_node(session, child, [], [], 1)
     assert create_query.database_id == 1
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(session, child, [], [], 2)
+        await get_query_for_node(session, child, [], [], 2)
     assert str(excinfo.value) == "Database ID 2 is not valid"
 
 
-def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
     """
     Test ``get_query_for_node``.
     """
@@ -172,16 +176,17 @@ def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
     session = mocker.MagicMock()
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(session, child, [], [])
+        await get_query_for_node(session, child, [], [])
     assert str(excinfo.value) == "No valid database was found"
 
 
-def test_get_query_for_node_no_active_databases(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_node_no_active_databases(mocker: MockerFixture) -> None:
     """
     Test ``get_query_for_node``.
     """
     database = mocker.MagicMock()
-    database.ping.return_value = False
+    database.do_ping = mocker.AsyncMock(return_value=False)
 
     parent = Node(name="A")
 
@@ -204,11 +209,12 @@ def test_get_query_for_node_no_active_databases(mocker: MockerFixture) -> None:
     session.exec().one.return_value = database
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(session, child, [], [])
+        await get_query_for_node(session, child, [], [])
     assert str(excinfo.value) == "No active database was found"
 
 
-def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None:
     """
     Test ``get_query_for_node`` when filtering/grouping by a dimension.
     """
@@ -270,7 +276,7 @@ def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None:
     session = mocker.MagicMock()
     session.exec().one.return_value = dimension
 
-    create_query = get_query_for_node(
+    create_query = await get_query_for_node(
         session,
         child,
         ["core.users.gender"],
@@ -288,15 +294,18 @@ WHERE "core.users".age > 25 GROUP BY "core.users".gender"""
     )
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(session, child, ["aaaa"], [])
+        await get_query_for_node(session, child, ["aaaa"], [])
     assert str(excinfo.value) == "Invalid dimension: aaaa"
 
     with pytest.raises(Exception) as excinfo:
-        get_query_for_node(session, child, ["aaaa", "bbbb"], [])
+        await get_query_for_node(session, child, ["aaaa", "bbbb"], [])
     assert str(excinfo.value) == "Invalid dimensions: aaaa, bbbb"
 
 
-def test_get_query_for_node_with_multiple_dimensions(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_node_with_multiple_dimensions(
+    mocker: MockerFixture,
+) -> None:
     """
     Test ``get_query_for_node`` when filtering/grouping by a dimension.
     """
@@ -389,7 +398,7 @@ def test_get_query_for_node_with_multiple_dimensions(mocker: MockerFixture) -> N
     session = mocker.MagicMock()
     session.exec().one.side_effect = [dimension_1, dimension_2]
 
-    create_query = get_query_for_node(
+    create_query = await get_query_for_node(
         session,
         child,
         ["core.users.gender"],
@@ -469,7 +478,8 @@ The following error happened:
     assert str(excinfo.value) == "Invalid value: open('/etc/passwd').read()"
 
 
-def test_get_query_for_sql(mocker: MockerFixture, session: Session) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_sql(mocker: MockerFixture, session: Session) -> None:
     """
     Test ``get_query_for_sql``.
     """
@@ -507,7 +517,7 @@ def test_get_query_for_sql(mocker: MockerFixture, session: Session) -> None:
     session.commit()
 
     sql = "SELECT B FROM metrics"
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -520,7 +530,11 @@ FROM "A") AS "A"'''
     )
 
 
-def test_get_query_for_sql_no_metrics(mocker: MockerFixture, session: Session) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_sql_no_metrics(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
     """
     Test ``get_query_for_sql`` when no metrics are requested.
     """
@@ -559,7 +573,7 @@ def test_get_query_for_sql_no_metrics(mocker: MockerFixture, session: Session) -
     session.commit()
 
     sql = 'SELECT "core.users.gender", "core.users.age" FROM metrics'
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -583,14 +597,18 @@ FROM dim_users) AS "core.users"'''
 
     sql = 'SELECT "core.users.gender", "core.other_dim.full_name" FROM metrics'
     with pytest.raises(Exception) as excinfo:
-        get_query_for_sql(sql)
+        await get_query_for_sql(sql)
     assert (
         str(excinfo.value)
         == "Cannot query from multiple dimensions when no metric is specified"
     )
 
 
-def test_get_query_for_sql_no_tables(mocker: MockerFixture, session: Session) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_sql_no_tables(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
     """
     Test ``get_query_for_sql`` when no tables are involved.
     """
@@ -602,13 +620,17 @@ def test_get_query_for_sql_no_tables(mocker: MockerFixture, session: Session) ->
     session.commit()
 
     sql = "SELECT 1"
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
     assert create_query.submitted_query == "SELECT 1"
 
 
-def test_get_query_for_sql_having(mocker: MockerFixture, session: Session) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_sql_having(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
     """
     Test ``get_query_for_sql``.
     """
@@ -646,7 +668,7 @@ def test_get_query_for_sql_having(mocker: MockerFixture, session: Session) -> No
     session.commit()
 
     sql = "SELECT B FROM metrics HAVING B > 10"
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -661,11 +683,12 @@ HAVING count('*') > 10"""
 
     sql = "SELECT B FROM metrics HAVING C > 10"
     with pytest.raises(Exception) as excinfo:
-        get_query_for_sql(sql)
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid dimension: C"
 
 
-def test_get_query_for_sql_with_dimensions(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_with_dimensions(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -741,7 +764,7 @@ FROM metrics
 WHERE "core.users.age" > 25
 GROUP BY "core.users.gender"
     """
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -762,11 +785,12 @@ WHERE "core.users.age" > 25
 GROUP BY "core.users.invalid"
     """
     with pytest.raises(Exception) as excinfo:
-        get_query_for_sql(sql)
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid dimension: core.users.invalid"
 
 
-def test_get_query_for_sql_with_dimensions_order_by(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_with_dimensions_order_by(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -844,7 +868,7 @@ GROUP BY "core.users.gender"
 ORDER BY "core.num_comments" DESC
 LIMIT 100;
     """
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     space = " "
 
@@ -866,7 +890,7 @@ GROUP BY "core.users.gender"
 ORDER BY "core.num_comments" ASC
 LIMIT 100;
     """
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert (
         create_query.submitted_query
@@ -884,7 +908,7 @@ GROUP BY "core.users.gender"
 ORDER BY "core.num_comments" ASC
 LIMIT 100;
     """
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert (
         create_query.submitted_query
@@ -903,7 +927,7 @@ GROUP BY "core.users.gender"
 ORDER BY "core.users.gender" ASC
 LIMIT 100;
     """
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert (
         create_query.submitted_query
@@ -923,11 +947,12 @@ ORDER BY invalid ASC
 LIMIT 100;
     """
     with pytest.raises(Exception) as excinfo:
-        get_query_for_sql(sql)
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid identifier: invalid"
 
 
-def test_get_query_for_sql_compound_names(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_compound_names(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -968,7 +993,7 @@ def test_get_query_for_sql_compound_names(
     session.commit()
 
     sql = "SELECT core.B FROM metrics"
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -981,7 +1006,8 @@ FROM "A") AS "core.A"'''
     )
 
 
-def test_get_query_for_sql_multiple_databases(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_multiple_databases(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -1034,7 +1060,7 @@ def test_get_query_for_sql_multiple_databases(
     session.commit()
 
     sql = "SELECT B FROM metrics"
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 2  # fast
 
@@ -1043,12 +1069,13 @@ def test_get_query_for_sql_multiple_databases(
     session.commit()
 
     sql = "SELECT B FROM metrics"
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1  # slow
 
 
-def test_get_query_for_sql_multiple_metrics(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_multiple_metrics(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -1100,7 +1127,7 @@ def test_get_query_for_sql_multiple_metrics(
     session.commit()
 
     sql = "SELECT B, C FROM metrics"
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1113,7 +1140,8 @@ FROM "A") AS "A"'''
     )
 
 
-def test_get_query_for_sql_non_identifiers(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_non_identifiers(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -1165,7 +1193,7 @@ def test_get_query_for_sql_non_identifiers(
     session.commit()
 
     sql = "SELECT B, C, 'test' FROM metrics"
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1178,7 +1206,8 @@ FROM "A") AS "A"'''
     )
 
 
-def test_get_query_for_sql_different_parents(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_different_parents(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -1234,11 +1263,15 @@ def test_get_query_for_sql_different_parents(
 
     sql = "SELECT C, D FROM metrics"
     with pytest.raises(Exception) as excinfo:
-        get_query_for_sql(sql)
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Metrics C and D have non-shared parents"
 
 
-def test_get_query_for_sql_not_metric(mocker: MockerFixture, session: Session) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_sql_not_metric(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
     """
     Test ``get_query_for_sql`` when the projection is not a metric node.
     """
@@ -1271,11 +1304,12 @@ def test_get_query_for_sql_not_metric(mocker: MockerFixture, session: Session) -
 
     sql = "SELECT B FROM metrics"
     with pytest.raises(Exception) as excinfo:
-        get_query_for_sql(sql)
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid dimension: B"
 
 
-def test_get_query_for_sql_no_databases(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_no_databases(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -1301,11 +1335,12 @@ def test_get_query_for_sql_no_databases(
 
     sql = "SELECT B FROM metrics"
     with pytest.raises(Exception) as excinfo:
-        get_query_for_sql(sql)
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "No valid database was found"
 
 
-def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) -> None:
+@pytest.mark.asyncio
+async def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) -> None:
     """
     Test ``get_query_for_sql`` with aliases.
     """
@@ -1343,7 +1378,7 @@ def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) -> Non
     session.commit()
 
     sql = "SELECT B AS my_metric FROM metrics"
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1356,7 +1391,8 @@ FROM "A") AS "A"'''
     )
 
 
-def test_get_query_for_sql_where_groupby(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_where_groupby(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -1401,7 +1437,7 @@ SELECT "core.num_comments", "core.comments.user_id" FROM metrics
 WHERE "core.comments.user_id" > 1
 GROUP BY "core.comments.user_id"
     """
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1415,7 +1451,8 @@ WHERE "core.comments".user_id > 1 GROUP BY "core.comments".user_id"""
     )
 
 
-def test_get_query_for_sql_date_trunc(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_date_trunc(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -1463,7 +1500,7 @@ FROM metrics
 GROUP BY
     DATE_TRUNC('day', "core.comments.timestamp")
     """
-    create_query = get_query_for_sql(sql)
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1476,7 +1513,8 @@ FROM comments) AS "core.comments" GROUP BY datetime("core.comments".timestamp, '
     )
 
 
-def test_get_query_for_sql_invalid_column(
+@pytest.mark.asyncio
+async def test_get_query_for_sql_invalid_column(
     mocker: MockerFixture,
     session: Session,
 ) -> None:
@@ -1521,7 +1559,7 @@ SELECT "core.num_comments" FROM metrics
 WHERE "core.some_other_parent.user_id" > 1
     """
     with pytest.raises(Exception) as excinfo:
-        get_query_for_sql(sql)
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid dimension: core.some_other_parent.user_id"
 
 

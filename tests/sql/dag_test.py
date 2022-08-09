@@ -13,6 +13,7 @@ from datajunction.models.database import Database
 from datajunction.models.node import Node, NodeType
 from datajunction.models.table import Table
 from datajunction.sql.dag import (
+    get_cheapest_online_database,
     get_computable_databases,
     get_database_for_nodes,
     get_dimensions,
@@ -257,7 +258,8 @@ def test_get_dimensions() -> None:
     assert get_dimensions(child) == ["A.b_id", "A.ds", "B.attribute", "B.id"]
 
 
-def test_get_database_for_nodes(mocker: MockerFixture) -> None:
+@pytest.mark.asyncio
+async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     """
     Test ``get_database_for_nodes``.
     """
@@ -283,10 +285,13 @@ def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     )
 
     referenced_columns: Dict[str, Set[str]] = defaultdict(set)
-    assert get_database_for_nodes(session, [parent], referenced_columns) == database_2
+    assert (
+        await get_database_for_nodes(session, [parent], referenced_columns)
+        == database_2
+    )
 
     # without parents, return the cheapest DB
-    assert get_database_for_nodes(session, [], referenced_columns) == database_1
+    assert await get_database_for_nodes(session, [], referenced_columns) == database_1
 
     # with no active database
     create_engine = mocker.patch("datajunction.models.database.create_engine")
@@ -298,5 +303,80 @@ def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     session = get_session().__next__()
     session.exec().all.return_value = [database_1, database_2]
     with pytest.raises(Exception) as excinfo:
-        get_database_for_nodes(session, [], referenced_columns)
+        await get_database_for_nodes(session, [], referenced_columns)
     assert str(excinfo.value) == "No active database was found"
+
+
+@pytest.mark.asyncio
+async def test_get_cheapest_online_database(mocker: MockerFixture) -> None:
+    """
+    Test ``get_cheapest_online_database``.
+    """
+    database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
+    database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
+
+    slow_ping = mocker.MagicMock()
+    slow_ping.done.side_effect = [False, True]
+    slow_ping.result.return_value = True
+
+    fast_ping = mocker.MagicMock()
+    fast_ping.done.side_effect = [True, True]
+    fast_ping.result.return_value = True
+
+    asyncio = mocker.patch("datajunction.sql.dag.asyncio")
+    asyncio.wait = mocker.AsyncMock(
+        side_effect=[([fast_ping], [slow_ping]), ([slow_ping], [])],
+    )
+    asyncio.create_task.side_effect = [slow_ping, fast_ping]
+
+    assert await get_cheapest_online_database({database_1, database_2}) == database_1
+
+
+@pytest.mark.asyncio
+async def test_get_cheapest_online_database_offline(mocker: MockerFixture) -> None:
+    """
+    Test ``get_cheapest_online_database`` when the fastest DB is offline.
+    """
+    database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
+    database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
+
+    slow_ping = mocker.MagicMock()
+    slow_ping.done.side_effect = [False, True]
+    slow_ping.result.return_value = False
+
+    fast_ping = mocker.MagicMock()
+    fast_ping.done.side_effect = [True, True]
+    fast_ping.result.return_value = True
+
+    asyncio = mocker.patch("datajunction.sql.dag.asyncio")
+    asyncio.wait = mocker.AsyncMock(
+        side_effect=[([fast_ping], [slow_ping]), ([slow_ping], [])],
+    )
+    asyncio.create_task.side_effect = [slow_ping, fast_ping]
+
+    assert await get_cheapest_online_database({database_1, database_2}) == database_2
+
+
+@pytest.mark.asyncio
+async def test_get_cheapest_online_database_timeout(mocker: MockerFixture) -> None:
+    """
+    Test ``get_cheapest_online_database`` when pinging the fastest DB times out.
+    """
+    database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
+    database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
+
+    slow_ping = mocker.MagicMock()
+    slow_ping.done.side_effect = [False, False]
+    slow_ping.result.return_value = True
+
+    fast_ping = mocker.MagicMock()
+    fast_ping.done.side_effect = [True, True]
+    fast_ping.result.return_value = True
+
+    asyncio = mocker.patch("datajunction.sql.dag.asyncio")
+    asyncio.wait = mocker.AsyncMock(
+        side_effect=[([fast_ping], [slow_ping]), ([], [slow_ping])],
+    )
+    asyncio.create_task.side_effect = [slow_ping, fast_ping]
+
+    assert await get_cheapest_online_database({database_1, database_2}) == database_2
