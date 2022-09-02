@@ -2,7 +2,7 @@
 SQL parsing functions.
 """
 
-from typing import Any, Iterator, Set, Tuple
+from typing import Any, Iterator, Optional, Set, Tuple
 
 from sqloxide import parse_sql
 
@@ -60,13 +60,16 @@ def get_expression_from_projection(projection: Projection) -> Expression:
     raise NotImplementedError(f"Unable to handle expression: {projection}")
 
 
-def is_metric(sql: str) -> bool:
+def is_metric(sql: Optional[str]) -> bool:
     """
     Return if a SQL expression defines a metric.
 
     The SQL expression should have a single expression in its projections, and it should
     be an aggregation function in order for it to be considered a metric.
     """
+    if sql is None:
+        return False
+
     tree = parse_sql(sql, dialect="ansi")
     projection = next(find_nodes_by_key(tree, "projection"))
 
