@@ -41,20 +41,20 @@ def test_extra_validation() -> None:
     node = Node(name="A", type=NodeType.METRIC)
     with pytest.raises(Exception) as excinfo:
         node.extra_validation()
-    assert str(excinfo.value) == "Node A of type metric needs an expression"
+    assert str(excinfo.value) == "Node A of type metric needs a query"
 
-    node = Node(name="A", type=NodeType.METRIC, expression="SELECT 42")
+    node = Node(name="A", type=NodeType.METRIC, query="SELECT 42")
     with pytest.raises(Exception) as excinfo:
         node.extra_validation()
     assert str(excinfo.value) == (
-        "Node A of type metric has an invalid expression, "
+        "Node A of type metric has an invalid query, "
         "should have a single aggregation"
     )
 
-    node = Node(name="A", type=NodeType.TRANSFORM, expression="SELECT * FROM B")
+    node = Node(name="A", type=NodeType.TRANSFORM, query="SELECT * FROM B")
     node.extra_validation()
 
     node = Node(name="A", type=NodeType.TRANSFORM)
     with pytest.raises(Exception) as excinfo:
         node.extra_validation()
-    assert str(excinfo.value) == "Node A of type transform needs an expression"
+    assert str(excinfo.value) == "Node A of type transform needs a query"

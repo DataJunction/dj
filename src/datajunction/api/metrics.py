@@ -32,7 +32,7 @@ class Metric(SQLModel):
     created_at: datetime
     updated_at: datetime
 
-    expression: str
+    query: str
 
     dimensions: List[str]
 

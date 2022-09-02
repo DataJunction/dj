@@ -254,7 +254,7 @@ async def test_index_nodes(
             "type": NodeType.SOURCE,
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
-            "expression": None,
+            "query": None,
         },
         {
             "name": "core.dim_users",
@@ -262,7 +262,7 @@ async def test_index_nodes(
             "type": NodeType.DIMENSION,
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
-            "expression": "SELECT * FROM core.users",
+            "query": "SELECT * FROM core.users",
         },
         {
             "name": "core.num_comments",
@@ -270,7 +270,7 @@ async def test_index_nodes(
             "type": NodeType.METRIC,
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
-            "expression": "SELECT COUNT(*) FROM core.comments",
+            "query": "SELECT COUNT(*) FROM core.comments",
         },
         {
             "name": "core.users",
@@ -278,7 +278,7 @@ async def test_index_nodes(
             "type": NodeType.SOURCE,
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
-            "expression": None,
+            "query": None,
         },
     ]
 

@@ -96,7 +96,7 @@ def test_get_computable_databases_heterogeneous_columns() -> None:
 
     child_1 = Node(
         name="core.B",
-        expression="SELECT COUNT(core.A.user_id) FROM core.A",
+        query="SELECT COUNT(core.A.user_id) FROM core.A",
         parents=[parent],
     )
 
@@ -106,7 +106,7 @@ def test_get_computable_databases_heterogeneous_columns() -> None:
 
     child_2 = Node(
         name="core.C",
-        expression="SELECT COUNT(user_id) FROM core.A",
+        query="SELECT COUNT(user_id) FROM core.A",
         parents=[parent],
     )
 
@@ -251,7 +251,7 @@ def test_get_dimensions() -> None:
 
     child = Node(
         name="C",
-        expression="SELECT COUNT(*) FROM A",
+        query="SELECT COUNT(*) FROM A",
         parents=[parent],
     )
 

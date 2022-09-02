@@ -250,8 +250,8 @@ async def index_nodes(  # pylint: disable=too-many-locals
     configs = await load_node_configs(repository)
     dependencies: Dict[str, Set[str]] = {}
     for config in configs:
-        if "expression" in config:
-            dependencies[config["name"]] = get_dependencies(config["expression"])
+        if "query" in config:
+            dependencies[config["name"]] = get_dependencies(config["query"])
         else:
             dependencies[config["name"]] = set()
         # add dimensions to dependencies
@@ -334,7 +334,7 @@ async def add_node(  # pylint: disable=too-many-locals
         "created_at": node.created_at if node else datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
         "type": data["type"],
-        "expression": data.get("expression"),
+        "query": data.get("query"),
         "tables": [],
         "parents": parents,
     }
@@ -356,8 +356,8 @@ async def add_node(  # pylint: disable=too-many-locals
             )
 
     config["columns"] = (
-        infer_columns(data["expression"], parents)
-        if data.get("expression")
+        infer_columns(data["query"], parents)
+        if data.get("query")
         else get_columns_from_tables(config["tables"])
     )
 

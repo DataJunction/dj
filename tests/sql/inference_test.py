@@ -18,11 +18,11 @@ from datajunction.sql.parse import find_nodes_by_key
 from datajunction.typing import ColumnType, Expression
 
 
-def get_expression(sql: str) -> Expression:
+def get_expression(query: str) -> Expression:
     """
     Return the first expression of the first projection.
     """
-    tree = parse_sql(sql, dialect="ansi")
+    tree = parse_sql(query, dialect="ansi")
     projection = next(find_nodes_by_key(tree, "projection"))
     expression = projection[0]
 

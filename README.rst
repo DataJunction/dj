@@ -58,7 +58,7 @@ So far we've only described what already exists. Let's add a metric called ``num
     # nodes/num_comments.yaml
     type: metric
     description: The number of comments
-    expression: SELECT COUNT(*) FROM comments
+    query: SELECT COUNT(*) FROM comments
 
 Now we run a command to parse all the configuration files and index them in a database:
 
@@ -93,7 +93,7 @@ We can also filter and group our metric by any of its dimensions:
       "description": "A fact table with comments",
       "created_at": "2022-01-17T19:06:09.215689",
       "updated_at": "2022-04-04T16:27:53.374001",
-      "expression": "SELECT COUNT(*) FROM comments",
+      "query": "SELECT COUNT(*) FROM comments",
       "dimensions": [
         "comments.id",
         "comments.user_id",
