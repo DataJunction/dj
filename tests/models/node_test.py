@@ -50,5 +50,11 @@ def test_extra_validation() -> None:
         "Node A of type metric has an invalid expression, "
         "should have a single aggregation"
     )
-    node = Node(name="A", type=NodeType.TRANSFORM)
+
+    node = Node(name="A", type=NodeType.TRANSFORM, expression="SELECT * FROM B")
     node.extra_validation()
+
+    node = Node(name="A", type=NodeType.TRANSFORM)
+    with pytest.raises(Exception) as excinfo:
+        node.extra_validation()
+    assert str(excinfo.value) == "Node A of type transform needs an expression"
