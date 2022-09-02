@@ -60,7 +60,7 @@ class NodeType(str, enum.Enum):
 
     1. SOURCE nodes are root nodes in the DAG, and point to tables or views in a DB.
     2. TRANSFORM nodes are SQL transformations, reading from SOURCE/TRANSFORM nodes.
-    3. METRIC nodes are leaves in the DAG, and have a single aggregation expression.
+    3. METRIC nodes are leaves in the DAG, and have a single aggregation query.
     4. DIMENSION nodes are special SOURCE nodes that can be auto-joined with METRICS.
     """
 
@@ -77,7 +77,7 @@ class NodeYAML(TypedDict, total=False):
 
     description: str
     type: NodeType
-    expression: str
+    query: str
     columns: Dict[str, ColumnYAML]
     tables: Dict[str, List[TableYAML]]
 
@@ -101,7 +101,7 @@ class Node(SQLModel, table=True):  # type: ignore
     )
 
     type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
-    expression: Optional[str] = None
+    query: Optional[str] = None
 
     tables: List[Table] = Relationship(
         back_populates="node",
@@ -148,7 +148,7 @@ class Node(SQLModel, table=True):  # type: ignore
         data = {
             "description": self.description,
             "type": self.type.value,  # pylint: disable=no-member
-            "expression": self.expression,
+            "query": self.query,
             "columns": {
                 column.name: column.to_yaml()
                 for column in self.columns  # pylint: disable=not-an-iterable
@@ -173,14 +173,14 @@ class Node(SQLModel, table=True):  # type: ignore
                 )
 
         if self.type in {NodeType.TRANSFORM, NodeType.METRIC, NodeType.DIMENSION}:
-            if not self.expression:
+            if not self.query:
                 raise Exception(
-                    f"Node {self.name} of type {self.type} needs an expression",
+                    f"Node {self.name} of type {self.type} needs a query",
                 )
 
         if self.type == NodeType.METRIC:
-            if not is_metric(self.expression):
+            if not is_metric(self.query):
                 raise Exception(
-                    f"Node {self.name} of type metric has an invalid expression, "
+                    f"Node {self.name} of type metric has an invalid query, "
                     "should have a single aggregation",
                 )

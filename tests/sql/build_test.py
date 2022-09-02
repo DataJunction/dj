@@ -44,7 +44,7 @@ async def test_get_query_for_node(mocker: MockerFixture) -> None:
             ),
         ],
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
     )
 
@@ -87,7 +87,7 @@ async def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
     child = Node(
         name="B",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
     )
 
@@ -127,7 +127,7 @@ async def test_get_query_for_node_specify_database(mocker: MockerFixture) -> Non
             ),
         ],
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
         columns=[Column(name="cnt", type=ColumnType.INT)],
     )
@@ -167,7 +167,7 @@ async def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
             ),
         ],
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
         columns=[Column(name="one", type=ColumnType.STR)],
     )
@@ -200,7 +200,7 @@ async def test_get_query_for_node_no_active_databases(mocker: MockerFixture) -> 
             ),
         ],
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
         columns=[Column(name="one", type=ColumnType.STR)],
     )
@@ -264,7 +264,7 @@ async def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None
     child = Node(
         name="core.num_comments",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) FROM core.comments",
+        query="SELECT COUNT(*) FROM core.comments",
         parents=[parent],
     )
 
@@ -383,7 +383,7 @@ async def test_get_query_for_node_with_multiple_dimensions(
     child = Node(
         name="core.num_comments",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) FROM core.comments",
+        query="SELECT COUNT(*) FROM core.comments",
         parents=[parent],
     )
 
@@ -510,7 +510,7 @@ async def test_get_query_for_sql(mocker: MockerFixture, session: Session) -> Non
     B = Node(
         name="B",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[A],
     )
     session.add(B)
@@ -661,7 +661,7 @@ async def test_get_query_for_sql_having(
     B = Node(
         name="B",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[A],
     )
     session.add(B)
@@ -744,7 +744,7 @@ async def test_get_query_for_sql_with_dimensions(
     child = Node(
         name="core.num_comments",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) FROM core.comments",
+        query="SELECT COUNT(*) FROM core.comments",
         parents=[parent],
     )
 
@@ -846,7 +846,7 @@ async def test_get_query_for_sql_with_dimensions_order_by(
     child = Node(
         name="core.num_comments",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) FROM core.comments",
+        query="SELECT COUNT(*) FROM core.comments",
         parents=[parent],
     )
 
@@ -986,7 +986,7 @@ async def test_get_query_for_sql_compound_names(
     B = Node(
         name="core.B",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM core.A",
+        query="SELECT COUNT(*) AS cnt FROM core.A",
         parents=[A],
     )
     session.add(B)
@@ -1053,7 +1053,7 @@ async def test_get_query_for_sql_multiple_databases(
     B = Node(
         name="B",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[A],
     )
     session.add(B)
@@ -1064,7 +1064,7 @@ async def test_get_query_for_sql_multiple_databases(
 
     assert create_query.database_id == 2  # fast
 
-    B.expression = "SELECT COUNT(two) AS cnt FROM A"
+    B.query = "SELECT COUNT(two) AS cnt FROM A"
     session.add(B)
     session.commit()
 
@@ -1113,14 +1113,14 @@ async def test_get_query_for_sql_multiple_metrics(
     B = Node(
         name="B",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[A],
     )
     session.add(B)
     C = Node(
         name="C",
         type=NodeType.METRIC,
-        expression="SELECT MAX(one) AS max_one FROM A",
+        query="SELECT MAX(one) AS max_one FROM A",
         parents=[A],
     )
     session.add(C)
@@ -1179,14 +1179,14 @@ async def test_get_query_for_sql_non_identifiers(
     B = Node(
         name="B",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[A],
     )
     session.add(B)
     C = Node(
         name="C",
         type=NodeType.METRIC,
-        expression="SELECT MAX(one) AS max_one FROM A",
+        query="SELECT MAX(one) AS max_one FROM A",
         parents=[A],
     )
     session.add(C)
@@ -1248,14 +1248,14 @@ async def test_get_query_for_sql_different_parents(
     C = Node(
         name="C",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[A],
     )
     session.add(C)
     D = Node(
         name="D",
         type=NodeType.METRIC,
-        expression="SELECT MAX(one) AS max_one FROM A",
+        query="SELECT MAX(one) AS max_one FROM A",
         parents=[B],
     )
     session.add(D)
@@ -1296,7 +1296,7 @@ async def test_get_query_for_sql_not_metric(
 
     B = Node(
         name="B",
-        expression="SELECT one FROM A",
+        query="SELECT one FROM A",
         parents=[A],
     )
     session.add(B)
@@ -1327,7 +1327,7 @@ async def test_get_query_for_sql_no_databases(
     B = Node(
         name="B",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[A],
     )
     session.add(B)
@@ -1371,7 +1371,7 @@ async def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) 
     B = Node(
         name="B",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[A],
     )
     session.add(B)
@@ -1426,7 +1426,7 @@ async def test_get_query_for_sql_where_groupby(
     num_comments = Node(
         name="core.num_comments",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) FROM core.comments",
+        query="SELECT COUNT(*) FROM core.comments",
         parents=[comments],
     )
     session.add(num_comments)
@@ -1486,7 +1486,7 @@ async def test_get_query_for_sql_date_trunc(
     num_comments = Node(
         name="core.num_comments",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) FROM core.comments",
+        query="SELECT COUNT(*) FROM core.comments",
         parents=[comments],
     )
     session.add(num_comments)
@@ -1548,7 +1548,7 @@ async def test_get_query_for_sql_invalid_column(
     num_comments = Node(
         name="core.num_comments",
         type=NodeType.METRIC,
-        expression="SELECT COUNT(*) FROM core.comments",
+        query="SELECT COUNT(*) FROM core.comments",
         parents=[comments],
     )
     session.add(num_comments)

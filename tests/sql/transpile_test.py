@@ -46,7 +46,7 @@ def test_get_select_for_node_materialized(mocker: MockerFixture) -> None:
                 columns=[Column(name="cnt", type=ColumnType.INT)],
             ),
         ],
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
     )
 
@@ -96,7 +96,7 @@ def test_get_select_for_node_not_materialized(mocker: MockerFixture) -> None:
 
     child = Node(
         name="B",
-        expression="SELECT COUNT(*) AS cnt FROM A",
+        query="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent],
     )
 
@@ -110,7 +110,7 @@ FROM "A_fast") AS "A"'''
     )
 
     # unnamed expression
-    child.expression = "SELECT COUNT(*) FROM A"
+    child.query = "SELECT COUNT(*) FROM A"
 
     assert (
         query_to_string(get_select_for_node(child, database))
@@ -159,7 +159,7 @@ def test_get_select_for_node_choose_slow(mocker: MockerFixture) -> None:
 
     child = Node(
         name="B",
-        expression="SELECT COUNT(*) AS cnt FROM A WHERE two = 'test'",
+        query="SELECT COUNT(*) AS cnt FROM A WHERE two = 'test'",
         parents=[parent],
     )
 
@@ -205,7 +205,7 @@ def test_get_select_for_node_projection(mocker: MockerFixture) -> None:
 
     child = Node(
         name="B",
-        expression="SELECT one, MAX(two), 3, 4.0, 'five' FROM A",
+        query="SELECT one, MAX(two), 3, 4.0, 'five' FROM A",
         parents=[parent],
     )
 
@@ -250,7 +250,7 @@ def test_get_select_for_node_where(mocker: MockerFixture) -> None:
 
     child = Node(
         name="B",
-        expression="SELECT one, MAX(two), 3, 4.0, 'five' FROM A WHERE one > 10",
+        query="SELECT one, MAX(two), 3, 4.0, 'five' FROM A WHERE one > 10",
         parents=[parent],
     )
 
@@ -296,7 +296,7 @@ def test_get_select_for_node_groupby(mocker: MockerFixture) -> None:
 
     child = Node(
         name="B",
-        expression="SELECT one, MAX(two) FROM A GROUP BY one",
+        query="SELECT one, MAX(two) FROM A GROUP BY one",
         parents=[parent],
     )
 
@@ -341,7 +341,7 @@ def test_get_select_for_node_limit(mocker: MockerFixture) -> None:
 
     child = Node(
         name="B",
-        expression="SELECT one, MAX(two) FROM A LIMIT 10",
+        query="SELECT one, MAX(two) FROM A LIMIT 10",
         parents=[parent],
     )
 
@@ -398,7 +398,7 @@ def test_get_value() -> None:
 
 def test_get_select_for_node_with_join(mocker: MockerFixture) -> None:
     """
-    Test ``get_select_for_node`` when the node expression has a join.
+    Test ``get_select_for_node`` when the node query has a join.
     """
     database = Database(id=1, name="db", URI="sqlite://")
 
@@ -445,7 +445,7 @@ def test_get_select_for_node_with_join(mocker: MockerFixture) -> None:
 
     child = Node(
         name="B",
-        expression="SELECT COUNT(*) FROM A JOIN B ON A.two = B.two WHERE B.three > 1",
+        query="SELECT COUNT(*) FROM A JOIN B ON A.two = B.two WHERE B.three > 1",
         parents=[parent_1, parent_2],
     )
 

@@ -21,10 +21,10 @@ def test_read_metrics(session: Session, client: TestClient) -> None:
     Test ``GET /metrics/``.
     """
     node1 = Node(name="not-a-metric")
-    node2 = Node(name="also-not-a-metric", expression="SELECT 42")
+    node2 = Node(name="also-not-a-metric", query="SELECT 42")
     node3 = Node(
         name="a-metric",
-        expression="SELECT COUNT(*) FROM my_table",
+        query="SELECT COUNT(*) FROM my_table",
         type=NodeType.METRIC,
     )
     session.add(node1)
@@ -38,7 +38,7 @@ def test_read_metrics(session: Session, client: TestClient) -> None:
     assert response.status_code == 200
     assert len(data) == 1
     assert data[0]["name"] == "a-metric"
-    assert data[0]["expression"] == "SELECT COUNT(*) FROM my_table"
+    assert data[0]["query"] == "SELECT COUNT(*) FROM my_table"
 
 
 def test_read_metric(session: Session, client: TestClient) -> None:
@@ -67,7 +67,7 @@ def test_read_metric(session: Session, client: TestClient) -> None:
 
     child = Node(
         name="child",
-        expression="SELECT COUNT(*) FROM parent",
+        query="SELECT COUNT(*) FROM parent",
         parents=[parent],
         type=NodeType.METRIC,
     )
@@ -80,7 +80,7 @@ def test_read_metric(session: Session, client: TestClient) -> None:
 
     assert response.status_code == 200
     assert data["name"] == "child"
-    assert data["expression"] == "SELECT COUNT(*) FROM parent"
+    assert data["query"] == "SELECT COUNT(*) FROM parent"
     assert data["dimensions"] == ["parent.ds", "parent.foo", "parent.user_id"]
 
 
@@ -95,7 +95,7 @@ def test_read_metrics_data(
     database = Database(name="test", URI="sqlite://")
     node = Node(
         name="a-metric",
-        expression="SELECT COUNT(*) FROM my_table",
+        query="SELECT COUNT(*) FROM my_table",
         type=NodeType.METRIC,
     )
     session.add(database)
@@ -135,7 +135,7 @@ def test_read_metrics_data_errors(session: Session, client: TestClient) -> None:
     Test errors on ``GET /metrics/{node_id}/data/``.
     """
     database = Database(name="test", URI="sqlite://")
-    node = Node(name="a-metric", expression="SELECT 1 AS col")
+    node = Node(name="a-metric", query="SELECT 1 AS col")
     session.add(database)
     session.add(node)
     session.execute("CREATE TABLE my_table (one TEXT)")
@@ -161,7 +161,7 @@ def test_read_metrics_sql(
     database = Database(name="test", URI="sqlite://")
     node = Node(
         name="a-metric",
-        expression="SELECT COUNT(*) FROM my_table",
+        query="SELECT COUNT(*) FROM my_table",
         type=NodeType.METRIC,
     )
     session.add(database)

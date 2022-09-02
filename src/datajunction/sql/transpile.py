@@ -1,7 +1,7 @@
 """
 Functions for transpiling SQL.
 
-These functions parse the DJ SQL used to define node expressions, and generate SQLAlchemy
+These functions parse the DJ SQL used to define node queries, and generate SQLAlchemy
 queries which can be then executed in specific databases.
 """
 
@@ -94,12 +94,12 @@ def get_select_for_node(
         )
         return select(materialized_table)
 
-    tree = parse_sql(node.expression, dialect="ansi")
-    return get_query(node.expression, node.parents, tree, database, engine.dialect.name)
+    tree = parse_sql(node.query, dialect="ansi")
+    return get_query(node.query, node.parents, tree, database, engine.dialect.name)
 
 
 def get_query(
-    expression: Optional[str],
+    query: Optional[str],
     parents: List[Node],
     tree: ParseTree,
     database: Database,
@@ -110,39 +110,39 @@ def get_query(
     """
     # SELECT ... FROM ...
     if parents:
-        source = get_source(expression, parents, database, tree, dialect)
+        source = get_source(query, parents, database, tree, dialect)
         projection = get_projection(tree, source, dialect)
-        query = projection.select_from(source)
+        query_object = projection.select_from(source)
     else:
         source = None
-        query = get_projection(tree, source, dialect)
+        query_object = get_projection(tree, source, dialect)
 
     # WHERE ...
     selection = get_selection(tree, source, dialect)
     if selection is not None:
-        query = query.filter(selection)
+        query_object = query_object.filter(selection)
 
     # GROUP BY ...
     groupby = get_groupby(tree, source, dialect)
     if groupby:
-        query = query.group_by(*groupby)
+        query_object = query_object.group_by(*groupby)
 
     # HAVING ...
     having = get_having(tree, source, dialect)
     if having is not None:
-        query = query.having(having)
+        query_object = query_object.having(having)
 
     # ORDER BY ...
     orderby = get_orderby(tree, source, dialect)
     if orderby:
-        query = query.order_by(*orderby)
+        query_object = query_object.order_by(*orderby)
 
     # LIMIT ...
     limit = get_limit(tree, source, dialect)
     if limit:
-        query = query.limit(limit)
+        query_object = query_object.limit(limit)
 
-    return query
+    return query_object
 
 
 def get_limit(
@@ -438,7 +438,7 @@ def get_node_from_relation(relation: Relation, parent_map: Dict[str, Node]) -> N
 
 
 def get_source(  # pylint: disable=too-many-locals
-    expression: Optional[str],
+    query: Optional[str],
     parents: List[Node],
     database: Database,
     tree: ParseTree,
@@ -447,7 +447,7 @@ def get_source(  # pylint: disable=too-many-locals
     """
     Build the ``FROM`` part of a query.
     """
-    parent_columns = get_referenced_columns_from_sql(expression, parents)
+    parent_columns = get_referenced_columns_from_sql(query, parents)
     parent_map = {parent.name: parent for parent in parents}
 
     # Parse the ``FROM`` clause. We only support single statements, so ``tree`` should

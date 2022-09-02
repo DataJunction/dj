@@ -73,7 +73,7 @@ def get_computable_databases(
     """
     Return all the databases where a given node can be computed.
 
-    This takes into consideration the node expression, since some of the columns might
+    This takes into consideration the node query, since some of the columns might
     not be present in all databases.
     """
     if columns is None:
@@ -88,7 +88,7 @@ def get_computable_databases(
     databases = {table.database for table in tables}
 
     # add all the databases that are common between the parents and match all the columns
-    parent_columns = get_referenced_columns_from_sql(node.expression, node.parents)
+    parent_columns = get_referenced_columns_from_sql(node.query, node.parents)
     if node.parents:
         parent_databases = [
             get_computable_databases(parent, parent_columns[parent.name])
@@ -180,18 +180,18 @@ async def get_cheapest_online_database(databases: Set[Database]) -> Database:
 
 
 def get_referenced_columns_from_sql(
-    sql: Optional[str],
+    query: Optional[str],
     parents: List[Node],
 ) -> DefaultDict[str, Set[str]]:
     """
-    Given a SQL expression, return the referenced columns.
+    Given a SQL query, return the referenced columns.
 
     Referenced columns are a dictionary mapping parent name to column name(s).
     """
-    if not sql:
+    if not query:
         return defaultdict(set)
 
-    tree = parse_sql(sql, dialect="ansi")
+    tree = parse_sql(query, dialect="ansi")
 
     return get_referenced_columns_from_tree(tree, parents)
 
