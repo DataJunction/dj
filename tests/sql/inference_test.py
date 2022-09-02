@@ -260,10 +260,17 @@ def test_infer_columns() -> None:
 
     assert infer_columns("SELECT COUNT(*) AS cnt FROM A", [parent]) == [
         Column(
-            id=None,
             name="cnt",
             type=ColumnType.INT,
-            dimension_id=None,
-            dimension_column=None,
         ),
     ]
+
+    assert infer_columns("SELECT * FROM A", [parent]) == [
+        Column(name="ds", type=ColumnType.STR),
+        Column(name="user_id", type=ColumnType.INT),
+        Column(name="foo", type=ColumnType.FLOAT),
+    ]
+
+    with pytest.raises(Exception) as excinfo:
+        infer_columns("SELECT * FROM A", [parent, parent])
+    assert str(excinfo.value) == "Wildcard only works for nodes with a single parent"

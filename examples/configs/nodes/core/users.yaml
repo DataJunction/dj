@@ -1,5 +1,5 @@
-description: A user dimension table
-type: dimension
+description: A user table
+type: source
 columns:
   id:
     type: INT

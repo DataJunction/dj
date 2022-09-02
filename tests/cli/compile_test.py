@@ -257,6 +257,14 @@ async def test_index_nodes(
             "expression": None,
         },
         {
+            "name": "core.dim_users",
+            "description": "User dimension",
+            "type": NodeType.DIMENSION,
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
+            "expression": "SELECT * FROM core.users",
+        },
+        {
             "name": "core.num_comments",
             "description": "Number of comments",
             "type": NodeType.METRIC,
@@ -266,8 +274,8 @@ async def test_index_nodes(
         },
         {
             "name": "core.users",
-            "description": "A user dimension table",
-            "type": NodeType.DIMENSION,
+            "description": "A user table",
+            "type": NodeType.SOURCE,
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
             "expression": None,
@@ -282,6 +290,7 @@ async def test_index_nodes(
 
     assert [(node.name, node.updated_at) for node in nodes] == [
         ("core.comments", datetime(2021, 1, 2, 0, 0)),
+        ("core.dim_users", datetime(2021, 1, 3, 0, 0)),
         ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
         ("core.users", datetime(2021, 1, 3, 0, 0)),
     ]
@@ -294,6 +303,7 @@ async def test_index_nodes(
 
     assert [(node.name, node.updated_at) for node in nodes] == [
         ("core.comments", datetime(2021, 1, 2, 0, 0)),
+        ("core.dim_users", datetime(2021, 1, 3, 0, 0)),
         ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
         ("core.users", datetime(2021, 1, 3, 0, 0)),
     ]

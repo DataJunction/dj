@@ -38,13 +38,17 @@ def infer_columns(sql: str, parents: List["Node"]) -> List[Column]:
         alias: Optional[str] = None
         if "UnnamedExpr" in expression:
             expression = expression["UnnamedExpr"]
+            columns.append(get_column_from_expression(parents, expression, alias))
         elif "ExprWithAlias" in expression:
             alias = expression["ExprWithAlias"]["alias"]["value"]
             expression = expression["ExprWithAlias"]["expr"]
+            columns.append(get_column_from_expression(parents, expression, alias))
+        elif expression == "Wildcard":
+            if len(parents) > 1:
+                raise Exception("Wildcard only works for nodes with a single parent")
+            columns.extend(parents[0].columns[:])
         else:
             raise NotImplementedError(f"Unable to handle expression: {expression}")
-
-        columns.append(get_column_from_expression(parents, expression, alias))
 
     # name nameless columns
     i = 0
