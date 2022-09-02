@@ -1,6 +1,6 @@
 description: Number of comments
 type: metric
-expression: SELECT COUNT(*) FROM core.comments
+query: SELECT COUNT(*) FROM core.comments
 columns:
   _col0:
     type: INT

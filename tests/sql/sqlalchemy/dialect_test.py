@@ -118,7 +118,7 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
                 "description": "Number of comments",
                 "created_at": "2022-04-10T20:23:01.961078",
                 "updated_at": "2022-04-10T20:23:01.961083",
-                "expression": "SELECT COUNT(*) FROM core.comments",
+                "query": "SELECT COUNT(*) FROM core.comments",
                 "dimensions": [
                     "core.comments.id",
                     "core.comments.user_id",
@@ -140,7 +140,7 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
                 "created_at": "2022-04-10T20:22:58.345198",
                 "updated_at": "2022-04-10T20:22:58.345201",
                 "type": "source",
-                "expression": None,
+                "query": None,
                 "columns": [
                     {
                         "name": "id",
@@ -175,7 +175,7 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
                 "created_at": "2022-04-10T20:23:01.333020",
                 "updated_at": "2022-04-10T20:23:01.333024",
                 "type": "dimension",
-                "expression": None,
+                "query": None,
                 "columns": [
                     {
                         "name": "id",
@@ -214,7 +214,7 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
                 "created_at": "2022-04-10T20:23:01.961078",
                 "updated_at": "2022-04-10T20:23:01.961083",
                 "type": "metric",
-                "expression": "SELECT COUNT(*) FROM core.comments",
+                "query": "SELECT COUNT(*) FROM core.comments",
                 "columns": [
                     {
                         "name": "_col0",

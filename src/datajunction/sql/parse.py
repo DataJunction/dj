@@ -36,11 +36,11 @@ def find_nodes_by_key_with_parent(
                 yield from find_nodes_by_key_with_parent(value, target)
 
 
-def get_dependencies(sql: str) -> Set[str]:
+def get_dependencies(query: str) -> Set[str]:
     """
-    Return all the dependencies from a SQL expression.
+    Return all the dependencies from a SQL query.
     """
-    tree = parse_sql(sql, dialect="ansi")
+    tree = parse_sql(query, dialect="ansi")
 
     return {
         ".".join(part["value"] for part in table["name"])
@@ -60,17 +60,17 @@ def get_expression_from_projection(projection: Projection) -> Expression:
     raise NotImplementedError(f"Unable to handle expression: {projection}")
 
 
-def is_metric(sql: Optional[str]) -> bool:
+def is_metric(query: Optional[str]) -> bool:
     """
-    Return if a SQL expression defines a metric.
+    Return if a SQL query defines a metric.
 
-    The SQL expression should have a single expression in its projections, and it should
+    The SQL query should have a single expression in its projections, and it should
     be an aggregation function in order for it to be considered a metric.
     """
-    if sql is None:
+    if query is None:
         return False
 
-    tree = parse_sql(sql, dialect="ansi")
+    tree = parse_sql(query, dialect="ansi")
     projection = next(find_nodes_by_key(tree, "projection"))
 
     # must have a single expression

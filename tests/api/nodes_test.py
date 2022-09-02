@@ -16,7 +16,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     node1 = Node(name="not-a-metric", type=NodeType.SOURCE)
     node2 = Node(
         name="also-not-a-metric",
-        expression="SELECT 42 AS answer",
+        query="SELECT 42 AS answer",
         type=NodeType.TRANSFORM,
         columns=[
             Column(name="answer", type=ColumnType.INT),
@@ -24,7 +24,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     )
     node3 = Node(
         name="a-metric",
-        expression="SELECT COUNT(*) FROM my_table",
+        query="SELECT COUNT(*) FROM my_table",
         columns=[
             Column(name="_col0", type=ColumnType.INT),
         ],
@@ -43,10 +43,10 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
 
     nodes = {node["name"]: node for node in data}
 
-    assert nodes["not-a-metric"]["expression"] is None
+    assert nodes["not-a-metric"]["query"] is None
     assert not nodes["not-a-metric"]["columns"]
 
-    assert nodes["also-not-a-metric"]["expression"] == "SELECT 42 AS answer"
+    assert nodes["also-not-a-metric"]["query"] == "SELECT 42 AS answer"
     assert nodes["also-not-a-metric"]["columns"] == [
         {
             "name": "answer",
@@ -54,7 +54,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
         },
     ]
 
-    assert nodes["a-metric"]["expression"] == "SELECT COUNT(*) FROM my_table"
+    assert nodes["a-metric"]["query"] == "SELECT COUNT(*) FROM my_table"
     assert nodes["a-metric"]["columns"] == [
         {
             "name": "_col0",
