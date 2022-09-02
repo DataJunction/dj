@@ -19,15 +19,15 @@ if TYPE_CHECKING:
 
 class Wildcard:  # pylint: disable=too-few-public-methods
     """
-    Represents the star in a SQL expression.
+    Represents the star in a SQL query.
     """
 
 
-def infer_columns(sql: str, parents: List["Node"]) -> List[Column]:
+def infer_columns(query: str, parents: List["Node"]) -> List[Column]:
     """
-    Given a a SQL expression and parents, infer schema.
+    Given a a SQL query and parents, infer schema.
     """
-    tree = parse_sql(sql, dialect="ansi")
+    tree = parse_sql(query, dialect="ansi")
 
     # Use the first projection. We actually want to check that all the projections
     # produce the same columns, and raise an error if not.

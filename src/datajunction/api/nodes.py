@@ -39,7 +39,7 @@ class NodeMetadata(SQLModel):
     updated_at: datetime
 
     type: NodeType
-    expression: Optional[str] = None
+    query: Optional[str] = None
 
     columns: List[SimpleColumn]
 

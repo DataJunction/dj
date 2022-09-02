@@ -133,7 +133,7 @@ async def get_query_for_node(  # pylint: disable=too-many-locals
 
     # which columns are needed from the parents; this is used to determine the database
     # where the query will run
-    referenced_columns = get_referenced_columns_from_sql(node.expression, node.parents)
+    referenced_columns = get_referenced_columns_from_sql(node.query, node.parents)
 
     # extract all referenced dimensions so we can join the node with them
     dimensions: Dict[str, Node] = {}
@@ -218,9 +218,9 @@ def find_on_clause(
 
 
 # pylint: disable=too-many-branches, too-many-locals, too-many-statements
-async def get_query_for_sql(sql: str) -> QueryCreate:
+async def get_query_for_sql(query: str) -> QueryCreate:
     """
-    Return a query given a SQL expression querying the repo.
+    Return a query object given a SQL query querying the repo.
 
     Eg:
 
@@ -238,7 +238,7 @@ async def get_query_for_sql(sql: str) -> QueryCreate:
     """
     session = next(get_session())
 
-    tree = parse_sql(sql, dialect="ansi")
+    tree = parse_sql(query, dialect="ansi")
     query_select = tree[0]["Query"]["body"]["Select"]
 
     # fetch all metric and dimension nodes
@@ -306,7 +306,7 @@ async def get_query_for_sql(sql: str) -> QueryCreate:
                 raise Exception(f"Invalid identifier: {name}")
 
             node = nodes[name]
-            metric_tree = parse_sql(node.expression, dialect="ansi")
+            metric_tree = parse_sql(node.query, dialect="ansi")
             parent.pop("Identifier")
             parent.update(
                 get_expression_from_projection(
@@ -339,10 +339,12 @@ async def get_query_for_sql(sql: str) -> QueryCreate:
 
     database = await get_database_for_nodes(session, parents, referenced_columns)
     dialect = make_url(database.URI).get_dialect()
-    query = get_query(None, parents, tree, database, dialect.name)
-    sql = str(query.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}))
+    query_object = get_query(None, parents, tree, database, dialect.name)
+    compiled_query = str(
+        query_object.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}),
+    )
 
-    return QueryCreate(database_id=database.id, submitted_query=sql)
+    return QueryCreate(database_id=database.id, submitted_query=compiled_query)
 
 
 def process_metrics(
@@ -394,7 +396,7 @@ def process_metrics(
 
     # replace the ``from`` part of the parse tree with the ``from`` from the metric that
     # has all the necessary parents
-    metric_tree = parse_sql(main_metric.expression, dialect="ansi")
+    metric_tree = parse_sql(main_metric.query, dialect="ansi")
     query_select["from"] = metric_tree[0]["Query"]["body"]["Select"]["from"]
 
     # join to any dimensions
@@ -435,7 +437,7 @@ def replace_metric_identifier(
     parent.pop("UnnamedExpr", None)
 
     node = nodes[name]
-    metric_tree = parse_sql(node.expression, dialect="ansi")
+    metric_tree = parse_sql(node.query, dialect="ansi")
     parent["ExprWithAlias"] = {
         "alias": alias or {"quote_style": '"', "value": node.name},
         "expr": get_expression_from_projection(

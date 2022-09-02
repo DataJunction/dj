@@ -2,7 +2,7 @@
 Architecture
 ============
 
-The source of truth in DataJunction (DJ) is a repository of YAML files (see the `examples <https://github.com/DataJunction/datajunction/tree/main/examples/configs>`_). These files describe database connections and nodes. The nodes form a DAG (Directed Acyclic Graph), and relationships are inferred from their SQL expressions:
+The source of truth in DataJunction (DJ) is a repository of YAML files (see the `examples <https://github.com/DataJunction/datajunction/tree/main/examples/configs>`_). These files describe database connections and nodes. The nodes form a DAG (Directed Acyclic Graph), and relationships are inferred from their SQL queries:
 
 .. code-block:: YAML
 
@@ -18,7 +18,7 @@ The source of truth in DataJunction (DJ) is a repository of YAML files (see the 
 
     # child.yaml
     description: A child node
-    expression: SELECT * FROM parent
+    query: SELECT * FROM parent
 
 In the example above we have 2 nodes, ``parent`` and ``child``, forming the DAG ``parent -> child``.
 
