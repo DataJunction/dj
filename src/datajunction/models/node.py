@@ -165,20 +165,20 @@ class Node(SQLModel, table=True):  # type: ignore
     def extra_validation(self) -> None:
         """
         Extra validation for node data.
-
-        This checks that node marked as source/dimension have tables associated with them, and
-        that metric nodes have a valid expression.
         """
-        if self.type in {NodeType.SOURCE.value, NodeType.DIMENSION.value}:
+        if self.type == NodeType.SOURCE:
             if not self.tables:
                 raise Exception(
-                    f"Node {self.name} of type {self.type} needs at least one table",
+                    f"Node {self.name} of type source needs at least one table",
                 )
-        elif self.type == NodeType.METRIC:
+
+        if self.type in {NodeType.TRANSFORM, NodeType.METRIC, NodeType.DIMENSION}:
             if not self.expression:
                 raise Exception(
-                    f"Node {self.name} of type metric needs an expression",
+                    f"Node {self.name} of type {self.type} needs an expression",
                 )
+
+        if self.type == NodeType.METRIC:
             if not is_metric(self.expression):
                 raise Exception(
                     f"Node {self.name} of type metric has an invalid expression, "
