@@ -235,3 +235,35 @@ async def test_main_add_database_passing_repository(mocker: MockerFixture) -> No
             read_only=True,
             cost=11.0
         )
+
+@pytest.mark.asyncio
+async def test_main_add_database_raise_already_exists(mocker: MockerFixture) -> None:
+    """
+    Test ``main`` with the "add-database" action raising when the database already exists
+    """
+    with tempfile.TemporaryDirectory() as tmpdirname:
+        mocker.patch(
+            "datajunction.console.docopt",
+            return_value={
+                "--loglevel": "debug",
+                "--force": False,
+                "--reload": False,
+                "--description": "This is a description",
+                "--read-only": True,
+                "--uri": "testdb://test",
+                "--cost": 11.0,
+                "add-database": True,
+                "DATABASE": "testdb",
+                "REPOSITORY": None,
+            },
+        )
+        mocker.patch(
+            "datajunction.console.get_settings",
+            return_value=Settings(
+                index="sqlite:///dj.db",
+                repository=Path(tmpdirname),
+            ),
+        )
+
+        await console.main()
+        await console.main()  # Run an add-database command a second time, logs an already exists exception
