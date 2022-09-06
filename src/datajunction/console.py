@@ -32,7 +32,7 @@ from docopt import docopt
 
 from datajunction import __version__
 from datajunction.cli import compile as compile_
-from datajunction.cli import add_database as add_database_
+from datajunction.cli import add_database
 from datajunction.errors import DJException
 from datajunction.utils import get_settings, setup_logging
 
