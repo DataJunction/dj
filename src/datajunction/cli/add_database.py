@@ -24,8 +24,8 @@ async def run(repository: Path, database: str, uri: str, description: Optional[s
     """
     Add a database.
     """
-    create_databases_dir(repository)
-    db_config_path = repository / Path(f"databases/{database}.yaml")
+    databases_dir = create_databases_dir(repository)
+    db_config_path = (databases_dir / database).with_suffix(".yaml")
     if Path(db_config_path).exists():
         raise DJException(message=f"Database configuration already exists", errors=[DJError(message=f"{db_config_path} already exists", code=ErrorCode.ALREADY_EXISTS)])
 
