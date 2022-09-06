@@ -12,7 +12,7 @@ from pytest_mock import MockerFixture
 
 from datajunction import console
 from datajunction.config import Settings
-from datajunction.errors import DJException
+from datajunction.errors import DJError, DJException, ErrorCode
 
 
 @pytest.mark.asyncio
@@ -247,6 +247,16 @@ async def test_main_add_database_raise_already_exists(
     """
     Test ``main`` with the "add-database" action raising when the database already exists
     """
+    exc = DJException(
+        message="Database configuration already exists",
+        errors=[
+            DJError(
+                message="/foo/databases/testdb.yaml already exists",
+                code=ErrorCode.ALREADY_EXISTS,
+            ),
+        ],
+    )
+    _logger = mocker.patch("datajunction.console._logger")
     test_repo = "/foo"
     fs.create_dir(test_repo)
     mocker.patch(
@@ -274,3 +284,4 @@ async def test_main_add_database_raise_already_exists(
 
     await console.main()
     await console.main()  # Run a second time to log an already exists exception
+    _logger.error.assert_called_with(exc)

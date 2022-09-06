@@ -169,6 +169,16 @@ class DJException(Exception):
 
         return f"{self.message}\n{errors}"
 
+    def __eq__(self, other) -> bool:
+        return (
+            isinstance(other, DJException)
+            and self.message == other.message
+            and self.errors == other.errors
+            and self.warnings == other.warnings
+            and self.dbapi_exception == other.dbapi_exception
+            and self.http_status_code == other.http_status_code
+        )
+
 
 class DJInvalidInputException(DJException):
     """
