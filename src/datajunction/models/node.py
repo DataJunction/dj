@@ -167,7 +167,7 @@ class Node(SQLModel, table=True):  # type: ignore
         Extra validation for node data.
         """
         if self.type == NodeType.SOURCE:
-            if self.expression:
+            if self.query:
                 raise Exception(
                     f"Node {self.name} of type source should not have an expression",
                 )
