@@ -3,7 +3,8 @@ DataJunction (DJ) is a metric repository.
 
 Usage:
     dj compile [REPOSITORY] [-f] [--loglevel=INFO] [--reload]
-    dj add-database DATABASE [REPOSITORY] --uri=URI [-f --loglevel=INFO --description=<str> --read-only=<bool> --cost=COST]
+    dj add-database DATABASE [REPOSITORY] --uri=URI \
+[-f --loglevel=INFO --description=<str> --read-only=<bool> --cost=COST]
 
 Actions:
     compile                 Compile repository
@@ -31,8 +32,8 @@ from pathlib import Path
 from docopt import docopt
 
 from datajunction import __version__
-from datajunction.cli import compile as compile_
 from datajunction.cli import add_database
+from datajunction.cli import compile as compile_
 from datajunction.errors import DJException
 from datajunction.utils import get_settings, setup_logging
 
@@ -71,7 +72,7 @@ async def main() -> None:
                     uri=arguments["--uri"],
                     description=arguments["--description"],
                     read_only=arguments["--read-only"],
-                    cost=arguments["--cost"]
+                    cost=arguments["--cost"],
                 )
             except DJException as exc:
                 _logger.error(exc)

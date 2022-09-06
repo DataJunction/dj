@@ -169,7 +169,7 @@ class Node(SQLModel, table=True):  # type: ignore
         if self.type == NodeType.SOURCE:
             if self.query:
                 raise Exception(
-                    f"Node {self.name} of type source should not have an expression",
+                    f"Node {self.name} of type source should not have a query",
                 )
             if not self.tables:
                 raise Exception(

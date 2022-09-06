@@ -1,12 +1,13 @@
 """
 Tests for ``datajunction.console``.
 """
+# pylint: disable=invalid-name
 
 import asyncio
 from pathlib import Path
-import tempfile
 
 import pytest
+from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 
 from datajunction import console
@@ -160,13 +161,14 @@ def test_interrupt(mocker: MockerFixture) -> None:
 
     _logger.info.assert_called_with("Stopping DJ")
 
+
 @pytest.mark.asyncio
 async def test_main_add_database(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "add-database" action.
     """
-    add_database_ = mocker.patch("datajunction.console.add_database_")
-    add_database_.run = mocker.AsyncMock()
+    add_database = mocker.patch("datajunction.console.add_database")
+    add_database.run = mocker.AsyncMock()
 
     mocker.patch(
         "datajunction.console.docopt",
@@ -192,78 +194,83 @@ async def test_main_add_database(mocker: MockerFixture) -> None:
     )
 
     await console.main()
-    add_database_.run.assert_called_with(
+    add_database.run.assert_called_with(
         Path("/path/to/repository"),
         database="testdb",
         uri="testdb://test",
         description="This is a description",
         read_only=True,
-        cost=11.0
+        cost=11.0,
     )
+
 
 @pytest.mark.asyncio
 async def test_main_add_database_passing_repository(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "add-database" action.
     """
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        add_database_ = mocker.patch("datajunction.console.add_database_")
-        add_database_.run = mocker.AsyncMock()
+    add_database = mocker.patch("datajunction.console.add_database")
+    add_database.run = mocker.AsyncMock()
 
-        mocker.patch(
-            "datajunction.console.docopt",
-            return_value={
-                "--loglevel": "debug",
-                "--force": False,
-                "--reload": False,
-                "--description": "This is a description",
-                "--read-only": True,
-                "--uri": "testdb://test",
-                "--cost": 11.0,
-                "add-database": True,
-                "DATABASE": "testdb",
-                "REPOSITORY": "/path/to/another/repository",
-            },
-        )
+    mocker.patch(
+        "datajunction.console.docopt",
+        return_value={
+            "--loglevel": "debug",
+            "--force": False,
+            "--reload": False,
+            "--description": "This is a description",
+            "--read-only": True,
+            "--uri": "testdb://test",
+            "--cost": 11.0,
+            "add-database": True,
+            "DATABASE": "testdb",
+            "REPOSITORY": "/path/to/another/repository",
+        },
+    )
 
-        await console.main()
-        add_database_.run.assert_called_with(
-            Path("/path/to/another/repository"),
-            database="testdb",
-            uri="testdb://test",
-            description="This is a description",
-            read_only=True,
-            cost=11.0
-        )
+    await console.main()
+    add_database.run.assert_called_with(
+        Path("/path/to/another/repository"),
+        database="testdb",
+        uri="testdb://test",
+        description="This is a description",
+        read_only=True,
+        cost=11.0,
+    )
+
 
 @pytest.mark.asyncio
-async def test_main_add_database_raise_already_exists(mocker: MockerFixture) -> None:
+async def test_main_add_database_raise_already_exists(
+    mocker: MockerFixture,
+    fs: FakeFilesystem,
+) -> None:
     """
     Test ``main`` with the "add-database" action raising when the database already exists
     """
-    with tempfile.TemporaryDirectory() as tmpdirname:
-        mocker.patch(
-            "datajunction.console.docopt",
-            return_value={
-                "--loglevel": "debug",
-                "--force": False,
-                "--reload": False,
-                "--description": "This is a description",
-                "--read-only": True,
-                "--uri": "testdb://test",
-                "--cost": 11.0,
-                "add-database": True,
-                "DATABASE": "testdb",
-                "REPOSITORY": None,
-            },
-        )
-        mocker.patch(
-            "datajunction.console.get_settings",
-            return_value=Settings(
-                index="sqlite:///dj.db",
-                repository=Path(tmpdirname),
-            ),
-        )
+    test_repo = "/foo"
+    fs.create_dir(test_repo)
+    mocker.patch(
+        "datajunction.console.docopt",
+        return_value={
+            "--loglevel": "debug",
+            "--force": False,
+            "--reload": False,
+            "--description": "This is a description",
+            "--read-only": True,
+            "--uri": "testdb://test",
+            "--cost": 11.0,
+            "add-database": True,
+            "DATABASE": "testdb",
+            "REPOSITORY": None,
+        },
+    )
+    mocker.patch(
+        "datajunction.console.get_settings",
+        return_value=Settings(
+            index="sqlite:///dj.db",
+            repository=Path(test_repo),
+        ),
+    )
 
-        await console.main()
-        await console.main()  # Run an add-database command a second time, logs an already exists exception
+    await console.main()
+    await console.main()  # Run a second time to log an already exists exception
