@@ -38,10 +38,10 @@ def test_extra_validation() -> None:
         node.extra_validation()
     assert str(excinfo.value) == "Node A of type source needs at least one table"
 
-    node = Node(name="A", type=NodeType.SOURCE, expression="SELECT * FROM B")
+    node = Node(name="A", type=NodeType.SOURCE, query="SELECT * FROM B")
     with pytest.raises(Exception) as excinfo:
         node.extra_validation()
-    assert str(excinfo.value) == "Node A of type source should not have an expression"
+    assert str(excinfo.value) == "Node A of type source should not have a query"
 
     node = Node(name="A", type=NodeType.METRIC)
     with pytest.raises(Exception) as excinfo:

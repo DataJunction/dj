@@ -413,12 +413,9 @@ def test_get_dependencies() -> None:
     """
     assert get_dependencies("SELECT 1") == set()
     assert get_dependencies("SELECT COUNT(*) FROM core.comments") == {"core.comments"}
-    assert (
-        get_dependencies(
-            "SELECT COUNT(*) FROM core.comments cc JOIN core.events ce ON cc.id = ce.id",
-        )
-        == {"core.comments", "core.events"}
-    )
+    assert get_dependencies(
+        "SELECT COUNT(*) FROM core.comments cc JOIN core.events ce ON cc.id = ce.id",
+    ) == {"core.comments", "core.events"}
     assert get_dependencies("SELECT 1 FROM a UNION SELECT 2 FROM b") == {"a", "b"}
 
 
