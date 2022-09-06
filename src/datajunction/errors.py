@@ -16,6 +16,7 @@ class ErrorCode(int, Enum):
     # generic errors
     UNKWNON_ERROR = 0
     NOT_IMPLEMENTED_ERROR = 1
+    ALREADY_EXISTS = 2
 
     # metric API
     INVALID_FILTER_PATTERN = 100
@@ -167,6 +168,16 @@ class DJException(Exception):
         errors = f"The following error{plural} happened:\n{combined_errors}"
 
         return f"{self.message}\n{errors}"
+
+    def __eq__(self, other) -> bool:
+        return (
+            isinstance(other, DJException)
+            and self.message == other.message
+            and self.errors == other.errors
+            and self.warnings == other.warnings
+            and self.dbapi_exception == other.dbapi_exception
+            and self.http_status_code == other.http_status_code
+        )
 
 
 class DJInvalidInputException(DJException):
