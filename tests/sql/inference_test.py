@@ -76,30 +76,21 @@ def test_evaluate_expression() -> None:
         name="ds",
         type=ColumnType.DATETIME,
     )
-    assert (
-        evaluate_expression(
-            [node_a],
-            get_expression("SELECT MAX(foo)"),
-            "bar",
-        )
-        == Column(name="bar", type=ColumnType.FLOAT)
-    )
-    assert (
-        evaluate_expression(
-            [node_a],
-            get_expression("SELECT MAX(MAX(foo))"),
-            "bar",
-        )
-        == Column(name="bar", type=ColumnType.FLOAT)
-    )
-    assert (
-        evaluate_expression(
-            [node_a],
-            get_expression("SELECT COUNT(MAX(foo))"),
-            "bar",
-        )
-        == Column(name="bar", type=ColumnType.INT)
-    )
+    assert evaluate_expression(
+        [node_a],
+        get_expression("SELECT MAX(foo)"),
+        "bar",
+    ) == Column(name="bar", type=ColumnType.FLOAT)
+    assert evaluate_expression(
+        [node_a],
+        get_expression("SELECT MAX(MAX(foo))"),
+        "bar",
+    ) == Column(name="bar", type=ColumnType.FLOAT)
+    assert evaluate_expression(
+        [node_a],
+        get_expression("SELECT COUNT(MAX(foo))"),
+        "bar",
+    ) == Column(name="bar", type=ColumnType.INT)
 
 
 def test_evaluate_expression_ambiguous() -> None:
@@ -150,13 +141,10 @@ def test_evaluate_expression_ambiguous() -> None:
     assert str(excinfo.value) == 'Unable to determine origin of column "ds"'
 
     # using fully qualified notation
-    assert (
-        evaluate_expression(
-            [node_a, node_b],
-            get_expression("SELECT A.ds"),
-        )
-        == Column(name="ds", type=ColumnType.STR)
-    )
+    assert evaluate_expression(
+        [node_a, node_b],
+        get_expression("SELECT A.ds"),
+    ) == Column(name="ds", type=ColumnType.STR)
 
     # invalid parent
     with pytest.raises(Exception) as excinfo:

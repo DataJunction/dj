@@ -25,7 +25,11 @@ async def test_add_database_minimum_requirements(fs: FakeFilesystem) -> None:
         database="testdb",
         uri="testdb://test",
     )
-    with open(Path(test_repo) / Path("databases/testdb.yaml"), "r", encoding="utf-8") as f:
+    with open(
+        Path(test_repo) / Path("databases/testdb.yaml"),
+        "r",
+        encoding="utf-8",
+    ) as f:
         assert yaml.safe_load(f) == {
             "URI": "testdb://test",
             "async_": False,
@@ -50,7 +54,11 @@ async def test_add_database(fs: FakeFilesystem) -> None:
         read_only=True,
         cost=11.0,
     )
-    with open(Path(test_repo) / Path("databases/testdb.yaml"), "r", encoding="utf-8") as f:
+    with open(
+        Path(test_repo) / Path("databases/testdb.yaml"),
+        "r",
+        encoding="utf-8",
+    ) as f:
         assert yaml.safe_load(f) == {
             "URI": "testdb://test",
             "async_": False,

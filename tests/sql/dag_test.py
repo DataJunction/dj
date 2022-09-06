@@ -165,33 +165,24 @@ def test_get_referenced_columns_from_sql() -> None:
     assert get_referenced_columns_from_sql("SELECT ds FROM core.A", [parent_1]) == {
         "core.A": {"ds"},
     }
-    assert (
-        get_referenced_columns_from_sql(
-            "SELECT ds FROM core.A WHERE user_id > 0",
-            [parent_1],
-        )
-        == {"core.A": {"ds", "user_id"}}
-    )
-    assert (
-        get_referenced_columns_from_sql(
-            (
-                "SELECT core.A.ds, core.A.user_id, core.B.event_id "
-                "FROM core.A JOIN core.B ON core.A.ds = core.B.ds"
-            ),
-            [parent_1, parent_2],
-        )
-        == {"core.A": {"ds", "user_id"}, "core.B": {"ds", "event_id"}}
-    )
-    assert (
-        get_referenced_columns_from_sql(
-            (
-                "SELECT user_id, event_id "
-                "FROM core.A JOIN core.B ON core.A.ds = core.B.ds"
-            ),
-            [parent_1, parent_2],
-        )
-        == {"core.A": {"ds", "user_id"}, "core.B": {"ds", "event_id"}}
-    )
+    assert get_referenced_columns_from_sql(
+        "SELECT ds FROM core.A WHERE user_id > 0",
+        [parent_1],
+    ) == {"core.A": {"ds", "user_id"}}
+    assert get_referenced_columns_from_sql(
+        (
+            "SELECT core.A.ds, core.A.user_id, core.B.event_id "
+            "FROM core.A JOIN core.B ON core.A.ds = core.B.ds"
+        ),
+        [parent_1, parent_2],
+    ) == {"core.A": {"ds", "user_id"}, "core.B": {"ds", "event_id"}}
+    assert get_referenced_columns_from_sql(
+        (
+            "SELECT user_id, event_id "
+            "FROM core.A JOIN core.B ON core.A.ds = core.B.ds"
+        ),
+        [parent_1, parent_2],
+    ) == {"core.A": {"ds", "user_id"}, "core.B": {"ds", "event_id"}}
     with pytest.raises(Exception) as excinfo:
         get_referenced_columns_from_sql(
             (
