@@ -65,7 +65,7 @@ async def main() -> None:
                 _logger.error(exc)
         elif arguments.get("add-database"):
             try:
-                await add_database_.run(
+                await add_database.run(
                     repository,
                     database=arguments["DATABASE"],
                     uri=arguments["--uri"],
