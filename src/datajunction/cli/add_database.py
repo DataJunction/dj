@@ -13,7 +13,7 @@ from datajunction.models.database import Database
 
 _logger = logging.getLogger(__name__)
 
-def create_databases_dir(repository: Path):
+def create_databases_dir(repository: Path) -> None:
     """
     Creates a databases directory in the repository if one doesn't already exist
     """
