@@ -16,6 +16,7 @@ class ErrorCode(int, Enum):
     # generic errors
     UNKWNON_ERROR = 0
     NOT_IMPLEMENTED_ERROR = 1
+    ALREADY_EXISTS = 2
 
     # metric API
     INVALID_FILTER_PATTERN = 100
