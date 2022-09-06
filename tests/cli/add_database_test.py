@@ -41,7 +41,7 @@ async def test_add_database() -> None:
             uri="testdb://test",
             description="This is a description",
             read_only=True,
-            cost=11.0
+            cost=11.0,
         )
         with open(Path(tmpdirname) / Path("databases/testdb.yaml"), "r") as f:
             assert yaml.safe_load(f) == {
