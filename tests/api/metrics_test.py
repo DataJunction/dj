@@ -84,6 +84,26 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     assert data["dimensions"] == ["parent.ds", "parent.foo", "parent.user_id"]
 
 
+def test_read_metrics_errors(session: Session, client: TestClient) -> None:
+    """
+    Test errors on ``GET /metrics/{node_id}/``.
+    """
+    database = Database(name="test", URI="sqlite://")
+    node = Node(name="a-metric", query="SELECT 1 AS col")
+    session.add(database)
+    session.add(node)
+    session.execute("CREATE TABLE my_table (one TEXT)")
+    session.commit()
+
+    response = client.get("/metrics/2")
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Metric node not found"}
+
+    response = client.get("/metrics/1")
+    assert response.status_code == 400
+    assert response.json() == {"detail": "Not a metric node"}
+
+
 def test_read_metrics_data(
     mocker: MockerFixture,
     session: Session,

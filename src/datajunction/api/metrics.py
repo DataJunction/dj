@@ -63,6 +63,16 @@ def read_metric(node_id: int, *, session: Session = Depends(get_session)) -> Met
     Return a metric by ID.
     """
     node = session.get(Node, node_id)
+    if not node:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail="Metric node not found",
+        )
+    if node.type != NodeType.METRIC:
+        raise HTTPException(
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail="Not a metric node",
+        )
     return Metric(**node.dict(), dimensions=get_dimensions(node))
 
 
