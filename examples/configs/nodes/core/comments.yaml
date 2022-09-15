@@ -5,7 +5,7 @@ columns:
     type: INT
   user_id:
     type: INT
-    dimension: core.users
+    dimension: core.dim_users
   timestamp:
     type: DATETIME
   text:
