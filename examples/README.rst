@@ -58,7 +58,7 @@ To run a query:
 .. code-block:: bash
 
     $ curl -H "Content-Type: application/json" \
-    > -d '{"database_id":3,"submitted_query":"SELECT 1 AS foo"}' \
+    > -d '{"database_id":2,"submitted_query":"SELECT 1 AS foo"}' \
     > http://127.0.0.1:8000/queries/ | jq
 
 And you should see:
