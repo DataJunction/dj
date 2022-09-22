@@ -5,6 +5,7 @@ Metric related APIs.
 from datetime import datetime
 from http import HTTPStatus
 from typing import List, Optional
+from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlmodel import Session, SQLModel, select
@@ -42,7 +43,7 @@ class TranslatedSQL(SQLModel):
     Class for SQL generated from a given metric.
     """
 
-    database_id: int
+    database_uuid: UUID
     sql: str
 
 
@@ -97,7 +98,7 @@ def get_metric(session: Session, node_id: int) -> Node:
 @router.get("/metrics/{node_id}/data/", response_model=QueryWithResults)
 async def read_metrics_data(
     node_id: int,
-    database_id: Optional[int] = None,
+    database_uuid: Optional[UUID] = None,
     d: List[str] = Query([]),  # pylint: disable=invalid-name
     f: List[str] = Query([]),  # pylint: disable=invalid-name
     *,
@@ -110,7 +111,7 @@ async def read_metrics_data(
     Return data for a metric.
     """
     node = get_metric(session, node_id)
-    create_query = await get_query_for_node(session, node, d, f, database_id)
+    create_query = await get_query_for_node(session, node, d, f, database_uuid)
 
     return save_query_and_run(
         create_query,
@@ -124,7 +125,7 @@ async def read_metrics_data(
 @router.get("/metrics/{node_id}/sql/", response_model=TranslatedSQL)
 async def read_metrics_sql(
     node_id: int,
-    database_id: Optional[int] = None,
+    database_uuid: Optional[UUID] = None,
     d: List[str] = Query([]),  # pylint: disable=invalid-name
     f: List[str] = Query([]),  # pylint: disable=invalid-name
     *,
@@ -137,9 +138,9 @@ async def read_metrics_sql(
     will be used.
     """
     node = get_metric(session, node_id)
-    create_query = await get_query_for_node(session, node, d, f, database_id)
+    create_query = await get_query_for_node(session, node, d, f, database_uuid)
 
     return TranslatedSQL(
-        database_id=create_query.database_id,
+        database_uuid=create_query.database_uuid,
         sql=create_query.submitted_query,
     )

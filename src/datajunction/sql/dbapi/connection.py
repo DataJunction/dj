@@ -4,10 +4,11 @@ An implementation of a DB API 2.0 connection.
 # pylint: disable=invalid-name, unused-import, no-self-use
 
 from typing import Any, Dict, List, Optional, Union
+from uuid import UUID
 
 from yarl import URL
 
-from datajunction.constants import DJ_DATABASE_ID
+from datajunction.constants import DJ_DATABASE_UUID
 from datajunction.sql.dbapi.cursor import Cursor
 from datajunction.sql.dbapi.decorators import check_closed
 from datajunction.sql.dbapi.exceptions import NotSupportedError
@@ -19,9 +20,9 @@ class Connection:
     Connection.
     """
 
-    def __init__(self, base_url: URL, database_id: int = DJ_DATABASE_ID):
+    def __init__(self, base_url: URL, database_uuid: UUID = DJ_DATABASE_UUID):
         self.base_url = base_url
-        self.database_id = database_id
+        self.database_uuid = database_uuid
 
         self.closed = False
         self.cursors: List[Cursor] = []
@@ -45,7 +46,7 @@ class Connection:
     @check_closed
     def cursor(self) -> Cursor:
         """Return a new Cursor Object using the connection."""
-        cursor = Cursor(self.base_url, self.database_id)
+        cursor = Cursor(self.base_url, self.database_uuid)
         self.cursors.append(cursor)
 
         return cursor
@@ -69,11 +70,14 @@ class Connection:
         self.close()
 
 
-def connect(base_url: Union[str, URL], database_id: int = DJ_DATABASE_ID) -> Connection:
+def connect(
+    base_url: Union[str, URL],
+    database_uuid: UUID = DJ_DATABASE_UUID,
+) -> Connection:
     """
     Create a connection to the database.
     """
     if not isinstance(base_url, URL):
         base_url = URL(base_url)
 
-    return Connection(base_url, database_id)
+    return Connection(base_url, database_uuid)

@@ -5,13 +5,14 @@ An implementation of a DB API 2.0 cursor.
 
 import itertools
 from typing import Any, Dict, Iterator, List, Optional, Tuple
+from uuid import UUID
 
 import msgpack
 import requests
 from sqloxide import parse_sql
 from yarl import URL
 
-from datajunction.constants import DJ_DATABASE_ID
+from datajunction.constants import DJ_DATABASE_UUID
 from datajunction.errors import DJException
 from datajunction.models.query import decode_results, encode_results
 from datajunction.sql.dbapi import exceptions
@@ -33,9 +34,9 @@ class Cursor:
     Connection cursor.
     """
 
-    def __init__(self, base_url: URL, database_id: int = DJ_DATABASE_ID):
+    def __init__(self, base_url: URL, database_uuid: UUID = DJ_DATABASE_UUID):
         self.base_url = base_url
-        self.database_id = database_id
+        self.database_uuid = database_uuid
 
         self.arraysize = 1
         self.closed = False
@@ -89,7 +90,7 @@ class Cursor:
             raise Warning("You can only execute one statement at a time")
 
         data = msgpack.packb(
-            {"database_id": self.database_id, "submitted_query": operation},
+            {"database_uuid": self.database_uuid, "submitted_query": operation},
             default=encode_results,
         )
 

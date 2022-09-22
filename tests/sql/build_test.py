@@ -4,6 +4,7 @@ Tests for ``datajunction.sql.build``.
 # pylint: disable=invalid-name, too-many-lines, line-too-long
 
 import datetime
+from uuid import UUID, uuid4
 
 import pytest
 from pytest_mock import MockerFixture
@@ -55,7 +56,7 @@ async def test_get_query_for_node(mocker: MockerFixture) -> None:
     session = mocker.MagicMock()
 
     create_query = await get_query_for_node(session, child, [], [])
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
 
@@ -99,7 +100,7 @@ async def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
 
     create_query = await get_query_for_node(session, child, ["A.user_id"], [])
     space = " "
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
     assert (
         create_query.submitted_query
         == f"""SELECT count('*') AS cnt, "A".user_id{space}
@@ -113,7 +114,8 @@ async def test_get_query_for_node_specify_database(mocker: MockerFixture) -> Non
     """
     Test ``get_query_for_node`` when a database is specified.
     """
-    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+    uuid = UUID("6fc352d5-0830-456f-9224-6210058d2dc7")
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0, uuid=uuid)
 
     parent = Node(name="A")
 
@@ -139,13 +141,14 @@ async def test_get_query_for_node_specify_database(mocker: MockerFixture) -> Non
     session = mocker.MagicMock()
     session.exec().one.return_value = database
 
-    create_query = await get_query_for_node(session, child, [], [], 1)
-    assert create_query.database_id == 1
+    create_query = await get_query_for_node(session, child, [], [], uuid)
+    assert create_query.database_uuid == database.uuid
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
+    uuid = uuid4()
     with pytest.raises(Exception) as excinfo:
-        await get_query_for_node(session, child, [], [], 2)
-    assert str(excinfo.value) == "Database ID 2 is not valid"
+        await get_query_for_node(session, child, [], [], uuid)
+    assert str(excinfo.value) == f"Database ID {uuid} is not valid"
 
 
 @pytest.mark.asyncio
@@ -283,7 +286,7 @@ async def test_get_query_for_node_with_dimensions(mocker: MockerFixture) -> None
         ["core.users.age>25"],
     )
     space = " "
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
     assert (
         create_query.submitted_query
         == f"""SELECT count('*') AS count_1, "core.users".gender{space}
@@ -405,7 +408,7 @@ async def test_get_query_for_node_with_multiple_dimensions(
         ["core.bands.genre='rock'"],
     )
     space = " "
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
     assert (
         create_query.submitted_query
         == f"""SELECT count('*') AS count_1, "core.users".gender{space}
@@ -519,7 +522,7 @@ async def test_get_query_for_sql(mocker: MockerFixture, session: Session) -> Non
     sql = "SELECT B FROM metrics"
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (
@@ -575,7 +578,7 @@ async def test_get_query_for_sql_no_metrics(
     sql = 'SELECT "core.users.gender", "core.users.age" FROM metrics'
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (
@@ -622,7 +625,7 @@ async def test_get_query_for_sql_no_tables(
     sql = "SELECT 1"
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
     assert create_query.submitted_query == "SELECT 1"
 
 
@@ -670,7 +673,7 @@ async def test_get_query_for_sql_having(
     sql = "SELECT B FROM metrics HAVING B > 10"
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (
@@ -766,7 +769,7 @@ GROUP BY "core.users.gender"
     """
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (
@@ -872,7 +875,7 @@ LIMIT 100;
 
     space = " "
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
     assert (
         create_query.submitted_query
         == f"""SELECT "core.users".gender AS "core.users.gender", count('*') AS "core.num_comments"{space}
@@ -995,7 +998,7 @@ async def test_get_query_for_sql_compound_names(
     sql = "SELECT core.B FROM metrics"
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (
@@ -1062,7 +1065,7 @@ async def test_get_query_for_sql_multiple_databases(
     sql = "SELECT B FROM metrics"
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 2  # fast
+    assert create_query.database_uuid == database_2.uuid
 
     B.query = "SELECT COUNT(two) AS cnt FROM A"
     session.add(B)
@@ -1071,7 +1074,7 @@ async def test_get_query_for_sql_multiple_databases(
     sql = "SELECT B FROM metrics"
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1  # slow
+    assert create_query.database_uuid == database_1.uuid  # slow
 
 
 @pytest.mark.asyncio
@@ -1129,7 +1132,7 @@ async def test_get_query_for_sql_multiple_metrics(
     sql = "SELECT B, C FROM metrics"
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (
@@ -1195,7 +1198,7 @@ async def test_get_query_for_sql_non_identifiers(
     sql = "SELECT B, C, 'test' FROM metrics"
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (
@@ -1380,7 +1383,7 @@ async def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) 
     sql = "SELECT B AS my_metric FROM metrics"
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (
@@ -1439,7 +1442,7 @@ GROUP BY "core.comments.user_id"
     """
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (
@@ -1502,7 +1505,7 @@ GROUP BY
     """
     create_query = await get_query_for_sql(sql)
 
-    assert create_query.database_id == 1
+    assert create_query.database_uuid == database.uuid
 
     space = " "
     assert (

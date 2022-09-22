@@ -45,7 +45,7 @@ def on_startup() -> None:
     """
     Ensure the database and tables exist on startup.
     """
-    create_db_and_tables()
+    # create_db_and_tables()
 
 
 @app.exception_handler(DJException)

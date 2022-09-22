@@ -24,7 +24,7 @@ from fastapi import (
 from sqlmodel import Session
 
 from datajunction.config import Settings
-from datajunction.constants import DJ_DATABASE_ID
+from datajunction.constants import DJ_DATABASE_UUID
 from datajunction.engine import process_query
 from datajunction.models.query import (
     Query,
@@ -104,7 +104,7 @@ async def submit_query(
         )
     create_query = QueryCreate(**data)
 
-    if create_query.database_id == DJ_DATABASE_ID:
+    if create_query.database_uuid == DJ_DATABASE_UUID:
         create_query = await get_query_for_sql(create_query.submitted_query)
 
     query_with_results = save_query_and_run(

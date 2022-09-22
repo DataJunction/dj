@@ -7,6 +7,7 @@ import datetime
 import operator
 import re
 from typing import Any, Callable, Dict, List, Literal, Optional, Set, Tuple, cast
+from uuid import UUID
 
 from dateutil.parser import parse
 from sqlalchemy.engine.url import make_url
@@ -118,7 +119,7 @@ async def get_query_for_node(  # pylint: disable=too-many-locals
     node: Node,
     groupbys: List[str],
     filters: List[str],
-    database_id: Optional[int] = None,
+    database_uuid: Optional[UUID] = None,
 ) -> QueryCreate:
     """
     Return a DJ QueryCreate object from a given node.
@@ -153,7 +154,7 @@ async def get_query_for_node(  # pylint: disable=too-many-locals
         session,
         nodes,
         referenced_columns,
-        database_id,
+        database_uuid,
     )
 
     # base query
@@ -193,7 +194,7 @@ async def get_query_for_node(  # pylint: disable=too-many-locals
         node_select.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}),
     )
 
-    return QueryCreate(database_id=database.id, submitted_query=sql)
+    return QueryCreate(database_uuid=database.uuid, submitted_query=sql)
 
 
 def find_on_clause(
@@ -344,7 +345,7 @@ async def get_query_for_sql(query: str) -> QueryCreate:
         query_object.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}),
     )
 
-    return QueryCreate(database_id=database.id, submitted_query=compiled_query)
+    return QueryCreate(database_uuid=database.uuid, submitted_query=compiled_query)
 
 
 def process_metrics(

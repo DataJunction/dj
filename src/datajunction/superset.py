@@ -52,7 +52,7 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
     engine = "dj"
     engine_name = "DJ"
 
-    sqlalchemy_uri_placeholder = "dj://host:port/database_id"
+    sqlalchemy_uri_placeholder = "dj://host:port/database_uuid"
 
     _time_grain_expressions = {
         None: "{col}",

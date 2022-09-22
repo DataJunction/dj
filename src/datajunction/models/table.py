@@ -3,6 +3,7 @@ Models for tables.
 """
 
 from typing import TYPE_CHECKING, List, Optional, TypedDict
+from uuid import UUID
 
 from sqlmodel import Field, Relationship, SQLModel
 
@@ -52,7 +53,7 @@ class Table(SQLModel, table=True):  # type: ignore
     node_id: int = Field(foreign_key="node.id")
     node: "Node" = Relationship(back_populates="tables")
 
-    database_id: int = Field(foreign_key="database.id")
+    database_uuid: UUID = Field(foreign_key="database.uuid")
     database: "Database" = Relationship(back_populates="tables")
     catalog: Optional[str] = None
     schema_: Optional[str] = Field(default=None, alias="schema")

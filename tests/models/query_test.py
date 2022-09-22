@@ -22,8 +22,9 @@ def test_msgpack() -> None:
     """
     Test the msgpack encoding/decoding
     """
+    uuid = UUID("6fc352d5-0830-456f-9224-6210058d2dc7")
     query_with_results = QueryWithResults(
-        database_id=1,
+        database_uuid=uuid,
         catalog=None,
         schema=None,
         id=UUID("5599b970-23f0-449b-baea-c87a2735423b"),
@@ -54,7 +55,7 @@ def test_msgpack() -> None:
     )
     decoded = msgpack.unpackb(encoded, ext_hook=decode_results)
     assert decoded == {
-        "database_id": 1,
+        "database_uuid": uuid,
         "catalog": None,
         "schema": None,
         "id": UUID("5599b970-23f0-449b-baea-c87a2735423b"),

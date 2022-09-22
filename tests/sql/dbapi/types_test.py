@@ -62,7 +62,7 @@ def test_types(mocker: MockerFixture) -> None:
     requests.post.assert_called_with(
         url / "queries/",
         data=(
-            b"\x82\xabdatabase_id\x00\xafsubmitted_query\xd9\x9aSELECT * FROM so"
+            b"\x82\xabdatabase_uuid\x00\xafsubmitted_query\xd9\x9aSELECT * FROM so"
             b"me_table WHERE type_date='2020-01-01' AND type_time='00:00:00+00:00'"
             b" AND type_timestamp='2020-01-01 00:00:00+00:00' AND type_binary="
             b"'\xf0\x9f\xa6\xa5'"
@@ -88,7 +88,7 @@ def test_types(mocker: MockerFixture) -> None:
     requests.post.assert_called_with(
         url / "queries/",
         data=(
-            b"\x82\xabdatabase_id\x00\xafsubmitted_query\xd9\x9aSELECT * FROM so"
+            b"\x82\xabdatabase_uuid\x00\xafsubmitted_query\xd9\x9aSELECT * FROM so"
             b"me_table WHERE type_date='1970-01-01' AND type_time='00:00:02+00:00'"
             b" AND type_timestamp='1970-01-01 00:00:03+00:00' AND type_binary="
             b"'\xf0\x9f\xa6\xa5'"

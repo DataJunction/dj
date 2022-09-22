@@ -7,13 +7,14 @@ import operator
 from collections import defaultdict
 from io import StringIO
 from typing import Any, DefaultDict, Dict, List, Optional, Set
+from uuid import UUID
 
 import asciidag.graph
 import asciidag.node
 from sqlmodel import Session, select
 from sqloxide import parse_sql
 
-from datajunction.constants import DJ_DATABASE_ID
+from datajunction.constants import DJ_DATABASE_UUID
 from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.sql.parse import find_nodes_by_key
@@ -103,7 +104,7 @@ async def get_database_for_nodes(
     session: Session,
     nodes: List[Node],
     node_columns: Dict[str, Set[str]],
-    database_id: Optional[int] = None,
+    database_uuid: Optional[UUID] = None,
 ) -> Database:
     """
     Given a list of nodes, return the best database to compute metric.
@@ -116,18 +117,18 @@ async def get_database_for_nodes(
         )
     else:
         databases = session.exec(
-            select(Database).where(Database.id != DJ_DATABASE_ID),
+            select(Database).where(Database.uuid != DJ_DATABASE_UUID),
         ).all()
 
     if not databases:
         raise Exception("No valid database was found")
 
     # if a specific database was requested, return it if it's online
-    if database_id is not None:
+    if database_uuid is not None:
         for database in databases:
-            if database.id == database_id and await database.do_ping():
+            if database.uuid == database_uuid and await database.do_ping():
                 return database
-        raise Exception(f"Database ID {database_id} is not valid")
+        raise Exception(f"Database ID {database_uuid} is not valid")
 
     return await get_cheapest_online_database(databases)
 

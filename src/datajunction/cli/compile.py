@@ -25,8 +25,8 @@ from watchfiles import Change, awatch
 
 from datajunction.constants import (
     DEFAULT_DIMENSION_COLUMN,
-    DJ_DATABASE_ID,
-    SQLITE_DATABASE_ID,
+    DJ_DATABASE_UUID,
+    SQLITE_DATABASE_UUID,
 )
 from datajunction.fixes import patch_druid_get_columns
 from datajunction.models.column import Column
@@ -93,10 +93,10 @@ async def add_special_databases(session: Session) -> None:
     a pseudo-database used to run SQL queries against metrics, and the second one is an in
     memory SQLite database for quickly running tableless queries like ``SELECT 1``.
     """
-    if not session.get(Database, DJ_DATABASE_ID):
+    if not session.exec(select(Database).where(Database.uuid == DJ_DATABASE_UUID)):
         session.add(
             Database(
-                id=DJ_DATABASE_ID,
+                uuid=DJ_DATABASE_UUID,
                 name="dj",
                 description="The DJ meta database",
                 URI=str(
@@ -104,17 +104,16 @@ async def add_special_databases(session: Session) -> None:
                         "dj",
                         host="localhost",
                         port=8000,
-                        database=str(DJ_DATABASE_ID),
                     ),
                 ),
                 read_only=True,
             ),
         )
 
-    if not session.get(Database, SQLITE_DATABASE_ID):
+    if not session.exec(select(Database).where(Database.uuid == SQLITE_DATABASE_UUID)):
         session.add(
             Database(
-                id=SQLITE_DATABASE_ID,
+                uuid=SQLITE_DATABASE_UUID,
                 name="in-memory",
                 description="An in memory SQLite database for tableless queries",
                 URI="sqlite://",
@@ -243,7 +242,7 @@ async def index_nodes(  # pylint: disable=too-many-locals
     databases = {
         database.name: database
         for database in session.exec(
-            select(Database).where(Database.id != DJ_DATABASE_ID),
+            select(Database).where(Database.uuid != DJ_DATABASE_UUID),
         ).all()
     }
 

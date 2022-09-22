@@ -124,7 +124,7 @@ def test_read_metrics_data(
     session.commit()
 
     create_query = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         submitted_query="SELECT COUNT(*) FROM my_table",
     )
     mocker.patch(
@@ -135,7 +135,7 @@ def test_read_metrics_data(
     save_query_and_run = mocker.patch(
         "datajunction.api.metrics.save_query_and_run",
         return_value=QueryWithResults(
-            database_id=1,
+            database_uuid=database.uuid,
             id=uuid,
             submitted_query="SELECT COUNT(*) FROM my_table",
             results=[],
@@ -190,7 +190,7 @@ def test_read_metrics_sql(
     session.commit()
 
     create_query = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         submitted_query="SELECT COUNT(*) FROM my_table",
     )
     mocker.patch(
@@ -199,4 +199,7 @@ def test_read_metrics_sql(
     )
 
     response = client.get("/metrics/1/sql/")
-    assert response.json() == {"database_id": 1, "sql": "SELECT COUNT(*) FROM my_table"}
+    assert response.json() == {
+        "database_uuid": str(database.uuid),
+        "sql": "SELECT COUNT(*) FROM my_table",
+    }

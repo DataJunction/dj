@@ -23,7 +23,7 @@ class BaseQuery(SQLModel):
     Base class for query models.
     """
 
-    database_id: int = Field(foreign_key="database.id")
+    database_uuid: UUID = Field(foreign_key="database.uuid")
     catalog: Optional[str] = None
     schema_: Optional[str] = Field(default=None, alias="schema")
 

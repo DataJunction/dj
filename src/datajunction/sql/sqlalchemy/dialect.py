@@ -5,6 +5,7 @@ SQLAlchemy dialect.
 
 from types import ModuleType
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
+from uuid import UUID
 
 import requests
 import sqlalchemy.types
@@ -15,6 +16,7 @@ from sqlalchemy.sql import compiler
 from sqlalchemy.sql.visitors import VisitableType
 from yarl import URL
 
+from datajunction.constants import DJ_DATABASE_UUID
 from datajunction.sql import dbapi
 from datajunction.sql.dbapi.connection import Connection
 from datajunction.typing import ColumnType
@@ -93,7 +95,7 @@ class DJDialect(DefaultDialect):
     def create_connect_args(
         self,
         url: SqlaURL,
-    ) -> Tuple[Tuple[str, int], Dict[str, Any]]:
+    ) -> Tuple[Tuple[str, UUID], Dict[str, Any]]:
         scheme = url.query.get("scheme", "http")
 
         args = url.translate_connect_args()
@@ -102,7 +104,7 @@ class DJDialect(DefaultDialect):
             path, database = database.rsplit("/", 1)
         else:
             path = ""
-        database_id = int(database)
+        database_uuid = UUID(database) if database else DJ_DATABASE_UUID
         base_url = URL.build(
             scheme=scheme,
             host=args["host"],
@@ -110,7 +112,7 @@ class DJDialect(DefaultDialect):
             path="/" + path,
         )
 
-        return (base_url, database_id), {}
+        return (base_url, database_uuid), {}
 
     def do_ping(self, dbapi_connection: Connection) -> bool:
         """

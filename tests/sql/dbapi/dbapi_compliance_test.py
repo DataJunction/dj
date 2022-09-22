@@ -3,6 +3,7 @@ Test compliance with PEP 249 (https://www.python.org/dev/peps/pep-0249/).
 """
 
 from inspect import isfunction, ismethod
+from uuid import UUID
 
 import pytest
 from requests_mock.mocker import Mocker
@@ -54,7 +55,7 @@ def test_cursor(requests_mock: Mocker) -> None:
     requests_mock.post(
         "http://localhost:8000/queries/",
         json={
-            "database_id": 1,
+            "database_uuid": UUID("6fc352d5-0830-456f-9224-6210058d2dc7"),
             "catalog": None,
             "schema_": None,
             "id": "3d33ceae-3484-45b6-807f-7c7cea3f6577",

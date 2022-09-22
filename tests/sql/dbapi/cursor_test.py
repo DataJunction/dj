@@ -4,6 +4,7 @@ Tests for ``datajunction.sql.dbapi.cursor``.
 # pylint: disable=redefined-builtin
 
 from http import HTTPStatus
+from uuid import UUID
 
 import pytest
 from pytest_mock import MockerFixture
@@ -35,7 +36,7 @@ def test_cursor_execute(mocker: MockerFixture) -> None:
     cursor.execute("SELECT 1")
     requests.post.assert_called_with(
         url / "queries/",
-        data=b"\x82\xabdatabase_id\x00\xafsubmitted_query\xa8SELECT 1",
+        data=b"\x82\xabdatabase_uuid\x00\xafsubmitted_query\xa8SELECT 1",
         headers=headers,
     )
 
@@ -43,7 +44,7 @@ def test_cursor_execute(mocker: MockerFixture) -> None:
     requests.post.assert_called_with(
         url / "queries/",
         data=(
-            b"\x82\xabdatabase_id\x00\xafsubmitted_query\xd9-SELECT * FROM some_t"
+            b"\x82\xabdatabase_uuid\x00\xafsubmitted_query\xd9-SELECT * FROM some_t"
             b"able WHERE name = 'Alice'"
         ),
         headers=headers,
@@ -175,7 +176,7 @@ def test_fetch_methods(mocker: MockerFixture) -> None:
     requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/json"
     requests.post().json.return_value = {
-        "database_id": 1,
+        "database_uuid": UUID("6fc352d5-0830-456f-9224-6210058d2dc7"),
         "catalog": None,
         "schema_": None,
         "id": "3d33ceae-3484-45b6-807f-7c7cea3f6577",

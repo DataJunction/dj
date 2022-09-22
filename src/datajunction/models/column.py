@@ -31,7 +31,7 @@ class Column(SQLModel, table=True):  # type: ignore
     with ``Node`` objects).
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: int = Field(primary_key=True)
     name: str
     type: ColumnType = Field(sa_column=SqlaColumn(Enum(ColumnType)))
 

@@ -17,7 +17,7 @@ from sqlmodel import Session
 
 from datajunction.api.queries import dispatch_query
 from datajunction.config import Settings
-from datajunction.constants import DJ_DATABASE_ID
+from datajunction.constants import DJ_DATABASE_UUID
 from datajunction.engine import process_query
 from datajunction.errors import DJError, DJException, DJWarning, ErrorCode
 from datajunction.models.query import (
@@ -43,13 +43,13 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     session.refresh(database)
 
     query_create = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         submitted_query="SELECT 1 AS col",
     )
     payload = query_create.json(by_alias=True)
     assert payload == json.dumps(
         {
-            "database_id": 1,
+            "database_uuid": str(database.uuid),
             "catalog": None,
             "schema": None,
             "submitted_query": "SELECT 1 AS col",
@@ -65,7 +65,7 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert data["database_id"] == 1
+    assert data["database_uuid"] == str(database.uuid)
     assert data["catalog"] is None
     assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1 AS col"
@@ -92,7 +92,7 @@ def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
     session.refresh(database)
 
     query_create = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         submitted_query="SELECT 1 AS col",
     )
     payload = query_create.dict(by_alias=True)
@@ -111,7 +111,7 @@ def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
 
     assert response.headers.get("content-type") == "application/msgpack"
     assert response.status_code == 200
-    assert data["database_id"] == 1
+    assert data["database_uuid"] == str(database.uuid)
     assert data["catalog"] is None
     assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1 AS col"
@@ -141,7 +141,7 @@ def test_submit_query_errors(
     session.refresh(database)
 
     query_create = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         submitted_query="SELECT 1 AS col",
     )
     payload = query_create.json(by_alias=True)
@@ -191,7 +191,7 @@ def test_submit_query_with_catalog_and_schema(
     session.refresh(database)
 
     query_create = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         catalog="hive",
         schema="production",
         submitted_query="SELECT 1 AS col",
@@ -199,7 +199,7 @@ def test_submit_query_with_catalog_and_schema(
     payload = query_create.json(by_alias=True)
     assert payload == json.dumps(
         {
-            "database_id": 1,
+            "database_uuid": str(database.uuid),
             "catalog": "hive",
             "schema": "production",
             "submitted_query": "SELECT 1 AS col",
@@ -215,7 +215,7 @@ def test_submit_query_with_catalog_and_schema(
     data = response.json()
 
     assert response.status_code == 200
-    assert data["database_id"] == 1
+    assert data["database_uuid"] == str(database.uuid)
     assert data["catalog"] == "hive"
     assert data["schema"] == "production"
     assert data["submitted_query"] == "SELECT 1 AS col"
@@ -240,7 +240,7 @@ def test_submit_query_native(mocker: MockerFixture, client: TestClient) -> None:
     mocker.patch(
         "datajunction.api.queries.save_query_and_run",
         return_value=QueryWithResults(
-            database_id=DJ_DATABASE_ID,
+            database_uuid=DJ_DATABASE_UUID,
             id=UUID("74099c09-91f3-4df7-be9d-96a8075ff5a8"),
             submitted_query="SELECT A FROM metrics",
             results=[],
@@ -249,7 +249,7 @@ def test_submit_query_native(mocker: MockerFixture, client: TestClient) -> None:
     )
 
     query_create = QueryCreate(
-        database_id=DJ_DATABASE_ID,
+        database_uuid=DJ_DATABASE_UUID,
         submitted_query="SELECT A FROM metrics",
     )
 
@@ -291,7 +291,7 @@ def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) ->
     )
 
     query_create = QueryCreate(
-        database_id=DJ_DATABASE_ID,
+        database_uuid=DJ_DATABASE_UUID,
         submitted_query="SELECT A FROM metrics",
     )
 
@@ -330,7 +330,7 @@ def test_submit_query_multiple_statements(session: Session, client: TestClient) 
     session.refresh(database)
 
     query_create = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.iuuid,
         submitted_query="SELECT 1 AS col; SELECT 2 AS another_col",
     )
 
@@ -343,7 +343,7 @@ def test_submit_query_multiple_statements(session: Session, client: TestClient) 
     data = response.json()
 
     assert response.status_code == 200
-    assert data["database_id"] == 1
+    assert data["database_uuid"] == str(database.uuid)
     assert data["catalog"] is None
     assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1 AS col; SELECT 2 AS another_col"
@@ -377,7 +377,7 @@ def test_submit_query_results_backend(
     session.refresh(database)
 
     query_create = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         submitted_query="SELECT 1 AS col",
     )
 
@@ -416,7 +416,7 @@ def test_submit_query_async(
     session.refresh(database)
 
     query_create = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         submitted_query="SELECT 1 AS col",
     )
 
@@ -429,7 +429,7 @@ def test_submit_query_async(
     data = response.json()
 
     assert response.status_code == 201
-    assert data["database_id"] == 1
+    assert data["database_uuid"] == str(database.uuid)
     assert data["catalog"] is None
     assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1 AS col"
@@ -472,7 +472,7 @@ def test_submit_query_async_celery(
     session.refresh(database)
 
     query_create = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         submitted_query="SELECT 1 AS col",
     )
 
@@ -542,7 +542,7 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
     session.refresh(database)
 
     query_create = QueryCreate(
-        database_id=database.id,
+        database_uuid=database.uuid,
         submitted_query="SELECT FROM",
     )
 
@@ -554,7 +554,7 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert data["database_id"] == 1
+    assert data["database_uuid"] == str(database.uuid)
     assert data["catalog"] is None
     assert data["schema"] is None
     assert data["submitted_query"] == "SELECT FROM"
@@ -600,7 +600,7 @@ def test_read_query(session: Session, settings: Settings, client: TestClient) ->
     data = response.json()
 
     assert response.status_code == 200
-    assert data["database_id"] == 1
+    assert data["database_uuid"] == str(database.uuid)
     assert data["catalog"] is None
     assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1"
@@ -640,7 +640,7 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
     data = response.json()
 
     assert response.status_code == 200
-    assert data["database_id"] == 1
+    assert data["database_uuid"] == str(database.uuid)
     assert data["catalog"] is None
     assert data["schema"] is None
     assert data["submitted_query"] == "SELECT 1"
