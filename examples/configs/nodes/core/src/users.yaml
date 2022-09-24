@@ -23,6 +23,6 @@ tables:
     cost: 100.0
   postgres:
   - catalog: null
-    schema: public
+    schema: core
     table: dim_users
     cost: 10.0

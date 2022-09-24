@@ -1,0 +1,6 @@
+description: Number of countries.
+type: metric
+query: SELECT COUNT(DISTINCT country) FROM core.etl.country_agg
+columns:
+  _col0:
+    type: INT

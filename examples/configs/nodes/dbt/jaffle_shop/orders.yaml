@@ -1,0 +1,19 @@
+description: Orders fact table
+type: source
+columns:
+  id:
+    type: INT
+  user_id:
+    type: INT
+  order_date:
+    type: DATE
+  status:
+    type: STR
+  _etl_loaded_at:
+    type: DATETIME
+tables:
+  postgres:
+  - catalog: null
+    schema: jaffle_shop
+    table: orders
+    cost: 10.0

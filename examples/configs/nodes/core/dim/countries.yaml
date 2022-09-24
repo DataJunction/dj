@@ -1,0 +1,8 @@
+description: Country dimension
+type: dimension
+query: SELECT country, COUNT(1) AS user_cnt FROM core.dim.users GROUP BY country
+columns:
+  country:
+    type: STR
+  user_cnt:
+    type: INT

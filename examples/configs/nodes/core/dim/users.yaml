@@ -1,6 +1,6 @@
 description: User dimension
 type: dimension
-query: SELECT * FROM core.users
+query: SELECT * FROM core.src.users
 columns:
   id:
     type: INT
