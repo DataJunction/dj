@@ -7,10 +7,10 @@ volumes:
   broker_var: {}
   coordinator_var: {}
   router_var: {}
-  druid_shared: {}
   postgres_data: {}
   postgres_metadata: {}
   redis_data: {}
+  druid_shared: {}
 
 
 services:
@@ -90,6 +90,9 @@ services:
     volumes:
       - ./examples/docker/postgres_init.sql:/docker-entrypoint-initdb.d/init.sql
       - postgres_data:/var/lib/postgresql/data
+      # dbt
+      - ./examples/dbt/postgres_init.sql:/docker-entrypoint-initdb.d/init_dbt.sql
+      - ./examples/dbt:/docker-entrypoint-dbt
     environment:
       - POSTGRES_PASSWORD=FoolishPassword
       - POSTGRES_USER=username

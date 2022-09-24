@@ -5,24 +5,19 @@ columns:
     type: INT
   user_id:
     type: INT
-    dimension: core.dim_users
+    dimension: core.dim.users
   timestamp:
     type: DATETIME
   text:
     type: STR
 tables:
+  postgres:
+  - catalog: null
+    schema: core
+    table: comments
+    cost: 10.0
   gsheets:
   - catalog: null
     schema: null
     table: comments
     cost: 100.0
-  postgres:
-  - catalog: null
-    schema: public
-    table: comments
-    cost: 10.0
-  druid:
-  - catalog: null
-    schema: druid
-    table: comments
-    cost: 1.0
