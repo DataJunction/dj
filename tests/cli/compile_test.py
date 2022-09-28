@@ -220,7 +220,7 @@ def test_list_node_configs(mocker: MockerFixture) -> None:
     mocker.patch("datajunction.cli.compile.Path.glob",
         return_value=["foo.yaml", "bar.yaml"]
     )
-    
+
     assert list_node_configs(Path()) == ["foo.yaml", "bar.yaml"]
 
 
@@ -340,6 +340,7 @@ async def test_add_node_force(
     """
     _logger = mocker.patch("datajunction.cli.compile._logger")
     session = mocker.MagicMock()
+    session.exec().one_or_none().tables = ["table_foo", "table_bar"]
     session.exec().one_or_none().updated_at = datetime(
         2021,
         1,
