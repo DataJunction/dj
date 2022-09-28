@@ -223,8 +223,17 @@ async def load_node_configs(
     directory = repository / "nodes"
 
     # load all nodes and their dependencies
-    tasks = [load_data(repository, path) for path in directory.glob("**/*.yaml")]
+    tasks = [load_data(repository, path) for path in list_node_configs(directory)]
     return await asyncio.gather(*tasks)
+
+
+def list_node_configs(
+    repository: Path,
+) -> List[Path]:
+    """
+    list all node config files.
+    """
+    return repository.glob("**/*.yaml")
 
 
 async def index_nodes(  # pylint: disable=too-many-locals

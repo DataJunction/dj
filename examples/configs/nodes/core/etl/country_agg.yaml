@@ -1,11 +1,14 @@
 description: Country level agg table
 type: transform
-query: "SELECT country, COUNT(1) as num_comments, COUNT(DISTINCT user_id) as num_users\
-  \ \nFROM core.src.comments LEFT JOIN core.dim.users ON user_id \nGROUP BY country\n"
+query: |
+  SELECT country, 
+    -- COUNT(1) as num_comments, 
+    COUNT(DISTINCT id) as num_users
+  FROM core.src.users 
+   -- AS a, core.dim.comments ON user_id = core.dim.users.id 
+   GROUP BY country
 columns:
   country:
     type: STR
-  num_comments:
-    type: INT
   num_users:
     type: INT
