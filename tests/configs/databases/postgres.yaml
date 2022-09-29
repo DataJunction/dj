@@ -1,0 +1,7 @@
+description: A Postgres database
+URI: postgresql://username:FoolishPassword@postgres_examples:5432/examples
+extra_params:
+  connect_args:
+    sslmode: prefer
+read_only: false
+cost: 10
