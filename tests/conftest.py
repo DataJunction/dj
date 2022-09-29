@@ -48,7 +48,7 @@ def repository(fs: FakeFilesystem) -> Iterator[Path]:
     # add the examples repository to the fake filesystem
     repository = get_project_repository()
     fs.add_real_directory(
-        repository / "examples/configs",
+        repository / "tests/configs",
         target_path="/path/to/repository",
     )
 

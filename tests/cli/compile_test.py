@@ -27,7 +27,6 @@ from datajunction.cli.compile import (
     run,
     update_node_config,
     yaml_file_changed,
-    list_node_configs,
 )
 from datajunction.constants import DEFAULT_DIMENSION_COLUMN
 from datajunction.models.column import Column
@@ -213,17 +212,6 @@ def test_get_table_columns_error(mocker: MockerFixture) -> None:
     assert get_table_columns("sqlite://", {}, "schema", "table") == []
 
 
-def test_list_node_configs(mocker: MockerFixture) -> None:
-    """
-    Test ``list_node_configs``.
-    """
-    mocker.patch("datajunction.cli.compile.Path.glob",
-        return_value=["foo.yaml", "bar.yaml"]
-    )
-
-    assert list_node_configs(Path()) == ["foo.yaml", "bar.yaml"]
-
-
 @pytest.mark.asyncio
 async def test_index_nodes(
     mocker: MockerFixture,
@@ -238,14 +226,6 @@ async def test_index_nodes(
         return_value=[],
     )
     mocker.patch("datajunction.cli.compile.update_node_config")
-    mocker.patch("datajunction.cli.compile.list_node_configs", 
-        return_value=[
-            Path('/path/to/repository/nodes/core/num_comments.yaml'), 
-            Path('/path/to/repository/nodes/core/dim/users.yaml'), 
-            Path('/path/to/repository/nodes/core/src/comments.yaml'), 
-            Path('/path/to/repository/nodes/core/src/users.yaml'), 
-        ]
-    )
 
     session.add(
         Database(name="druid", URI="druid://druid_broker:8082/druid/v2/sql/"),
@@ -260,8 +240,8 @@ async def test_index_nodes(
     session.flush()
 
     with freeze_time("2021-01-01T00:00:00Z"):
-        Path("/path/to/repository/nodes/core/src/comments.yaml").touch()
-        Path("/path/to/repository/nodes/core/src/users.yaml").touch()
+        Path("/path/to/repository/nodes/core/comments.yaml").touch()
+        Path("/path/to/repository/nodes/core/users.yaml").touch()
 
     with freeze_time("2021-01-02T00:00:00Z"):
         nodes = await index_nodes(repository, session)
@@ -269,38 +249,37 @@ async def test_index_nodes(
     configs = [node.dict(exclude={"id": True}) for node in nodes]
     assert sorted(configs, key=itemgetter("name")) == [
         {
-            'created_at': datetime(2021, 1, 2, 0, 0), 
-            'updated_at': datetime(2021, 1, 2, 0, 0), 
-            'query': 'SELECT * FROM core.src.users', 
-            'name': 'core.dim.users', 
-            'type': NodeType.DIMENSION, 
-            'description': 'User dimension'
-        }, 
-        {
-            'created_at': datetime(2021, 1, 2, 0, 0), 
-            'updated_at': datetime(2021, 1, 2, 0, 0), 
-            'query': 'SELECT COUNT(1) FROM core.src.comments', 
-            'name': 'core.num_comments', 
-            'type': NodeType.METRIC, 
-            'description': 'Number of comments'
+            "name": "core.comments",
+            "description": "A fact table with comments",
+            "type": NodeType.SOURCE,
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
+            "query": None,
         },
         {
-            'created_at': datetime(2021, 1, 2, 0, 0), 
-            'updated_at': datetime(2021, 1, 2, 0, 0), 
-            'query': None, 
-            'name': 'core.src.comments', 
-            'type': NodeType.SOURCE, 
-            'description': 
-            'A fact table with comments'
-        }, 
+            "name": "core.dim_users",
+            "description": "User dimension",
+            "type": NodeType.DIMENSION,
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
+            "query": "SELECT * FROM core.users",
+        },
         {
-            'created_at': datetime(2021, 1, 2, 0, 0), 
-            'updated_at': datetime(2021, 1, 2, 0, 0), 
-            'query': None, 
-            'name': 'core.src.users', 
-            'type': NodeType.SOURCE, 
-            'description': 'A user table'
-        }, 
+            "name": "core.num_comments",
+            "description": "Number of comments",
+            "type": NodeType.METRIC,
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
+            "query": "SELECT COUNT(*) FROM core.comments",
+        },
+        {
+            "name": "core.users",
+            "description": "A user table",
+            "type": NodeType.SOURCE,
+            "created_at": datetime(2021, 1, 2, 0, 0),
+            "updated_at": datetime(2021, 1, 2, 0, 0),
+            "query": None,
+        },
     ]
 
     # update one of the nodes and reindex
@@ -310,10 +289,10 @@ async def test_index_nodes(
     nodes = sorted(nodes, key=lambda node: node.name)
 
     assert [(node.name, node.updated_at) for node in nodes] == [
-        ("core.dim.users", datetime(2021, 1, 3, 0, 0)),
+        ("core.comments", datetime(2021, 1, 2, 0, 0)),
+        ("core.dim_users", datetime(2021, 1, 3, 0, 0)),
         ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
-        ("core.src.comments", datetime(2021, 1, 2, 0, 0)),
-        ("core.src.users", datetime(2021, 1, 2, 0, 0)),
+        ("core.users", datetime(2021, 1, 3, 0, 0)),
     ]
 
     # test that a missing timezone is treated as UTC
@@ -323,10 +302,10 @@ async def test_index_nodes(
     nodes = sorted(nodes, key=lambda node: node.name)
 
     assert [(node.name, node.updated_at) for node in nodes] == [
-        ("core.dim.users", datetime(2021, 1, 3, 0, 0)),
+        ("core.comments", datetime(2021, 1, 2, 0, 0)),
+        ("core.dim_users", datetime(2021, 1, 3, 0, 0)),
         ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
-        ("core.src.comments", datetime(2021, 1, 2, 0, 0)),
-        ("core.src.users", datetime(2021, 1, 2, 0, 0)),
+        ("core.users", datetime(2021, 1, 3, 0, 0)),
     ]
 
 
@@ -340,7 +319,6 @@ async def test_add_node_force(
     """
     _logger = mocker.patch("datajunction.cli.compile._logger")
     session = mocker.MagicMock()
-    session.exec().one_or_none().tables = ["table_foo", "table_bar"]
     session.exec().one_or_none().updated_at = datetime(
         2021,
         1,
@@ -624,7 +602,7 @@ def test_add_dimensions_to_columns(mocker: MockerFixture, repository: Path) -> N
     )
     session.exec().one_or_none.return_value = dimension
 
-    with open(repository / "nodes/core/src/comments.yaml", encoding="utf-8") as input_:
+    with open(repository / "nodes/core/comments.yaml", encoding="utf-8") as input_:
         data = yaml.safe_load(input_)
 
     columns = [
