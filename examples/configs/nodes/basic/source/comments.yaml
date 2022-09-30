@@ -5,7 +5,7 @@ columns:
     type: INT
   user_id:
     type: INT
-    dimension: core.dim.users
+    dimension: basic.dimension.users
   timestamp:
     type: DATETIME
   text:
@@ -13,7 +13,7 @@ columns:
 tables:
   postgres:
   - catalog: null
-    schema: core
+    schema: basic
     table: comments
     cost: 10.0
   gsheets:
