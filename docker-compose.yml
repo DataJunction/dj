@@ -12,7 +12,6 @@ volumes:
   redis_data: {}
   druid_shared: {}
 
-
 services:
   dj:
     container_name: dj
@@ -28,7 +27,6 @@ services:
       - postgres_metadata
       - postgres_examples
       - redis
-      - druid_coordinator
 
   celery:
     container_name: celery
