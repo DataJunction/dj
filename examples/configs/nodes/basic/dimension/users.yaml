@@ -1,13 +1,13 @@
 description: User dimension
 type: dimension
-query: SELECT * FROM core.src.users
+query: SELECT * FROM basic.source.users
 columns:
   id:
-    type: INT
+    type: FLOAT
   full_name:
     type: STR
   age:
-    type: INT
+    type: FLOAT
   country:
     type: STR
   gender:

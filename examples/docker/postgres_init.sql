@@ -1,12 +1,12 @@
 --
 -- Basic example
 --
-CREATE SCHEMA IF NOT EXISTS core;
+CREATE SCHEMA IF NOT EXISTS basic;
 
 --
--- core.dim_users
+-- basic.dim_users
 --
-CREATE TABLE IF NOT EXISTS core.dim_users (
+CREATE TABLE IF NOT EXISTS basic.dim_users (
   id integer PRIMARY KEY,
   full_name text,
   age integer,
@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS core.dim_users (
   preferred_language text
 );
 
-INSERT INTO core.dim_users (id, full_name, age, country, gender, preferred_language)
+INSERT INTO basic.dim_users (id, full_name, age, country, gender, preferred_language)
   VALUES 
     (1, 'Alice One', 10, 'Argentina', 'female', 'Spanish'), 
     (2, 'Bob Two', 15, 'Brazil', 'male', 'Portuguese'), 
@@ -26,17 +26,17 @@ INSERT INTO core.dim_users (id, full_name, age, country, gender, preferred_langu
 ;
 
 --
--- core.comments
+-- basic.comments
 --
-CREATE TABLE IF NOT EXISTS core.comments (
+CREATE TABLE IF NOT EXISTS basic.comments (
   id integer PRIMARY KEY,
   user_id integer,
   "timestamp" timestamp with time zone,
   "text" text,
-  CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES core.dim_users (id)
+  CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES basic.dim_users (id)
 );
 
-INSERT INTO core.comments (id, user_id, "timestamp", "text")
+INSERT INTO basic.comments (id, user_id, "timestamp", "text")
   VALUES
     (1, 1, '2021-01-01 01:00:00', 'Hola!'),
     (2, 2, '2021-01-01 02:00:00', 'Oi, tudo bom?'),

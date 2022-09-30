@@ -4,8 +4,8 @@ query: |
   SELECT country, 
     -- COUNT(1) as num_comments, 
     COUNT(DISTINCT id) as num_users
-  FROM core.src.users 
-   -- AS a, core.dim.comments ON user_id = core.dim.users.id 
+  FROM basic.source.users 
+   -- AS a, basic.dimension.comments ON user_id = basic.dimension.users.id 
    GROUP BY country
 columns:
   country:

@@ -1,6 +1,6 @@
 description: Number of comments
 type: metric
-query: SELECT COUNT(1) FROM core.src.comments
+query: SELECT SUM(user_id) FROM basic.source.comments
 columns:
   _col0:
     type: INT
