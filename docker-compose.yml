@@ -49,6 +49,7 @@ services:
     depends_on:
       - dj
     command: dj compile --reload
+    restart: on-failure
 
   db_migration:
     container_name: db_migration

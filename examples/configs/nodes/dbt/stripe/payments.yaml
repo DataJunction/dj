@@ -1,19 +1,23 @@
-description: Orders fact table
+description: Payments fact table.
 type: source
 columns:
   id:
     type: INT
-  user_id:
+  orderid:
     type: INT
-  order_date:
-    type: DATE
+  paymentmethod:
+    type: STR
   status:
     type: STR
-  _etl_loaded_at:
+  amount:
+    type: INT
+  created:
+    type: DATE
+  _batched_at:
     type: DATETIME
 tables:
   postgres:
   - catalog: null
-    schema: jaffle_shop
-    table: orders
+    schema: stripe
+    table: payments
     cost: 10.0
