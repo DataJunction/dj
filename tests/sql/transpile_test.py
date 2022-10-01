@@ -700,3 +700,14 @@ def test_unary_op() -> None:
         "UnaryOp": {"op": "Minus", "expr": {"Value": {"Number": ("2.0", False)}}},
     }
     assert get_expression(expression, source) == -2.0
+
+
+def test_wildcard_projection_unimplemented() -> None:
+    """
+    Test for projection with a wildcard.
+    """
+    database = Database(id=1, name="sqlite", URI="sqlite://")
+    tree = parse_sql("SELECT * FROM a", dialect="ansi")
+    with pytest.raises(Exception) as excinfo:
+        get_query(None, [], tree, database)
+    assert str(excinfo.value) == "Expand wildcard into a list of columns"
