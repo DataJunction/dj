@@ -33,6 +33,7 @@ NodeType = strawberry.enum(_NodeType)
 
 if TYPE_CHECKING:
     from datajunction.api.graphql.table import Table
+    from datajunction.api.graphql.column import Column
 
 
 @strawberry.experimental.pydantic.type(
@@ -46,6 +47,9 @@ class Node:  # type: ignore
 
     type: NodeType
     tables: List[Annotated["Table", strawberry.lazy("datajunction.api.graphql.table")]]
+    parents: List["Node"]
+    children: List["Node"]
+    columns: List[Annotated["Column", strawberry.lazy("datajunction.api.graphql.column")]]
 
 
 def get_nodes(info: Info) -> List[Node]:
