@@ -5,6 +5,7 @@ columns:
     type: INT
   user_id:
     type: INT
+    dimension: dbt.dimension.customers
   order_date:
     type: DATE
   status:
