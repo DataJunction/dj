@@ -47,8 +47,8 @@ class Node:  # type: ignore
 
     type: NodeType
     tables: List[Annotated["Table", strawberry.lazy("datajunction.api.graphql.table")]]
-    parents: List["Node"]
-    children: List["Node"]
+    parents: List[Annotated["Node", strawberry.lazy("datajunction.api.graphql.node")]]
+    children: List[Annotated["Node", strawberry.lazy("datajunction.api.graphql.node")]]
     columns: List[Annotated["Column", strawberry.lazy("datajunction.api.graphql.column")]]
 
 
