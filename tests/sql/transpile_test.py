@@ -708,6 +708,6 @@ def test_wildcard_projection_unimplemented() -> None:
     """
     database = Database(id=1, name="sqlite", URI="sqlite://")
     tree = parse_sql("SELECT * FROM a", dialect="ansi")
-    with pytest.raises(Exception) as excinfo:
+    with pytest.raises(NotImplementedError) as excinfo:
         get_query(None, [], tree, database)
     assert str(excinfo.value) == "Expand wildcard into a list of columns"
