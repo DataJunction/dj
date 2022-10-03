@@ -20,4 +20,4 @@ tables:
   - catalog: null
     schema: stripe
     table: payments
-    cost: 10.0
+    cost: 1.0

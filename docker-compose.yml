@@ -10,7 +10,6 @@ volumes:
   postgres_data: {}
   postgres_metadata: {}
   redis_data: {}
-  druid_shared: {}
 
 services:
   dj:
