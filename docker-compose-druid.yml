@@ -2,6 +2,9 @@
 #          If in doubt please use the Makefile commands to build DJ docker containers.
 version: "2.2"
 
+volumes:
+  druid_shared: {}
+
 services:
   dj:
     container_name: dj
