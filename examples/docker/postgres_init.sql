@@ -1,8 +1,12 @@
-DROP TABLE IF EXISTS dim_users;
+--
+-- Basic example
+--
+CREATE SCHEMA IF NOT EXISTS basic;
 
-DROP TABLE IF EXISTS comments;
-
-CREATE TABLE dim_users (
+--
+-- basic.dim_users
+--
+CREATE TABLE IF NOT EXISTS basic.dim_users (
   id integer PRIMARY KEY,
   full_name text,
   age integer,
@@ -11,18 +15,28 @@ CREATE TABLE dim_users (
   preferred_language text
 );
 
-INSERT INTO dim_users (id, full_name, age, country, gender, preferred_language)
-  VALUES (1, 'Alice One', 10, 'Argentina', 'female', 'Spanish'), (2, 'Bob Two', 15, 'Brazil', 'male', 'Portuguese'), (3, 'Charlie Three', 20, 'Chile', 'non-binary', 'Spanish'), (4, 'Denise Four', 25, 'Denmark', 'female', 'Danish'), (5, 'Ernie Five', 27, 'Equator', 'male', 'Spanish'), (6, 'Fabian Six', 29, 'France', 'non-binary', 'French');
+INSERT INTO basic.dim_users (id, full_name, age, country, gender, preferred_language)
+  VALUES 
+    (1, 'Alice One', 10, 'Argentina', 'female', 'Spanish'), 
+    (2, 'Bob Two', 15, 'Brazil', 'male', 'Portuguese'), 
+    (3, 'Charlie Three', 20, 'Chile', 'non-binary', 'Spanish'), 
+    (4, 'Denise Four', 25, 'Denmark', 'female', 'Danish'), 
+    (5, 'Ernie Five', 27, 'Equator', 'male', 'Spanish'), 
+    (6, 'Fabian Six', 29, 'France', 'non-binary', 'French')
+;
 
-CREATE TABLE comments (
+--
+-- basic.comments
+--
+CREATE TABLE IF NOT EXISTS basic.comments (
   id integer PRIMARY KEY,
   user_id integer,
   "timestamp" timestamp with time zone,
   "text" text,
-  CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES dim_users (id)
+  CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES basic.dim_users (id)
 );
 
-INSERT INTO comments (id, user_id, "timestamp", "text")
+INSERT INTO basic.comments (id, user_id, "timestamp", "text")
   VALUES
     (1, 1, '2021-01-01 01:00:00', 'Hola!'),
     (2, 2, '2021-01-01 02:00:00', 'Oi, tudo bom?'),
@@ -47,3 +61,4 @@ INSERT INTO comments (id, user_id, "timestamp", "text")
     (21, 6, '2021-01-01 21:00:00', 'Peut être'),
     (22, 6, '2021-01-01 00:00:00', 'Cześć!')
 ;
+

@@ -275,6 +275,8 @@ def get_projection(
         elif "ExprWithAlias" in expression:
             alias = expression["ExprWithAlias"]["alias"]["value"]
             expression = expression["ExprWithAlias"]["expr"]
+        elif expression == "Wildcard":
+            raise NotImplementedError("Expand wildcard into a list of columns")
         else:
             raise NotImplementedError(f"Unable to handle expression: {expression}")
 

@@ -1,0 +1,12 @@
+description: Country level agg table
+type: transform
+query: |
+  SELECT country, 
+    COUNT(DISTINCT id) as num_users
+  FROM basic.source.users 
+  GROUP BY country
+columns:
+  country:
+    type: STR
+  num_users:
+    type: INT
