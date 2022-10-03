@@ -7,11 +7,9 @@ volumes:
   broker_var: {}
   coordinator_var: {}
   router_var: {}
-  druid_shared: {}
   postgres_data: {}
   postgres_metadata: {}
   redis_data: {}
-
 
 services:
   dj:
@@ -28,7 +26,6 @@ services:
       - postgres_metadata
       - postgres_examples
       - redis
-      - druid_coordinator
 
   celery:
     container_name: celery
@@ -51,6 +48,7 @@ services:
     depends_on:
       - dj
     command: dj compile --reload
+    restart: on-failure
 
   db_migration:
     container_name: db_migration
@@ -90,6 +88,9 @@ services:
     volumes:
       - ./examples/docker/postgres_init.sql:/docker-entrypoint-initdb.d/init.sql
       - postgres_data:/var/lib/postgresql/data
+      # dbt
+      - ./examples/dbt/postgres_init.sql:/docker-entrypoint-initdb.d/init_dbt.sql
+      - ./examples/dbt:/docker-entrypoint-dbt
     environment:
       - POSTGRES_PASSWORD=FoolishPassword
       - POSTGRES_USER=username
