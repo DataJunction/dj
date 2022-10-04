@@ -52,14 +52,12 @@ def read_metric(node_id: int, info: Info) -> Metric:
     """
     node = info.context["session"].get(_Node, node_id)
     if not node:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail="Metric node not found",
+        raise Exception(
+            "Metric node not found",
         )
     if node.type != _NodeType.METRIC:
-        raise HTTPException(
-            status_code=HTTPStatus.BAD_REQUEST,
-            detail="Not a metric node",
+        raise Exception(
+            "Not a metric node",
         )
     return Metric.from_pydantic(_Metric(**node.dict(), dimensions=get_dimensions(node)))
 
@@ -80,7 +78,10 @@ async def read_metrics_data(
     d = d or []
     f = f or []
     session = info.context["session"]
-    node = get_metric(session, node_id)
+    try:
+        node = get_metric(session, node_id)
+    except HTTPException as e:
+        raise Exception(e.detail)
     create_query = await get_query_for_node(session, node, d, f, database_id)
     query_with_results = save_query_and_run(
         create_query,
@@ -109,7 +110,10 @@ async def read_metrics_sql(
     d = d or []
     f = f or []
     session = info.context["session"]
-    node = get_metric(session, node_id)
+    try:
+        node = get_metric(session, node_id)
+    except HTTPException as e:
+        raise Exception(e.detail)
     create_query = await get_query_for_node(session, node, d, f, database_id)
 
     return TranslatedSQL.from_pydantic(

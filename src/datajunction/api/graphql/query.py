@@ -57,12 +57,12 @@ def row_serializer(l):
         """
         if type(v) in (int, float):
             return v
-        return repr(v)
+        return repr(v)  # pragma: no cover
 
     return [tfm(v) for v in l]
 
 
-Row = strawberry.scalar(
+Row = strawberry.scalar(  # pragma: no cover
     NewType("Row", List[List[Union[int, float, str]]]),
     serialize=row_serializer,
     parse_value=lambda v: v,
