@@ -2,7 +2,8 @@
 Models for tables.
 """
 
-from typing import TYPE_CHECKING, Annotated, List
+from typing_extensions import Annotated
+from typing import TYPE_CHECKING, List
 
 import strawberry
 

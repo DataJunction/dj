@@ -2,8 +2,8 @@
 GQL Node models and related APIs.
 """
 
-
-from typing import TYPE_CHECKING, Annotated, List
+from typing_extensions import Annotated
+from typing import TYPE_CHECKING, List
 
 import strawberry
 from sqlmodel import select
