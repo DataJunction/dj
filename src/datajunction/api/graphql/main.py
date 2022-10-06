@@ -5,7 +5,7 @@ from fastapi import Depends
 from strawberry.fastapi import GraphQLRouter
 
 from datajunction.api.graphql.database import Database, get_databases
-from datajunction.api.graphql.metrics import (
+from datajunction.api.graphql.metric import (
     Metric,
     TranslatedSQL,
     read_metric,

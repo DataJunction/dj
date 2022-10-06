@@ -31,7 +31,9 @@ if TYPE_CHECKING:
     ],
 )
 class Database:
-    """a source database"""
+    """
+    Class for a database.
+    """
 
     extra_params: JSON
     tables: List[Annotated["Table", strawberry.lazy("datajunction.api.graphql.table")]]

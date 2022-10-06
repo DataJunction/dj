@@ -31,7 +31,7 @@ class Table:
     """
     A table with data.
 
-    Nodes can data in multiple tables, in different databases.
+    Nodes can store data in multiple tables, in different databases.
     """
 
     node: Node
