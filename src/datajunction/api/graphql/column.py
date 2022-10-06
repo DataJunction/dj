@@ -2,12 +2,9 @@
 Models for columns.
 """
 
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import TYPE_CHECKING
 
 import strawberry
-from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy.types import Enum
-from sqlmodel import Field, Relationship, SQLModel
 
 from datajunction.models.column import Column as _Column
 from datajunction.typing import ColumnType as _ColumnType

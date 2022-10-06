@@ -8,7 +8,6 @@ Main DJ server app.
 # pylint: disable=unused-import
 
 import logging
-from webbrowser import get
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
