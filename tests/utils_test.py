@@ -7,10 +7,13 @@ from pathlib import Path
 
 import pytest
 from pytest_mock import MockerFixture
+from sqlalchemy.engine.url import make_url
 from yarl import URL
 
+from datajunction.config import Settings
 from datajunction.typing import ColumnType
 from datajunction.utils import (
+    get_engine,
     get_issue_url,
     get_more_specific_type,
     get_name_from_path,
@@ -49,7 +52,7 @@ def test_get_settings(mocker: MockerFixture) -> None:
     Test ``get_settings``.
     """
     mocker.patch("datajunction.utils.load_dotenv")
-    Settings = mocker.patch(  # pylint: disable=invalid-name
+    Settings = mocker.patch(  # pylint: disable=invalid-name, redefined-outer-name
         "datajunction.utils.Settings",
     )
 
@@ -141,3 +144,12 @@ def test_get_issue_url() -> None:
         "https://example.org/?title=Title+with+spaces&"
         "body=This+is+the+body&labels=help,troubleshoot",
     )
+
+
+def test_get_engine(mocker: MockerFixture, settings: Settings) -> None:
+    """
+    Test ``get_engine``.
+    """
+    mocker.patch("datajunction.utils.get_settings", return_value=settings)
+    engine = get_engine()
+    assert engine.url == make_url("sqlite://")

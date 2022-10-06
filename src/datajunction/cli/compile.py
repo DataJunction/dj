@@ -14,7 +14,7 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Set, TypedDict, Union
+from typing import Any, Dict, Generator, List, Optional, Set, TypedDict, Union
 
 import yaml
 from rich.text import Text
@@ -229,7 +229,7 @@ async def load_node_configs(
 
 def list_node_configs(
     repository: Path,
-) -> List[Path]:
+) -> Generator[Path, None, None]:
     """
     list all node config files.
     """
