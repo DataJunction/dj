@@ -28,6 +28,7 @@ This information and more can be exposed by an API. To run a DJ server:
 
 .. code-block:: bash
 
+    $ alembic upgrade head
     $ pip install uvicorn
     $ uvicorn datajunction.api.main:app --host 0.0.0.0 --port 8000 --reload
 
