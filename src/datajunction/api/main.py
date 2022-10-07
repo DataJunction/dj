@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from datajunction import __version__
 from datajunction.api import databases, metrics, nodes, queries
+from datajunction.api.graphql.main import graphql_app
 from datajunction.errors import DJException
 from datajunction.models.column import Column
 from datajunction.models.database import Database
@@ -23,6 +24,7 @@ from datajunction.models.table import Table
 from datajunction.utils import get_settings
 
 _logger = logging.getLogger(__name__)
+
 
 settings = get_settings()
 app = FastAPI(
@@ -38,6 +40,7 @@ app.include_router(databases.router)
 app.include_router(queries.router)
 app.include_router(metrics.router)
 app.include_router(nodes.router)
+app.include_router(graphql_app, prefix="/graphql")
 
 
 @app.exception_handler(DJException)
