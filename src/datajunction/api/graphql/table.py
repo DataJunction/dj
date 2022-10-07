@@ -2,10 +2,10 @@
 Models for tables.
 """
 
-from typing_extensions import Annotated
 from typing import TYPE_CHECKING, List
 
 import strawberry
+from typing_extensions import Annotated
 
 from datajunction.api.graphql.column import Column
 from datajunction.api.graphql.node import Node
@@ -25,7 +25,8 @@ if TYPE_CHECKING:
 
 
 @strawberry.experimental.pydantic.type(
-    model=_Table, fields=["id", "node_id", "database_id"]
+    model=_Table,
+    fields=["id", "node_id", "database_id"],
 )
 class Table:
     """
@@ -36,6 +37,7 @@ class Table:
 
     node: Node
     database: Annotated[
-        "Database", strawberry.lazy("datajunction.api.graphql.database")
+        "Database",
+        strawberry.lazy("datajunction.api.graphql.database"),
     ]
     columns: List[Column]

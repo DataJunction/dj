@@ -28,7 +28,6 @@ from datajunction.constants import (
     DJ_DATABASE_ID,
     SQLITE_DATABASE_ID,
 )
-from datajunction.fixes import patch_druid_get_columns
 from datajunction.models.column import Column
 from datajunction.models.database import Database
 from datajunction.models.node import Node, NodeType, NodeYAML
@@ -500,8 +499,6 @@ async def run(repository: Path, force: bool = False, reload: bool = False) -> No
     """
     Compile the metrics repository.
     """
-    patch_druid_get_columns()
-
     session = next(get_session())
 
     await add_special_databases(session)
