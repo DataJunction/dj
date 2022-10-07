@@ -11,7 +11,7 @@ from typing import Iterator, List, Optional
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
-from sqlmodel import Session, SQLModel, create_engine
+from sqlmodel import Session, create_engine
 from yarl import URL
 
 from datajunction.config import Settings
@@ -63,14 +63,6 @@ def get_engine() -> Engine:
     engine = create_engine(settings.index)
 
     return engine
-
-
-def create_db_and_tables() -> None:
-    """
-    Create the database and tables.
-    """
-    engine = get_engine()
-    SQLModel.metadata.create_all(engine)
 
 
 def get_session() -> Iterator[Session]:

@@ -20,7 +20,7 @@ from datajunction.models.database import Database
 from datajunction.models.node import Node
 from datajunction.models.query import Query
 from datajunction.models.table import Table
-from datajunction.utils import create_db_and_tables, get_settings
+from datajunction.utils import get_settings
 
 _logger = logging.getLogger(__name__)
 
@@ -38,14 +38,6 @@ app.include_router(databases.router)
 app.include_router(queries.router)
 app.include_router(metrics.router)
 app.include_router(nodes.router)
-
-
-@app.on_event("startup")
-def on_startup() -> None:
-    """
-    Ensure the database and tables exist on startup.
-    """
-    create_db_and_tables()
 
 
 @app.exception_handler(DJException)
