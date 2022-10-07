@@ -2,12 +2,12 @@
 GQL Node models and related APIs.
 """
 
-from typing_extensions import Annotated
 from typing import TYPE_CHECKING, List
 
 import strawberry
 from sqlmodel import select
 from strawberry.types import Info
+from typing_extensions import Annotated
 
 from datajunction.models.node import Node as _Node
 from datajunction.models.node import NodeColumns as _NodeColumns
@@ -32,8 +32,8 @@ class NodeColumns:
 NodeType = strawberry.enum(_NodeType)
 
 if TYPE_CHECKING:
-    from datajunction.api.graphql.table import Table
     from datajunction.api.graphql.column import Column
+    from datajunction.api.graphql.table import Table
 
 
 @strawberry.experimental.pydantic.type(

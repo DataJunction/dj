@@ -70,7 +70,8 @@ Row = strawberry.scalar(  # pragma: no cover
 
 
 @strawberry.experimental.pydantic.type(
-    model=_StatementResults, fields=["sql", "columns", "row_count"]
+    model=_StatementResults,
+    fields=["sql", "columns", "row_count"],
 )
 class StatementResults:
     """
