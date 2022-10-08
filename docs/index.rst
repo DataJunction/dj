@@ -1,8 +1,8 @@
 ============
-datajunction
+dj
 ============
 
-This is the documentation of **datajunction**.
+This is the documentation of **dj**.
 
 .. note::
 

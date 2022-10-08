@@ -3,7 +3,7 @@ from freezegun import freeze_time
 from sqlmodel import Session
 
 
-from datajunction.models.query import (
+from dj.models.query import (
     Database,
 )
 

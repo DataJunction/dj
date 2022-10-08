@@ -1,5 +1,5 @@
 """
-    Setup file for datajunction.
+    Setup file for dj.
     Use setup.cfg to configure your project.
 
     This file was generated with PyScaffold 4.1.

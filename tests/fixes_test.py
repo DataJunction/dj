@@ -1,12 +1,12 @@
 """
-Tests for ``datajunction.fixes``.
+Tests for ``dj.fixes``.
 """
 # pylint: disable=invalid-name
 
 import pytest
 from pytest_mock import MockerFixture
 
-from datajunction.fixes import patch_druid_get_columns
+from dj.fixes import patch_druid_get_columns
 
 
 def test_patch_druid_get_columns(mocker: MockerFixture) -> None:
@@ -15,14 +15,14 @@ def test_patch_druid_get_columns(mocker: MockerFixture) -> None:
     """
     pytest.importorskip("pydruid")
 
-    DruidDialect = mocker.patch("datajunction.fixes.DruidDialect")
+    DruidDialect = mocker.patch("dj.fixes.DruidDialect")
     connection = mocker.MagicMock()
 
-    mocker.patch("datajunction.fixes.PYDRUID_INSTALLED", new=False)
+    mocker.patch("dj.fixes.PYDRUID_INSTALLED", new=False)
     patch_druid_get_columns()
     DruidDialect.assert_not_called()
 
-    mocker.patch("datajunction.fixes.PYDRUID_INSTALLED", new=True)
+    mocker.patch("dj.fixes.PYDRUID_INSTALLED", new=True)
     patch_druid_get_columns()
 
     DruidDialect.get_columns(None, connection, "table_name", "schema")

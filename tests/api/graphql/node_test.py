@@ -1,8 +1,8 @@
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from datajunction.models.column import Column, ColumnType
-from datajunction.models.node import Node, NodeType
+from dj.models.column import Column, ColumnType
+from dj.models.node import Node, NodeType
 
 
 def test_get_nodes(session: Session, client: TestClient) -> None:
