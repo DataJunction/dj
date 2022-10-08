@@ -1,8 +1,8 @@
 """
-Tests for ``datajunction.sql.dbapi.utils``.
+Tests for ``dj.sql.dbapi.utils``.
 """
 
-from datajunction.sql.dbapi.utils import escape_parameter
+from dj.sql.dbapi.utils import escape_parameter
 
 
 def test_escape_parameter() -> None:

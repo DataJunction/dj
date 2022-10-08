@@ -1,5 +1,5 @@
 """
-Tests for ``datajunction.sql.dbapi.cursor``.
+Tests for ``dj.sql.dbapi.cursor``.
 """
 # pylint: disable=redefined-builtin
 
@@ -10,8 +10,8 @@ from pytest_mock import MockerFixture
 from requests_mock.mocker import Mocker
 from yarl import URL
 
-from datajunction.sql.dbapi.cursor import Cursor
-from datajunction.sql.dbapi.exceptions import (
+from dj.sql.dbapi.cursor import Cursor
+from dj.sql.dbapi.exceptions import (
     InternalError,
     NotSupportedError,
     ProgrammingError,
@@ -23,7 +23,7 @@ def test_cursor_execute(mocker: MockerFixture) -> None:
     """
     Test the ``execute`` method.
     """
-    requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests = mocker.patch("dj.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/json"
     url = URL("http://localhost:8000/")
     headers = {
@@ -54,9 +54,9 @@ def test_cursor_execute_msgpack(mocker: MockerFixture) -> None:
     """
     Test the ``execute`` method with msgpack.
     """
-    msgpack = mocker.patch("datajunction.sql.dbapi.cursor.msgpack")
+    msgpack = mocker.patch("dj.sql.dbapi.cursor.msgpack")
     msgpack.packb.return_value = b"data"
-    requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests = mocker.patch("dj.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/msgpack"
     url = URL("http://localhost:8000/")
     headers = {
@@ -78,7 +78,7 @@ def test_cursor_execute_invalid_content_type(mocker: MockerFixture) -> None:
     """
     Test the ``execute`` method with an invalid content type.
     """
-    requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests = mocker.patch("dj.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/protobuf"
     url = URL("http://localhost:8000/")
     cursor = Cursor(url)
@@ -172,7 +172,7 @@ def test_fetch_methods(mocker: MockerFixture) -> None:
     """
     Test ``fetchone``, ``fetchmany``, ``fetchall``.
     """
-    requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests = mocker.patch("dj.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/json"
     requests.post().json.return_value = {
         "database_id": 1,

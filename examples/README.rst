@@ -5,7 +5,7 @@ Run ``docker-compose`` at the project root:
 
 .. code-block:: bash
 
-    $ cd datajunction/
+    $ cd dj/
     $ docker compose up
 
 This will run the DJ server with Redis for async queries, as well as a Druid cluster and a Postgres database. On startup the repository from ``examples/configs/`` will be compiled.

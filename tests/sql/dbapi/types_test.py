@@ -1,12 +1,12 @@
 """
-Tests for ``datajunction.sql.dbapi.types``.
+Tests for ``dj.sql.dbapi.types``.
 """
 
 from pytest_mock import MockerFixture
 from yarl import URL
 
-from datajunction.sql.dbapi import connect
-from datajunction.sql.dbapi.types import (
+from dj.sql.dbapi import connect
+from dj.sql.dbapi.types import (
     STRING,
     Binary,
     Date,
@@ -16,14 +16,14 @@ from datajunction.sql.dbapi.types import (
     Timestamp,
     TimestampFromTicks,
 )
-from datajunction.typing import ColumnType
+from dj.typing import ColumnType
 
 
 def test_types(mocker: MockerFixture) -> None:
     """
     Test that native Python types can be used in queries.
     """
-    requests = mocker.patch("datajunction.sql.dbapi.cursor.requests")
+    requests = mocker.patch("dj.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/json"
     url = URL("http://localhost:8000/")
     headers = {

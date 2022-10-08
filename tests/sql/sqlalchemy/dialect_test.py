@@ -7,8 +7,8 @@ from requests_mock.mocker import Mocker
 from sqlalchemy.engine.url import make_url
 from yarl import URL
 
-from datajunction.sql import dbapi
-from datajunction.sql.sqlalchemy.dialect import DJDialect
+from dj.sql import dbapi
+from dj.sql.sqlalchemy.dialect import DJDialect
 
 
 def test_dbapi() -> None:

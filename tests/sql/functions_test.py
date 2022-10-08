@@ -1,5 +1,5 @@
 """
-Tests for ``datajunction.sql.functions``.
+Tests for ``dj.sql.functions``.
 """
 # pylint: disable=line-too-long
 
@@ -7,9 +7,9 @@ import pytest
 from sqlalchemy import Integer, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 
-from datajunction.errors import DJInvalidInputException, DJNotImplementedException
-from datajunction.models.column import Column
-from datajunction.sql.functions import (
+from dj.errors import DJInvalidInputException, DJNotImplementedException
+from dj.models.column import Column
+from dj.sql.functions import (
     Avg,
     Coalesce,
     Count,
@@ -19,7 +19,7 @@ from datajunction.sql.functions import (
     Sum,
     function_registry,
 )
-from datajunction.typing import ColumnType
+from dj.typing import ColumnType
 
 from .utils import query_to_string
 
@@ -128,7 +128,7 @@ def test_missing_functions() -> None:
         str(excinfo.value)
         == """The function `INVALID_FUNCTION` hasn't been implemented yet
 The following error happened:
-- The function `INVALID_FUNCTION` hasn't been implemented in DJ yet. You can file an issue at https://github.com/DataJunction/datajunction/issues/new?title=Function+missing:+INVALID_FUNCTION to request it to be added, or use the documentation at https://github.com/DataJunction/datajunction/blob/main/docs/functions.rst to implement it. (error code: 1)"""
+- The function `INVALID_FUNCTION` hasn't been implemented in DJ yet. You can file an issue at https://github.com/DataJunction/dj/issues/new?title=Function+missing:+INVALID_FUNCTION to request it to be added, or use the documentation at https://github.com/DataJunction/dj/blob/main/docs/functions.rst to implement it. (error code: 1)"""
     )
 
 

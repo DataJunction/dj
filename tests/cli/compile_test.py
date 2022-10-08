@@ -1,5 +1,5 @@
 """
-Tests for ``datajunction.cli.compile``.
+Tests for ``dj.cli.compile``.
 """
 # pylint: disable=redefined-outer-name, invalid-name
 
@@ -16,7 +16,7 @@ from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from datajunction.cli.compile import (
+from dj.cli.compile import (
     add_dimensions_to_columns,
     add_node,
     get_columns_from_tables,
@@ -28,14 +28,14 @@ from datajunction.cli.compile import (
     update_node_config,
     yaml_file_changed,
 )
-from datajunction.constants import DEFAULT_DIMENSION_COLUMN
-from datajunction.models.column import Column
-from datajunction.models.database import Database
-from datajunction.models.node import Node, NodeType
-from datajunction.models.query import Query  # pylint: disable=unused-import
-from datajunction.models.table import Table
-from datajunction.sql.parse import get_dependencies
-from datajunction.typing import ColumnType
+from dj.constants import DEFAULT_DIMENSION_COLUMN
+from dj.models.column import Column
+from dj.models.database import Database
+from dj.models.node import Node, NodeType
+from dj.models.query import Query  # pylint: disable=unused-import
+from dj.models.table import Table
+from dj.sql.parse import get_dependencies
+from dj.typing import ColumnType
 
 
 @pytest.mark.asyncio
@@ -144,7 +144,7 @@ async def test_index_databases_force(mocker: MockerFixture, fs: FakeFilesystem) 
     """
     Test ``index_databases`` with the ``--force`` option.
     """
-    _logger = mocker.patch("datajunction.cli.compile._logger")
+    _logger = mocker.patch("dj.cli.compile._logger")
     session = mocker.MagicMock()
     session.exec().one_or_none().updated_at = datetime(
         2021,
@@ -186,8 +186,8 @@ def test_get_table_columns(mocker: MockerFixture) -> None:
     """
     Test ``get_table_columns``.
     """
-    mocker.patch("datajunction.cli.compile.create_engine")
-    inspect = mocker.patch("datajunction.cli.compile.inspect")
+    mocker.patch("dj.cli.compile.create_engine")
+    inspect = mocker.patch("dj.cli.compile.inspect")
     inspect().get_columns.return_value = [
         {"name": "ds", "type": sqlalchemy.sql.sqltypes.DateTime()},
         {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
@@ -203,8 +203,8 @@ def test_get_table_columns_error(mocker: MockerFixture) -> None:
     """
     Test ``get_table_columns`` raising an exception.
     """
-    mocker.patch("datajunction.cli.compile.create_engine")
-    inspect = mocker.patch("datajunction.cli.compile.inspect")
+    mocker.patch("dj.cli.compile.create_engine")
+    inspect = mocker.patch("dj.cli.compile.inspect")
     inspect().get_columns.side_effect = Exception(
         "An unexpected error occurred",
     )
@@ -222,10 +222,10 @@ async def test_index_nodes(
     Test ``index_nodes``.
     """
     mocker.patch(
-        "datajunction.cli.compile.get_table_columns",
+        "dj.cli.compile.get_table_columns",
         return_value=[],
     )
-    mocker.patch("datajunction.cli.compile.update_node_config")
+    mocker.patch("dj.cli.compile.update_node_config")
 
     session.add(
         Database(name="druid", URI="druid://druid_broker:8082/druid/v2/sql/"),
@@ -317,7 +317,7 @@ async def test_add_node_force(
     """
     Test ``add_node`` with the ``--force`` option.
     """
-    _logger = mocker.patch("datajunction.cli.compile._logger")
+    _logger = mocker.patch("dj.cli.compile._logger")
     session = mocker.MagicMock()
     session.exec().one_or_none().updated_at = datetime(
         2021,
@@ -328,7 +328,7 @@ async def test_add_node_force(
         tzinfo=timezone.utc,
     )
     databases = mocker.MagicMock()
-    mocker.patch("datajunction.cli.compile.update_node_config")
+    mocker.patch("dj.cli.compile.update_node_config")
 
     with freeze_time("2021-01-01T00:00:00Z"):
         fs.create_file("/path/to/repository/nodes/test.yaml")
@@ -365,12 +365,12 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
     """
     Test the ``run`` command.
     """
-    get_session = mocker.patch("datajunction.cli.compile.get_session")
+    get_session = mocker.patch("dj.cli.compile.get_session")
     session = get_session().__next__()
     session.get.return_value = False
 
-    index_databases = mocker.patch("datajunction.cli.compile.index_databases")
-    index_nodes = mocker.patch("datajunction.cli.compile.index_nodes")
+    index_databases = mocker.patch("dj.cli.compile.index_databases")
+    index_nodes = mocker.patch("dj.cli.compile.index_nodes")
 
     await run(repository)
 
@@ -386,11 +386,11 @@ async def test_run_reload(mocker: MockerFixture, repository: Path) -> None:
     """
     Test the ``run`` command with ``--reload``.
     """
-    get_session = mocker.patch("datajunction.cli.compile.get_session")
+    get_session = mocker.patch("dj.cli.compile.get_session")
     session = get_session().__next__.return_value
-    awatch = mocker.patch("datajunction.cli.compile.awatch")
-    mocker.patch("datajunction.cli.compile.index_databases")
-    mocker.patch("datajunction.cli.compile.index_nodes")
+    awatch = mocker.patch("dj.cli.compile.awatch")
+    mocker.patch("dj.cli.compile.index_databases")
+    mocker.patch("dj.cli.compile.index_nodes")
     awatch().__aiter__.return_value = ["event"]
 
     await run(repository, reload=True)
@@ -424,7 +424,7 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
     """
     Test ``update_node_config``.
     """
-    _logger = mocker.patch("datajunction.cli.compile._logger")
+    _logger = mocker.patch("dj.cli.compile._logger")
 
     database = Database(name="test", URI="sqlite://")
 
@@ -494,7 +494,7 @@ async def test_update_node_config_user_attributes(
     """
     Test ``update_node_config`` when the user has added attributes to a column.
     """
-    _logger = mocker.patch("datajunction.cli.compile._logger")
+    _logger = mocker.patch("dj.cli.compile._logger")
 
     database = Database(name="test", URI="sqlite://")
 
