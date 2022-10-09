@@ -2,7 +2,7 @@
 -r test.in
 
 alembic>=1.7.7
-uvicorn==0.17.6
-pydruid==0.6.2
+uvicorn>=0.17.6
+pydruid>=0.6.2
 psycopg2-binary>=2.9.3
 shillelagh[gsheetsapi]>=1.0.13

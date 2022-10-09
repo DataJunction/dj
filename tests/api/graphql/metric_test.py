@@ -1,8 +1,6 @@
-from sqlmodel import Session
-from fastapi.testclient import TestClient
-from pytest_mock import MockerFixture
 from uuid import UUID
 
+from fastapi.testclient import TestClient
 from freezegun import freeze_time
 from dj.models.node import Node, NodeType
 from dj.models.query import Database, QueryCreate, QueryWithResults
@@ -12,7 +10,9 @@ def test_read_metrics(session: Session, client: TestClient):
     node1 = Node(name="not-a-metric")
     node2 = Node(name="also-not-a-metric", query="select 42 as foo")
     node3 = Node(
-        name="a-metric", query="select count(*) from a_table", type=NodeType.METRIC
+        name="a-metric",
+        query="select count(*) from a_table",
+        type=NodeType.METRIC,
     )
 
     session.add(node1)
@@ -36,7 +36,9 @@ def test_read_metric(session: Session, client: TestClient):
     node1 = Node(name="not-a-metric")
     node2 = Node(name="also-not-a-metric", query="select 42 as foo")
     node3 = Node(
-        name="a-metric", query="select count(*) from a_table", type=NodeType.METRIC
+        name="a-metric",
+        query="select count(*) from a_table",
+        type=NodeType.METRIC,
     )
 
     session.add(node1)
@@ -178,8 +180,8 @@ def test_read_metrics_sql(
     response = client.post("/graphql", json={"query": query})
     assert response.json() == {
         "data": {
-            "readMetricsSql": {"databaseId": 1, "sql": "SELECT COUNT(*) FROM my_table"}
-        }
+            "readMetricsSql": {"databaseId": 1, "sql": "SELECT COUNT(*) FROM my_table"},
+        },
     }
 
 

@@ -500,8 +500,6 @@ async def run(repository: Path, force: bool = False, reload: bool = False) -> No
     """
     Compile the metrics repository.
     """
-    patch_druid_get_columns()
-
     session = next(get_session())
 
     await add_special_databases(session)

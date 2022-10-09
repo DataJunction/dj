@@ -2,10 +2,10 @@
 Models for tables.
 """
 
-from typing_extensions import Annotated
 from typing import TYPE_CHECKING, List
 
 import strawberry
+from typing_extensions import Annotated
 
 from dj.api.graphql.column import Column
 from dj.api.graphql.node import Node
@@ -25,7 +25,8 @@ if TYPE_CHECKING:
 
 
 @strawberry.experimental.pydantic.type(
-    model=_Table, fields=["id", "node_id", "database_id"]
+    model=_Table,
+    fields=["id", "node_id", "database_id"],
 )
 class Table:
     """

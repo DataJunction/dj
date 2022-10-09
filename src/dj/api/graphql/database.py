@@ -1,13 +1,13 @@
 """
 GQL Database Models and related APIs.
 """
-from typing_extensions import Annotated
 from typing import TYPE_CHECKING, List
 
 import strawberry
 from sqlmodel import select
 from strawberry.scalars import JSON
 from strawberry.types import Info
+from typing_extensions import Annotated
 
 from dj.models.database import Database as _Database
 

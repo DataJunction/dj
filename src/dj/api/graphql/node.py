@@ -2,12 +2,12 @@
 GQL Node models and related APIs.
 """
 
-from typing_extensions import Annotated
 from typing import TYPE_CHECKING, List
 
 import strawberry
 from sqlmodel import select
 from strawberry.types import Info
+from typing_extensions import Annotated
 
 from dj.models.node import Node as _Node
 from dj.models.node import NodeColumns as _NodeColumns
