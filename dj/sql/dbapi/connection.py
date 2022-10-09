@@ -1,7 +1,7 @@
 """
 An implementation of a DB API 2.0 connection.
 """
-# pylint: disable=invalid-name, unused-import, no-self-use
+# pylint: disable=invalid-name, unused-import
 
 from typing import Any, Dict, List, Optional, Union
 
