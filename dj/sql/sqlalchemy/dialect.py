@@ -1,7 +1,7 @@
 """
 SQLAlchemy dialect.
 """
-# pylint: disable=abstract-method, no-self-use, unused-argument
+# pylint: disable=abstract-method, unused-argument
 
 from types import ModuleType
 from typing import Any, Dict, List, Optional, Tuple, TypedDict
@@ -15,6 +15,7 @@ from sqlalchemy.sql import compiler
 from sqlalchemy.sql.visitors import VisitableType
 from yarl import URL
 
+from dj.constants import GET_COLUMNS_TIMEOUT
 from dj.sql import dbapi
 from dj.sql.dbapi.connection import Connection
 from dj.typing import ColumnType
@@ -165,13 +166,19 @@ class DJDialect(DefaultDialect):
         # extract base URL from the DB API connection
         base_url = connection.engine.connect().connection.base_url
 
-        response = requests.get(base_url / "metrics/")
+        response = requests.get(
+            base_url / "metrics/",
+            timeout=GET_COLUMNS_TIMEOUT.total_seconds(),
+        )
         payload = response.json()
         dimensions = {
             dimension for metric in payload for dimension in metric["dimensions"]
         }
 
-        response = requests.get(base_url / "nodes/")
+        response = requests.get(
+            base_url / "nodes/",
+            timeout=GET_COLUMNS_TIMEOUT.total_seconds(),
+        )
         payload = response.json()
         columns: Dict[str, SQLAlchemyColumn] = {}
         for node in payload:

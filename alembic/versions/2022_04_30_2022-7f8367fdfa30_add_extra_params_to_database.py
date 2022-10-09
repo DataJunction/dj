@@ -5,7 +5,7 @@ Revises: 5f31ff8814e7
 Create Date: 2022-04-30 20:22:33.502343+00:00
 
 """
-# pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import
+# pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 
 import sqlalchemy as sa
 import sqlmodel

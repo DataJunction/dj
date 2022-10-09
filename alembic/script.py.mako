@@ -5,7 +5,7 @@ Revises: ${down_revision | comma,n}
 Create Date: ${create_date}
 
 """
-# pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import
+# pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
 
 import sqlalchemy as sa
 import sqlmodel

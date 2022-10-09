@@ -366,7 +366,7 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
     Test the ``run`` command.
     """
     get_session = mocker.patch("dj.cli.compile.get_session")
-    session = get_session().__next__()
+    session = next(get_session())
     session.get.return_value = False
 
     index_databases = mocker.patch("dj.cli.compile.index_databases")

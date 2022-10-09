@@ -1,3 +1,7 @@
+"""
+Tests for GQL databases.
+"""
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
@@ -5,6 +9,10 @@ from dj.models.database import Database
 
 
 def test_get_databases(session: Session, client: TestClient):
+    """
+    Test ``get_databases``.
+    """
+
     db1 = Database(id=1, name="db1", URI="")
     db2 = Database(id=2, name="db2", URI="")
 

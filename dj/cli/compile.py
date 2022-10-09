@@ -24,7 +24,6 @@ from sqlmodel import Session, create_engine, select
 from watchfiles import Change, awatch
 
 from dj.constants import DEFAULT_DIMENSION_COLUMN, DJ_DATABASE_ID, SQLITE_DATABASE_ID
-from dj.fixes import patch_druid_get_columns
 from dj.models.column import Column
 from dj.models.database import Database
 from dj.models.node import Node, NodeType, NodeYAML
