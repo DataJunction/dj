@@ -32,14 +32,7 @@ from dj.sql.parse import (
     get_expression_from_projection,
 )
 from dj.sql.transpile import get_query, get_select_for_node
-from dj.typing import (
-    Expression,
-    Identifier,
-    Join,
-    Projection,
-    Relation,
-    Select,
-)
+from dj.typing import Expression, Identifier, Join, Projection, Relation, Select
 from dj.utils import get_session
 
 FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")

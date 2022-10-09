@@ -42,7 +42,7 @@ def get_project_repository() -> Path:
 
     This is used for unit tests.
     """
-    return Path(__file__).parent.parent.parent
+    return Path(__file__).parent.parent
 
 
 @lru_cache

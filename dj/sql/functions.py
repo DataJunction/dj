@@ -441,9 +441,7 @@ class FunctionRegistry:  # pylint: disable=too-few-public-methods
             return self.functions[name]
 
         issue_url = str(get_issue_url(title=f"Function missing: {name}"))
-        docs_url = (
-            "https://github.com/DataJunction/dj/blob/main/docs/functions.rst"
-        )
+        docs_url = "https://github.com/DataJunction/dj/blob/main/docs/functions.rst"
 
         raise DJNotImplementedException(
             message=f"The function `{name}` hasn't been implemented yet",
