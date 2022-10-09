@@ -1,8 +1,8 @@
 """
-Tests for ``datajunction.sql.parse``.
+Tests for ``dj.sql.parse``.
 """
 
-from datajunction.sql.parse import is_metric
+from dj.sql.parse import is_metric
 
 
 def test_is_metric() -> None:

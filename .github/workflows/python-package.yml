@@ -30,4 +30,4 @@ jobs:
         pip install -r requirements/test.txt
     - name: Test with pytest
       run: |
-        pytest --cov-fail-under=100 --cov=src/datajunction -vv tests/ --doctest-modules src/datajunction --without-integration --without-slow-integration
+        pytest --cov-fail-under=100 --cov=src/dj -vv tests/ --doctest-modules src/dj --without-integration --without-slow-integration

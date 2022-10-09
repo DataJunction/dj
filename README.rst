@@ -70,7 +70,7 @@ And we start a development server:
 
 .. code-block:: bash
 
-    $ uvicorn datajunction.api.main:app --host 127.0.0.1 --port 8000 --reload
+    $ uvicorn dj.api.main:app --host 127.0.0.1 --port 8000 --reload
 
 Now, if we want to compute the metric in our Hive warehouse we can build a pipeline that requests the Hive SQL:
 
@@ -137,4 +137,4 @@ The tables ``dim_users`` and ``dim_fast_users`` can have different columns. For 
 Getting started
 ===============
 
-While all the functionality above currently works, DJ is still not ready for production use. Only a very small number of functions are supported, and we are still working towards a 0.1 release. If you are interested in helping take a look at the `issues marked with the "good first issue" label <https://github.com/DataJunction/datajunction/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22>`_.
+While all the functionality above currently works, DJ is still not ready for production use. Only a very small number of functions are supported, and we are still working towards a 0.1 release. If you are interested in helping take a look at the `issues marked with the "good first issue" label <https://github.com/DataJunction/dj/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22>`_.

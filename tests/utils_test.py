@@ -1,5 +1,5 @@
 """
-Tests for ``datajunction.utils``.
+Tests for ``dj.utils``.
 """
 
 import logging
@@ -10,9 +10,9 @@ from pytest_mock import MockerFixture
 from sqlalchemy.engine.url import make_url
 from yarl import URL
 
-from datajunction.config import Settings
-from datajunction.typing import ColumnType
-from datajunction.utils import (
+from dj.config import Settings
+from dj.typing import ColumnType
+from dj.utils import (
     get_engine,
     get_issue_url,
     get_more_specific_type,
@@ -39,8 +39,8 @@ def test_get_session(mocker: MockerFixture) -> None:
     """
     Test ``get_session``.
     """
-    mocker.patch("datajunction.utils.get_engine")
-    Session = mocker.patch("datajunction.utils.Session")  # pylint: disable=invalid-name
+    mocker.patch("dj.utils.get_engine")
+    Session = mocker.patch("dj.utils.Session")  # pylint: disable=invalid-name
 
     session = next(get_session())
 
@@ -51,9 +51,9 @@ def test_get_settings(mocker: MockerFixture) -> None:
     """
     Test ``get_settings``.
     """
-    mocker.patch("datajunction.utils.load_dotenv")
+    mocker.patch("dj.utils.load_dotenv")
     Settings = mocker.patch(  # pylint: disable=invalid-name, redefined-outer-name
-        "datajunction.utils.Settings",
+        "dj.utils.Settings",
     )
 
     # should be already cached, since it's called by the Celery app
@@ -133,7 +133,7 @@ def test_get_issue_url() -> None:
     Test ``get_issue_url``.
     """
     assert get_issue_url() == URL(
-        "https://github.com/DataJunction/datajunction/issues/new",
+        "https://github.com/DataJunction/dj/issues/new",
     )
     assert get_issue_url(
         baseurl=URL("https://example.org/"),
@@ -150,6 +150,6 @@ def test_get_engine(mocker: MockerFixture, settings: Settings) -> None:
     """
     Test ``get_engine``.
     """
-    mocker.patch("datajunction.utils.get_settings", return_value=settings)
+    mocker.patch("dj.utils.get_settings", return_value=settings)
     engine = get_engine()
     assert engine.url == make_url("sqlite://")

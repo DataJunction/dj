@@ -2,7 +2,10 @@ from fastapi.testclient import TestClient
 from freezegun import freeze_time
 from sqlmodel import Session
 
-from datajunction.models.query import Database
+
+from dj.models.query import (
+    Database,
+)
 
 
 def test_submit_query(session: Session, client: TestClient) -> None:

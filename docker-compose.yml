@@ -36,7 +36,7 @@ services:
       - .:/code
     depends_on:
       - dj
-    command: celery -A datajunction.api.queries.celery worker --loglevel=info
+    command: celery -A dj.api.queries.celery worker --loglevel=info
 
   watchdog:
     container_name: watchdog
