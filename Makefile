@@ -7,7 +7,7 @@ pyenv: .python-version
 	if [ ! -f .python-version ]; then\
 	    pyenv local dj;\
 	fi
-	pip install -e '.[testing]'
+	pip install -r requirements/test.txt
 	touch .python-version
 
 docker-build:

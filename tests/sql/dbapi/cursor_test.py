@@ -37,6 +37,7 @@ def test_cursor_execute(mocker: MockerFixture) -> None:
         url / "queries/",
         data=b"\x82\xabdatabase_id\x00\xafsubmitted_query\xa8SELECT 1",
         headers=headers,
+        timeout=60,
     )
 
     cursor.execute("SELECT * FROM some_table WHERE name = %(name)s", {"name": "Alice"})
@@ -47,6 +48,7 @@ def test_cursor_execute(mocker: MockerFixture) -> None:
             b"able WHERE name = 'Alice'"
         ),
         headers=headers,
+        timeout=60,
     )
 
 
@@ -70,6 +72,7 @@ def test_cursor_execute_msgpack(mocker: MockerFixture) -> None:
         url / "queries/",
         data=b"data",
         headers=headers,
+        timeout=60,
     )
     msgpack.unpackb.assert_called()
 

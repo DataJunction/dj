@@ -1,7 +1,7 @@
 """
 An implementation of a DB API 2.0 cursor.
 """
-# pylint: disable=invalid-name, unused-import, no-self-use
+# pylint: disable=invalid-name, unused-import
 
 import itertools
 from typing import Any, Dict, Iterator, List, Optional, Tuple
@@ -11,7 +11,7 @@ import requests
 from sqloxide import parse_sql
 from yarl import URL
 
-from dj.constants import DJ_DATABASE_ID
+from dj.constants import DJ_DATABASE_ID, QUERY_EXECUTE_TIMEOUT
 from dj.errors import DJException
 from dj.models.query import decode_results, encode_results
 from dj.sql.dbapi import exceptions
@@ -100,6 +100,7 @@ class Cursor:
                 "Content-Type": "application/msgpack",
                 "Accept": "application/msgpack; q=1.0, application/json; q=0.5",
             },
+            timeout=QUERY_EXECUTE_TIMEOUT.total_seconds(),
         )
         content_type = response.headers.get("content-type")
 

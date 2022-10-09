@@ -68,6 +68,7 @@ def test_types(mocker: MockerFixture) -> None:
             b"'\xf0\x9f\xa6\xa5'"
         ),
         headers=headers,
+        timeout=60,
     )
 
     cursor.execute(
@@ -94,6 +95,7 @@ def test_types(mocker: MockerFixture) -> None:
             b"'\xf0\x9f\xa6\xa5'"
         ),
         headers=headers,
+        timeout=60,
     )
 
 

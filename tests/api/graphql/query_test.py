@@ -1,3 +1,7 @@
+"""
+Tests for GQL queries.
+"""
+
 from fastapi.testclient import TestClient
 from freezegun import freeze_time
 from sqlmodel import Session
@@ -6,6 +10,9 @@ from dj.models.query import Database
 
 
 def test_submit_query(session: Session, client: TestClient) -> None:
+    """
+    Test ``submit_query``.
+    """
     database = Database(name="test", URI="sqlite://")
     session.add(database)
     session.commit()

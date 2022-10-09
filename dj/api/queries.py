@@ -154,7 +154,7 @@ def save_query_and_run(
     session.commit()
     session.refresh(query)
 
-    if query.database.async_:
+    if query.database.async_:  # pylint: disable=no-member
         if settings.celery_broker:
             dispatch_query.delay(query.id)
         else:

@@ -1,3 +1,7 @@
+"""
+Test for GQL metrics.
+"""
+
 from uuid import UUID
 
 from fastapi.testclient import TestClient
@@ -10,6 +14,9 @@ from dj.models.query import Database, QueryCreate, QueryWithResults
 
 
 def test_read_metrics(session: Session, client: TestClient):
+    """
+    Test ``read_metrics``.
+    """
     node1 = Node(name="not-a-metric")
     node2 = Node(name="also-not-a-metric", query="select 42 as foo")
     node3 = Node(
@@ -36,6 +43,9 @@ def test_read_metrics(session: Session, client: TestClient):
 
 
 def test_read_metric(session: Session, client: TestClient):
+    """
+    Test ``read_metric``.
+    """
     node1 = Node(name="not-a-metric")
     node2 = Node(name="also-not-a-metric", query="select 42 as foo")
     node3 = Node(
@@ -62,6 +72,9 @@ def test_read_metric(session: Session, client: TestClient):
 
 
 def test_read_metric_errors(session: Session, client: TestClient) -> None:
+    """
+    Test error response in ``read_metric``.
+    """
     database = Database(name="test", URI="sqlite://")
     node = Node(name="a-metric", query="SELECT 1 AS col")
     session.add(database)
@@ -98,6 +111,9 @@ def test_read_metrics_data(
     session: Session,
     client: TestClient,
 ):
+    """
+    Test ``read_metrics_data``.
+    """
     database = Database(name="test", URI="sqlite://")
     node = Node(
         name="a-metric",
@@ -150,7 +166,9 @@ def test_read_metrics_sql(
     session: Session,
     client: TestClient,
 ):
-
+    """
+    Test ``read_metrics_sql``.
+    """
     database = Database(name="test", URI="sqlite://")
     node = Node(
         name="a-metric",
@@ -188,11 +206,10 @@ def test_read_metrics_sql(
     }
 
 
-def test_read_metrics_sql_errors(
-    mocker: MockerFixture,
-    session: Session,
-    client: TestClient,
-):
+def test_read_metrics_sql_errors(session: Session, client: TestClient):
+    """
+    Test error response in ``read_metrics_sql``.
+    """
 
     database = Database(name="test", URI="sqlite://")
     node = Node(name="a-metric", query="SELECT 1 AS col")
@@ -226,6 +243,9 @@ def test_read_metrics_sql_errors(
 
 
 def test_read_metrics_data_errors(session: Session, client: TestClient):
+    """
+    Test error response in ``read_metrics_data``.
+    """
     database = Database(name="test", URI="sqlite://")
     node = Node(name="a-metric", query="SELECT 1 AS col")
     session.add(database)
