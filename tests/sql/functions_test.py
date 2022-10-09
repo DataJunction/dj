@@ -9,16 +9,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 
 from dj.errors import DJInvalidInputException, DJNotImplementedException
 from dj.models.column import Column
-from dj.sql.functions import (
-    Avg,
-    Coalesce,
-    Count,
-    Max,
-    Min,
-    Now,
-    Sum,
-    function_registry,
-)
+from dj.sql.functions import Avg, Coalesce, Count, Max, Min, Now, Sum, function_registry
 from dj.typing import ColumnType
 
 from .utils import query_to_string

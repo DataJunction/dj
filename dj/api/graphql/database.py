@@ -37,9 +37,7 @@ class Database:
 
     extra_params: JSON
     tables: List[Annotated["Table", strawberry.lazy("dj.api.graphql.table")]]
-    queries: List[
-        Annotated["Query_", strawberry.lazy("dj.api.graphql.query")]
-    ]
+    queries: List[Annotated["Query_", strawberry.lazy("dj.api.graphql.query")]]
 
 
 def get_databases(info: Info) -> List[Database]:
