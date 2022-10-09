@@ -119,5 +119,5 @@ async def read_metrics_sql(
         _TranslatedSQL(
             database_id=create_query.database_id,
             sql=create_query.submitted_query,
-        )
+        ),
     )

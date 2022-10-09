@@ -1,5 +1,5 @@
-from sqlmodel import Session
 from fastapi.testclient import TestClient
+from sqlmodel import Session
 
 from dj.models.database import Database
 
@@ -23,5 +23,5 @@ def test_get_databases(session: Session, client: TestClient):
 
     response = client.post("/graphql", json={"query": query})
     assert response.json() == {
-        "data": {"getDatabases": [{"id": 1, "name": "db1"}, {"id": 2, "name": "db2"}]}
+        "data": {"getDatabases": [{"id": 1, "name": "db1"}, {"id": 2, "name": "db2"}]},
     }

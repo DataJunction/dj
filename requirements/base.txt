@@ -103,7 +103,7 @@ sqlalchemy==1.4.35
     #   sqlmodel
 sqlalchemy-utils==0.38.3
     # via dj
-sqlalchemy2-stubs==0.0.2a27
+sqlalchemy2-stubs==0.0.2a28
     # via sqlmodel
 sqlmodel==0.0.5
     # via dj
