@@ -36,7 +36,5 @@ class Table:
     """
 
     node: Node
-    database: Annotated[
-        "Database", strawberry.lazy("dj.api.graphql.database")
-    ]
+    database: Annotated["Database", strawberry.lazy("dj.api.graphql.database")]
     columns: List[Column]
