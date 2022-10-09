@@ -21,16 +21,16 @@ docker-run-with-druid:
 	docker compose -f docker-compose.yml -f docker-compose-druid.yml up
 
 test: pyenv
-	pytest --cov=src/dj -vv tests/ --doctest-modules src/dj --without-integration --without-slow-integration
+	pytest --cov=dj -vv tests/ --doctest-modules dj --without-integration --without-slow-integration
 
 integration: pyenv
-	pytest --cov=src/dj -vv tests/ --doctest-modules src/dj --with-integration --with-slow-integration
+	pytest --cov=dj -vv tests/ --doctest-modules dj --with-integration --with-slow-integration
 
 clean:
 	pyenv virtualenv-delete dj
 
 spellcheck:
-	codespell -L froms -S "*.json" src/dj docs/*rst tests templates
+	codespell -L froms -S "*.json" dj docs/*rst tests templates
 
 check:
 	pre-commit run --all-files
