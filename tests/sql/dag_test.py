@@ -258,7 +258,7 @@ async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
 
     get_session = mocker.patch("dj.sql.build.get_session")
-    session = get_session().__next__()
+    session = next(get_session())
     session.exec().all.return_value = [database_1, database_2]
 
     parent = Node(
@@ -291,7 +291,7 @@ async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
 
     get_session = mocker.patch("dj.sql.build.get_session")
-    session = get_session().__next__()
+    session = next(get_session())
     session.exec().all.return_value = [database_1, database_2]
     with pytest.raises(Exception) as excinfo:
         await get_database_for_nodes(session, [], referenced_columns)

@@ -1,3 +1,7 @@
+"""
+Tests for GQL nodes.
+"""
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
@@ -6,6 +10,9 @@ from dj.models.node import Node, NodeType
 
 
 def test_get_nodes(session: Session, client: TestClient) -> None:
+    """
+    Test ``get_nodes``.
+    """
     node1 = Node(name="not-a-metric", type=NodeType.SOURCE)
     node2 = Node(
         name="also-not-a-metric",

@@ -3,6 +3,7 @@ A DB engine spec for Superset.
 """
 
 import re
+from datetime import timedelta
 from typing import TYPE_CHECKING, Any, List, Optional, TypedDict
 
 import requests
@@ -25,6 +26,7 @@ SELECT_STAR_MESSAGE = (
     "DJ database with the `disable_data_preview` attribute set to `true` in the `extra` "
     "field."
 )
+GET_METRICS_TIMEOUT = timedelta(seconds=60)
 
 
 class MetricType(TypedDict, total=False):
@@ -94,7 +96,10 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
         engine = database.get_sqla_engine()
         base_url = engine.connect().connection.base_url
 
-        response = requests.get(base_url / "metrics/")
+        response = requests.get(
+            base_url / "metrics/",
+            timeout=GET_METRICS_TIMEOUT.total_seconds(),
+        )
         payload = response.json()
         return [
             {
