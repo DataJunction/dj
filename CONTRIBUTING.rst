@@ -5,11 +5,11 @@ Contributing
 Pre-requisites
 ==============
 
-DataJunction (DJ) is currently supported in Python 3.8, 3.9, and 3.10. It's recommended to use ``pyenv`` to create a virtual environment called "datajunction", so you can use the included ``Makefile``:
+DataJunction (DJ) is currently supported in Python 3.8, 3.9, and 3.10. It's recommended to use ``pyenv`` to create a virtual environment called "dj", so you can use the included ``Makefile``:
 
 .. code-block:: bash
 
-    $ pyenv virtualenv 3.8 datajunction  # or 3.9/3.10
+    $ pyenv virtualenv 3.8 dj  # or 3.9/3.10
 
 Then you can just run ``make test`` to install all the dependencies.
 
@@ -281,4 +281,4 @@ Creating a PR
 
 When creating a PR, make sure to run ``make test`` to check for test coverage. You can also run ``make check`` to run the pre-commit hooks.
 
-A few `fixtures <https://docs.pytest.org/en/7.1.x/explanation/fixtures.html#about-fixtures>`_ are `available <https://github.com/DataJunction/datajunction/blob/main/tests/conftest.py>`_ to help writing unit tests.
+A few `fixtures <https://docs.pytest.org/en/7.1.x/explanation/fixtures.html#about-fixtures>`_ are `available <https://github.com/DataJunction/dj/blob/main/tests/conftest.py>`_ to help writing unit tests.

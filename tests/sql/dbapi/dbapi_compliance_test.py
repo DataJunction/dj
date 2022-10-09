@@ -7,7 +7,7 @@ from inspect import isfunction, ismethod
 import pytest
 from requests_mock.mocker import Mocker
 
-from datajunction.sql import dbapi
+from dj.sql import dbapi
 
 
 def test_module_interface() -> None:

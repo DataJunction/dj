@@ -1,5 +1,5 @@
 """
-Tests for ``datajunction.console``.
+Tests for ``dj.console``.
 """
 # pylint: disable=invalid-name
 
@@ -10,9 +10,9 @@ import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 
-from datajunction import console
-from datajunction.config import Settings
-from datajunction.errors import DJError, DJException, ErrorCode
+from dj import console
+from dj.config import Settings
+from dj.errors import DJError, DJException, ErrorCode
 
 
 @pytest.mark.asyncio
@@ -20,11 +20,11 @@ async def test_main_compile(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "compile" action.
     """
-    compile_ = mocker.patch("datajunction.console.compile_")
+    compile_ = mocker.patch("dj.console.compile_")
     compile_.run = mocker.AsyncMock()
 
     mocker.patch(
-        "datajunction.console.docopt",
+        "dj.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -34,7 +34,7 @@ async def test_main_compile(mocker: MockerFixture) -> None:
         },
     )
     mocker.patch(
-        "datajunction.console.get_settings",
+        "dj.console.get_settings",
         return_value=Settings(
             index="sqlite:///dj.db",
             repository=Path("/path/to/repository"),
@@ -50,11 +50,11 @@ async def test_main_compile_passing_repository(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "compile" action.
     """
-    compile_ = mocker.patch("datajunction.console.compile_")
+    compile_ = mocker.patch("dj.console.compile_")
     compile_.run = mocker.AsyncMock()
 
     mocker.patch(
-        "datajunction.console.docopt",
+        "dj.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -73,12 +73,12 @@ async def test_main_canceled(mocker: MockerFixture) -> None:
     """
     Test canceling the ``main`` coroutine.
     """
-    compile_ = mocker.patch("datajunction.console.compile_")
+    compile_ = mocker.patch("dj.console.compile_")
     compile_.run = mocker.AsyncMock(side_effect=asyncio.CancelledError("Canceled"))
-    _logger = mocker.patch("datajunction.console._logger")
+    _logger = mocker.patch("dj.console._logger")
 
     mocker.patch(
-        "datajunction.console.docopt",
+        "dj.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -99,12 +99,12 @@ async def test_main_error(mocker: MockerFixture) -> None:
     Test canceling the ``main`` coroutine.
     """
     exc = DJException("An error occurred")
-    compile_ = mocker.patch("datajunction.console.compile_")
+    compile_ = mocker.patch("dj.console.compile_")
     compile_.run = mocker.AsyncMock(side_effect=exc)
-    _logger = mocker.patch("datajunction.console._logger")
+    _logger = mocker.patch("dj.console._logger")
 
     mocker.patch(
-        "datajunction.console.docopt",
+        "dj.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -126,7 +126,7 @@ async def test_main_no_action(mocker: MockerFixture) -> None:
     """
 
     mocker.patch(
-        "datajunction.console.docopt",
+        "dj.console.docopt",
         return_value={
             "--loglevel": "debug",
             "compile": False,
@@ -142,7 +142,7 @@ def test_run(mocker: MockerFixture) -> None:
     Test ``run``.
     """
     main = mocker.AsyncMock()
-    mocker.patch("datajunction.console.main", main)
+    mocker.patch("dj.console.main", main)
 
     console.run()
 
@@ -154,8 +154,8 @@ def test_interrupt(mocker: MockerFixture) -> None:
     Test that ``CTRL-C`` stops the CLI.
     """
     main = mocker.AsyncMock(side_effect=KeyboardInterrupt())
-    mocker.patch("datajunction.console.main", main)
-    _logger = mocker.patch("datajunction.console._logger")
+    mocker.patch("dj.console.main", main)
+    _logger = mocker.patch("dj.console._logger")
 
     console.run()
 
@@ -167,11 +167,11 @@ async def test_main_add_database(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "add-database" action.
     """
-    add_database = mocker.patch("datajunction.console.add_database")
+    add_database = mocker.patch("dj.console.add_database")
     add_database.run = mocker.AsyncMock()
 
     mocker.patch(
-        "datajunction.console.docopt",
+        "dj.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -186,7 +186,7 @@ async def test_main_add_database(mocker: MockerFixture) -> None:
         },
     )
     mocker.patch(
-        "datajunction.console.get_settings",
+        "dj.console.get_settings",
         return_value=Settings(
             index="sqlite:///dj.db",
             repository=Path("/path/to/repository"),
@@ -209,11 +209,11 @@ async def test_main_add_database_passing_repository(mocker: MockerFixture) -> No
     """
     Test ``main`` with the "add-database" action.
     """
-    add_database = mocker.patch("datajunction.console.add_database")
+    add_database = mocker.patch("dj.console.add_database")
     add_database.run = mocker.AsyncMock()
 
     mocker.patch(
-        "datajunction.console.docopt",
+        "dj.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -256,11 +256,11 @@ async def test_main_add_database_raise_already_exists(
             ),
         ],
     )
-    _logger = mocker.patch("datajunction.console._logger")
+    _logger = mocker.patch("dj.console._logger")
     test_repo = "/foo"
     fs.create_dir(test_repo)
     mocker.patch(
-        "datajunction.console.docopt",
+        "dj.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -275,7 +275,7 @@ async def test_main_add_database_raise_already_exists(
         },
     )
     mocker.patch(
-        "datajunction.console.get_settings",
+        "dj.console.get_settings",
         return_value=Settings(
             index="sqlite:///dj.db",
             repository=Path(test_repo),

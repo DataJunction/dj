@@ -15,12 +15,12 @@ from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from datajunction.api.queries import dispatch_query
-from datajunction.config import Settings
-from datajunction.constants import DJ_DATABASE_ID
-from datajunction.engine import process_query
-from datajunction.errors import DJError, DJException, DJWarning, ErrorCode
-from datajunction.models.query import (
+from dj.api.queries import dispatch_query
+from dj.config import Settings
+from dj.constants import DJ_DATABASE_ID
+from dj.engine import process_query
+from dj.errors import DJError, DJException, DJWarning, ErrorCode
+from dj.models.query import (
     Database,
     Query,
     QueryCreate,
@@ -236,9 +236,9 @@ def test_submit_query_native(mocker: MockerFixture, client: TestClient) -> None:
     """
     Test ``POST /queries/`` with a native DJ query.
     """
-    get_query_for_sql = mocker.patch("datajunction.api.queries.get_query_for_sql")
+    get_query_for_sql = mocker.patch("dj.api.queries.get_query_for_sql")
     mocker.patch(
-        "datajunction.api.queries.save_query_and_run",
+        "dj.api.queries.save_query_and_run",
         return_value=QueryWithResults(
             database_id=DJ_DATABASE_ID,
             id=UUID("74099c09-91f3-4df7-be9d-96a8075ff5a8"),
@@ -266,9 +266,9 @@ def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) ->
     """
     Test ``POST /queries/`` with a native DJ query.
     """
-    mocker.patch("datajunction.api.queries.get_query_for_sql")
+    mocker.patch("dj.api.queries.get_query_for_sql")
     mocker.patch(
-        "datajunction.api.queries.save_query_and_run",
+        "dj.api.queries.save_query_and_run",
         side_effect=DJException(
             message="The query is invalid",
             errors=[
@@ -463,7 +463,7 @@ def test_submit_query_async_celery(
     settings.celery_broker = "redis://127.0.0.1:6379/0"
 
     dispatch_query = mocker.patch(  # pylint: disable=redefined-outer-name
-        "datajunction.api.queries.dispatch_query",
+        "dj.api.queries.dispatch_query",
     )
 
     database = Database(name="test", URI="sqlite://", async_=True)
@@ -495,15 +495,15 @@ def test_dispatch_query(
     """
     Test ``dispatch_query``.
     """
-    get_session = mocker.patch("datajunction.api.queries.get_session")
+    get_session = mocker.patch("dj.api.queries.get_session")
     get_session().__next__.return_value = (  # pylint: disable=redefined-outer-name
         session
     )
 
-    mocker.patch("datajunction.api.queries.get_settings", return_value=settings)
+    mocker.patch("dj.api.queries.get_settings", return_value=settings)
 
     process_query = mocker.patch(  # pylint: disable=redefined-outer-name
-        "datajunction.api.queries.process_query",
+        "dj.api.queries.process_query",
     )
 
     database = Database(name="test", URI="sqlite://")
@@ -695,7 +695,7 @@ def test_pagination(
     cache = mocker.MagicMock()
     cache.has.side_effect = [False, True]
     cache.get.return_value = results.json()
-    mocker.patch("datajunction.config.RedisCache", return_value=cache)
+    mocker.patch("dj.config.RedisCache", return_value=cache)
     settings.redis_cache = "dummy"
 
     # first request should load data into cache
@@ -748,7 +748,7 @@ def test_pagination_last_page(
     cache = mocker.MagicMock()
     cache.has.side_effect = [False, True]
     cache.get.return_value = results.json()
-    mocker.patch("datajunction.config.RedisCache", return_value=cache)
+    mocker.patch("dj.config.RedisCache", return_value=cache)
     settings.redis_cache = "dummy"
 
     response = client.get(f"/queries/{query.id}?offset=4&limit=2")

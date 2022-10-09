@@ -1,12 +1,12 @@
 """
-Tests for ``datajunction.sql.dbapi.connection``.
+Tests for ``dj.sql.dbapi.connection``.
 """
 # pylint: disable=redefined-builtin, invalid-name
 
 from pytest_mock import MockerFixture
 from yarl import URL
 
-from datajunction.sql.dbapi.connection import connect
+from dj.sql.dbapi.connection import connect
 
 
 def test_connection() -> None:
@@ -43,7 +43,7 @@ def test_connection_execute(mocker: MockerFixture) -> None:
     """
     Test the ``execute`` method.
     """
-    Cursor = mocker.patch("datajunction.sql.dbapi.connection.Cursor")
+    Cursor = mocker.patch("dj.sql.dbapi.connection.Cursor")
 
     connection = connect("http://localhost:8000/")
     connection.execute(

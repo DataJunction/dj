@@ -14,9 +14,9 @@ from pytest_mock import MockerFixture
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
-from datajunction.api.main import app
-from datajunction.config import Settings
-from datajunction.utils import get_project_repository, get_session, get_settings
+from dj.api.main import app
+from dj.config import Settings
+from dj.utils import get_project_repository, get_session, get_settings
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
     )
 
     mocker.patch(
-        "datajunction.utils.get_settings",
+        "dj.utils.get_settings",
         return_value=settings,
     )
 
