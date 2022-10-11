@@ -60,6 +60,7 @@ services:
     depends_on:
       - postgres_metadata
     command: alembic upgrade head
+    restart: on-failure
 
   redis:
     image: redis:latest
