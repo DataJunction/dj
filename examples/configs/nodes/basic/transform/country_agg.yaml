@@ -1,8 +1,8 @@
 description: Country level agg table
 type: transform
-query: |
+query: |-
   SELECT country,
-    COUNT(DISTINCT id) as num_users
+         COUNT(DISTINCT id) AS num_users
   FROM basic.source.users
   GROUP BY country
 columns:

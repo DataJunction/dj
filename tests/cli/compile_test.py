@@ -563,6 +563,59 @@ async def test_update_node_config_user_attributes(
     )
 
 
+@pytest.mark.asyncio
+async def test_update_node_config_sql_query(
+    mocker: MockerFixture,
+    fs: FakeFilesystem,
+) -> None:
+    """
+    Test ``update_node_config`` when the SQL query is changed.
+    """
+    _logger = mocker.patch("dj.cli.compile._logger")
+
+    # success
+    path = Path("/path/to/repository/configs/nodes/T.yaml")
+    test_query = "SELECT foo FROM bar WHERE baz"
+    fs.create_file(path, contents=yaml.safe_dump({"query": test_query}))
+    node = Node(
+        name="T",
+        query=test_query,
+        columns=[
+            Column(name="ds", type=ColumnType.DATETIME),
+            Column(name="user_id", type=ColumnType.INT),
+        ],
+        type=NodeType.TRANSFORM,
+    )
+
+    await update_node_config(node, path)
+
+    with open(path, encoding="utf-8") as input_:
+        assert yaml.safe_load(input_) == {
+            "columns": {
+                "ds": {"type": "DATETIME"},
+                "user_id": {"type": "INT"},
+            },
+            "type": "transform",
+            "query": "SELECT foo\nFROM bar\nWHERE baz",
+        }
+    _logger.info.assert_called_with(
+        "Updating node %s config with column information",
+        "T",
+    )
+
+    # error
+    sql_format = mocker.patch("dj.cli.compile.sql_format")
+    sql_format.side_effect = Exception("boom")
+
+    await update_node_config(node, path)
+
+    _logger.exception.assert_called_with(
+        "Unable to format query '%s' for node %s.",
+        "SELECT foo\nFROM bar\nWHERE baz",
+        "/path/to/repository/configs/nodes/T.yaml",
+    )
+
+
 def test_get_columns_from_tables() -> None:
     """
     Test ``get_columns_from_tables``.
