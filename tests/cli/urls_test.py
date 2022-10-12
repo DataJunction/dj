@@ -16,7 +16,7 @@ def test_run(capsys: CaptureFixture) -> None:
     captured = capsys.readouterr()
     assert (
         captured.out
-        == """http://localhost:8000/docs: documentation
+        == """http://localhost:8000/docs: Documentation.
 http://localhost:8000/databases/: List the available databases.
 http://localhost:8000/queries/: Run or schedule a query.
 http://localhost:8000/queries/{query_id}/: Fetch information about a query.

@@ -17,7 +17,7 @@ def run(url: str) -> None:
     """
     base_url = URL(url)
 
-    sys.stdout.write(f"{base_url / 'docs'}: documentation\n")
+    sys.stdout.write(f"{base_url / 'docs'}: Documentation.\n")
 
     seen = set()
     for route in app.routes:
