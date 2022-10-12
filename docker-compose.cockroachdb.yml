@@ -1,0 +1,61 @@
+version: "2.2"
+
+volumes:
+  cockroachdb_examples: {}
+  cockroachdb_metadata: {}
+
+services:
+  dj:
+    depends_on:
+      - db_migration
+      - cockroachdb_metadata
+      - cockroachdb_examples
+      - redis
+    environment:
+      - DOTENV_FILE=.docker-env/.env-cockroachdb
+
+  celery:
+    environment:
+      - DOTENV_FILE=.docker-env/.env-cockroachdb
+
+  watchdog:
+    environment:
+      - DOTENV_FILE=.docker-env/.env-cockroachdb
+
+  db_migration:
+    depends_on:
+      - cockroachdb_metadata
+    environment:
+      - DOTENV_FILE=.docker-env/.env-cockroachdb
+
+  postgres_metadata:
+    profiles:
+      - disabled
+
+  postgres_examples:
+    profiles:
+      - disabled
+
+  cockroachdb_metadata:
+    container_name: cockroachdb_metadata
+    image: cockroachdb/cockroach
+    command: start-single-node --insecure
+    volumes:
+      - cockroachdb_metadata:/cockroach/cockroach-data
+      - ./examples/docker/cockroachdb/cockroachdb_metadata_init.sql:/docker-entrypoint-initdb.d/cockroachdb_metadata_init.sql
+    ports:
+      - "26258:26257"
+      - "8080:8080"
+
+  cockroachdb_examples:
+    container_name: cockroachdb_examples
+    image: cockroachdb/cockroach
+    command: start-single-node --insecure --external-io-dir /import-data
+    ports:
+      - "26257:26257"
+      - "8081:8080"
+    volumes:
+      - cockroachdb_examples:/cockroach/cockroach-data
+      - ./examples/docker/cockroachdb/steam-hours-played.csv:/import-data/steam-hours-played.csv
+      - ./examples/docker/cockroachdb/steam-games.csv:/import-data/steam-games.csv
+      - ./examples/docker/cockroachdb/cockroachdb_examples_init.sql:/docker-entrypoint-initdb.d/cockroachdb_examples_init.sql

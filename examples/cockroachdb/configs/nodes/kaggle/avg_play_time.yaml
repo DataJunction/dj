@@ -1,0 +1,6 @@
+description: Average user playtime
+type: metric
+query: SELECT AVG(amount) FROM kaggle.source.playtime WHERE behavior='play'
+columns:
+  _col0:
+    type: FLOAT

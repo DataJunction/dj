@@ -1,0 +1,4 @@
+description: A Cockroachdb database
+URI: cockroachdb://root:@cockroachdb_examples:26257/steam?sslmode=disable
+read_only: false
+cost: 5

@@ -15,7 +15,7 @@ services:
   dj:
     container_name: dj
     environment:
-      - DOTENV_FILE=.env-docker
+      - DOTENV_FILE=.docker-env/.env-postgres
     build: .
     volumes:
       - .:/code
@@ -30,7 +30,7 @@ services:
   celery:
     container_name: celery
     environment:
-      - DOTENV_FILE=.env-docker
+      - DOTENV_FILE=.docker-env/.env-postgres
     build: .
     volumes:
       - .:/code
@@ -41,7 +41,7 @@ services:
   watchdog:
     container_name: watchdog
     environment:
-      - DOTENV_FILE=.env-docker
+      - DOTENV_FILE=.docker-env/.env-postgres
     build: .
     volumes:
       - .:/code
@@ -53,7 +53,7 @@ services:
   db_migration:
     container_name: db_migration
     environment:
-      - DOTENV_FILE=.env-docker
+      - DOTENV_FILE=.docker-env/.env-postgres
     build: .
     volumes:
       - .:/code
