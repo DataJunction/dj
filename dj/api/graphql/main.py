@@ -57,3 +57,4 @@ class Mutation:
 schema = strawberry.Schema(query=Query, mutation=Mutation)
 
 graphql_app = GraphQLRouter(schema, context_getter=get_context)
+graphql_app.description = "GraphQL endpoint"

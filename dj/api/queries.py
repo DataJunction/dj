@@ -213,7 +213,7 @@ def load_query_results(
     return query_results
 
 
-@router.get("/queries/{query_id}", response_model=QueryWithResults)
+@router.get("/queries/{query_id}/", response_model=QueryWithResults)
 def read_query(
     query_id: uuid.UUID,
     limit: int = 0,

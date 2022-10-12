@@ -701,7 +701,7 @@ def test_pagination(
     # first request should load data into cache
     response = client.get(f"/queries/{query.id}?limit=2")
     data = response.json()
-    assert data["next"] == f"http://testserver/queries/{query.id}?limit=2&offset=2"
+    assert data["next"] == f"http://testserver/queries/{query.id}/?limit=2&offset=2"
     assert data["previous"] is None
     cache.add.assert_called()
 
@@ -754,4 +754,4 @@ def test_pagination_last_page(
     response = client.get(f"/queries/{query.id}?offset=4&limit=2")
     data = response.json()
     assert data["next"] is None
-    assert data["previous"] == f"http://testserver/queries/{query.id}?limit=2&offset=2"
+    assert data["previous"] == f"http://testserver/queries/{query.id}/?limit=2&offset=2"
