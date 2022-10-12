@@ -33,10 +33,19 @@ from dj.sql.dag import render_dag
 from dj.sql.inference import infer_columns
 from dj.sql.parse import get_dependencies
 from dj.typing import ColumnType
-from dj.utils import get_more_specific_type, get_name_from_path, get_session
+from dj.utils import (
+    get_more_specific_type,
+    get_name_from_path,
+    get_session,
+    sql_format,
+    str_representer,
+)
 
 _logger = logging.getLogger(__name__)
 
+# Modify YAML printing to make nice multiline strings
+yaml.add_representer(str, str_representer)
+yaml.representer.SafeRepresenter.add_representer(str, str_representer)
 
 # Database YAML with added information for processing
 EnrichedDatabaseYAML = TypedDict(
@@ -463,6 +472,10 @@ async def update_node_config(node: Node, path: Path) -> None:
     with open(path, encoding="utf-8") as input_:
         original = yaml.safe_load(input_)
     updated = node.to_yaml()
+
+    # format SQL query
+    if "query" in original:
+        updated["query"] = sql_format(original["query"])
 
     # preserve column attributes entered by the user
     if "columns" in original:

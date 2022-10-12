@@ -1,6 +1,7 @@
 """
 Utility functions.
 """
+# pylint: disable=line-too-long
 
 import logging
 import os
@@ -8,6 +9,8 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Iterator, List, Optional
 
+import sqlparse
+import yaml
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
@@ -162,3 +165,21 @@ def get_issue_url(
     query_arguments = {k: v for k, v in query_arguments.items() if v is not None}
 
     return baseurl % query_arguments
+
+
+def str_representer(dumper: yaml.representer.SafeRepresenter, data: str):
+    """
+    Multiline string presenter for Node yaml printing.
+
+    Source: https://stackoverflow.com/questions/8640959/how-can-i-control-what-scalar-form-pyyaml-uses-for-my-data
+    """
+    if len(data.splitlines()) > 1:  # check for multiline string
+        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
+    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
+
+
+def sql_format(sql: str) -> str:
+    """
+    Let's pick one way to format SQL strings.
+    """
+    return sqlparse.format(sql, reindent=True, keyword_case="upper")
