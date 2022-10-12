@@ -1,0 +1,6 @@
+description: Game dimension
+type: dimension
+query: SELECT distinct name FROM kaggle.source.games
+columns:
+  name:
+    type: STR

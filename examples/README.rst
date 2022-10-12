@@ -96,6 +96,22 @@ And you should see:
       "errors": []
     }
 
+Alternative Docker Compose Setups
+=================================
+
+The default docker compose setup includes the minimally required services to run a DJ server and the metadata is persisted
+in Postgres. However, DJ leverages SQL Alchemy to enable flexibility when it comes to reading source databases as well as storing
+its own metadata. Variations of the default docker compose environments can be selected using one of the available override
+docker compose files which add, remove, or modify services.
+
++-------------------+----------------------------------------------------------------------------+------------------------------------------------------------------------+
+| Name              | Command                                                                    | Description                                                            |
++===================+============================================================================+========================================================================+
+| Postgres          | docker compose up                                                          | DJ server backed by Postgres                                           |
+| Postgres + Druid  | docker compose -f docker-compose.yml -f docker-compose-druid.yml up        | An extension of the Postgres setup that includes Druid                 |
+| CockroachDB       | docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up  | DJ server backed by CockroachDB                                        |
++-------------------+----------------------------------------------------------------------------+------------------------------------------------------------------------+
+
 Troubleshooting
 ===============
 
