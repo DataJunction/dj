@@ -1,6 +1,7 @@
 """
 Utility functions.
 """
+# pylint: disable=line-too-long
 
 import logging
 import os
@@ -166,7 +167,7 @@ def get_issue_url(
     return baseurl % query_arguments
 
 
-def str_representer(dumper: yaml.Dumper, data: str) -> str:
+def str_representer(dumper: yaml.representer.SafeRepresenter, data: str):
     """
     Multiline string presenter for Node yaml printing.
 

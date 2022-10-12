@@ -603,18 +603,6 @@ async def test_update_node_config_sql_query(
         "T",
     )
 
-    # error
-    sql_format = mocker.patch("dj.cli.compile.sql_format")
-    sql_format.side_effect = Exception("boom")
-
-    await update_node_config(node, path)
-
-    _logger.exception.assert_called_with(
-        "Unable to format query '%s' for node %s.",
-        "SELECT foo\nFROM bar\nWHERE baz",
-        "/path/to/repository/configs/nodes/T.yaml",
-    )
-
 
 def test_get_columns_from_tables() -> None:
     """
