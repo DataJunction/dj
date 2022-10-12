@@ -475,14 +475,7 @@ async def update_node_config(node: Node, path: Path) -> None:
 
     # format SQL query
     if "query" in original:
-        try:
-            updated["query"] = sql_format(original["query"])
-        except Exception:
-            _logger.exception(
-                "Unable to format query '%s' for node %s.",
-                original["query"],
-                str(path),
-            )
+        updated["query"] = sql_format(original["query"])
 
     # preserve column attributes entered by the user
     if "columns" in original:
