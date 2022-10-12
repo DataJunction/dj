@@ -5,10 +5,12 @@ Usage:
     dj compile [REPOSITORY] [-f] [--loglevel=INFO] [--reload]
     dj add-database DATABASE [REPOSITORY] --uri=URI \
 [-f --loglevel=INFO --description=<str> --read-only=<bool> --cost=COST]
+    dj urls
 
 Actions:
     compile                 Compile repository
     add-database            Add a database to an existing repository
+    urls                    Show URLs for documentation and APIs
 
 Arguments:
     REPOSITORY              Path to a DJ repository
@@ -34,6 +36,7 @@ from docopt import docopt
 from dj import __version__
 from dj.cli import add_database
 from dj.cli import compile as compile_
+from dj.cli import urls
 from dj.errors import DJException
 from dj.utils import get_settings, setup_logging
 
@@ -48,17 +51,18 @@ async def main() -> None:
 
     setup_logging(arguments["--loglevel"])
 
-    if arguments["REPOSITORY"] is None:
+    repository = arguments.get("REPOSITORY")
+    if repository is None:
         settings = get_settings()
-        repository = settings.repository
+        repository_path = settings.repository
     else:
-        repository = Path(arguments["REPOSITORY"])
+        repository_path = Path(repository)
 
     try:
         if arguments.get("compile"):
             try:
                 await compile_.run(
-                    repository,
+                    repository_path,
                     arguments["--force"],
                     arguments["--reload"],
                 )
@@ -67,7 +71,7 @@ async def main() -> None:
         elif arguments.get("add-database"):
             try:
                 await add_database.run(
-                    repository,
+                    repository_path,
                     database=arguments["DATABASE"],
                     uri=arguments["--uri"],
                     description=arguments["--description"],
@@ -76,6 +80,8 @@ async def main() -> None:
                 )
             except DJException as exc:
                 _logger.error(exc)
+        elif arguments.get("urls"):
+            return urls.run(settings.url)
 
     except asyncio.CancelledError:
         _logger.info("Canceled")
