@@ -18,7 +18,7 @@ docker-run:
 	docker compose up
 
 docker-run-with-druid:
-	docker compose -f docker-compose.yml -f docker-compose-druid.yml up
+	docker compose -f docker-compose.yml -f docker-compose.druid.yml up
 
 docker-run-with-cockroachdb:
 	docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up
