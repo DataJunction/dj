@@ -1,0 +1,19 @@
+description: Steam user playtime data
+type: source
+columns:
+  user_id:
+    type: STR
+  game:
+    type: STR
+  behavior:
+    type: STR
+  amount:
+    type: FLOAT
+  zero:
+    type: INT
+tables:
+  cockroachdb:
+  - catalog: null
+    schema: public
+    table: playtime
+    cost: 1.0
