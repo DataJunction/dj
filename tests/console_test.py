@@ -285,3 +285,27 @@ async def test_main_add_database_raise_already_exists(
     await console.main()
     await console.main()  # Run a second time to log an already exists exception
     _logger.error.assert_called_with(exc)
+
+
+@pytest.mark.asyncio
+async def test_main_urls(mocker: MockerFixture) -> None:
+    """
+    Test ``main`` with the "urls" action.
+    """
+    urls = mocker.patch("dj.console.urls")
+    urls.run = mocker.AsyncMock()
+
+    mocker.patch(
+        "dj.console.docopt",
+        return_value={
+            "--loglevel": "debug",
+            "urls": True,
+        },
+    )
+    mocker.patch(
+        "dj.console.get_settings",
+        return_value=Settings(url="http://localhost:8000/"),
+    )
+
+    await console.main()
+    urls.run.assert_called_with("http://localhost:8000/")
