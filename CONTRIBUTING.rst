@@ -303,7 +303,7 @@ Don't use upper bounds in the dependencies. We have nightly unit tests that test
 Database migrations
 ===================
 
-We use `Alembic <https://alembic.sqlalchemy.org/en/latest/index.html>`_ to manage schema migrations. If a PR introduces new models are changes existing ones a migration must be created.
+We use `Alembic <https://alembic.sqlalchemy.org/en/latest/index.html>`_ to manage schema migrations. If a PR introduces new models or changes existing ones a migration must be created.
 
 1. Run the Docker container with ``docker compose up``.
 2. Enter the ``dj`` container with ``docker exec -it dj bash``.
