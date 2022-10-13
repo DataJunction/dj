@@ -299,3 +299,15 @@ Otherwise specify the package with a lower bound only:
     some-package>=1.2.3
 
 Don't use upper bounds in the dependencies. We have nightly unit tests that test if newer versions of dependencies will break.
+
+Database migrations
+===================
+
+We use `Alembic <https://alembic.sqlalchemy.org/en/latest/index.html>`_ to manage schema migrations. If a PR introduces new models or changes existing ones a migration must be created.
+
+1. Run the Docker container with ``docker compose up``.
+2. Enter the ``dj`` container with ``docker exec -it dj bash``.
+3. Run ``alembic revision --autogenerate -m "Description of the migration"``. This will create a file in the repository, under ``alembic/versions/``. Verify the file, checking that the upgrade and the downgrade functions make sense.
+4. Still inside the container, run ``alembic upgrade head``. This will update the database schema to match the models.
+5. Now run ``alembic downgrade $SHA``, where ``$SHA`` is the previous migration. You can see the hash with ``alembic history``.
+6. Once you've confirmed that both the upgrade and downgrade work, upgrade again and commit the file.
