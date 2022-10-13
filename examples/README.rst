@@ -108,7 +108,7 @@ docker compose files which add, remove, or modify services.
 | Name              | Command                                                                    | Description                                                            |
 +===================+============================================================================+========================================================================+
 | Postgres          | docker compose up                                                          | DJ server backed by Postgres                                           |
-| Postgres + Druid  | docker compose -f docker-compose.yml -f docker-compose-druid.yml up        | An extension of the Postgres setup that includes Druid                 |
+| Postgres + Druid  | docker compose -f docker-compose.yml -f docker-compose.druid.yml up        | An extension of the Postgres setup that includes Druid                 |
 | CockroachDB       | docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up  | DJ server backed by CockroachDB                                        |
 +-------------------+----------------------------------------------------------------------------+------------------------------------------------------------------------+
 
