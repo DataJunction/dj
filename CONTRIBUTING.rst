@@ -282,3 +282,20 @@ Creating a PR
 When creating a PR, make sure to run ``make test`` to check for test coverage. You can also run ``make check`` to run the pre-commit hooks.
 
 A few `fixtures <https://docs.pytest.org/en/7.1.x/explanation/fixtures.html#about-fixtures>`_ are `available <https://github.com/DataJunction/dj/blob/main/tests/conftest.py>`_ to help writing unit tests.
+
+Adding new dependencies
+=======================
+
+When a PR introduces a new dependency, add them to ``setup.cfg`` under ``install_requires``. If the dependency version is less than ``1.0`` and you expect it to change often it's better to pin the dependency, eg:
+
+.. code-block:: config
+
+    some-package==0.0.1
+
+Otherwise specify the package with a lower bound only:
+
+.. code-block:: config
+
+    some-package>=1.2.3
+
+Don't use upper bounds in the dependencies. We have nightly unit tests that test if newer versions of dependencies will break.
