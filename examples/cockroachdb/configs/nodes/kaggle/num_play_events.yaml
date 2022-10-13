@@ -1,0 +1,6 @@
+description: Number of Steam user play events captured
+type: metric
+query: SELECT COUNT(*) FROM kaggle.source.playtime WHERE behavior='play'
+columns:
+  _col0:
+    type: INT
