@@ -24,4 +24,5 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_column("database", "extra_params")
+    with op.batch_alter_table("database") as bop:
+        bop.drop_column("extra_params")
