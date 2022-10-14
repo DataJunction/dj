@@ -318,10 +318,11 @@ async def index_nodes(  # pylint: disable=too-many-locals
             finished.add(node.name)
 
     # remove existing metrics that were not found when indexing current configs
-    await asyncio.wait(
-        {remove_node(session, node) for node in existing_metrics.values()},
-        return_when=asyncio.ALL_COMPLETED,
-    )
+    if existing_metrics:
+        await asyncio.wait(
+            {remove_node(session, node) for node in existing_metrics.values()},
+            return_when=asyncio.ALL_COMPLETED,
+        )
 
     return list(nodes.values())
 
