@@ -260,12 +260,13 @@ async def index_nodes(  # pylint: disable=too-many-locals
         ).all()
     }
 
-    existing_metrics = {
-        metric.name: metric
-        for metric in session.exec(
-            select(Node).where(Node.type == NodeType.METRIC),
+    existing_nodes = {
+        node.name: node
+        for node in session.exec(
+            select(Node),
         ).all()
     }
+    nodes_to_delete = set(existing_nodes.keys())
 
     configs = await load_node_configs(repository)
     dependencies: Dict[str, Set[str]] = {}
@@ -313,14 +314,14 @@ async def index_nodes(  # pylint: disable=too-many-locals
         for future in done:
             node = future.result()
             nodes[node.name] = node
-            if node.type == NodeType.METRIC and node.name in existing_metrics:
-                existing_metrics.pop(node.name)
+            if node.name in existing_nodes:
+                nodes_to_delete.remove(node.name)
             finished.add(node.name)
 
     # remove existing metrics that were not found when indexing current configs
-    if existing_metrics:
+    if nodes_to_delete:
         await asyncio.wait(
-            {remove_node(session, node) for node in existing_metrics.values()},
+            {remove_node(session, existing_nodes[name]) for name in nodes_to_delete},
             return_when=asyncio.ALL_COMPLETED,
         )
 

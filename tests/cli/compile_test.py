@@ -237,6 +237,16 @@ async def test_index_nodes(
         ),
     )
     session.add(Database(name="gsheets", URI="gsheets://"))
+    session.add(
+        Node(
+            name="core.old_num_comments",
+            description="A Number of comments whose config was deleted",
+            type=NodeType.METRIC,
+            created_at=datetime(2020, 1, 2, 0, 0),
+            updated_at=datetime(2020, 1, 2, 0, 0),
+            query="SELECT COUNT(*) FROM core.comments",
+        ),
+    )
     session.flush()
 
     with freeze_time("2021-01-01T00:00:00Z"):
@@ -309,52 +319,52 @@ async def test_index_nodes(
     ]
 
 
-@pytest.mark.asyncio
-async def test_index_nodes_removed_existing(
-    mocker: MockerFixture,
-    repository: Path,
-    session: Session,
-) -> None:
-    """
-    Test ``index_nodes``.
-    """
-    mocker.patch(
-        "dj.cli.compile.get_table_columns",
-        return_value=[],
-    )
-    mocker.patch("dj.cli.compile.update_node_config")
+# @pytest.mark.asyncio
+# async def test_index_nodes_removed_existing(
+#     mocker: MockerFixture,
+#     repository: Path,
+#     session: Session,
+# ) -> None:
+#     """
+#     Test ``index_nodes`` and ``remove_nodes``.
+#     """
+#     mocker.patch(
+#         "dj.cli.compile.get_table_columns",
+#         return_value=[],
+#     )
+#     mocker.patch("dj.cli.compile.update_node_config")
 
-    session.add(
-        Database(name="druid", URI="druid://druid_broker:8082/druid/v2/sql/"),
-    )
-    session.add(
-        Database(
-            name="postgres",
-            URI="postgresql://username:FoolishPassword@postgres_examples:5432/examples",
-        ),
-    )
-    session.add(Database(name="gsheets", URI="gsheets://"))
-    session.add(
-        Node(
-            name="core.old_num_comments",
-            description="A Number of comments whose config was deleted",
-            type=NodeType.METRIC,
-            created_at=datetime(2020, 1, 2, 0, 0),
-            updated_at=datetime(2020, 1, 2, 0, 0),
-            query="SELECT COUNT(*) FROM core.comments",
-        ),
-    )
+#     session.add(
+#         Database(name="druid", URI="druid://druid_broker:8082/druid/v2/sql/"),
+#     )
+#     session.add(
+#         Database(
+#             name="postgres",
+#             URI="postgresql://username:FoolishPassword@postgres_examples:5432/examples",
+#         ),
+#     )
+#     session.add(Database(name="gsheets", URI="gsheets://"))
+#     session.add(
+#         Node(
+#             name="core.old_num_comments",
+#             description="A Number of comments whose config was deleted",
+#             type=NodeType.METRIC,
+#             created_at=datetime(2020, 1, 2, 0, 0),
+#             updated_at=datetime(2020, 1, 2, 0, 0),
+#             query="SELECT COUNT(*) FROM core.comments",
+#         ),
+#     )
 
-    session.flush()
+#     session.flush()
 
-    nodes = await index_nodes(repository, session)
+#     nodes = await index_nodes(repository, session)
 
-    assert {node.name for node in nodes} == {
-        "core.comments",
-        "core.dim_users",
-        "core.num_comments",
-        "core.users",
-    }
+#     assert {node.name for node in nodes} == {
+#         "core.comments",
+#         "core.dim_users",
+#         "core.num_comments",
+#         "core.users",
+#     }
 
 
 @pytest.mark.asyncio
