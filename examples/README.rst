@@ -104,14 +104,25 @@ in Postgres. However, DJ leverages SQL Alchemy to enable flexibility when it com
 its own metadata. Variations of the default docker compose environments can be selected using one of the available override
 docker compose files which add, remove, or modify services.
 
-+-------------------+-----------------------------------------------------------------------------------------------------+---------------------------------------------------------+
-| Name              | Command                                                                                             | Description                                             |
-+===================+=====================================================================================================+=========================================================+
-| SQLite            | docker compose up                                                                                   | DJ server backed by SQLite                              |
-| Postgres          | docker compose -f docker-compose.yml -f docker-compose.postgres.yml up                              | DJ server backed by Postgres                            |
-| Postgres + Druid  | docker compose -f docker-compose.yml -f docker-compose.postgres.yml -f docker-compose.druid.yml up  | An extension of the Postgres setup that includes Druid  |
-| CockroachDB       | docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up                           | DJ server backed by CockroachDB                         |
-+-------------------+-----------------------------------------------------------------------------------------------------+---------------------------------------------------------+
+.. list-table:: Docker Compose Optional Overrides
+   :widths: 15 10 30
+   :header-rows: 1
+
+   * - Name
+     - Command
+     - Description
+   * - SQLite
+     - docker compose up
+     - DJ server backed by SQLite
+   * - Postgres
+     - docker compose -f docker-compose.yml -f docker-compose.postgres.yml up
+     - DJ server backed by Postgres
+   * - Postgres + Druid
+     - docker compose -f docker-compose.yml -f docker-compose.postgres.yml -f docker-compose.druid.yml up
+     - An extension of the Postgres setup that includes Druid
+   * - CockroachDB
+     - docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up
+     - DJ server backed by CockroachDB
 
 Troubleshooting
 ===============
