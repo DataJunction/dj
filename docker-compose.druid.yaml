@@ -3,25 +3,14 @@
 version: "2.2"
 
 volumes:
+  middle_var: {}
+  historical_var: {}
+  broker_var: {}
+  coordinator_var: {}
+  router_var: {}
   druid_shared: {}
 
 services:
-  dj:
-    container_name: dj
-    environment:
-      - DOTENV_FILE=.env-docker
-    build: .
-    volumes:
-      - .:/code
-    ports:
-      - "8000:8000"
-    depends_on:
-      - db_migration
-      - postgres_metadata
-      - postgres_examples
-      - redis
-      - druid_coordinator
-
   druid_postgres:
     container_name: druid_postgres
     image: postgres:latest
