@@ -347,74 +347,14 @@ async def test_index_nodes_removed_existing(
 
     session.flush()
 
-    with freeze_time("2021-01-01T00:00:00Z"):
-        Path("/path/to/repository/nodes/core/comments.yaml").touch()
-        Path("/path/to/repository/nodes/core/users.yaml").touch()
+    nodes = await index_nodes(repository, session)
 
-    with freeze_time("2021-01-02T00:00:00Z"):
-        nodes = await index_nodes(repository, session)
-
-    configs = [node.dict(exclude={"id": True}) for node in nodes]
-    assert sorted(configs, key=itemgetter("name")) == [
-        {
-            "name": "core.comments",
-            "description": "A fact table with comments",
-            "type": NodeType.SOURCE,
-            "created_at": datetime(2021, 1, 2, 0, 0),
-            "updated_at": datetime(2021, 1, 2, 0, 0),
-            "query": None,
-        },
-        {
-            "name": "core.dim_users",
-            "description": "User dimension",
-            "type": NodeType.DIMENSION,
-            "created_at": datetime(2021, 1, 2, 0, 0),
-            "updated_at": datetime(2021, 1, 2, 0, 0),
-            "query": "SELECT * FROM core.users",
-        },
-        {
-            "name": "core.num_comments",
-            "description": "Number of comments",
-            "type": NodeType.METRIC,
-            "created_at": datetime(2021, 1, 2, 0, 0),
-            "updated_at": datetime(2021, 1, 2, 0, 0),
-            "query": "SELECT COUNT(*) FROM core.comments",
-        },
-        {
-            "name": "core.users",
-            "description": "A user table",
-            "type": NodeType.SOURCE,
-            "created_at": datetime(2021, 1, 2, 0, 0),
-            "updated_at": datetime(2021, 1, 2, 0, 0),
-            "query": None,
-        },
-    ]
-
-    # update one of the nodes and reindex
-    with freeze_time("2021-01-03T00:00:00Z"):
-        Path("/path/to/repository/nodes/core/users.yaml").touch()
-        nodes = await index_nodes(repository, session)
-    nodes = sorted(nodes, key=lambda node: node.name)
-
-    assert [(node.name, node.updated_at) for node in nodes] == [
-        ("core.comments", datetime(2021, 1, 2, 0, 0)),
-        ("core.dim_users", datetime(2021, 1, 3, 0, 0)),
-        ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
-        ("core.users", datetime(2021, 1, 3, 0, 0)),
-    ]
-
-    # test that a missing timezone is treated as UTC
-    nodes[0].updated_at = nodes[0].updated_at.replace(tzinfo=None)
-    with freeze_time("2021-01-03T00:00:00Z"):
-        nodes = await index_nodes(repository, session)
-    nodes = sorted(nodes, key=lambda node: node.name)
-
-    assert [(node.name, node.updated_at) for node in nodes] == [
-        ("core.comments", datetime(2021, 1, 2, 0, 0)),
-        ("core.dim_users", datetime(2021, 1, 3, 0, 0)),
-        ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
-        ("core.users", datetime(2021, 1, 3, 0, 0)),
-    ]
+    assert {node.name for node in nodes} == {
+        "core.comments",
+        "core.dim_users",
+        "core.num_comments",
+        "core.users",
+    }
 
 
 @pytest.mark.asyncio
