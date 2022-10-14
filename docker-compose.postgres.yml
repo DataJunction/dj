@@ -1,0 +1,40 @@
+# WARNING: this is not a standaonle docker config file. It must be used in addition to the docker-compose.yml.
+#          If in doubt please use the Makefile commands to build DJ docker containers.
+version: "2.2"
+
+volumes:
+  postgres_metadata: {}
+
+services:
+  dj:
+    environment:
+      - DOTENV_FILE=.docker-env/.env-postgres
+    depends_on:
+      - db_migration
+      - postgres_metadata
+      - postgres_examples
+      - redis
+
+  celery:
+    environment:
+      - DOTENV_FILE=.docker-env/.env-postgres
+
+  watchdog:
+    environment:
+      - DOTENV_FILE=.docker-env/.env-postgres
+
+  db_migration:
+    environment:
+      - DOTENV_FILE=.docker-env/.env-postgres
+
+  postgres_metadata:
+    container_name: postgres_metadata
+    image: postgres:latest
+    volumes:
+      - postgres_metadata:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_PASSWORD=FoolishPassword
+      - POSTGRES_USER=username
+      - POSTGRES_DB=dj
+    ports:
+      - "5434:5432"
