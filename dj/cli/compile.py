@@ -318,7 +318,7 @@ async def index_nodes(  # pylint: disable=too-many-locals
                 nodes_to_delete.remove(node.name)
             finished.add(node.name)
 
-    # remove existing metrics that were not found when indexing current configs
+    # remove existing nodes that were not found when indexing current configs
     if nodes_to_delete:
         await asyncio.wait(
             {remove_node(session, existing_nodes[name]) for name in nodes_to_delete},
