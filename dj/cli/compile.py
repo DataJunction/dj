@@ -331,7 +331,7 @@ async def remove_node(session: Session, node: Node):
     """
     Remove a node.
     """
-    _logger.info(f"Removing {node.type} node {node.name}")
+    _logger.info("Removing %s node %s", node.type, node.name)
     session.delete(node)
 
 

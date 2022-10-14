@@ -342,7 +342,7 @@ async def test_index_nodes_removed_existing(
             created_at=datetime(2020, 1, 2, 0, 0),
             updated_at=datetime(2020, 1, 2, 0, 0),
             query="SELECT COUNT(*) FROM core.comments",
-        )
+        ),
     )
 
     session.flush()
