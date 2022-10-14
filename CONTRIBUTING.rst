@@ -311,3 +311,5 @@ We use `Alembic <https://alembic.sqlalchemy.org/en/latest/index.html>`_ to manag
 4. Still inside the container, run ``alembic upgrade head``. This will update the database schema to match the models.
 5. Now run ``alembic downgrade $SHA``, where ``$SHA`` is the previous migration. You can see the hash with ``alembic history``.
 6. Once you've confirmed that both the upgrade and downgrade work, upgrade again and commit the file.
+
+If the migrations include ``alter_column`` or ``drop_column`` make sure to wrap them in a ``batch_alter_table`` context manager so that they work correctly with SQLite. You can see `an example here <https://github.com/DataJunction/dj/pull/224/files#diff-22327a751511fb5eba403e0f30e124c08543243f67c2d09cee4cd756a2ef9df9R27-R28>`_.
