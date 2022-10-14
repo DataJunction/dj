@@ -313,7 +313,7 @@ async def index_nodes(  # pylint: disable=too-many-locals
         for future in done:
             node = future.result()
             nodes[node.name] = node
-            if node.name in existing_metrics:
+            if node.type == NodeType.METRIC and node.name in existing_metrics:
                 existing_metrics.pop(node.name)
             finished.add(node.name)
 
