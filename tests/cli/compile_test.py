@@ -237,6 +237,16 @@ async def test_index_nodes(
         ),
     )
     session.add(Database(name="gsheets", URI="gsheets://"))
+    session.add(
+        Node(
+            name="core.old_num_comments",
+            description="A Number of comments whose config was deleted",
+            type=NodeType.METRIC,
+            created_at=datetime(2020, 1, 2, 0, 0),
+            updated_at=datetime(2020, 1, 2, 0, 0),
+            query="SELECT COUNT(*) FROM core.comments",
+        ),
+    )
     session.flush()
 
     with freeze_time("2021-01-01T00:00:00Z"):
