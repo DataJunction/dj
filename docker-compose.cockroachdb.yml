@@ -30,10 +30,6 @@ services:
     environment:
       - DOTENV_FILE=.docker-env/.env-cockroachdb
 
-  postgres_metadata:
-    profiles:
-      - disabled
-
   postgres_examples:
     profiles:
       - disabled
