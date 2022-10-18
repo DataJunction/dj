@@ -16,7 +16,7 @@ from sqlalchemy.sql.expression import ClauseElement
 from sqlmodel import Session, select
 from sqloxide import parse_sql
 
-from dj.constants import DEFAULT_DIMENSION_COLUMN
+from dj.constants import DEFAULT_DIMENSION_COLUMN, DJ_DATABASE_ID
 from dj.errors import DJError, DJInvalidInputException, ErrorCode
 from dj.models.node import Node, NodeType
 from dj.models.query import QueryCreate
@@ -32,7 +32,15 @@ from dj.sql.parse import (
     get_expression_from_projection,
 )
 from dj.sql.transpile import get_query, get_select_for_node
-from dj.typing import Expression, Identifier, Join, Projection, Relation, Select
+from dj.typing import (
+    Expression,
+    Identifier,
+    Join,
+    ParseTree,
+    Projection,
+    Relation,
+    Select,
+)
 from dj.utils import get_session
 
 FILTER_RE = re.compile(r"([\w\./_]+)(<=|<|>=|>|!=|=)(.+)")
@@ -210,10 +218,58 @@ def find_on_clause(
     raise Exception(f"Node {node.name} has no columns with dimension {dimension.name}")
 
 
+def get_metadata_query(
+    session: Session,
+    tree: ParseTree,
+    query_select: Select,
+) -> QueryCreate:
+    """Creates a query for the `dj` namespace e.g. `dj.metric`"""
+    # currently, all metadata queries only will support nodes
+    source = select(Node)
+
+    # replace wildcard with accepted fields wherever it occurs
+    while "Wildcard" in query_select["projection"]:
+        index = query_select["projection"].index("Wildcard")
+        query_select["projection"] = (
+            query_select["projection"][:index]
+            + [
+                {"UnnamedExpr": {"Identifier": {"value": c.name, "quote_style": None}}}
+                for c in source.columns
+            ]
+            + query_select["projection"][index + 1 :]
+        )
+    # figure out what nodes are being requested
+    from_ = query_select["from"][0]["relation"]["Table"]["name"][1:]
+    if len(from_) != 1:
+        raise Exception(
+            f"Metadata query expected a single type. Got {len(from_)}.",
+        )
+    from_table = from_[0]["value"].upper()
+    # if a node type was specified
+    if from_table != "NODE":
+        try:
+            # filter to that type
+            source = source.where(Node.type == NodeType[from_table])
+        except KeyError as exc:
+            raise Exception(f"No metric type of '{from_table}'.") from exc
+
+    dialect = make_url(session.bind.url).get_dialect()
+
+    # create query
+    query_object = get_query(None, [], tree, None, dialect, source)
+
+    compiled_query = str(
+        query_object.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}),
+    )
+
+    return QueryCreate(database_id=DJ_DATABASE_ID, submitted_query=compiled_query)
+
+
 # pylint: disable=too-many-branches, too-many-locals, too-many-statements
-async def get_query_for_sql(query: str) -> QueryCreate:
+async def get_query_for_sql(query: str) -> Tuple[QueryCreate, bool]:
     """
-    Return a query object given a SQL query querying the repo.
+    Return a query object given a SQL query querying the repo
+    along with whether the query is to be executed against the dj metadata database
 
     Eg:
 
@@ -234,6 +290,10 @@ async def get_query_for_sql(query: str) -> QueryCreate:
     tree = parse_sql(query, dialect="ansi")
     query_select = tree[0]["Query"]["body"]["Select"]
 
+    is_metadata_query = (
+        "dj" == query_select["from"][0]["relation"]["Table"]["name"][0]["value"]
+    )
+
     # fetch all metric and dimension nodes
     nodes = {node.name: node for node in session.exec(select(Node))}
 
@@ -244,6 +304,9 @@ async def get_query_for_sql(query: str) -> QueryCreate:
     }
     for compound_identifier in find_nodes_by_key(query_select, "CompoundIdentifier"):
         identifiers.add(".".join(part["value"] for part in compound_identifier))
+
+    if is_metadata_query:
+        return get_metadata_query(session, tree, query_select), True
 
     requested_metrics: Set[Node] = set()
     requested_dimensions: Set[Node] = set()
@@ -337,7 +400,7 @@ async def get_query_for_sql(query: str) -> QueryCreate:
         query_object.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}),
     )
 
-    return QueryCreate(database_id=database.id, submitted_query=compiled_query)
+    return QueryCreate(database_id=database.id, submitted_query=compiled_query), False
 
 
 def process_metrics(

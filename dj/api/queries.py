@@ -6,8 +6,9 @@ import json
 import logging
 import urllib.parse
 import uuid
+from copy import deepcopy
 from http import HTTPStatus
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 
 import msgpack
 from accept_types import get_best_match
@@ -26,6 +27,7 @@ from sqlmodel import Session
 from dj.config import Settings
 from dj.constants import DJ_DATABASE_ID
 from dj.engine import process_query
+from dj.models.database import Database
 from dj.models.query import (
     Query,
     QueryCreate,
@@ -71,7 +73,7 @@ celery = get_settings().celery  # pylint: disable=invalid-name
         },
     },
 )
-async def submit_query(
+async def submit_query(  # pylint: disable=too-many-locals
     accept: Optional[str] = Header(None),
     *,
     session: Session = Depends(get_session),
@@ -103,17 +105,25 @@ async def submit_query(
             detail=f"Content type not accepted: {content_type}",
         )
     create_query = QueryCreate(**data)
-
     if create_query.database_id == DJ_DATABASE_ID:
-        create_query = await get_query_for_sql(create_query.submitted_query)
+        create_query, is_metadata_query = await get_query_for_sql(
+            create_query.submitted_query,
+        )
 
-    query_with_results = save_query_and_run(
-        create_query,
-        session,
-        settings,
-        response,
-        background_tasks,
-    )
+    if is_metadata_query:
+        query = Query(**create_query.dict(by_alias=True))
+        dj_db = deepcopy(session.get(Database, DJ_DATABASE_ID))
+        query.database = dj_db
+        query.database.URI = session.bind.url
+        query_with_results = process_query(session, settings, query, save=False)
+    else:
+        query_with_results = save_query_and_run(
+            create_query,
+            session,
+            settings,
+            response,
+            background_tasks,
+        )
 
     return_type = get_best_match(accept, ["application/json", "application/msgpack"])
     if not return_type:
@@ -138,7 +148,7 @@ async def submit_query(
 
 
 def save_query_and_run(
-    create_query: QueryCreate,
+    create_query: Union[QueryCreate, Query],
     session: Session,
     settings: Settings,
     response: Response,
@@ -147,7 +157,10 @@ def save_query_and_run(
     """
     Store a new query to the DB and run it.
     """
-    query = Query(**create_query.dict(by_alias=True))
+    if isinstance(create_query, Query):
+        query = create_query
+    else:
+        query = Query(**create_query.dict(by_alias=True))
     query.state = QueryState.ACCEPTED
 
     session.add(query)

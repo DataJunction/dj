@@ -98,24 +98,26 @@ def get_select_for_node(
     return get_query(node.query, node.parents, tree, database, engine.dialect.name)
 
 
-def get_query(
+def get_query(  # pylint: disable=too-many-arguments
     query: Optional[str],
     parents: List[Node],
     tree: ParseTree,
-    database: Database,
+    database: Optional[Database],
     dialect: Optional[str] = None,
+    source: Optional[Select] = None,
 ) -> Select:
     """
     Build a SQLAlchemy query.
     """
     # SELECT ... FROM ...
-    if parents:
+    if not parents:
+        query_object = get_projection(tree, source, dialect)
+    else:
+        if database is None:
+            raise Exception("A Database is required to determine source from parents.")
         source = get_source(query, parents, database, tree, dialect)
         projection = get_projection(tree, source, dialect)
         query_object = projection.select_from(source)
-    else:
-        source = None
-        query_object = get_projection(tree, source, dialect)
 
     # WHERE ...
     selection = get_selection(tree, source, dialect)
@@ -439,7 +441,7 @@ def get_node_from_relation(relation: Relation, parent_map: Dict[str, Node]) -> N
     return parent_map[name]
 
 
-def get_source(  # pylint: disable=too-many-locals
+def get_source(  # pylint: disable=too-many-locals, too-many-arguments
     query: Optional[str],
     parents: List[Node],
     database: Database,
