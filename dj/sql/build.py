@@ -290,9 +290,11 @@ async def get_query_for_sql(query: str) -> Tuple[QueryCreate, bool]:
     tree = parse_sql(query, dialect="ansi")
     query_select = tree[0]["Query"]["body"]["Select"]
 
-    from_=query_select["from"]
+    from_ = query_select["from"]
     from_table_names = from_[0]["relation"]["Table"]["name"] if from_ else []
-    is_metadata_query = "dj" == from_table_names[0]["value"] if from_table_names else False
+    is_metadata_query = (
+        "dj" == from_table_names[0]["value"] if from_table_names else False
+    )
 
     # fetch all metric and dimension nodes
     nodes = {node.name: node for node in session.exec(select(Node))}
