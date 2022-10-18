@@ -61,6 +61,12 @@ class QueryCreate(BaseQuery):
     submitted_query: str
 
 
+class MetadataQueryCreate(QueryCreate):
+    """
+    Model for submitted metadata queries.
+    """
+
+
 class ColumnMetadata(SQLModel):
     """
     A simple model for column metadata.

@@ -6,6 +6,8 @@ volumes:
 
 services:
   dj:
+    stdin_open: true
+    tty: true
     container_name: dj
     environment:
       - DOTENV_FILE=.docker-env/.env

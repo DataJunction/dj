@@ -18,6 +18,8 @@ from sqlmodel import Session, create_engine
 from yarl import URL
 
 from dj.config import Settings
+from dj.constants import DJ_METADATA_DATABASE_ID
+from dj.models.database import Database
 from dj.typing import ColumnType
 
 
@@ -66,6 +68,19 @@ def get_engine() -> Engine:
     engine = create_engine(settings.index)
 
     return engine
+
+
+def get_dj_metadata_database() -> Database:
+    """
+    Create a Database model pointing to the metadata database
+    """
+    return Database(
+        id=DJ_METADATA_DATABASE_ID,
+        name="dj-metadata",
+        description="The DJ metadata database",
+        URI=get_settings().index,
+        read_only=True,
+    )
 
 
 def get_session() -> Iterator[Session]:

@@ -2,11 +2,11 @@ description: A user table
 type: source
 columns:
   id:
-    type: INT
+    type: FLOAT
   full_name:
     type: STR
   age:
-    type: INT
+    type: FLOAT
   country:
     type: STR
   gender:

@@ -19,7 +19,7 @@ from sqloxide import parse_sql
 from dj.constants import DEFAULT_DIMENSION_COLUMN, DJ_DATABASE_ID
 from dj.errors import DJError, DJInvalidInputException, ErrorCode
 from dj.models.node import Node, NodeType
-from dj.models.query import QueryCreate
+from dj.models.query import MetadataQueryCreate, QueryCreate
 from dj.sql.dag import (
     get_database_for_nodes,
     get_dimensions,
@@ -222,7 +222,7 @@ def get_metadata_query(
     session: Session,
     tree: ParseTree,
     query_select: Select,
-) -> QueryCreate:
+) -> MetadataQueryCreate:
     """Creates a query for the `dj` namespace e.g. `dj.metric`"""
     # currently, all metadata queries only will support nodes
     source = select(Node)
@@ -262,11 +262,14 @@ def get_metadata_query(
         query_object.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}),
     )
 
-    return QueryCreate(database_id=DJ_DATABASE_ID, submitted_query=compiled_query)
+    return MetadataQueryCreate(
+        database_id=DJ_DATABASE_ID,
+        submitted_query=compiled_query,
+    )
 
 
 # pylint: disable=too-many-branches, too-many-locals, too-many-statements
-async def get_query_for_sql(query: str) -> Tuple[QueryCreate, bool]:
+async def get_query_for_sql(query: str) -> QueryCreate:
     """
     Return a query object given a SQL query querying the repo
     along with whether the query is to be executed against the dj metadata database
@@ -308,7 +311,7 @@ async def get_query_for_sql(query: str) -> Tuple[QueryCreate, bool]:
         identifiers.add(".".join(part["value"] for part in compound_identifier))
 
     if is_metadata_query:
-        return get_metadata_query(session, tree, query_select), True
+        return get_metadata_query(session, tree, query_select)
 
     requested_metrics: Set[Node] = set()
     requested_dimensions: Set[Node] = set()

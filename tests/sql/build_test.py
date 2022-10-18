@@ -517,7 +517,7 @@ async def test_get_query_for_sql(mocker: MockerFixture, session: Session) -> Non
     session.commit()
 
     sql = "SELECT B FROM metrics"
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -573,7 +573,7 @@ async def test_get_query_for_sql_no_metrics(
     session.commit()
 
     sql = 'SELECT "core.users.gender", "core.users.age" FROM metrics'
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -597,7 +597,7 @@ FROM dim_users) AS "core.users"'''
 
     sql = 'SELECT "core.users.gender", "core.other_dim.full_name" FROM metrics'
     with pytest.raises(Exception) as excinfo:
-        _ = (await get_query_for_sql(sql))[0]
+        await get_query_for_sql(sql)
     assert (
         str(excinfo.value)
         == "Cannot query from multiple dimensions when no metric is specified"
@@ -620,7 +620,7 @@ async def test_get_query_for_sql_no_tables(
     session.commit()
 
     sql = "SELECT 1"
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
     assert create_query.submitted_query == "SELECT 1"
@@ -668,7 +668,7 @@ async def test_get_query_for_sql_having(
     session.commit()
 
     sql = "SELECT B FROM metrics HAVING B > 10"
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -683,7 +683,7 @@ HAVING count('*') > 10"""
 
     sql = "SELECT B FROM metrics HAVING C > 10"
     with pytest.raises(Exception) as excinfo:
-        _ = (await get_query_for_sql(sql))[0]
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid dimension: C"
 
 
@@ -764,7 +764,7 @@ FROM metrics
 WHERE "core.users.age" > 25
 GROUP BY "core.users.gender"
     """
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -785,7 +785,7 @@ WHERE "core.users.age" > 25
 GROUP BY "core.users.invalid"
     """
     with pytest.raises(Exception) as excinfo:
-        _ = (await get_query_for_sql(sql))[0]
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid dimension: core.users.invalid"
 
 
@@ -868,7 +868,7 @@ GROUP BY "core.users.gender"
 ORDER BY "core.num_comments" DESC
 LIMIT 100;
     """
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     space = " "
 
@@ -890,7 +890,7 @@ GROUP BY "core.users.gender"
 ORDER BY "core.num_comments" ASC
 LIMIT 100;
     """
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert (
         create_query.submitted_query
@@ -908,7 +908,7 @@ GROUP BY "core.users.gender"
 ORDER BY "core.num_comments" ASC
 LIMIT 100;
     """
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert (
         create_query.submitted_query
@@ -927,7 +927,7 @@ GROUP BY "core.users.gender"
 ORDER BY "core.users.gender" ASC
 LIMIT 100;
     """
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert (
         create_query.submitted_query
@@ -947,7 +947,7 @@ ORDER BY invalid ASC
 LIMIT 100;
     """
     with pytest.raises(Exception) as excinfo:
-        _ = (await get_query_for_sql(sql))[0]
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid identifier: invalid"
 
 
@@ -993,7 +993,7 @@ async def test_get_query_for_sql_compound_names(
     session.commit()
 
     sql = "SELECT core.B FROM metrics"
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1060,7 +1060,7 @@ async def test_get_query_for_sql_multiple_databases(
     session.commit()
 
     sql = "SELECT B FROM metrics"
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 2  # fast
 
@@ -1069,7 +1069,7 @@ async def test_get_query_for_sql_multiple_databases(
     session.commit()
 
     sql = "SELECT B FROM metrics"
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1  # slow
 
@@ -1127,7 +1127,7 @@ async def test_get_query_for_sql_multiple_metrics(
     session.commit()
 
     sql = "SELECT B, C FROM metrics"
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1193,7 +1193,7 @@ async def test_get_query_for_sql_non_identifiers(
     session.commit()
 
     sql = "SELECT B, C, 'test' FROM metrics"
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1263,7 +1263,7 @@ async def test_get_query_for_sql_different_parents(
 
     sql = "SELECT C, D FROM metrics"
     with pytest.raises(Exception) as excinfo:
-        _ = (await get_query_for_sql(sql))[0]
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Metrics C and D have non-shared parents"
 
 
@@ -1304,7 +1304,7 @@ async def test_get_query_for_sql_not_metric(
 
     sql = "SELECT B FROM metrics"
     with pytest.raises(Exception) as excinfo:
-        _ = (await get_query_for_sql(sql))[0]
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid dimension: B"
 
 
@@ -1335,7 +1335,7 @@ async def test_get_query_for_sql_no_databases(
 
     sql = "SELECT B FROM metrics"
     with pytest.raises(Exception) as excinfo:
-        _ = (await get_query_for_sql(sql))[0]
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "No valid database was found"
 
 
@@ -1378,7 +1378,7 @@ async def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) 
     session.commit()
 
     sql = "SELECT B AS my_metric FROM metrics"
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1437,7 +1437,7 @@ SELECT "core.num_comments", "core.comments.user_id" FROM metrics
 WHERE "core.comments.user_id" > 1
 GROUP BY "core.comments.user_id"
     """
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1500,7 +1500,7 @@ FROM metrics
 GROUP BY
     DATE_TRUNC('day', "core.comments.timestamp")
     """
-    create_query = (await get_query_for_sql(sql))[0]
+    create_query = await get_query_for_sql(sql)
 
     assert create_query.database_id == 1
 
@@ -1559,7 +1559,7 @@ SELECT "core.num_comments" FROM metrics
 WHERE "core.some_other_parent.user_id" > 1
     """
     with pytest.raises(Exception) as excinfo:
-        _ = (await get_query_for_sql(sql))[0]
+        await get_query_for_sql(sql)
     assert str(excinfo.value) == "Invalid dimension: core.some_other_parent.user_id"
 
 

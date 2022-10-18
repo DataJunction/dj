@@ -6,9 +6,8 @@ import json
 import logging
 import urllib.parse
 import uuid
-from copy import deepcopy
 from http import HTTPStatus
-from typing import Any, List, Optional, Union
+from typing import Any, List, Optional
 
 import msgpack
 from accept_types import get_best_match
@@ -27,8 +26,8 @@ from sqlmodel import Session
 from dj.config import Settings
 from dj.constants import DJ_DATABASE_ID
 from dj.engine import process_query
-from dj.models.database import Database
 from dj.models.query import (
+    MetadataQueryCreate,
     Query,
     QueryCreate,
     QueryResults,
@@ -39,7 +38,7 @@ from dj.models.query import (
     encode_results,
 )
 from dj.sql.build import get_query_for_sql
-from dj.utils import get_session, get_settings
+from dj.utils import get_dj_metadata_database, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -105,17 +104,15 @@ async def submit_query(  # pylint: disable=too-many-locals
             detail=f"Content type not accepted: {content_type}",
         )
     create_query = QueryCreate(**data)
-    is_metadata_query = False
     if create_query.database_id == DJ_DATABASE_ID:
-        create_query, is_metadata_query = await get_query_for_sql(
+        create_query = await get_query_for_sql(
             create_query.submitted_query,
         )
 
-    if is_metadata_query:
+    if isinstance(create_query, MetadataQueryCreate):
         query = Query(**create_query.dict(by_alias=True))
-        dj_db = deepcopy(session.get(Database, DJ_DATABASE_ID))
+        dj_db = get_dj_metadata_database()
         query.database = dj_db
-        query.database.URI = session.bind.url
         query_with_results = process_query(session, settings, query, save=False)
     else:
         query_with_results = save_query_and_run(
@@ -149,7 +146,7 @@ async def submit_query(  # pylint: disable=too-many-locals
 
 
 def save_query_and_run(
-    create_query: Union[QueryCreate, Query],
+    create_query: QueryCreate,
     session: Session,
     settings: Settings,
     response: Response,
@@ -158,10 +155,7 @@ def save_query_and_run(
     """
     Store a new query to the DB and run it.
     """
-    if isinstance(create_query, Query):
-        query = create_query
-    else:
-        query = Query(**create_query.dict(by_alias=True))
+    query = Query(**create_query.dict(by_alias=True))
     query.state = QueryState.ACCEPTED
 
     session.add(query)

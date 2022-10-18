@@ -5,6 +5,7 @@ Useful constants.
 from datetime import timedelta
 
 DJ_DATABASE_ID = 0
+DJ_METADATA_DATABASE_ID = -2
 SQLITE_DATABASE_ID = -1
 
 DEFAULT_DIMENSION_COLUMN = "id"
