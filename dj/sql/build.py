@@ -16,7 +16,7 @@ from sqlalchemy.sql.expression import ClauseElement
 from sqlmodel import Session, select
 from sqloxide import parse_sql
 
-from dj.constants import DEFAULT_DIMENSION_COLUMN, DJ_DATABASE_ID
+from dj.constants import DEFAULT_DIMENSION_COLUMN, DJ_METADATA_DATABASE_ID
 from dj.errors import DJError, DJInvalidInputException, ErrorCode
 from dj.models.node import Node, NodeType
 from dj.models.query import MetadataQueryCreate, QueryCreate
@@ -263,7 +263,7 @@ def get_metadata_query(
     )
 
     return MetadataQueryCreate(
-        database_id=DJ_DATABASE_ID,
+        database_id=DJ_METADATA_DATABASE_ID,
         submitted_query=compiled_query,
     )
 
@@ -405,7 +405,7 @@ async def get_query_for_sql(query: str) -> QueryCreate:
         query_object.compile(dialect=dialect(), compile_kwargs={"literal_binds": True}),
     )
 
-    return QueryCreate(database_id=database.id, submitted_query=compiled_query), False
+    return QueryCreate(database_id=database.id, submitted_query=compiled_query)
 
 
 def process_metrics(
