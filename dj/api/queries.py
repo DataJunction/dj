@@ -105,6 +105,7 @@ async def submit_query(  # pylint: disable=too-many-locals
             detail=f"Content type not accepted: {content_type}",
         )
     create_query = QueryCreate(**data)
+    is_metadata_query = False
     if create_query.database_id == DJ_DATABASE_ID:
         create_query, is_metadata_query = await get_query_for_sql(
             create_query.submitted_query,
