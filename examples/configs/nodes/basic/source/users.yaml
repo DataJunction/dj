@@ -14,7 +14,7 @@ columns:
   preferred_language:
     type: STR
   secret_number:
-    type: INT
+    type: FLOAT
 tables:
   gsheets:
   - catalog: null
