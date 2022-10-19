@@ -74,7 +74,6 @@ def run_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     for statement in statements:
         # Druid doesn't like statements that end in a semicolon...
         sql = str(statement).strip().rstrip(";")
-        # import pdb; pdb.set_trace()
         results = connection.execute(text(sql))
         stream = (tuple(row) for row in results)
         columns = get_columns_from_description(
