@@ -2,11 +2,11 @@ description: A user table
 type: source
 columns:
   id:
-    type: FLOAT
+    type: INT
   full_name:
     type: STR
   age:
-    type: FLOAT
+    type: INT
   country:
     type: STR
   gender:
@@ -14,7 +14,7 @@ columns:
   preferred_language:
     type: STR
   secret_number:
-    type: FLOAT
+    type: INT
 tables:
   gsheets:
   - catalog: null
