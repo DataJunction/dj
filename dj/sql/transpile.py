@@ -180,6 +180,30 @@ def get_orderby(
     return expressions
 
 
+def get_resolved_num_groupby(
+    tree: ParseTree,
+    groupby: List[Expression],
+) -> List[Expression]:
+    """
+    Resolve a ``GROUP BY`` clause by replacing each projection index with the column
+
+    Eg: GROUP BY 1
+    """
+    resolved_groupby = []
+    for group in groupby:
+        if not group.get("Value") or not group.get("Value").get("Number"):  # type: ignore
+            resolved_groupby.append(
+                group,
+            )  # If not a number, keep ``GROUP BY`` unchanged
+        else:
+            num = group["Value"]["Number"]
+            projection = next(find_nodes_by_key(tree, "projection"))[int(num[0][0]) - 1]
+            resolved_groupby.append(
+                projection.get("ExprWithAlias") or projection.get("UnnamedExpr"),
+            )
+    return resolved_groupby
+
+
 def get_groupby(
     tree: ParseTree,
     source: Optional[Select] = None,
@@ -189,7 +213,10 @@ def get_groupby(
     Build the ``GROUP BY`` clause of a query.
     """
     groupby = next(find_nodes_by_key(tree, "group_by"))
-    return [get_expression(expression, source, dialect) for expression in groupby]
+    resolved_groupby = get_resolved_num_groupby(tree, groupby)
+    return [
+        get_expression(expression, source, dialect) for expression in resolved_groupby
+    ]
 
 
 def get_having(

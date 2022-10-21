@@ -1452,6 +1452,66 @@ WHERE "core.comments".user_id > 1 GROUP BY "core.comments".user_id"""
 
 
 @pytest.mark.asyncio
+async def test_get_query_for_sql_where_groupby_num(
+    mocker: MockerFixture,
+    session: Session,
+) -> None:
+    """
+    Test ``get_query_for_sql`` with a where and a group by.
+    """
+    get_session = mocker.patch("dj.sql.build.get_session")
+    get_session().__next__.return_value = session
+
+    database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
+
+    comments = Node(
+        name="core.comments",
+        tables=[
+            Table(
+                database=database,
+                table="comments",
+                columns=[
+                    Column(name="user_id", type=ColumnType.INT),
+                    Column(name="comment", type=ColumnType.STR),
+                ],
+            ),
+        ],
+    )
+
+    engine = create_engine(database.URI)
+    connection = engine.connect()
+    connection.execute("CREATE TABLE comments (user_id INT, comment TEXT)")
+    mocker.patch("dj.models.database.create_engine", return_value=engine)
+
+    num_comments = Node(
+        name="core.num_comments",
+        type=NodeType.METRIC,
+        query="SELECT COUNT(*) FROM core.comments",
+        parents=[comments],
+    )
+    session.add(num_comments)
+    session.commit()
+
+    sql = """
+SELECT "core.num_comments", "core.comments.user_id" FROM metrics
+WHERE "core.comments.user_id" > 1
+GROUP BY 2
+    """
+    create_query = await get_query_for_sql(sql)
+
+    assert create_query.database_id == 1
+
+    space = " "
+    assert (
+        create_query.submitted_query
+        == f"""SELECT count('*') AS "core.num_comments", "core.comments".user_id{space}
+FROM (SELECT comments.user_id AS user_id, comments.comment AS comment{space}
+FROM comments) AS "core.comments"{space}
+WHERE "core.comments".user_id > 1 GROUP BY "core.comments".user_id"""
+    )
+
+
+@pytest.mark.asyncio
 async def test_get_query_for_sql_date_trunc(
     mocker: MockerFixture,
     session: Session,
