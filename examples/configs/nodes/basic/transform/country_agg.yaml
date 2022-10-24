@@ -4,7 +4,7 @@ query: |-
   SELECT country,
          COUNT(DISTINCT id) AS num_users
   FROM basic.source.users
-  GROUP BY country
+  GROUP BY 1
 columns:
   country:
     type: STR
