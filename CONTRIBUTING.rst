@@ -313,3 +313,66 @@ We use `Alembic <https://alembic.sqlalchemy.org/en/latest/index.html>`_ to manag
 6. Once you've confirmed that both the upgrade and downgrade work, upgrade again and commit the file.
 
 If the migrations include ``alter_column`` or ``drop_column`` make sure to wrap them in a ``batch_alter_table`` context manager so that they work correctly with SQLite. You can see `an example here <https://github.com/DataJunction/dj/pull/224/files#diff-22327a751511fb5eba403e0f30e124c08543243f67c2d09cee4cd756a2ef9df9R27-R28>`_.
+
+Development tips
+===================
+
+Using ``PYTEST_ARGS`` with ``make test``
+----------------------------------------
+
+If you'd like to pass additional arguments to pytest when running `make test`, you can define them as ``PYTEST_ARGS``. For example, you can include
+`--fixtures` to see a list of all fixtures.
+
+.. code-block:: sh
+
+    make test PYTEST_ARGS="--fixtures"
+
+Running a Subset of Tests
+-------------------------
+
+When working on tests, it's common to want to run a specific test by name. This can be done by passing ``-k`` as an additional pytest argument along
+with a string expression. Pytest will only run tests which contain names that match the given string expression.
+
+.. code-block:: sh
+
+    make test PYTEST_ARGS="-k test_main_compile"
+
+Enabling ``pdb`` When Running Tests
+-----------------------------------
+
+If you'd like to drop into ``pdb`` when a test fails, or on a line where you've added ``pdb.set_trace()``, you can pass ``--pdb`` as a pytest argument.
+
+.. code-block:: sh
+
+    make test PYTEST_ARGS="--pdb"
+
+Using ``pdb`` In Docker
+-----------------------
+
+The included docker compose files make it easy to get a development environment up and running locally. When debugging or working on a new feature,
+it's helpful to set breakpoints in the source code to drop into ``pdb`` at runtime. In order to do this while using the docker compose setup, there
+are three steps.
+
+1. Set a trace in the source code on the line where you'd like to drop into ``pdb``.
+
+.. code-block:: python
+
+  import pdb; pdb.set_trace()
+
+2. In the docker compose file, enable ``stdin_open`` and ``tty`` on the service you'd like debug.
+
+.. code-block:: YAML
+
+  services:
+    dj:
+      stdin_open: true
+      tty: true
+      ...
+
+3. Once the docker environment is running, attach to the container.
+
+.. code-block:: sh
+
+  docker attach dj
+
+When the breakpoint is hit, the attached session will enter an interactive ``pdb`` session.
