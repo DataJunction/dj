@@ -23,7 +23,13 @@ from sqlalchemy.engine.url import URL
 from sqlmodel import Session, create_engine, select
 from watchfiles import Change, awatch
 
-from dj.constants import DEFAULT_DIMENSION_COLUMN, DJ_DATABASE_ID, SQLITE_DATABASE_ID
+from dj.constants import (
+    DEFAULT_DIMENSION_COLUMN,
+    DJ_DATABASE_ID,
+    DJ_DATABASE_UUID,
+    SQLITE_DATABASE_ID,
+    SQLITE_DATABASE_UUID,
+)
 from dj.models.column import Column
 from dj.models.database import Database
 from dj.models.node import Node, NodeType, NodeYAML
@@ -112,6 +118,7 @@ async def add_special_databases(session: Session) -> None:
                     ),
                 ),
                 read_only=True,
+                uuid=DJ_DATABASE_UUID,
             ),
         )
 
@@ -124,6 +131,7 @@ async def add_special_databases(session: Session) -> None:
                 URI="sqlite://",
                 read_only=True,
                 cost=0,
+                uuid=SQLITE_DATABASE_UUID,
             ),
         )
 

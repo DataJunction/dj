@@ -5,10 +5,12 @@ Models for databases.
 from datetime import datetime, timezone
 from functools import partial
 from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict
+from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, String
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql.schema import Column as SqlaColumn
+from sqlalchemy_utils import UUIDType
 from sqlmodel import JSON, Field, Relationship, SQLModel, create_engine
 
 if TYPE_CHECKING:
@@ -40,6 +42,8 @@ class Database(SQLModel, table=True):  # type: ignore
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    uuid: UUID = Field(default_factory=uuid4, sa_column=SqlaColumn(UUIDType()))
+
     name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
     description: str = ""
     URI: str
