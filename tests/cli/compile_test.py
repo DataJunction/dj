@@ -65,7 +65,9 @@ async def test_index_databases(repository: Path, session: Session) -> None:
         databases = await index_databases(repository, session)
 
     configs = [database.dict(exclude={"id": True}) for database in databases]
-    assert sorted(configs, key=itemgetter("name")) == [
+    configs = sorted(configs, key=itemgetter("name"))
+    uuids = [config["uuid"] for config in configs]
+    assert configs == [
         {
             "async_": False,
             "cost": 1.0,
@@ -76,6 +78,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "URI": "druid://druid_broker:8082/druid/v2/sql/",
             "read_only": True,
             "extra_params": {},
+            "uuid": uuids[0],
         },
         {
             "async_": False,
@@ -100,6 +103,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
                     ),
                 },
             },
+            "uuid": uuids[1],
         },
         {
             "async_": False,
@@ -111,6 +115,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
             "URI": "postgresql://username:FoolishPassword@postgres_examples:5432/examples",
             "read_only": False,
             "extra_params": {"connect_args": {"sslmode": "prefer"}},
+            "uuid": uuids[2],
         },
     ]
 
