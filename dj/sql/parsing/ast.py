@@ -1,24 +1,34 @@
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field, fields
+from enum import Enum
+from itertools import chain
 from typing import (
     Any,
+    Callable,
+    Generic,
     Iterator,
     List,
     Optional,
-    Union,
-    Callable,
-    TypeVar,
-    Generic,
-    Type,
     Set,
+    Type,
+    TypeVar,
+    Union,
 )
 
-from dataclasses import dataclass, field, fields
-from typing_extensions import Self
-from enum import Enum
-
-from abc import ABC, abstractmethod
-from itertools import chain
-
 import sqlalchemy
+from typing_extensions import Self
+
+
+def flatten(maybe_iterable):
+    try:
+        for subiterator in maybe_iterable:
+            if isinstance(subiterator, str):
+                yield subiterator
+                continue
+            for element in flatten(subiterator):
+                yield element
+    except TypeError:
+        yield maybe_iterable
 
 
 class Node(ABC):
@@ -77,7 +87,7 @@ class Node(ABC):
 
         if nodes_only:
             child_generator = filter(
-                lambda child: isinstance(child, Node), child_generator
+                lambda child: isinstance(child, Node), child_generator,
             )
 
         if nones:
@@ -100,7 +110,7 @@ class Node(ABC):
             *[
                 child.filter(func)
                 for child in self.fields(
-                    flat=True, nodes_only=True, obfuscated=True, nones=False
+                    flat=True, nodes_only=True, obfuscated=True, nones=False,
                 )
             ]
         ):
@@ -117,7 +127,7 @@ class Node(ABC):
         traverse ast and apply func to each Node
         """
         func(self)
-        for child in self.flat_children:
+        for child in self.children:
             child.apply(func)
 
     def compare(self: Self, other: "Node") -> bool:
@@ -168,6 +178,9 @@ class UnaryOp(Operation):
     op: str
     expr: Expression
 
+    def __hash__(self: Self) -> int:
+        return hash((UnaryOp, self.op))
+
     def sql(self) -> str:
         return f"{self.op} {self.expr.sql()}"
 
@@ -196,6 +209,9 @@ class BinaryOp(Operation):
     left: Expression
     op: BinaryOpKind
     right: Expression
+
+    def __hash__(self: Self) -> int:
+        return hash((BinaryOp, self.op))
 
     def sql(self) -> str:
         return f"{self.left.sql()} {self.op.value} {self.right.sql()}"

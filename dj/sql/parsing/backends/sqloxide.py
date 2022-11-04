@@ -1,43 +1,30 @@
-from typing import (
-    List,
-    Union,
-    Set,
-)
+from itertools import chain
+from typing import List, Set, Union
 
+from sqloxide import parse_sql
 from typing_extensions import Self
 
-from itertools import chain
-
-import sqlalchemy
-
 from dj.sql.parsing.ast import (
+    Alias,
     BinaryOp,
-    Named,
-    Value,
-    Join,
+    BinaryOpKind,
+    Column,
     Expression,
-    UnaryOp,
     From,
-    Wildcard,
+    Join,
+    JoinKind,
+    Named,
     Query,
     Select,
+    Table,
+    UnaryOp,
+    Value,
+    Wildcard,
 )
 
 
 class DJParseException(Exception):
     """Exception type raised upon problem creating a DJ sql ast"""
-
-
-def flatten(maybe_iterable):
-    try:
-        for subiterator in maybe_iterable:
-            if isinstance(subiterator, str):
-                yield subiterator
-                continue
-            for element in flatten(subiterator):
-                yield element
-    except TypeError:
-        yield maybe_iterable
 
 
 def match_keys(parse_tree: dict, *keys: Set[str]) -> bool:
@@ -107,7 +94,7 @@ def parse_column(parse_tree: dict):
         subtree = parse_tree["CompoundIdentifier"]
         if len(subtree) != 2:
             raise DJParseException(
-                "Could not handle compound identifier of more than two identifiers"
+                "Could not handle compound identifier of more than two identifiers",
             )
         table = Table(subtree[0]["value"], subtree[0]["quote_style"])
         column = Column(subtree[1]["value"], subtree[1]["quote_style"], table)
@@ -123,7 +110,7 @@ def parse_table(parse_tree: dict) -> Table:
         name = subtree["name"]
         if len(name) != 1:
             raise DJParseException(
-                "Could not handle identifier for table with more than one identifiers"
+                "Could not handle identifier for table with more than one identifiers",
             )
         table = Table(name[0]["value"], name[0]["quote_style"])
         if subtree["alias"]:
@@ -206,10 +193,20 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
                     aliased_query["alias"]["name"]["value"],
                     aliased_query["alias"]["name"]["quote_style"],
                     parse_select(aliased_query["query"]["body"]["Select"]),
-                ).add_self_as_parent()
+                ).add_self_as_parent(),
             )
         return ctes
     raise DJParseException("Failed to parse ctes")
+
+
+def parse_query(parse_tree) -> Query:
+    if match_keys_subset(parse_tree, {"with", "body"}):
+        return Query(
+            parse_ctes(parse_tree["with"]) if parse_tree["with"] is not None else [],
+            parse_select(parse_tree["body"]["Select"]),
+        ).add_self_as_parent()
+
+    raise Exception("Failed to parse query")
 
 
 def parse_oxide_tree(parse_tree: dict) -> Query:
@@ -232,4 +229,4 @@ def parse(sql: str) -> Query:
     oxide_parsed = parse_sql(sql, "ansi")
     if len(oxide_parsed) != 1:
         raise DJParseException("Expected a single sql statement.")
-    return [parse_oxide_tree(parsed) for parsed in oxide_parsed]
+    return parse_oxide_tree(oxide_parsed[0])
