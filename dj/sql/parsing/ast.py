@@ -72,22 +72,27 @@ class Node(ABC):
         nones: bool = False,
     ) -> Iterator:
         """
-        returns all children of a node given filters and optional flattening
+        Args:
+            flat: return a flattened iterator (if children are iterable)
+            nodes_only: do not yield children that are not Nodes (trumped by `obfuscated`)
+            obfuscated: yield fields that have leading underscores (typically accessed via a property)
+            nones: yield values that are None (optional fields without a value); trumped by `nodes_only`
 
+        Returns:
+            Iterator: returns all children of a node given filters and optional flattening (by default Iterator[Node])
         """
         child_generator = (
             self.__dict__[field.name]
             for field in fields(self)
-            if not (
-                obfuscated and field.name.startswith("_")
-            )  # exclude obfuscated fields if `obfuscated` is True
-        )
+            if (not field.name.startswith("_") if not obfuscated else True)
+        )  # exclude obfuscated fields if `obfuscated` is True
         if flat:
             child_generator = flatten(child_generator)
 
         if nodes_only:
             child_generator = filter(
-                lambda child: isinstance(child, Node), child_generator,
+                lambda child: isinstance(child, Node),
+                child_generator,
             )
 
         if nones:
@@ -106,14 +111,7 @@ class Node(ABC):
         """
         if func(self):
             yield self
-        for node in chain(
-            *[
-                child.filter(func)
-                for child in self.fields(
-                    flat=True, nodes_only=True, obfuscated=True, nones=False,
-                )
-            ]
-        ):
+        for node in chain(*[child.filter(func) for child in self.children]):
             yield node
 
     def find_all(self: Self, node_type: Type["Node"]) -> Iterator["Node"]:
@@ -470,12 +468,3 @@ class Query(Node):
 
     def sql_alchemy(self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
         return self.child.sql_alchemy(select).alias(self.name)
-
-
-def parse_query(parse_tree) -> Query:
-    return Query(
-        parse_ctes(parse_tree["with"]) if parse_tree["with"] is not None else [],
-        parse_select(parse_tree["body"]["Select"]),
-    ).add_self_as_parent()
-
-    raise Exception("Failed to parse query")
