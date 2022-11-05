@@ -46,11 +46,11 @@ def parse_op(parse_tree: dict):
                     parse_expression(subtree["left"]),
                     BinaryOpKind[binop_kind],
                     parse_expression(subtree["right"]),
-                )
+                ).add_self_as_parent()
         raise DJParseException(f"Unknown operator {binop_kind}")
     elif match_keys(parse_tree, {"UnaryOp"}):
         subtree = parse_tree["UnaryOp"]
-        return UnaryOp(subtree["op"], subtree["expr"])
+        return UnaryOp(subtree["op"], subtree["expr"]).add_self_as_parent()
     raise DJParseException("Failed to parse Operator")
 
 
@@ -178,6 +178,7 @@ def parse_select(parse_tree: dict) -> List[Alias[Select]]:
             parse_expression(parse_tree["selection"])
             if parse_tree["selection"] is not None
             else None,
+            None,
         ).add_self_as_parent()
 
     raise DJParseException("Failed to parse Select")
@@ -200,10 +201,16 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
 
 
 def parse_query(parse_tree) -> Query:
-    if match_keys_subset(parse_tree, {"with", "body"}):
+    if match_keys_subset(parse_tree, {"with", "body", "limit"}):
+        select = parse_select(parse_tree["body"]["Select"])
+        select.limit = (
+            parse_value(parse_tree["limit"])
+            if parse_tree["limit"] is not None
+            else None
+        )
         return Query(
             parse_ctes(parse_tree["with"]) if parse_tree["with"] is not None else [],
-            parse_select(parse_tree["body"]["Select"]),
+            select,
         ).add_self_as_parent()
 
     raise Exception("Failed to parse query")
