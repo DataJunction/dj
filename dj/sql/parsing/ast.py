@@ -1,7 +1,10 @@
+"""
+Types to represent the DJ AST used as an intermediate representation for DJ operations
+"""
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 from enum import Enum
-from itertools import chain
+from itertools import chain, zip_longest
 from typing import (
     Any,
     Callable,
@@ -15,14 +18,13 @@ from typing import (
     Union,
 )
 
-import sqlalchemy
 from typing_extensions import Self
 
 
 def flatten(maybe_iterable):
     try:
         for subiterator in maybe_iterable:
-            if isinstance(subiterator, str):
+            if not any(isinstance(subiterator, lts) for lts in (list, tuple, set)):
                 yield subiterator
                 continue
             for element in flatten(subiterator):
@@ -134,14 +136,8 @@ class Node(ABC):
         """
         return self == other and all(
             child.compare(other_child)
-            for child, other_child in zip(self.children, other.children)
+            for child, other_child in zip_longest(self.children, other.children)
         )
-
-    def sql(self: Self) -> str:
-        """
-        return the ansi sql representing the sub-ast
-        """
-        return " ".join([child.sql() for child in self.children])
 
     def __eq__(self: Self, other: "Node") -> bool:
         """
@@ -154,12 +150,6 @@ class Node(ABC):
     def __hash__(self: Self) -> int:
         """
         hash a node
-        """
-
-    @abstractmethod
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        """
-        takes a sqlalchemy select and binds to it whatever self represents
         """
 
 
@@ -178,12 +168,6 @@ class UnaryOp(Operation):
 
     def __hash__(self: Self) -> int:
         return hash((UnaryOp, self.op))
-
-    def sql(self) -> str:
-        return f"{self.op} {self.expr.sql()}"
-
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
 
 
 class BinaryOpKind(Enum):
@@ -211,12 +195,6 @@ class BinaryOp(Operation):
     def __hash__(self: Self) -> int:
         return hash((BinaryOp, self.op))
 
-    def sql(self) -> str:
-        return f"{self.left.sql()} {self.op.value} {self.right.sql()}"
-
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
-
 
 @dataclass
 class Value(Expression):
@@ -228,29 +206,17 @@ class Value(Expression):
     def __hash__(self: Self) -> int:
         return hash(self.value)
 
-    def sql(self: Self) -> str:
-        return str(self.value)
-
 
 class Number(Value):  # Number
     value: Union[float, int]
-
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
 
 
 class String(Value):  # SingleQuotedString
     value: str
 
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
-
 
 class Boolean(Value):  # Boolean
     value: bool
-
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
 
 
 @dataclass
@@ -259,9 +225,6 @@ class Named(Expression):
 
     name: str
     quote_style: Optional[str]
-
-    def sql(self: Self) -> str:
-        return self.quoted_name
 
     @property
     def quoted_name(self: Self) -> str:
@@ -282,17 +245,11 @@ NodeType = TypeVar("NodeType", bound=Node)
 class Alias(Named, Generic[NodeType]):
     child: Node
 
-    def sql(self: Self) -> str:
-        return f"({self.child.sql()}) AS {self.quoted_name}"
-
     def __eq__(self: Self, other: Any) -> bool:
         return type(other) == Alias and self.name == other.name
 
     def __hash__(self: Self) -> int:
         return hash((self.__class__, self.name))
-
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        return self.child.sql_alchemy(select).alias(self.name)
 
 
 @dataclass
@@ -314,13 +271,6 @@ class Column(Named):
     def __eq__(self: Self, other: Any) -> bool:
         return type(other) == Column and self.name == other.name
 
-    def sql(self: Self) -> str:
-        if self.table:
-            return f'{self.quote_style if self.quote_style else ""}{self.table.alias_or_name()}.{self.name}{self.quote_style if self.quote_style else ""}'
-
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
-
 
 @dataclass
 class Wildcard(Expression):
@@ -335,17 +285,11 @@ class Wildcard(Expression):
             self._tables.append(table)
         return self
 
-    def sql(self: Self) -> str:
-        return "*"
-
     def __eq__(self: Self, other: Any) -> bool:
         return type(other) == Wildcard
 
     def __hash__(self: Self) -> int:
         return id(Wildcard)
-
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
 
 
 @dataclass
@@ -368,9 +312,6 @@ class Table(Named):
     def __eq__(self: Self, other: Any) -> bool:
         return type(other) == Table and self.name == other.name
 
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
-
 
 class JoinKind(Enum):
     Inner = "INNER JOIN"
@@ -388,12 +329,6 @@ class Join(Node):
     def __hash__(self: Self) -> int:
         return hash((From, self.kind))
 
-    def sql(self: Self) -> str:
-        return f"""{self.kind.value} {self.table.sql()}\n\tON {self.on.sql()}"""
-
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
-
 
 @dataclass
 class From(Node):
@@ -402,16 +337,6 @@ class From(Node):
 
     def __hash__(self: Self) -> int:
         return id(From)
-
-    def sql(self: Self) -> str:
-        return (
-            f"FROM {self.table.sql()}"
-            + "\n"
-            + "\n".join([join.sql() for join in self.joins])
-        )
-
-    def sql_alchemy(self: Self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
 
 
 @dataclass
@@ -422,26 +347,13 @@ class Select(Node):
     having: Optional[Expression]
     projection: List[Union[Expression, Alias[Expression]]]
     where: Optional[Expression]
-    #     sort_by: List[Expression]
-    #     limit: Optional[Number] #not in ansi sql
+    limit: Optional[Number]
 
     def __eq__(self: Self, other: Any) -> bool:
         return type(other) == Select
 
     def __hash__(self: Self) -> int:
         return id(self)
-
-    def sql(self: Self) -> str:
-        projection = ",\n\t".join(exp.sql() for exp in self.projection)
-        return f"""SELECT {"DISTINCT " if self.distinct else ""}{projection}
-{self.from_.sql()}
-{"WHERE "+self.where.sql() if self.where is not None else ""}
-{"GROUP BY "+", ".join([exp.sql() for exp in self.group_by]) if self.group_by else ""}
-{"HAVING "+self.having.sql() if self.having is not None else ""}
-""".strip()
-
-    def sql_alchemy(self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        raise NotImplementedError()
 
 
 @dataclass
@@ -457,14 +369,3 @@ class Query(Node):
             cte.add_parents(self)
         self.select.add_parents(self)
         return self
-
-    def sql(self: Self) -> str:
-        ctes = ",\n".join(cte.sql() for cte in self.ctes)
-        return f"""{'WITH' if ctes else ""}
-{ctes}
-
-{self.select.sql()}
-        """.strip()
-
-    def sql_alchemy(self, select: sqlalchemy.sql.Select) -> sqlalchemy.sql.Select:
-        return self.child.sql_alchemy(select).alias(self.name)
