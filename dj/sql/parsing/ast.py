@@ -10,30 +10,49 @@ from typing import (
     Callable,
     Generic,
     Iterator,
+    Iterable,
     List,
     Optional,
     Set,
     Type,
     TypeVar,
     Union,
+    Generator,
 )
 
 from typing_extensions import Self
 
 
-def flatten(maybe_iterable):
-    try:
+def flatten(maybe_iterable: Any) -> Generator:
+    """
+    flattens `maybe_iterable` by descending into items that are of list, tuple, set, Iterator
+    """
+    if isinstance(maybe_iterable, Iterable):
         for subiterator in maybe_iterable:
-            if not any(isinstance(subiterator, lts) for lts in (list, tuple, set)):
+            if not any(
+                isinstance(subiterator, lts) for lts in (list, tuple, set, Iterator)
+            ):
                 yield subiterator
                 continue
             for element in flatten(subiterator):
                 yield element
-    except TypeError:
-        yield maybe_iterable
+    yield maybe_iterable
 
 
 class Node(ABC):
+    """
+    Base class for all DJ AST nodes.
+
+    DJ nodes are python dataclasses with the following patterns:
+        - Attributes are either
+            - primitives (int, float, str, bool, None)
+            - iterable from (list, tuple, set)
+            - Enum
+            - descendant of `Node`
+        - Attributes starting with '_' are "obfuscated" and are not included in `children`
+
+    """
+
     _parents: Optional[Set["Node"]]
 
     @property
@@ -104,7 +123,9 @@ class Node(ABC):
 
     @property
     def children(self: Self) -> Iterator["Node"]:
-        """returns all nodes that are one step from the current node down including through iterables"""
+        """
+        returns an iterator of all nodes that are one step from the current node down including through iterables
+        """
         return self.fields(flat=True, nodes_only=True, obfuscated=False, nones=False)
 
     def filter(self: Self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
@@ -141,10 +162,18 @@ class Node(ABC):
 
     def __eq__(self: Self, other: "Node") -> bool:
         """
-        compares two nodes for equality
-        Note: does not check sub ast only that node
+        Compares two nodes for "top level" equality.
+        Checks for type equality and primitive field types for full equality. Compares all others for type equality only. No recursing.
+        Note: Does not check (sub)AST. See `Node.compare` for comparing (sub)ASTs.
         """
-        return type(self) == type(other) and self.children == other.children
+        primitives = {int, float, str, bool, type(None)}
+        return type(self) == type(other) and all(
+            s == o if type(s) in primitives else type(s) == type(o)
+            for s, o in zip(
+                (self.fields(False, False, False, True)),
+                (other.fields(False, False, False, True)),
+            )
+        )
 
     @abstractmethod
     def __hash__(self: Self) -> int:
@@ -155,6 +184,25 @@ class Node(ABC):
 
 class Expression(Node):
     """an expression type simply for type checking"""
+
+
+@dataclass
+class Named(Expression):
+    """An Expression that has a name"""
+
+    name: str
+    quote_style: Optional[str]
+
+    @property
+    def quoted_name(self: Self) -> str:
+        return f'{self.quote_style if self.quote_style else ""}{self.name}{self.quote_style if self.quote_style else ""}'
+
+    def alias_or_name(self: Self) -> str:
+        if len(self.parents) == 1:
+            parent = list(self.parents)[0]
+            if isinstance(parent, Alias):
+                return parent.name
+        return self.name
 
 
 class Operation(Expression):
@@ -197,14 +245,33 @@ class BinaryOp(Operation):
 
 
 @dataclass
+class Case(Expression):
+    conditions: List[Expression]
+    else_result: Optional[Expression]
+    operand: Optional[Expression]
+    results: List[Expression]
+
+    def __hash__(self: Self) -> int:
+        return id(self)
+
+
+@dataclass
+class Function(Named, Operation):
+    args: List[Expression]
+
+    def __hash__(self: Self) -> int:
+        return hash(Function)
+
+
+@dataclass
 class Value(Expression):
     value: Union[str, bool, float, int]
 
-    def __eq__(self: Self, other: Any) -> bool:
-        return type(self) == type(other) and self.value == other.value
+    # def __eq__(self: Self, other: Any) -> bool:
+    #     return type(self) == type(other) and self.value == other.value
 
     def __hash__(self: Self) -> int:
-        return hash(self.value)
+        return hash((self.__class__, self.value))
 
 
 class Number(Value):  # Number
@@ -219,25 +286,6 @@ class Boolean(Value):  # Boolean
     value: bool
 
 
-@dataclass
-class Named(Expression):
-    """An Expression that has a name"""
-
-    name: str
-    quote_style: Optional[str]
-
-    @property
-    def quoted_name(self: Self) -> str:
-        return f'{self.quote_style if self.quote_style else ""}{self.name}{self.quote_style if self.quote_style else ""}'
-
-    def alias_or_name(self: Self) -> str:
-        if len(self.parents) == 1:
-            parent = list(self.parents)[0]
-            if isinstance(parent, Alias):
-                return parent.name
-        return self.name
-
-
 NodeType = TypeVar("NodeType", bound=Node)
 
 
@@ -245,11 +293,11 @@ NodeType = TypeVar("NodeType", bound=Node)
 class Alias(Named, Generic[NodeType]):
     child: Node
 
-    def __eq__(self: Self, other: Any) -> bool:
-        return type(other) == Alias and self.name == other.name
+    # def __eq__(self: Self, other: Any) -> bool:
+    #     return type(other) == Alias and self.name == other.name
 
     def __hash__(self: Self) -> int:
-        return hash((self.__class__, self.name))
+        return hash((Alias, self.name))
 
 
 @dataclass
@@ -265,11 +313,11 @@ class Column(Named):
             self._tables = table
         return self
 
-    def __hash__(self: Self) -> int:
-        return hash((self.__class__, self.name))
+    # def __eq__(self: Self, other: Any) -> bool:
+    #     return type(other) == Column and self.name == other.name
 
-    def __eq__(self: Self, other: Any) -> bool:
-        return type(other) == Column and self.name == other.name
+    def __hash__(self: Self) -> int:
+        return hash((Column, self.name))
 
 
 @dataclass
@@ -285,8 +333,8 @@ class Wildcard(Expression):
             self._tables.append(table)
         return self
 
-    def __eq__(self: Self, other: Any) -> bool:
-        return type(other) == Wildcard
+    # def __eq__(self: Self, other: Any) -> bool:
+    #     return type(other) == Wildcard
 
     def __hash__(self: Self) -> int:
         return id(Wildcard)
@@ -306,11 +354,11 @@ class Table(Named):
             column.add_table(self)
         return self
 
+    # def __eq__(self: Self, other: Any) -> bool:
+    #     return type(other) == Table and self.name == other.name
+
     def __hash__(self: Self) -> int:
         return hash((self.__class__, self.name))
-
-    def __eq__(self: Self, other: Any) -> bool:
-        return type(other) == Table and self.name == other.name
 
 
 class JoinKind(Enum):
@@ -327,7 +375,7 @@ class Join(Node):
     on: Expression
 
     def __hash__(self: Self) -> int:
-        return hash((From, self.kind))
+        return hash((Join, self.kind))
 
 
 @dataclass
@@ -336,7 +384,7 @@ class From(Node):
     joins: List[Join]
 
     def __hash__(self: Self) -> int:
-        return id(From)
+        return id(self)
 
 
 @dataclass
@@ -349,8 +397,8 @@ class Select(Node):
     where: Optional[Expression]
     limit: Optional[Number]
 
-    def __eq__(self: Self, other: Any) -> bool:
-        return type(other) == Select
+    # def __eq__(self: Self, other: Any) -> bool:
+    #     return type(other) == Select
 
     def __hash__(self: Self) -> int:
         return id(self)
@@ -364,8 +412,8 @@ class Query(Node):
     def __hash__(self):
         return id(self)
 
-    def add_self_as_parent(self) -> Self:
-        for cte in self.ctes:
-            cte.add_parents(self)
-        self.select.add_parents(self)
-        return self
+    # def add_self_as_parent(self) -> Self:
+    #     for cte in self.ctes:
+    #         cte.add_parents(self)
+    #     self.select.add_parents(self)
+    #     return self
