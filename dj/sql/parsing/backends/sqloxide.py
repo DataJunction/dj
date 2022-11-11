@@ -8,9 +8,11 @@ from dj.sql.parsing.ast import (
     Alias,
     BinaryOp,
     BinaryOpKind,
+    Case,
     Column,
     Expression,
     From,
+    Function,
     Join,
     JoinKind,
     Named,
@@ -20,6 +22,9 @@ from dj.sql.parsing.ast import (
     UnaryOp,
     Value,
     Wildcard,
+    Number,
+    String,
+    Boolean,
 )
 
 
@@ -54,6 +59,21 @@ def parse_op(parse_tree: dict):
     raise DJParseException("Failed to parse Operator")
 
 
+def parse_case(parse_tree: dict) -> Case:
+    if match_keys(parse_tree, {"conditions", "else_result", "operand", "results"}):
+        return Case(
+            [parse_expression(exp) for exp in parse_tree["conditions"]],
+            parse_expression(parse_tree["else_result"])
+            if parse_tree["else_result"] is not None
+            else None,
+            parse_expression(parse_tree["operand"])
+            if parse_tree["operand"] is not None
+            else None,
+            [parse_expression(exp) for exp in parse_tree["results"]],
+        ).add_self_as_parent()
+    raise DJParseException("Failed to parse Case")
+
+
 def parse_expression(parse_tree: Union[dict, str]) -> Expression:
     if parse_tree == "Wildcard":
         return Wildcard()
@@ -61,8 +81,14 @@ def parse_expression(parse_tree: Union[dict, str]) -> Expression:
         return parse_value(parse_tree["Value"])
     elif match_keys(parse_tree, {"UnaryOp"}, {"BinaryOp"}):
         return parse_op(parse_tree)
+    elif match_keys(parse_tree, {"Unnamed"}):
+        return parse_expression(parse_tree["Unnamed"])
     elif match_keys(parse_tree, {"UnnamedExpr"}):
         return parse_expression(parse_tree["UnnamedExpr"])
+    elif match_keys(parse_tree, {"Case"}):
+        return parse_case(parse_tree["Case"])
+    elif match_keys(parse_tree, {"Function"}):
+        return parse_function(parse_tree["Function"])
     elif match_keys(parse_tree, {"Identifier"}, {"CompoundIdentifier"}):
         return parse_column(parse_tree)
     elif match_keys(parse_tree, {"ExprWithAlias"}):
@@ -90,7 +116,7 @@ def parse_column(parse_tree: dict):
     if match_keys(parse_tree, {"Identifier"}):
         subtree = parse_tree["Identifier"]
         return Column(subtree["value"], subtree["quote_style"])
-    if match_keys(parse_tree, {"CompoundIdentifier"}):
+    elif match_keys(parse_tree, {"CompoundIdentifier"}):
         subtree = parse_tree["CompoundIdentifier"]
         if len(subtree) != 2:
             raise DJParseException(
@@ -100,8 +126,7 @@ def parse_column(parse_tree: dict):
         column = Column(subtree[1]["value"], subtree[1]["quote_style"], table)
         table.add_columns(column)
         return column
-
-    raise DJParseException("Failed to parse Column")
+    return parse_expression(parse_tree)
 
 
 def parse_table(parse_tree: dict) -> Table:
@@ -110,7 +135,7 @@ def parse_table(parse_tree: dict) -> Table:
         name = subtree["name"]
         if len(name) != 1:
             raise DJParseException(
-                "Could not handle identifier for table with more than one identifiers",
+                "Could not handle identifier for table with more than one identifier",
             )
         table = Table(name[0]["value"], name[0]["quote_style"])
         if subtree["alias"]:
@@ -122,6 +147,18 @@ def parse_table(parse_tree: dict) -> Table:
         return table
 
     raise DJParseException("Failed to parse Table")
+
+
+def parse_function(parse_tree: dict) -> Function:
+    if match_keys_subset(parse_tree, {"name", "args"}):
+        args = parse_tree["args"]
+        names = parse_tree["name"]
+        if len(names)!=1:
+            raise DJParseException("Expected a single name for Function")
+        return Function(
+            names[0]["value"], names[0]["quote_style"], [parse_expression(exp) for exp in args]
+        ).add_self_as_parent()
+    raise DJParseException("Failed to parse Function")
 
 
 def parse_join(parse_tree: dict) -> Join:

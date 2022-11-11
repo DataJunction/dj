@@ -6,19 +6,17 @@ from functools import singledispatch
 from dj.sql.parsing.ast import (
     Node,
     Alias,
-    Expression,
     Value,
-    Named,
     Column,
     Table,
     From,
+    Function,
     Select,
     Query,
     BinaryOp,
+    Case,
     Join,
     UnaryOp,
-    BinaryOpKind,
-    JoinKind,
     Wildcard,
 )
 
@@ -39,6 +37,23 @@ def _(node: UnaryOp) -> str:
 @sql.register
 def _(node: BinaryOp) -> str:
     return f"{sql(node.left)} {node.op.value} {sql(node.right)}"
+
+
+@sql.register
+def _(node: Function) -> str:
+    return f"{node.quoted_name}({', '.join(sql(arg) for arg in node.args)})"
+
+
+@sql.register
+def _(node: Case) -> str:
+    branches = "\n\tWHEN ".join(
+        f"{sql(cond)} THEN {sql(result)}"
+        for cond, result in zip(node.conditions, node.results)
+    )
+    return f"""(CASE
+    WHEN {branches}
+    ELSE {sql(node.else_result)}
+END)"""
 
 
 @sql.register
