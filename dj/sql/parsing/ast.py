@@ -267,8 +267,6 @@ class Function(Named, Operation):
 class Value(Expression):
     value: Union[str, bool, float, int]
 
-    # def __eq__(self: Self, other: Any) -> bool:
-    #     return type(self) == type(other) and self.value == other.value
 
     def __hash__(self: Self) -> int:
         return hash((self.__class__, self.value))
@@ -293,9 +291,6 @@ NodeType = TypeVar("NodeType", bound=Node)
 class Alias(Named, Generic[NodeType]):
     child: Node
 
-    # def __eq__(self: Self, other: Any) -> bool:
-    #     return type(other) == Alias and self.name == other.name
-
     def __hash__(self: Self) -> int:
         return hash((Alias, self.name))
 
@@ -313,9 +308,6 @@ class Column(Named):
             self._tables = table
         return self
 
-    # def __eq__(self: Self, other: Any) -> bool:
-    #     return type(other) == Column and self.name == other.name
-
     def __hash__(self: Self) -> int:
         return hash((Column, self.name))
 
@@ -332,10 +324,6 @@ class Wildcard(Expression):
         for table in tables:
             self._tables.append(table)
         return self
-
-    # def __eq__(self: Self, other: Any) -> bool:
-    #     return type(other) == Wildcard
-
     def __hash__(self: Self) -> int:
         return id(Wildcard)
 
@@ -354,8 +342,6 @@ class Table(Named):
             column.add_table(self)
         return self
 
-    # def __eq__(self: Self, other: Any) -> bool:
-    #     return type(other) == Table and self.name == other.name
 
     def __hash__(self: Self) -> int:
         return hash((self.__class__, self.name))
@@ -397,9 +383,6 @@ class Select(Node):
     where: Optional[Expression]
     limit: Optional[Number]
 
-    # def __eq__(self: Self, other: Any) -> bool:
-    #     return type(other) == Select
-
     def __hash__(self: Self) -> int:
         return id(self)
 
@@ -412,8 +395,4 @@ class Query(Node):
     def __hash__(self):
         return id(self)
 
-    # def add_self_as_parent(self) -> Self:
-    #     for cte in self.ctes:
-    #         cte.add_parents(self)
-    #     self.select.add_parents(self)
-    #     return self
+
