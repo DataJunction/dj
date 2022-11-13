@@ -3,30 +3,37 @@ Transform a DJ AST into a sql string
 """
 
 from functools import singledispatch
+from typing import Any
+
 from dj.sql.parsing.ast import (
-    Node,
     Alias,
-    Value,
-    Column,
-    Table,
-    From,
-    Function,
-    Select,
-    String,
-    Query,
     BinaryOp,
     Case,
+    Column,
+    From,
+    Function,
     Join,
+    Node,
+    Query,
+    Select,
+    String,
+    Table,
     UnaryOp,
+    Value,
     Wildcard,
 )
 
 
 @singledispatch
-def sql(node: Node) -> str:
+def sql(node: Any) -> str:
     """
     return the ansi sql representing the sub-ast
     """
+    raise Exception("Can only convert Node types to sql")
+
+
+@sql.register
+def _(node: Node) -> str:
     return " ".join([sql(child) for child in node.children])
 
 
@@ -115,8 +122,11 @@ def _(node: Select) -> str:
 def _(node: Query) -> str:
 
     ctes = ",\n".join(f"{cte.name} AS ({sql(cte.child)})" for cte in node.ctes)
-    return f"""{'WITH' if ctes else ""}
+    return (
+        f"""{'WITH' if ctes else ""}
 {ctes}
 
 {("(" if node.subquery else "")+sql(node.select)+(")" if node.subquery else "")}
-    """.strip()+"\n"
+    """.strip()
+        + "\n"
+    )

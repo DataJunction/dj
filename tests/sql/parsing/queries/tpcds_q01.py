@@ -4,25 +4,28 @@ fixtures for tpcds_q01.sql
 
 
 import pytest
+
 from dj.sql.parsing.ast import (
-    Node,
     Alias,
-    Value,
+    BinaryOp,
+    BinaryOpKind,
+    Case,
     Column,
-    Table,
     From,
     Function,
+    Join,
+    JoinKind,
+    Node,
+    Number,
+    Query,
     Select,
     String,
-    Query,
-    BinaryOp,
-    Case,
-    Join,
+    Table,
     UnaryOp,
+    Value,
     Wildcard,
-    BinaryOpKind,
-    JoinKind
 )
+
 
 @pytest.fixture(scope="session")
 def tpcds_q01():
@@ -40,11 +43,14 @@ def tpcds_q01():
                                 kind=JoinKind.Inner,
                                 table=Table(name="date_dim", quote_style=None),
                                 on=BinaryOp(
-                                    left=Column(name="sr_customer_sk", quote_style=None),
+                                    left=Column(
+                                        name="sr_customer_sk",
+                                        quote_style=None,
+                                    ),
                                     op=BinaryOpKind.Eq,
                                     right=Column(name="d_date_sk", quote_style=None),
                                 ),
-                            )
+                            ),
                         ],
                     ),
                     group_by=[
@@ -88,7 +94,7 @@ def tpcds_q01():
                     ),
                     limit=None,
                 ),
-            )
+            ),
         ],
         select=Select(
             distinct=False,
@@ -186,17 +192,23 @@ def tpcds_q01():
                                                     Column(
                                                         name="ctr_total_return",
                                                         quote_style=None,
-                                                    )
+                                                    ),
                                                 ],
                                             ),
                                             op=BinaryOpKind.Multiply,
                                             right=Number(value="1.2"),
-                                        )
+                                        ),
                                     ],
                                     where=BinaryOp(
-                                        left=Column(name="ctr_store_sk", quote_style=None),
+                                        left=Column(
+                                            name="ctr_store_sk",
+                                            quote_style=None,
+                                        ),
                                         op=BinaryOpKind.Eq,
-                                        right=Column(name="ctr_store_sk", quote_style=None),
+                                        right=Column(
+                                            name="ctr_store_sk",
+                                            quote_style=None,
+                                        ),
                                     ),
                                     limit=None,
                                 ),

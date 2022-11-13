@@ -8,16 +8,16 @@ from itertools import chain, zip_longest
 from typing import (
     Any,
     Callable,
+    Generator,
     Generic,
-    Iterator,
     Iterable,
+    Iterator,
     List,
     Optional,
     Set,
     Type,
     TypeVar,
     Union,
-    Generator,
 )
 
 from typing_extensions import Self
@@ -56,14 +56,14 @@ class Node(ABC):
     _parents: Optional[Set["Node"]]
 
     @property
-    def parents(self: Self) -> Set["Node"]:
+    def parents(self) -> Set["Node"]:
         try:
-            return self._parents
+            return self._parents  # type: ignore
         except AttributeError:
             self._parents = set()
             return self._parents
 
-    def add_parents(self: Self, *parents: "Node") -> Self:
+    def add_parents(self, *parents: "Node") -> "Node":
         """
         add parents to the node
         """
@@ -71,7 +71,7 @@ class Node(ABC):
             self.parents.add(parent)
         return self
 
-    def add_self_as_parent(self: Self) -> Self:
+    def add_self_as_parent(self) -> "Node":
         """
         adds self as a parent to all children
         """
@@ -79,14 +79,14 @@ class Node(ABC):
             child.add_parents(self)
         return self
 
-    def flatten(self: Self) -> Iterator["Node"]:
+    def flatten(self) -> Iterator["Node"]:
         """
         flatten the sub-ast of the node as an iterator
         """
         return self.filter(lambda node: True)
 
     def fields(
-        self: Self,
+        self,
         flat: bool = True,
         nodes_only: bool = True,
         obfuscated: bool = False,
@@ -111,24 +111,24 @@ class Node(ABC):
             child_generator = flatten(child_generator)
 
         if nodes_only:
-            child_generator = filter(
+            child_generator = filter(  # type: ignore
                 lambda child: isinstance(child, Node),
                 child_generator,
             )
 
         if nones:
-            child_generator = filter(lambda child: child is not None, child_generator)
+            child_generator = filter(lambda child: child is not None, child_generator)  # type: ignore
 
         return child_generator
 
     @property
-    def children(self: Self) -> Iterator["Node"]:
+    def children(self) -> Iterator["Node"]:
         """
         returns an iterator of all nodes that are one step from the current node down including through iterables
         """
         return self.fields(flat=True, nodes_only=True, obfuscated=False, nones=False)
 
-    def filter(self: Self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
+    def filter(self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
         """
         find all nodes that `func` returns `True` for
         """
@@ -137,13 +137,13 @@ class Node(ABC):
         for node in chain(*[child.filter(func) for child in self.children]):
             yield node
 
-    def find_all(self: Self, node_type: Type["Node"]) -> Iterator["Node"]:
+    def find_all(self, node_type: Type["Node"]) -> Iterator["Node"]:
         """
         find all nodes of a particular type in the node's sub-ast
         """
         return self.filter(lambda n: isinstance(n, node_type))
 
-    def apply(self: Self, func: Callable[["Node"], None]):
+    def apply(self, func: Callable[["Node"], None]):
         """
         traverse ast and apply func to each Node
         """
@@ -151,7 +151,7 @@ class Node(ABC):
         for child in self.children:
             child.apply(func)
 
-    def compare(self: Self, other: "Node") -> bool:
+    def compare(self, other: "Node") -> bool:
         """
         compare two ASTs
         """
@@ -160,7 +160,7 @@ class Node(ABC):
             for child, other_child in zip_longest(self.children, other.children)
         )
 
-    def __eq__(self: Self, other: "Node") -> bool:
+    def __eq__(self, other) -> bool:
         """
         Compares two nodes for "top level" equality.
         Checks for type equality and primitive field types for full equality. Compares all others for type equality only. No recursing.
@@ -176,7 +176,7 @@ class Node(ABC):
         )
 
     @abstractmethod
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         """
         hash a node
         """
@@ -186,7 +186,7 @@ class Expression(Node):
     """an expression type simply for type checking"""
 
 
-@dataclass
+@dataclass  # type: ignore
 class Named(Expression):
     """An Expression that has a name"""
 
@@ -194,10 +194,10 @@ class Named(Expression):
     quote_style: Optional[str]
 
     @property
-    def quoted_name(self: Self) -> str:
+    def quoted_name(self) -> str:
         return f'{self.quote_style if self.quote_style else ""}{self.name}{self.quote_style if self.quote_style else ""}'
 
-    def alias_or_name(self: Self) -> str:
+    def alias_or_name(self) -> str:
         if len(self.parents) == 1:
             parent = list(self.parents)[0]
             if isinstance(parent, Alias):
@@ -211,14 +211,18 @@ class Operation(Expression):
 
 @dataclass
 class UnaryOp(Operation):
+    """an operation that operates on a single expression"""
+
     op: str
     expr: Expression
 
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return hash((UnaryOp, self.op))
 
 
 class BinaryOpKind(Enum):
+    """the accepted binary operations"""
+
     And = "AND"
     Or = "OR"
     Eq = "="
@@ -239,51 +243,64 @@ class BinaryOpKind(Enum):
 
 @dataclass
 class BinaryOp(Operation):
+    """represents an operation that operates on two expressions"""
+
     left: Expression
     op: BinaryOpKind
     right: Expression
 
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return hash((BinaryOp, self.op))
 
 
 @dataclass
 class Case(Expression):
+    """a case statement of branches"""
+
     conditions: List[Expression]
     else_result: Optional[Expression]
     operand: Optional[Expression]
     results: List[Expression]
 
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return id(self)
 
 
 @dataclass
 class Function(Named, Operation):
+    """represents a function used in a statement"""
+
     args: List[Expression]
 
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return hash(Function)
 
 
 @dataclass
 class Value(Expression):
+    """base class for all values number, string, boolean"""
+
     value: Union[str, bool, float, int]
 
-
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return hash((self.__class__, self.value))
 
 
 class Number(Value):  # Number
+    """number value"""
+
     value: Union[float, int]
 
 
 class String(Value):  # SingleQuotedString
+    """string value"""
+
     value: str
 
 
 class Boolean(Value):  # Boolean
+    """boolean True/False value"""
+
     value: bool
 
 
@@ -292,65 +309,75 @@ NodeType = TypeVar("NodeType", bound=Node)
 
 @dataclass
 class Alias(Named, Generic[NodeType]):
+    """wraps node types with an alias"""
+
     child: Node
 
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return hash((Alias, self.name))
 
 
 @dataclass
 class Column(Named):
+    """column used in statements"""
+
     _table: Optional["Table"] = field(repr=False, default=None)
 
     @property
-    def table(self: Self) -> "Table":
+    def table(self) -> Optional["Table"]:
         return self._table
 
-    def add_table(self: Self, table: "Table") -> Self:
+    def add_table(self, table: "Table") -> "Column":
         if self._table is None:
             self._tables = table
         return self
 
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return hash((Column, self.name))
 
 
 @dataclass
 class Wildcard(Expression):
+    """wildcard or '*' expression"""
+
     _tables: List["Table"] = field(repr=False, default_factory=list)
 
     @property
     def tables(self) -> List["Table"]:
         return self._tables
 
-    def add_tables(self, *tables: "Table") -> Self:
+    def add_tables(self, *tables: "Table") -> "Wildcard":
         for table in tables:
             self._tables.append(table)
         return self
-    def __hash__(self: Self) -> int:
+
+    def __hash__(self) -> int:
         return id(Wildcard)
 
 
 @dataclass
 class Table(Named):
+    """a type for tables"""
+
     _columns: List[Column] = field(repr=False, default_factory=list)
 
     @property
-    def columns(self: Self) -> List[Column]:
+    def columns(self) -> List[Column]:
         return self._columns
 
-    def add_columns(self: Self, *columns: Column) -> Self:
+    def add_columns(self, *columns: Column) -> "Table":
         for column in columns:
             self._columns.append(column)
             column.add_table(self)
         return self
 
-
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return hash((self.__class__, self.name))
 
 
 class JoinKind(Enum):
+    """the accepted kinds of joins"""
+
     Inner = "INNER JOIN"
     LeftOuter = "LEFT JOIN"
     RightOuter = "RIGHT JOIN"
@@ -359,25 +386,31 @@ class JoinKind(Enum):
 
 @dataclass
 class Join(Node):
+    """a join between tables"""
+
     kind: JoinKind
     table: Union[Table, Alias]
     on: Expression
 
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return hash((Join, self.kind))
 
 
 @dataclass
 class From(Node):
+    """a from that belongs to a select"""
+
     table: Union[Table, Alias]
     joins: List[Join]
 
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return id(self)
 
 
 @dataclass
 class Select(Node):
+    """a single select statement type"""
+
     distinct: bool
     from_: From
     group_by: List[Expression]
@@ -386,17 +419,17 @@ class Select(Node):
     where: Optional[Expression]
     limit: Optional[Number]
 
-    def __hash__(self: Self) -> int:
+    def __hash__(self) -> int:
         return id(self)
 
 
 @dataclass
 class Query(Expression):
+    """overarching query type"""
+
     ctes: List[Alias["Select"]]
     select: "Select"
     subquery: bool
 
     def __hash__(self):
         return id(self)
-
-
