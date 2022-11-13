@@ -2,6 +2,7 @@
 Helper functions.
 """
 import os
+
 from sqlalchemy.sql import Select
 
 
@@ -12,6 +13,6 @@ def query_to_string(query: Select) -> str:
     return str(query.compile(compile_kwargs={"literal_binds": True}))
 
 
-def read_query(name: str)->str:
+def read_query(name: str) -> str:
     with open(os.path.join(os.path.abspath(__file__), "parsing", "queries", name)) as f:
         return f.read()
