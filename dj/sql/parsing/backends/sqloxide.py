@@ -52,7 +52,7 @@ def parse_op(parse_tree: dict):
                     BinaryOpKind[binop_kind],
                     parse_expression(subtree["right"]),
                 ).add_self_as_parent()
-        raise DJParseException(f"Unknown operator {binop_kind}")
+        raise DJParseException(f"Unknown operator {subtree['op']}")
     elif match_keys(parse_tree, {"UnaryOp"}):
         subtree = parse_tree["UnaryOp"]
         return UnaryOp(subtree["op"], subtree["expr"]).add_self_as_parent()
@@ -85,6 +85,8 @@ def parse_expression(parse_tree: Union[dict, str]) -> Expression:
         return parse_expression(parse_tree["Unnamed"])
     elif match_keys(parse_tree, {"UnnamedExpr"}):
         return parse_expression(parse_tree["UnnamedExpr"])
+    elif match_keys(parse_tree, {"Expr"}):
+        return parse_expression(parse_tree["Expr"])
     elif match_keys(parse_tree, {"Case"}):
         return parse_case(parse_tree["Case"])
     elif match_keys(parse_tree, {"Function"}):
@@ -98,15 +100,18 @@ def parse_expression(parse_tree: Union[dict, str]) -> Expression:
             subtree["alias"]["quote_style"],
             parse_column(subtree["expr"]),
         ).add_self_as_parent()
-
+    elif match_keys(parse_tree, {"Subquery"}):
+        return parse_query(parse_tree['Subquery'], True)
     raise DJParseException("Failed to parse Expression")
 
 
 def parse_value(parse_tree: dict) -> Value:
-    if match_keys(parse_tree, {"Number"}):
+    if match_keys(parse_tree, {"Value"}):
+        return parse_value(parse_tree["Value"])
+    elif match_keys(parse_tree, {"Number"}):
         return Number(parse_tree["Number"][0])
     elif match_keys(parse_tree, {"SingleQuotedString"}):
-        return String(parse_tree["SingleQuotedString"][0])
+        return String(parse_tree["SingleQuotedString"])
     elif match_keys(parse_tree, {"Boolean"}):
         return Boolean(parse_tree["Boolean"])
     raise DJParseException("Not a primitive")
@@ -237,7 +242,7 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
     raise DJParseException("Failed to parse ctes")
 
 
-def parse_query(parse_tree) -> Query:
+def parse_query(parse_tree: dict, subquery: bool = False) -> Query:
     if match_keys_subset(parse_tree, {"with", "body", "limit"}):
         select = parse_select(parse_tree["body"]["Select"])
         select.limit = (
@@ -248,6 +253,7 @@ def parse_query(parse_tree) -> Query:
         return Query(
             parse_ctes(parse_tree["with"]) if parse_tree["with"] is not None else [],
             select,
+            subquery
         ).add_self_as_parent()
 
     raise Exception("Failed to parse query")

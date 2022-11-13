@@ -219,7 +219,10 @@ class UnaryOp(Operation):
 
 
 class BinaryOpKind(Enum):
+    And = "AND"
+    Or = "OR"
     Eq = "="
+    NotEq = "<>"
     Gt = ">"
     Lt = "<"
     GtEq = ">="
@@ -388,9 +391,10 @@ class Select(Node):
 
 
 @dataclass
-class Query(Node):
+class Query(Expression):
     ctes: List[Alias["Select"]]
     select: "Select"
+    subquery: bool
 
     def __hash__(self):
         return id(self)

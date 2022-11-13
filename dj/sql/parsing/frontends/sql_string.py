@@ -12,6 +12,7 @@ from dj.sql.parsing.ast import (
     From,
     Function,
     Select,
+    String,
     Query,
     BinaryOp,
     Case,
@@ -58,6 +59,8 @@ END)"""
 
 @sql.register
 def _(node: Value) -> str:
+    if isinstance(node, String):
+        return f"'{node.value}'"
     return str(node.value)
 
 
@@ -104,14 +107,16 @@ def _(node: Select) -> str:
 {"WHERE "+sql(node.where) if node.where is not None else ""}
 {"GROUP BY "+", ".join(sql(exp) for exp in node.group_by) if node.group_by else ""}
 {"HAVING "+sql(node.having) if node.having is not None else ""}
+{"LIMIT "+sql(node.limit) if node.limit is not None else ""}
 """.strip()
 
 
 @sql.register
 def _(node: Query) -> str:
+
     ctes = ",\n".join(f"{cte.name} AS ({sql(cte.child)})" for cte in node.ctes)
     return f"""{'WITH' if ctes else ""}
 {ctes}
 
-{sql(node.select)}
-    """.strip()
+{("(" if node.subquery else "")+sql(node.select)+(")" if node.subquery else "")}
+    """.strip()+"\n"
