@@ -8,7 +8,9 @@ from sqloxide import parse_sql
 from dj.sql.parsing.ast import (
     Alias,
     BinaryOp,
+    Between,
     BinaryOpKind,
+    UnaryOpKind,
     Boolean,
     Case,
     Column,
@@ -64,7 +66,21 @@ def parse_op(parse_tree: dict):
         raise DJParseException(f"Unknown operator {subtree['op']}")
     if match_keys(parse_tree, {"UnaryOp"}):
         subtree = parse_tree["UnaryOp"]
-        return UnaryOp(subtree["op"], subtree["expr"]).add_self_as_parent()
+        for exp in BinaryOpKind:
+            uniop_kind = exp.name
+            if subtree["op"] == uniop_kind:
+                return UnaryOp(
+                    UnaryOpKind[uniop_kind],
+                    parse_expression(subtree["expr"]),
+                ).add_self_as_parent()
+        raise DJParseException(f"Unknown operator {subtree['op']}")
+    if match_keys(parse_tree, {"Between"}):
+        subtree = parse_tree["Between"]
+        return Between(
+            parse_expression(subtree['expr']),
+            parse_expression(subtree['low']),
+            parse_expression(subtree["high"]),
+        ).add_self_as_parent()
     raise DJParseException("Failed to parse Operator")
 
 
@@ -101,7 +117,9 @@ def parse_expression(  # pylint: disable=R0911,R0912
     else:
         if match_keys(parse_tree, {"Value"}):
             return parse_value(parse_tree["Value"])
-        if match_keys(parse_tree, {"UnaryOp"}, {"BinaryOp"}):
+        if match_keys(parse_tree, {"Nested"}):
+            return parse_expression(parse_tree['Nested'])
+        if match_keys(parse_tree, {"UnaryOp"}, {"BinaryOp"}, {"Between"}):
             return parse_op(parse_tree)
         if match_keys(parse_tree, {"Unnamed"}):
             return parse_expression(parse_tree["Unnamed"])

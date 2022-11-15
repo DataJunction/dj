@@ -2,12 +2,12 @@
 Utility functions.
 """
 # pylint: disable=line-too-long
-
+from itertools import chain
 import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Iterator, List, Optional, Generator, Any, Iterable, Union
 
 import sqlparse
 import yaml
@@ -183,3 +183,22 @@ def sql_format(sql: str) -> str:
     Let's pick one way to format SQL strings.
     """
     return sqlparse.format(sql, reindent=True, keyword_case="upper")
+
+
+def single_item_generator(item: Any) -> Generator[Any, None, None]:
+    """
+    a single item generator
+    """
+    yield item
+
+
+def flatten(maybe_iterables: Any) -> Union[chain, Generator[Any, None, None]]:
+    """
+    flattens `maybe_iterables` by descending into items that are Iterable
+    """
+    if not isinstance(maybe_iterables, (list, tuple, set, Iterator)):
+        return single_item_generator(maybe_iterables)
+    else:
+        return chain.from_iterable(
+            (flatten(maybe_iterable) for maybe_iterable in maybe_iterables)
+        )
