@@ -272,10 +272,12 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
 def parse_query(parse_tree: dict, subquery: bool = False) -> Query:
     if match_keys_subset(parse_tree, {"with", "body", "limit"}):
         select = parse_select(parse_tree["body"]["Select"])
-        limit_value = parse_value(parse_tree["limit"])
-        if not isinstance(limit_value, Number):
-            raise DJParseException("limit must be a number")
-        select.limit = limit_value if parse_tree["limit"] is not None else None
+        select.limit = None
+        if parse_tree["limit"] is not None:
+            limit_value = parse_value(parse_tree["limit"])
+            if not isinstance(limit_value, Number):
+                raise DJParseException("limit must be a number")
+            select.limit = limit_value
         return cast(
             Query,
             Query(

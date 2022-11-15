@@ -20,8 +20,6 @@ from typing import (
     Union,
 )
 
-from typing_extensions import Self
-
 
 def flatten(maybe_iterable: Any) -> Generator:
     """
@@ -57,6 +55,9 @@ class Node(ABC):
 
     @property
     def parents(self) -> Set["Node"]:
+        """
+        get the parents of the node
+        """
         try:
             return self._parents  # type: ignore
         except AttributeError:
@@ -96,11 +97,14 @@ class Node(ABC):
         Args:
             flat: return a flattened iterator (if children are iterable)
             nodes_only: do not yield children that are not Nodes (trumped by `obfuscated`)
-            obfuscated: yield fields that have leading underscores (typically accessed via a property)
-            nones: yield values that are None (optional fields without a value); trumped by `nodes_only`
+            obfuscated: yield fields that have leading underscores
+                (typically accessed via a property)
+            nones: yield values that are None
+                (optional fields without a value); trumped by `nodes_only`
 
         Returns:
-            Iterator: returns all children of a node given filters and optional flattening (by default Iterator[Node])
+            Iterator: returns all children of a node given filters
+                and optional flattening (by default Iterator[Node])
         """
         child_generator = (
             self.__dict__[field.name]
@@ -117,14 +121,15 @@ class Node(ABC):
             )
 
         if nones:
-            child_generator = filter(lambda child: child is not None, child_generator)  # type: ignore
+            child_generator = filter(lambda child: child is not None, child_generator)  # type: ignore # pylint: disable=C0301
 
         return child_generator
 
     @property
     def children(self) -> Iterator["Node"]:
         """
-        returns an iterator of all nodes that are one step from the current node down including through iterables
+        returns an iterator of all nodes that are one step
+        from the current node down including through iterables
         """
         return self.fields(flat=True, nodes_only=True, obfuscated=False, nones=False)
 
@@ -151,10 +156,12 @@ class Node(ABC):
         for child in self.children:
             child.apply(func)
 
-    def compare(self, other: "Node") -> bool:
+    def compare(self, other: "Node", error: bool = False) -> bool:
         """
         compare two ASTs
         """
+        if error and self != other:
+            print(self, other)
         return self == other and all(
             child.compare(other_child)
             for child, other_child in zip_longest(self.children, other.children)
@@ -163,12 +170,15 @@ class Node(ABC):
     def __eq__(self, other) -> bool:
         """
         Compares two nodes for "top level" equality.
-        Checks for type equality and primitive field types for full equality. Compares all others for type equality only. No recursing.
+        Checks for type equality and primitive field types for full equality.
+        Compares all others for type equality only. No recursing.
         Note: Does not check (sub)AST. See `Node.compare` for comparing (sub)ASTs.
         """
         primitives = {int, float, str, bool, type(None)}
-        return type(self) == type(other) and all(
-            s == o if type(s) in primitives else type(s) == type(o)
+        return type(self) == type(other) and all(  # pylint: disable=C0123
+            s == o
+            if type(s) in primitives  # pylint: disable=C0123
+            else type(s) == type(o)  # pylint: disable=C0123
             for s, o in zip(
                 (self.fields(False, False, False, True)),
                 (other.fields(False, False, False, True)),
@@ -186,7 +196,7 @@ class Expression(Node):
     """an expression type simply for type checking"""
 
 
-@dataclass  # type: ignore
+@dataclass(eq=False)  # type: ignore
 class Named(Expression):
     """An Expression that has a name"""
 
@@ -195,9 +205,15 @@ class Named(Expression):
 
     @property
     def quoted_name(self) -> str:
-        return f'{self.quote_style if self.quote_style else ""}{self.name}{self.quote_style if self.quote_style else ""}'
+        """
+        get the name of the Named Node including the quotes if any
+        """
+        return f'{self.quote_style if self.quote_style else ""}{self.name}{self.quote_style if self.quote_style else ""}'  # pylint: disable=C0301
 
     def alias_or_name(self) -> str:
+        """
+        get the name or alias of the node
+        """
         if len(self.parents) == 1:
             parent = list(self.parents)[0]
             if isinstance(parent, Alias):
@@ -209,11 +225,11 @@ class Operation(Expression):
     """a type to overarch types that operate on other expressions"""
 
 
-@dataclass
+@dataclass(eq=False)
 class UnaryOp(Operation):
     """an operation that operates on a single expression"""
 
-    op: str
+    op: str  # pylint: disable=C0103
     expr: Expression
 
     def __hash__(self) -> int:
@@ -223,37 +239,37 @@ class UnaryOp(Operation):
 class BinaryOpKind(Enum):
     """the accepted binary operations"""
 
-    And = "AND"
-    Or = "OR"
-    Eq = "="
-    NotEq = "<>"
-    Gt = ">"
-    Lt = "<"
-    GtEq = ">="
-    LtEq = "<="
-    BitwiseOr = "|"
-    BitwiseAnd = "&"
-    BitwiseXor = "^"
-    Multiply = "*"
-    Divide = "/"
-    Plus = "+"
-    Minus = "-"
-    Modulo = "%"
+    And = "AND"  # pylint: disable=C0103
+    Or = "OR"  # pylint: disable=C0103
+    Eq = "="  # pylint: disable=C0103
+    NotEq = "<>"  # pylint: disable=C0103
+    Gt = ">"  # pylint: disable=C0103
+    Lt = "<"  # pylint: disable=C0103
+    GtEq = ">="  # pylint: disable=C0103
+    LtEq = "<="  # pylint: disable=C0103
+    BitwiseOr = "|"  # pylint: disable=C0103
+    BitwiseAnd = "&"  # pylint: disable=C0103
+    BitwiseXor = "^"  # pylint: disable=C0103
+    Multiply = "*"  # pylint: disable=C0103
+    Divide = "/"  # pylint: disable=C0103
+    Plus = "+"  # pylint: disable=C0103
+    Minus = "-"  # pylint: disable=C0103
+    Modulo = "%"  # pylint: disable=C0103
 
 
-@dataclass
+@dataclass(eq=False)
 class BinaryOp(Operation):
     """represents an operation that operates on two expressions"""
 
     left: Expression
-    op: BinaryOpKind
+    op: BinaryOpKind  # pylint: disable=C0103
     right: Expression
 
     def __hash__(self) -> int:
         return hash((BinaryOp, self.op))
 
 
-@dataclass
+@dataclass(eq=False)
 class Case(Expression):
     """a case statement of branches"""
 
@@ -266,7 +282,7 @@ class Case(Expression):
         return id(self)
 
 
-@dataclass
+@dataclass(eq=False)
 class Function(Named, Operation):
     """represents a function used in a statement"""
 
@@ -276,7 +292,7 @@ class Function(Named, Operation):
         return hash(Function)
 
 
-@dataclass
+@dataclass(eq=False)
 class Value(Expression):
     """base class for all values number, string, boolean"""
 
@@ -286,10 +302,18 @@ class Value(Expression):
         return hash((self.__class__, self.value))
 
 
+@dataclass(eq=False)
 class Number(Value):  # Number
     """number value"""
 
     value: Union[float, int]
+
+    def __post_init__(self):
+        if type(self.value) not in (float, int):
+            try:
+                self.value = int(self.value)
+            except ValueError:
+                self.value = float(self.value)
 
 
 class String(Value):  # SingleQuotedString
@@ -304,10 +328,10 @@ class Boolean(Value):  # Boolean
     value: bool
 
 
-NodeType = TypeVar("NodeType", bound=Node)
+NodeType = TypeVar("NodeType", bound=Node)  # pylint: disable=C0103
 
 
-@dataclass
+@dataclass(eq=False)
 class Alias(Named, Generic[NodeType]):
     """wraps node types with an alias"""
 
@@ -317,7 +341,7 @@ class Alias(Named, Generic[NodeType]):
         return hash((Alias, self.name))
 
 
-@dataclass
+@dataclass(eq=False)
 class Column(Named):
     """column used in statements"""
 
@@ -325,37 +349,49 @@ class Column(Named):
 
     @property
     def table(self) -> Optional["Table"]:
+        """
+        return the table the column was referenced from
+        """
         return self._table
 
     def add_table(self, table: "Table") -> "Column":
+        """
+        add a referenced table
+        """
         if self._table is None:
-            self._tables = table
+            self._table = table
         return self
 
     def __hash__(self) -> int:
         return hash((Column, self.name))
 
 
-@dataclass
+@dataclass(eq=False)
 class Wildcard(Expression):
     """wildcard or '*' expression"""
 
-    _tables: List["Table"] = field(repr=False, default_factory=list)
+    _table: Optional["Table"] = field(repr=False, default=None)
 
     @property
-    def tables(self) -> List["Table"]:
-        return self._tables
+    def table(self) -> Optional["Table"]:
+        """
+        return the table the column was referenced from
+        """
+        return self._table
 
-    def add_tables(self, *tables: "Table") -> "Wildcard":
-        for table in tables:
-            self._tables.append(table)
+    def add_table(self, table: "Table") -> "Wildcard":
+        """
+        add a referenced table
+        """
+        if self._table is None:
+            self._table = table
         return self
 
     def __hash__(self) -> int:
         return id(Wildcard)
 
 
-@dataclass
+@dataclass(eq=False)
 class Table(Named):
     """a type for tables"""
 
@@ -363,9 +399,15 @@ class Table(Named):
 
     @property
     def columns(self) -> List[Column]:
+        """
+        return the columns referenced from this table
+        """
         return self._columns
 
     def add_columns(self, *columns: Column) -> "Table":
+        """
+        add columns referenced from this table
+        """
         for column in columns:
             self._columns.append(column)
             column.add_table(self)
@@ -378,25 +420,25 @@ class Table(Named):
 class JoinKind(Enum):
     """the accepted kinds of joins"""
 
-    Inner = "INNER JOIN"
-    LeftOuter = "LEFT JOIN"
-    RightOuter = "RIGHT JOIN"
-    FullOuter = "FULL JOIN"
+    Inner = "INNER JOIN"  # pylint: disable=C0103
+    LeftOuter = "LEFT JOIN"  # pylint: disable=C0103
+    RightOuter = "RIGHT JOIN"  # pylint: disable=C0103
+    FullOuter = "FULL JOIN"  # pylint: disable=C0103
 
 
-@dataclass
+@dataclass(eq=False)
 class Join(Node):
     """a join between tables"""
 
     kind: JoinKind
     table: Union[Table, Alias]
-    on: Expression
+    on: Expression  # pylint: disable=C0103
 
     def __hash__(self) -> int:
         return hash((Join, self.kind))
 
 
-@dataclass
+@dataclass(eq=False)
 class From(Node):
     """a from that belongs to a select"""
 
@@ -407,7 +449,7 @@ class From(Node):
         return id(self)
 
 
-@dataclass
+@dataclass(eq=False)
 class Select(Node):
     """a single select statement type"""
 
@@ -423,7 +465,7 @@ class Select(Node):
         return id(self)
 
 
-@dataclass
+@dataclass(eq=False)
 class Query(Expression):
     """overarching query type"""
 

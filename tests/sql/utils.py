@@ -5,6 +5,8 @@ import os
 
 from sqlalchemy.sql import Select
 
+TPCDS_QUERY_SET = [("tpcds_q01")]
+
 
 def query_to_string(query: Select) -> str:
     """
@@ -14,5 +16,12 @@ def query_to_string(query: Select) -> str:
 
 
 def read_query(name: str) -> str:
-    with open(os.path.join(os.path.abspath(__file__), "parsing", "queries", name)) as f:
+    with open(
+        os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            "parsing",
+            "queries",
+            name,
+        ),
+    ) as f:
         return f.read()

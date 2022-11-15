@@ -18,6 +18,8 @@ from dj.api.main import app
 from dj.config import Settings
 from dj.utils import get_project_repository, get_session, get_settings
 
+from .sql.parsing.queries import *
+
 
 @pytest.fixture
 def settings(mocker: MockerFixture) -> Iterator[Settings]:
