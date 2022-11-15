@@ -27,7 +27,7 @@ from dj.sql.parsing.ast import (
 )
 
 
-@pytest.fixture(scope="session")
+@pytest.fixture
 def tpcds_q01():
     return Query(
         ctes=[
@@ -46,9 +46,14 @@ def tpcds_q01():
                                     left=Column(
                                         name="sr_customer_sk",
                                         quote_style=None,
+                                        _table=Table("store_returns", quote_style=None),
                                     ),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="d_date_sk", quote_style=None),
+                                    right=Column(
+                                        name="d_date_sk",
+                                        quote_style=None,
+                                        _table=Table("date_dim", quote_style=None),
+                                    ),
                                 ),
                             ),
                         ],
@@ -89,7 +94,7 @@ def tpcds_q01():
                         right=BinaryOp(
                             left=Column(name="d_year", quote_style=None),
                             op=BinaryOpKind.Eq,
-                            right=Number(value="2001"),
+                            right=Number(value=2001),
                         ),
                     ),
                     limit=None,
@@ -113,7 +118,11 @@ def tpcds_q01():
                                 left=BinaryOp(
                                     left=Column(name="s_store_sk", quote_style=None),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="ctr_store_sk", quote_style=None),
+                                    right=Column(
+                                        name="ctr_store_sk",
+                                        quote_style=None,
+                                        _table=Table("ctr1", quote_style=None),
+                                    ),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
@@ -124,21 +133,29 @@ def tpcds_q01():
                             ),
                             op=BinaryOpKind.And,
                             right=BinaryOp(
-                                left=Column(name="ctr_customer_sk", quote_style=None),
+                                left=Column(
+                                    name="ctr_customer_sk",
+                                    quote_style=None,
+                                    _table=Table("ctr1", quote_style=None),
+                                ),
                                 op=BinaryOpKind.Eq,
                                 right=Column(name="c_customer_sk", quote_style=None),
                             ),
                         ),
                     ),
                     Join(
-                        kind=JoinKind.Inner,
+                        kind=JoinKind.LeftOuter,
                         table=Table(name="customer", quote_style=None),
                         on=BinaryOp(
                             left=BinaryOp(
                                 left=BinaryOp(
                                     left=Column(name="s_store_sk", quote_style=None),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="ctr_store_sk", quote_style=None),
+                                    right=Column(
+                                        name="ctr_store_sk",
+                                        quote_style=None,
+                                        _table=Table("ctr1", quote_style=None),
+                                    ),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
@@ -149,7 +166,11 @@ def tpcds_q01():
                             ),
                             op=BinaryOpKind.And,
                             right=BinaryOp(
-                                left=Column(name="ctr_customer_sk", quote_style=None),
+                                left=Column(
+                                    name="ctr_customer_sk",
+                                    quote_style=None,
+                                    _table=Table("ctr1", quote_style=None),
+                                ),
                                 op=BinaryOpKind.Eq,
                                 right=Column(name="c_customer_sk", quote_style=None),
                             ),
@@ -163,80 +184,94 @@ def tpcds_q01():
             where=BinaryOp(
                 left=BinaryOp(
                     left=BinaryOp(
-                        left=BinaryOp(
-                            left=Column(name="ctr_total_return", quote_style=None),
-                            op=BinaryOpKind.NotEq,
-                            right=Query(
-                                ctes=[],
-                                select=Select(
-                                    distinct=False,
-                                    from_=From(
-                                        table=Alias(
-                                            name="ctr2",
-                                            quote_style=None,
-                                            child=Table(
-                                                name="customer_total_return",
-                                                quote_style=None,
-                                            ),
-                                        ),
-                                        joins=[],
-                                    ),
-                                    group_by=[],
-                                    having=None,
-                                    projection=[
-                                        BinaryOp(
-                                            left=Function(
-                                                name="Avg",
-                                                quote_style=None,
-                                                args=[
-                                                    Column(
-                                                        name="ctr_total_return",
-                                                        quote_style=None,
-                                                    ),
-                                                ],
-                                            ),
-                                            op=BinaryOpKind.Multiply,
-                                            right=Number(value="1.2"),
-                                        ),
-                                    ],
-                                    where=BinaryOp(
-                                        left=Column(
-                                            name="ctr_store_sk",
-                                            quote_style=None,
-                                        ),
-                                        op=BinaryOpKind.Eq,
-                                        right=Column(
-                                            name="ctr_store_sk",
-                                            quote_style=None,
-                                        ),
-                                    ),
-                                    limit=None,
-                                ),
-                                subquery=True,
-                            ),
+                        left=Column(
+                            name="ctr_total_return",
+                            quote_style=None,
+                            _table=Table("ctr1", quote_style=None),
                         ),
-                        op=BinaryOpKind.And,
-                        right=BinaryOp(
-                            left=Column(name="s_store_sk", quote_style=None),
-                            op=BinaryOpKind.Eq,
-                            right=Column(name="ctr_store_sk", quote_style=None),
+                        op=BinaryOpKind.Gt,
+                        right=Query(
+                            ctes=[],
+                            select=Select(
+                                distinct=True,
+                                from_=From(
+                                    table=Alias(
+                                        name="ctr2",
+                                        quote_style=None,
+                                        child=Table(
+                                            name="customer_total_return",
+                                            quote_style=None,
+                                        ),
+                                    ),
+                                    joins=[],
+                                ),
+                                group_by=[],
+                                having=None,
+                                projection=[
+                                    BinaryOp(
+                                        left=Function(
+                                            name="Avg",
+                                            quote_style=None,
+                                            args=[
+                                                Column(
+                                                    name="ctr_total_return",
+                                                    quote_style=None,
+                                                ),
+                                            ],
+                                        ),
+                                        op=BinaryOpKind.Multiply,
+                                        right=Number(value=1.2),
+                                    ),
+                                ],
+                                where=BinaryOp(
+                                    left=Column(
+                                        name="ctr_store_sk",
+                                        quote_style=None,
+                                        _table=Table("ctr1", quote_style=None),
+                                    ),
+                                    op=BinaryOpKind.Eq,
+                                    right=Column(
+                                        name="ctr_store_sk",
+                                        quote_style=None,
+                                        _table=Table("ctr2", quote_style=None),
+                                    ),
+                                ),
+                                limit=None,
+                            ),
+                            subquery=True,
                         ),
                     ),
                     op=BinaryOpKind.And,
                     right=BinaryOp(
-                        left=Column(name="s_state", quote_style=None),
+                        left=Column(name="s_store_sk", quote_style=None),
                         op=BinaryOpKind.Eq,
-                        right=String(value="TN"),
+                        right=Column(
+                            name="ctr_store_sk",
+                            quote_style=None,
+                            _table=Table("ctr1", quote_style=None),
+                        ),
                     ),
                 ),
-                op=BinaryOpKind.And,
+                op=BinaryOpKind.Or,
                 right=BinaryOp(
-                    left=Column(name="ctr_customer_sk", quote_style=None),
-                    op=BinaryOpKind.Eq,
-                    right=Column(name="c_customer_sk", quote_style=None),
+                    left=BinaryOp(
+                        left=Column(name="s_state", quote_style=None),
+                        op=BinaryOpKind.NotEq,
+                        right=String(value="TN"),
+                    ),
+                    op=BinaryOpKind.And,
+                    right=BinaryOp(
+                        left=Column(
+                            name="ctr_customer_sk",
+                            quote_style=None,
+                            _table=Table("ctr1", quote_style=None),
+                        ),
+                        op=BinaryOpKind.Eq,
+                        right=Column(name="c_customer_sk", quote_style=None),
+                    ),
                 ),
             ),
-            limit=Number(value="100"),
+            limit=Number(value=100),
         ),
         subquery=False,
     )

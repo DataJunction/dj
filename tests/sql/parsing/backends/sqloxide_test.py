@@ -1,14 +1,15 @@
 """
 tests for the backend that takes sqloxide output and transforms it into an DJ ast
 """
+import pytest
 
-from dj.sql.parsing.ast import Query
 from dj.sql.parsing.backends.sqloxide import parse
+from tests.sql.utils import TPCDS_QUERY_SET, read_query
 
-from ...utils import read_query
 
-
-def test_sqloxide_parse_tpcds_q01(tpcds_q01: Query):
-    query = read_query("tcpds_q01.sql")
+@pytest.mark.parametrize("query_name", TPCDS_QUERY_SET)
+def test_sqloxide_parse_tpcds_q01(request, query_name):
+    expected_ast = request.getfixturevalue(query_name)
+    query = read_query(f"{query_name}.sql")
     parsed = parse(query)
-    assert tpcds_q01.compare(parsed)
+    assert expected_ast.compare(parsed)
