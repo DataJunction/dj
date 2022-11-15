@@ -21,20 +21,7 @@ from typing import (
 )
 
 
-def flatten(maybe_iterable: Any) -> Generator:
-    """
-    flattens `maybe_iterable` by descending into items that are of list, tuple, set, Iterator
-    """
-    if isinstance(maybe_iterable, Iterable):
-        for subiterator in maybe_iterable:
-            if not any(
-                isinstance(subiterator, lts) for lts in (list, tuple, set, Iterator)
-            ):
-                yield subiterator
-                continue
-            for element in flatten(subiterator):
-                yield element
-    yield maybe_iterable
+from dj.utils import flatten
 
 
 class Node(ABC):
@@ -84,7 +71,7 @@ class Node(ABC):
         """
         flatten the sub-ast of the node as an iterator
         """
-        return self.filter(lambda node: True)
+        return self.filter(lambda _: True)
 
     def fields(
         self,
@@ -224,12 +211,17 @@ class Named(Expression):
 class Operation(Expression):
     """a type to overarch types that operate on other expressions"""
 
+class UnaryOpKind(Enum):
+    """the accepted unary operations"""
+    Plus = "+"  # pylint: disable=C0103
+    Minus = "-"  # pylint: disable=C0103
+    Not = "NOT"
 
 @dataclass(eq=False)
 class UnaryOp(Operation):
     """an operation that operates on a single expression"""
 
-    op: str  # pylint: disable=C0103
+    op: UnaryOpKind  # pylint: disable=C0103
     expr: Expression
 
     def __hash__(self) -> int:
@@ -268,6 +260,14 @@ class BinaryOp(Operation):
     def __hash__(self) -> int:
         return hash((BinaryOp, self.op))
 
+@dataclass(eq=False)
+class Between(Operation):
+    expr: Expression
+    low: Expression
+    high: Expression
+
+    def __hash__(self) -> int:
+        return hash((Between, self.low, self.high))
 
 @dataclass(eq=False)
 class Case(Expression):
