@@ -79,12 +79,12 @@ def _(node: Alias) -> str:
 @sql.register
 def _(node: Column) -> str:
     if node.table:
-        return f'{node.quote_style if node.quote_style else ""}{node.table.alias_or_name()}.{node.name}{node.quote_style if node.quote_style else ""}'
+        return f'{node.quote_style if node.quote_style else ""}{node.table.alias_or_name()}.{node.name}{node.quote_style if node.quote_style else ""}'  # pylint: disable=C0301
     return node.quoted_name
 
 
 @sql.register
-def _(node: Wildcard) -> str:
+def _(node: Wildcard) -> str:  # pylint: disable=W0613
     return "*"
 
 

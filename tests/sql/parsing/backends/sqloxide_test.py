@@ -8,7 +8,10 @@ from tests.sql.utils import TPCDS_QUERY_SET, read_query
 
 
 @pytest.mark.parametrize("query_name", TPCDS_QUERY_SET)
-def test_sqloxide_parse_tpcds_q01(request, query_name):
+def test_sqloxide_parse_tpcds(request, query_name):
+    """
+    test tpcds queries parse properly
+    """
     expected_ast = request.getfixturevalue(query_name)
     query = read_query(f"{query_name}.sql")
     parsed = parse(query)

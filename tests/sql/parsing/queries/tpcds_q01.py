@@ -9,26 +9,24 @@ from dj.sql.parsing.ast import (
     Alias,
     BinaryOp,
     BinaryOpKind,
-    Case,
     Column,
     From,
     Function,
     Join,
     JoinKind,
-    Node,
     Number,
     Query,
     Select,
     String,
     Table,
-    UnaryOp,
-    Value,
-    Wildcard,
 )
 
 
 @pytest.fixture
 def tpcds_q01():
+    """
+    dj ast for tpcds query 1
+    """
     return Query(
         ctes=[
             Alias(

@@ -1,4 +1,6 @@
-from itertools import chain
+"""
+parsing backend turing sqloxide output into DJ AST
+"""
 from typing import List, Set, Union, cast
 
 from sqloxide import parse_sql
@@ -15,7 +17,6 @@ from dj.sql.parsing.ast import (
     Function,
     Join,
     JoinKind,
-    Named,
     Number,
     Query,
     Select,
@@ -32,19 +33,28 @@ class DJParseException(Exception):
 
 
 def match_keys(parse_tree: dict, *keys: Set[str]) -> bool:
+    """
+    match a dictionary having exact keys
+    """
     return set(parse_tree.keys()) in keys
 
 
 def match_keys_subset(parse_tree: dict, *keys: Set[str]) -> bool:
+    """
+    match a dict having a subset of keys
+    """
     tree_keys = set(parse_tree.keys())
     return any(key <= tree_keys for key in keys)
 
 
 def parse_op(parse_tree: dict):
+    """
+    parse an unary or binary operation
+    """
     if match_keys(parse_tree, {"BinaryOp"}):
         subtree = parse_tree["BinaryOp"]
-        for e in BinaryOpKind:
-            binop_kind = e.name
+        for exp in BinaryOpKind:
+            binop_kind = exp.name
             if subtree["op"] == binop_kind:
                 return BinaryOp(
                     parse_expression(subtree["left"]),
@@ -52,13 +62,16 @@ def parse_op(parse_tree: dict):
                     parse_expression(subtree["right"]),
                 ).add_self_as_parent()
         raise DJParseException(f"Unknown operator {subtree['op']}")
-    elif match_keys(parse_tree, {"UnaryOp"}):
+    if match_keys(parse_tree, {"UnaryOp"}):
         subtree = parse_tree["UnaryOp"]
         return UnaryOp(subtree["op"], subtree["expr"]).add_self_as_parent()
     raise DJParseException("Failed to parse Operator")
 
 
 def parse_case(parse_tree: dict) -> Case:
+    """
+    parse a case expressions
+    """
     if match_keys(parse_tree, {"conditions", "else_result", "operand", "results"}):
         return cast(
             Case,
@@ -76,28 +89,33 @@ def parse_case(parse_tree: dict) -> Case:
     raise DJParseException("Failed to parse Case")
 
 
-def parse_expression(parse_tree: Union[dict, str]) -> Expression:
+def parse_expression(  # pylint: disable=R0911,R0912
+    parse_tree: Union[dict, str],
+) -> Expression:
+    """
+    parse an expression
+    """
     if isinstance(parse_tree, str):
         if parse_tree == "Wildcard":
             return Wildcard()
     else:
         if match_keys(parse_tree, {"Value"}):
             return parse_value(parse_tree["Value"])
-        elif match_keys(parse_tree, {"UnaryOp"}, {"BinaryOp"}):
+        if match_keys(parse_tree, {"UnaryOp"}, {"BinaryOp"}):
             return parse_op(parse_tree)
-        elif match_keys(parse_tree, {"Unnamed"}):
+        if match_keys(parse_tree, {"Unnamed"}):
             return parse_expression(parse_tree["Unnamed"])
-        elif match_keys(parse_tree, {"UnnamedExpr"}):
+        if match_keys(parse_tree, {"UnnamedExpr"}):
             return parse_expression(parse_tree["UnnamedExpr"])
-        elif match_keys(parse_tree, {"Expr"}):
+        if match_keys(parse_tree, {"Expr"}):
             return parse_expression(parse_tree["Expr"])
-        elif match_keys(parse_tree, {"Case"}):
+        if match_keys(parse_tree, {"Case"}):
             return parse_case(parse_tree["Case"])
-        elif match_keys(parse_tree, {"Function"}):
+        if match_keys(parse_tree, {"Function"}):
             return parse_function(parse_tree["Function"])
-        elif match_keys(parse_tree, {"Identifier"}, {"CompoundIdentifier"}):
+        if match_keys(parse_tree, {"Identifier"}, {"CompoundIdentifier"}):
             return parse_column(parse_tree)
-        elif match_keys(parse_tree, {"ExprWithAlias"}):
+        if match_keys(parse_tree, {"ExprWithAlias"}):
             subtree = parse_tree["ExprWithAlias"]
             return cast(
                 Alias,
@@ -107,28 +125,34 @@ def parse_expression(parse_tree: Union[dict, str]) -> Expression:
                     parse_column(subtree["expr"]),
                 ).add_self_as_parent(),
             )
-        elif match_keys(parse_tree, {"Subquery"}):
+        if match_keys(parse_tree, {"Subquery"}):
             return parse_query(parse_tree["Subquery"], True)
     raise DJParseException("Failed to parse Expression")
 
 
 def parse_value(parse_tree: dict) -> Value:
+    """
+    parse a primitive value
+    """
     if match_keys(parse_tree, {"Value"}):
         return parse_value(parse_tree["Value"])
-    elif match_keys(parse_tree, {"Number"}):
+    if match_keys(parse_tree, {"Number"}):
         return Number(parse_tree["Number"][0])
-    elif match_keys(parse_tree, {"SingleQuotedString"}):
+    if match_keys(parse_tree, {"SingleQuotedString"}):
         return String(parse_tree["SingleQuotedString"])
-    elif match_keys(parse_tree, {"Boolean"}):
+    if match_keys(parse_tree, {"Boolean"}):
         return Boolean(parse_tree["Boolean"])
     raise DJParseException("Not a primitive")
 
 
 def parse_column(parse_tree: dict):
+    """
+    parse a column
+    """
     if match_keys(parse_tree, {"Identifier"}):
         subtree = parse_tree["Identifier"]
         return Column(subtree["value"], subtree["quote_style"])
-    elif match_keys(parse_tree, {"CompoundIdentifier"}):
+    if match_keys(parse_tree, {"CompoundIdentifier"}):
         subtree = parse_tree["CompoundIdentifier"]
         if len(subtree) != 2:
             raise DJParseException(
@@ -142,6 +166,9 @@ def parse_column(parse_tree: dict):
 
 
 def parse_table(parse_tree: dict) -> Union[Alias, Table]:
+    """
+    parse a table
+    """
     if match_keys(parse_tree, {"Table"}):
         subtree = parse_tree["Table"]
         name = subtree["name"]
@@ -165,6 +192,9 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
 
 
 def parse_function(parse_tree: dict) -> Function:
+    """
+    parse a function operating on an expression
+    """
     if match_keys_subset(parse_tree, {"name", "args"}):
         args = parse_tree["args"]
         names = parse_tree["name"]
@@ -182,14 +212,17 @@ def parse_function(parse_tree: dict) -> Function:
 
 
 def parse_join(parse_tree: dict) -> Join:
+    """
+    parse a join of a select
+    """
     if match_keys(
         parse_tree,
         {"relation", "join_operator"},
     ):
         relation = parse_tree["relation"]
         join_operator = parse_tree["join_operator"]
-        for e in JoinKind:
-            join_kind = e.name
+        for exp in JoinKind:
+            join_kind = exp.name
             if match_keys(
                 join_operator,
                 {join_kind},
@@ -207,6 +240,9 @@ def parse_join(parse_tree: dict) -> Join:
 
 
 def parse_from(parse_list: List[dict]) -> From:
+    """
+    parse the from of a select
+    """
     if len(parse_list) != 1:
         raise DJParseException("Expected single From statement")
     parse_tree = parse_list[0]
@@ -226,6 +262,9 @@ def parse_from(parse_list: List[dict]) -> From:
 
 
 def parse_select(parse_tree: dict) -> Select:
+    """
+    parse the select of a query or subquery
+    """
     if match_keys_subset(
         parse_tree,
         {"distinct", "from", "group_by", "having", "projection", "selection"},
@@ -251,6 +290,9 @@ def parse_select(parse_tree: dict) -> Select:
 
 
 def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
+    """
+    parse the ctes of a query
+    """
     if match_keys_subset(parse_tree, {"cte_tables"}):
         subtree = parse_tree["cte_tables"]
         ctes = []
@@ -270,6 +312,9 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
 
 
 def parse_query(parse_tree: dict, subquery: bool = False) -> Query:
+    """
+    parse a query (ctes+select) statement
+    """
     if match_keys_subset(parse_tree, {"with", "body", "limit"}):
         select = parse_select(parse_tree["body"]["Select"])
         select.limit = None

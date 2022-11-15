@@ -16,6 +16,9 @@ def query_to_string(query: Select) -> str:
 
 
 def read_query(name: str) -> str:
+    """
+    Read a tpcds query given filename e.g. tpcds_q01.sql
+    """
     with open(
         os.path.join(
             os.path.dirname(os.path.abspath(__file__)),
@@ -23,5 +26,6 @@ def read_query(name: str) -> str:
             "queries",
             name,
         ),
-    ) as f:
-        return f.read()
+        encoding="utf-8",
+    ) as file:
+        return file.read()
