@@ -18,7 +18,7 @@ from dj.api.main import app
 from dj.config import Settings
 from dj.utils import get_project_repository, get_session, get_settings
 
-from .sql.parsing.queries import *
+from .sql.parsing.queries import *  # pylint: disable=W0401,W0614
 
 
 @pytest.fixture
