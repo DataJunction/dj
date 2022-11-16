@@ -1,6 +1,8 @@
-import pytest
+"""
+testing ast Nodes and their methods
+"""
 
-from dj.sql.parsing.ast import Query, Select, From, Table, Wildcard, Alias
+from dj.sql.parsing.ast import Alias, From, Query, Select, Table, Wildcard
 
 
 def test_findall_trivial(trivial_query):
@@ -15,7 +17,7 @@ def test_filter_trivial(trivial_query):
     test filtering nodes of a trivial query
     """
     assert [Table(name="a", quote_style=None)] == list(
-        trivial_query.filter(lambda node: isinstance(node, Table))
+        trivial_query.filter(lambda node: isinstance(node, Table)),
     )
 
 
@@ -57,11 +59,14 @@ def test_trivial_apply(trivial_query):
     test the apply method for nodes on a trivial query
     """
     flat = []
-    trivial_query.apply(lambda node: flat.append(node))
+    trivial_query.apply(lambda node: flat.append(node))  # pylint: disable=W0108
     assert flat == list(trivial_query.flatten())
 
 
 def test_named_alias_or_name():
+    """
+    test a named node for returning it's alias name when a child of an alias
+    """
     named = Table("a", None)
     alias = Alias(
         "alias",

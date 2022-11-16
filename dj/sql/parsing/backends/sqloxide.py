@@ -7,10 +7,9 @@ from sqloxide import parse_sql
 
 from dj.sql.parsing.ast import (
     Alias,
-    BinaryOp,
     Between,
+    BinaryOp,
     BinaryOpKind,
-    UnaryOpKind,
     Boolean,
     Case,
     Column,
@@ -20,12 +19,13 @@ from dj.sql.parsing.ast import (
     Join,
     JoinKind,
     Number,
-    Query,
     Operation,
+    Query,
     Select,
     String,
     Table,
     UnaryOp,
+    UnaryOpKind,
     Value,
     Wildcard,
 )

@@ -2,8 +2,9 @@
 Helper functions.
 """
 import os
-
+import re
 from collections import Counter
+
 from sqlalchemy.sql import Select
 
 TPCDS_QUERY_SET = ["tpcds_q01", "tpcds_q99"]
@@ -20,7 +21,6 @@ def compare_query_strings(str1, str2: str) -> bool:
     """
     compare two query strings based on sorted tokens
     """
-    import re
 
     ignore = {"as", "\n", "\t", " ", "(", ")", ";"}
     counted1 = Counter(
@@ -28,18 +28,18 @@ def compare_query_strings(str1, str2: str) -> bool:
             token
             for token in re.sub(r"[\(\)]", " ", str1.lower()).split()
             if token not in ignore
-        )
+        ),
     )
     counted2 = Counter(
         "".join(
             token
             for token in re.sub(r"[\(\)]", " ", str2.lower()).split()
             if token not in ignore
-        )
+        ),
     )
-    return not [k for k in (counted1 - counted2).keys() - ignore] + [
+    return not list((counted1 - counted2).keys() - ignore) + list(
         k for k in (counted2 - counted1).keys() - ignore
-    ]
+    )
 
 
 def read_query(name: str) -> str:
