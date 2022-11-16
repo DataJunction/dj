@@ -33,4 +33,4 @@ WHERE  NOT d_month_seq BETWEEN +1200 AND 1200 + 11
 GROUP  BY Substr(w_warehouse_name, 1, 20),
           sm_type,
           cc_name
-LIMIT  100 
+LIMIT  100

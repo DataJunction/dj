@@ -13,6 +13,7 @@ from yarl import URL
 from dj.config import Settings
 from dj.typing import ColumnType
 from dj.utils import (
+    flatten,
     get_engine,
     get_issue_url,
     get_more_specific_type,
@@ -20,7 +21,6 @@ from dj.utils import (
     get_session,
     get_settings,
     setup_logging,
-    flatten,
 )
 
 
@@ -161,5 +161,5 @@ def test_flatten():
     Test ``flatten``
     """
     assert list(
-        flatten([1, {1, 2, 3}, range(5), (8, (18, [4, iter(range(9))], [10]))])
+        flatten([1, {1, 2, 3}, range(5), (8, (18, [4, iter(range(9))], [10]))]),
     ) == [1, 1, 2, 3, range(0, 5), 8, 18, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 10]

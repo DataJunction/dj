@@ -7,8 +7,8 @@ from typing import Any
 
 from dj.sql.parsing.ast import (
     Alias,
-    BinaryOp,
     Between,
+    BinaryOp,
     Case,
     Column,
     From,

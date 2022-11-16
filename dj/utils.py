@@ -1,13 +1,14 @@
 """
 Utility functions.
 """
-# pylint: disable=line-too-long
-from itertools import chain
 import logging
 import os
 from functools import lru_cache
+
+# pylint: disable=line-too-long
+from itertools import chain
 from pathlib import Path
-from typing import Iterator, List, Optional, Generator, Any, Iterable, Union
+from typing import Any, Generator, Iterator, List, Optional, Union
 
 import sqlparse
 import yaml
@@ -198,7 +199,6 @@ def flatten(maybe_iterables: Any) -> Union[chain, Generator[Any, None, None]]:
     """
     if not isinstance(maybe_iterables, (list, tuple, set, Iterator)):
         return single_item_generator(maybe_iterables)
-    else:
-        return chain.from_iterable(
-            (flatten(maybe_iterable) for maybe_iterable in maybe_iterables)
-        )
+    return chain.from_iterable(
+        (flatten(maybe_iterable) for maybe_iterable in maybe_iterables)
+    )

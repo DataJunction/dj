@@ -6,11 +6,8 @@ from dataclasses import dataclass, field, fields
 from enum import Enum
 from itertools import chain, zip_longest
 from typing import (
-    Any,
     Callable,
-    Generator,
     Generic,
-    Iterable,
     Iterator,
     List,
     Optional,
@@ -19,7 +16,6 @@ from typing import (
     TypeVar,
     Union,
 )
-
 
 from dj.utils import flatten
 
@@ -143,7 +139,7 @@ class Node(ABC):
         for child in self.children:
             child.apply(func)
 
-    def compare(self, other: "Node", error: bool = False) -> bool:
+    def compare(self, other: "Node") -> bool:
         """
         compare two ASTs
         """
@@ -216,7 +212,7 @@ class UnaryOpKind(Enum):
 
     Plus = "+"  # pylint: disable=C0103
     Minus = "-"  # pylint: disable=C0103
-    Not = "NOT"
+    Not = "NOT"  # pylint: disable=C0103
 
 
 @dataclass(eq=False)
