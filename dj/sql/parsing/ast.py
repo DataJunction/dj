@@ -147,8 +147,7 @@ class Node(ABC):
         """
         compare two ASTs
         """
-        if error and self != other:
-            print(self, other)
+
         return self == other and all(
             child.compare(other_child)
             for child, other_child in zip_longest(self.children, other.children)
@@ -307,9 +306,6 @@ class Value(Expression):
 
     value: Union[str, bool, float, int]
 
-    def __hash__(self) -> int:
-        return hash((self.__class__, self.value))
-
 
 @dataclass(eq=False)
 class Number(Value):  # Number
@@ -324,17 +320,26 @@ class Number(Value):  # Number
             except ValueError:
                 self.value = float(self.value)
 
+    def __hash__(self) -> int:
+        return hash((Number, self.value))
+
 
 class String(Value):  # SingleQuotedString
     """string value"""
 
     value: str
 
+    def __hash__(self) -> int:
+        return hash((String, self.value))
+
 
 class Boolean(Value):  # Boolean
     """boolean True/False value"""
 
     value: bool
+
+    def __hash__(self) -> int:
+        return hash((Boolean, self.value))
 
 
 NodeType = TypeVar("NodeType", bound=Node)  # pylint: disable=C0103
