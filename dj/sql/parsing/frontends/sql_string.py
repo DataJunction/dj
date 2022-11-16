@@ -8,6 +8,7 @@ from typing import Any
 from dj.sql.parsing.ast import (
     Alias,
     BinaryOp,
+    Between,
     Case,
     Column,
     From,
@@ -32,19 +33,24 @@ def sql(node: Any) -> str:
     raise Exception("Can only convert Node types to sql")
 
 
-@sql.register
-def _(node: Node) -> str:
-    return " ".join([sql(child) for child in node.children])
+# @sql.register
+# def _(node: Node) -> str:
+#     return " ".join([sql(child) for child in node.children])
 
 
 @sql.register
 def _(node: UnaryOp) -> str:
-    return f"{node.op} {sql(node.expr)}"
+    return f"{node.op.value} {sql(node.expr)}"
 
 
 @sql.register
 def _(node: BinaryOp) -> str:
     return f"{sql(node.left)} {node.op.value} {sql(node.right)}"
+
+
+@sql.register
+def _(node: Between) -> str:
+    return f"{sql(node.expr)} BETWEEN {sql(node.low)} AND {sql(node.high)}"
 
 
 @sql.register
