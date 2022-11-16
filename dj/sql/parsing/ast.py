@@ -211,11 +211,14 @@ class Named(Expression):
 class Operation(Expression):
     """a type to overarch types that operate on other expressions"""
 
+
 class UnaryOpKind(Enum):
     """the accepted unary operations"""
+
     Plus = "+"  # pylint: disable=C0103
     Minus = "-"  # pylint: disable=C0103
     Not = "NOT"
+
 
 @dataclass(eq=False)
 class UnaryOp(Operation):
@@ -260,14 +263,20 @@ class BinaryOp(Operation):
     def __hash__(self) -> int:
         return hash((BinaryOp, self.op))
 
+
 @dataclass(eq=False)
 class Between(Operation):
+    """
+    a between statement
+    """
+
     expr: Expression
     low: Expression
     high: Expression
 
     def __hash__(self) -> int:
         return hash((Between, self.low, self.high))
+
 
 @dataclass(eq=False)
 class Case(Expression):

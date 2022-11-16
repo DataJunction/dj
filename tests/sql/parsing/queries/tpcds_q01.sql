@@ -1,4 +1,3 @@
--- modified from https://github.com/Agirish/tpcds/blob/master/query1.sql
 WITH customer_total_return AS
 (
            SELECT     sr_customer_sk     AS ctr_customer_sk,

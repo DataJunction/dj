@@ -21,6 +21,7 @@ from dj.sql.parsing.ast import (
     JoinKind,
     Number,
     Query,
+    Operation,
     Select,
     String,
     Table,
@@ -49,7 +50,7 @@ def match_keys_subset(parse_tree: dict, *keys: Set[str]) -> bool:
     return any(key <= tree_keys for key in keys)
 
 
-def parse_op(parse_tree: dict):
+def parse_op(parse_tree: dict) -> Operation:
     """
     parse an unary or binary operation
     """
@@ -66,7 +67,7 @@ def parse_op(parse_tree: dict):
         raise DJParseException(f"Unknown operator {subtree['op']}")
     if match_keys(parse_tree, {"UnaryOp"}):
         subtree = parse_tree["UnaryOp"]
-        for exp in BinaryOpKind:
+        for exp in UnaryOpKind:
             uniop_kind = exp.name
             if subtree["op"] == uniop_kind:
                 return UnaryOp(
@@ -76,11 +77,15 @@ def parse_op(parse_tree: dict):
         raise DJParseException(f"Unknown operator {subtree['op']}")
     if match_keys(parse_tree, {"Between"}):
         subtree = parse_tree["Between"]
-        return Between(
-            parse_expression(subtree['expr']),
-            parse_expression(subtree['low']),
+        between = Between(
+            parse_expression(subtree["expr"]),
+            parse_expression(subtree["low"]),
             parse_expression(subtree["high"]),
         ).add_self_as_parent()
+        if subtree["negated"]:
+            return UnaryOp(UnaryOpKind.Not, between).add_self_as_parent()
+        return between
+
     raise DJParseException("Failed to parse Operator")
 
 
@@ -118,7 +123,7 @@ def parse_expression(  # pylint: disable=R0911,R0912
         if match_keys(parse_tree, {"Value"}):
             return parse_value(parse_tree["Value"])
         if match_keys(parse_tree, {"Nested"}):
-            return parse_expression(parse_tree['Nested'])
+            return parse_expression(parse_tree["Nested"])
         if match_keys(parse_tree, {"UnaryOp"}, {"BinaryOp"}, {"Between"}):
             return parse_op(parse_tree)
         if match_keys(parse_tree, {"Unnamed"}):
