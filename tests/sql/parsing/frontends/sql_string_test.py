@@ -5,29 +5,11 @@ import pytest
 
 from dj.sql.parsing.frontends.sql_string import sql
 from tests.sql.utils import TPCDS_QUERY_SET, read_query, compare_query_strings
-from dj.sql.parsing.ast import From, Query, Select, Table, Wildcard
 
 
-def test_trivial():
-    assert (
-        sql(
-            Query(
-                ctes=[],
-                select=Select(
-                    distinct=False,
-                    from_=From(table=Table(name="a", quote_style=None), joins=[]),
-                    group_by=[],
-                    having=None,
-                    projection=[Wildcard()],
-                    where=None,
-                    limit=None,
-                ),
-                subquery=False,
-            )
-        )
-        == """SELECT *
-FROM a
-"""
+def test_trivial(trivial_query):
+    assert compare_query_strings(
+        sql(trivial_query).strip(), read_query("trivial_query.sql")
     )
 
 

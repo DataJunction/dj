@@ -30,12 +30,7 @@ def sql(node: Any) -> str:
     """
     return the ansi sql representing the sub-ast
     """
-    raise Exception("Can only convert Node types to sql")
-
-
-# @sql.register
-# def _(node: Node) -> str:
-#     return " ".join([sql(child) for child in node.children])
+    raise Exception("Can only convert specific Node types to a sql string")
 
 
 @sql.register
@@ -102,7 +97,7 @@ def _(node: Table) -> str:
 @sql.register
 def _(node: Join) -> str:
     return f"""{node.kind.value} {sql(node.table)}
-        ON {sql(node.on)}"""
+    ON {sql(node.on)}"""
 
 
 @sql.register
@@ -114,14 +109,20 @@ def _(node: From) -> str:
 
 @sql.register
 def _(node: Select) -> str:
+    parts = ["SELECT "]
+    if node.distinct:
+        parts.append("DISTINCT ")
     projection = ",\n\t".join(sql(exp) for exp in node.projection)
-    return f"""SELECT {"DISTINCT " if node.distinct else ""}{projection}
-{sql(node.from_)}
-{"WHERE "+sql(node.where) if node.where is not None else ""}
-{"GROUP BY "+", ".join(sql(exp) for exp in node.group_by) if node.group_by else ""}
-{"HAVING "+sql(node.having) if node.having is not None else ""}
-{"LIMIT "+sql(node.limit) if node.limit is not None else ""}
-""".strip()
+    parts.extend((projection, "\n", sql(node.from_), "\n"))
+    if node.where is not None:
+        parts.extend(("WHERE ", sql(node.where), "\n"))
+    if node.group_by:
+        parts.extend(("GROUP BY ", ", ".join(sql(exp) for exp in node.group_by)))
+    if node.having is not None:
+        parts.extend(("HAVING ", sql(node.having), "\n"))
+    if node.limit is not None:
+        parts.extend(("LIMIT ", sql(node.limit), "\n"))
+    return "".join(parts)
 
 
 @sql.register
