@@ -1,8 +1,19 @@
 """
 testing ast Nodes and their methods
 """
-
-from dj.sql.parsing.ast import Alias, From, Query, Select, Table, Wildcard
+import pytest
+from dj.sql.parsing.ast import (
+    Alias,
+    From,
+    Query,
+    Select,
+    Table,
+    Wildcard,
+    Number,
+    String,
+    Boolean,
+    Column,
+)
 
 
 def test_findall_trivial(trivial_query):
@@ -75,3 +86,23 @@ def test_named_alias_or_name():
     )
     named.add_parents(alias)
     assert named.alias_or_name() == "alias"
+
+
+@pytest.mark.parametrize("value1, value2", list(zip(range(5), range(5, 10))))
+def test_number_hash(value1, value2):
+    assert hash(Number(value1)) == hash(Number(value1))
+    assert hash(Number(value1)) != hash(Number(value2))
+    assert hash(Number(value1)) != hash(String(str((value1))))
+
+
+@pytest.mark.parametrize("value1, value2", [(True, False), (False, True)])
+def test_boolean_hash(value1, value2):
+    assert hash(Boolean(value1)) == hash(Boolean(value1))
+    assert hash(Boolean(value1)) != hash(Boolean(value2))
+    assert hash(Boolean(value1)) != hash(String(str((value1))))
+
+
+def test_wildcard_table_reference():
+    wildcard = Wildcard()
+    wildcard.add_table(Table("a", None))
+    assert wildcard.table == Table("a", None)

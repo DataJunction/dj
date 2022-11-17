@@ -30,9 +30,7 @@ from dj.sql.parsing.ast import (
     Wildcard,
 )
 
-
-class DJParseException(Exception):
-    """Exception type raised upon problem creating a DJ sql ast"""
+from dj.sql.parsing.backends.exceptions import DJParseException
 
 
 def match_keys(parse_tree: dict, *keys: Set[str]) -> bool:
@@ -59,34 +57,43 @@ def parse_op(parse_tree: dict) -> Operation:
         for exp in BinaryOpKind:
             binop_kind = exp.name
             if subtree["op"] == binop_kind:
-                return BinaryOp(
-                    parse_expression(subtree["left"]),
-                    BinaryOpKind[binop_kind],
-                    parse_expression(subtree["right"]),
-                ).add_self_as_parent()
+                return cast(
+                    BinaryOp,
+                    BinaryOp(
+                        parse_expression(subtree["left"]),
+                        BinaryOpKind[binop_kind],
+                        parse_expression(subtree["right"]),
+                    ).add_self_as_parent(),
+                )
         raise DJParseException(f"Unknown operator {subtree['op']}")
     if match_keys(parse_tree, {"UnaryOp"}):
         subtree = parse_tree["UnaryOp"]
-        for exp in UnaryOpKind:
+        for exp in UnaryOpKind:  # type: ignore
             uniop_kind = exp.name
             if subtree["op"] == uniop_kind:
-                return UnaryOp(
-                    UnaryOpKind[uniop_kind],
-                    parse_expression(subtree["expr"]),
-                ).add_self_as_parent()
+                return cast(
+                    UnaryOp,
+                    UnaryOp(
+                        UnaryOpKind[uniop_kind],
+                        parse_expression(subtree["expr"]),
+                    ).add_self_as_parent(),
+                )
         raise DJParseException(f"Unknown operator {subtree['op']}")
     if match_keys(parse_tree, {"Between"}):
         subtree = parse_tree["Between"]
-        between = Between(
-            parse_expression(subtree["expr"]),
-            parse_expression(subtree["low"]),
-            parse_expression(subtree["high"]),
-        ).add_self_as_parent()
+        between = cast(
+            Between,
+            Between(
+                parse_expression(subtree["expr"]),
+                parse_expression(subtree["low"]),
+                parse_expression(subtree["high"]),
+            ).add_self_as_parent(),
+        )
         if subtree["negated"]:
-            return UnaryOp(UnaryOpKind.Not, between).add_self_as_parent()
+            return cast(UnaryOp, UnaryOp(UnaryOpKind.Not, between).add_self_as_parent())
         return between
 
-    raise DJParseException("Failed to parse Operator")
+    raise DJParseException("Failed to parse Operator")  # pragma: no cover
 
 
 def parse_case(parse_tree: dict) -> Case:
@@ -107,7 +114,7 @@ def parse_case(parse_tree: dict) -> Case:
                 [parse_expression(exp) for exp in parse_tree["results"]],
             ).add_self_as_parent(),
         )
-    raise DJParseException("Failed to parse Case")
+    raise DJParseException("Failed to parse Case")  # pragma: no cover
 
 
 def parse_expression(  # pylint: disable=R0911,R0912
@@ -150,7 +157,7 @@ def parse_expression(  # pylint: disable=R0911,R0912
             )
         if match_keys(parse_tree, {"Subquery"}):
             return parse_query(parse_tree["Subquery"], True)
-    raise DJParseException("Failed to parse Expression")
+    raise DJParseException("Failed to parse Expression")  # pragma: no cover
 
 
 def parse_value(parse_tree: dict) -> Value:
@@ -165,7 +172,7 @@ def parse_value(parse_tree: dict) -> Value:
         return String(parse_tree["SingleQuotedString"])
     if match_keys(parse_tree, {"Boolean"}):
         return Boolean(parse_tree["Boolean"])
-    raise DJParseException("Not a primitive")
+    raise DJParseException("Not a primitive")  # pragma: no cover
 
 
 def parse_column(parse_tree: dict):
@@ -211,7 +218,7 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
             )
         return table
 
-    raise DJParseException("Failed to parse Table")
+    raise DJParseException("Failed to parse Table")  # pragma: no cover
 
 
 def parse_function(parse_tree: dict) -> Function:
@@ -231,7 +238,7 @@ def parse_function(parse_tree: dict) -> Function:
                 [parse_expression(exp) for exp in args],
             ).add_self_as_parent(),
         )
-    raise DJParseException("Failed to parse Function")
+    raise DJParseException("Failed to parse Function")  # pragma: no cover
 
 
 def parse_join(parse_tree: dict) -> Join:
@@ -259,7 +266,7 @@ def parse_join(parse_tree: dict) -> Join:
                     ).add_self_as_parent(),
                 )
 
-    raise DJParseException("Failed to parse Join")
+    raise DJParseException("Failed to parse Join")  # pragma: no cover
 
 
 def parse_from(parse_list: List[dict]) -> From:
@@ -281,7 +288,7 @@ def parse_from(parse_list: List[dict]) -> From:
             ).add_self_as_parent(),
         )
 
-    raise DJParseException("Failed to parse Select")
+    raise DJParseException("Failed to parse From")  # pragma: no cover
 
 
 def parse_select(parse_tree: dict) -> Select:
@@ -309,7 +316,7 @@ def parse_select(parse_tree: dict) -> Select:
             ).add_self_as_parent(),
         )
 
-    raise DJParseException("Failed to parse Select")
+    raise DJParseException("Failed to parse Select")  # pragma: no cover
 
 
 def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
@@ -331,7 +338,7 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
                 ),
             )
         return ctes
-    raise DJParseException("Failed to parse ctes")
+    raise DJParseException("Failed to parse ctes")  # pragma: no cover
 
 
 def parse_query(parse_tree: dict, subquery: bool = False) -> Query:
@@ -339,25 +346,27 @@ def parse_query(parse_tree: dict, subquery: bool = False) -> Query:
     parse a query (ctes+select) statement
     """
     if match_keys_subset(parse_tree, {"with", "body", "limit"}):
-        select = parse_select(parse_tree["body"]["Select"])
-        select.limit = None
-        if parse_tree["limit"] is not None:
-            limit_value = parse_value(parse_tree["limit"])
-            if not isinstance(limit_value, Number):
-                raise DJParseException("limit must be a number")
-            select.limit = limit_value
-        return cast(
-            Query,
-            Query(
-                parse_ctes(parse_tree["with"])
-                if parse_tree["with"] is not None
-                else [],
-                select,
-                subquery,
-            ).add_self_as_parent(),
-        )
+        body = parse_tree["body"]
+        if match_keys(body, {"Select"}):
+            select = parse_select(body["Select"])
+            select.limit = None
+            if parse_tree["limit"] is not None:
+                limit_value = parse_value(parse_tree["limit"])
+                if not isinstance(limit_value, Number):
+                    raise DJParseException("limit must be a number")
+                select.limit = limit_value
+            return cast(
+                Query,
+                Query(
+                    parse_ctes(parse_tree["with"])
+                    if parse_tree["with"] is not None
+                    else [],
+                    select,
+                    subquery,
+                ).add_self_as_parent(),
+            )
 
-    raise Exception("Failed to parse query")
+    raise DJParseException("Failed to parse query")
 
 
 def parse_oxide_tree(parse_tree: dict) -> Query:

@@ -8,7 +8,7 @@ from functools import lru_cache
 # pylint: disable=line-too-long
 from itertools import chain
 from pathlib import Path
-from typing import Any, Generator, Iterator, List, Optional, Union
+from typing import Any, Generator, Iterator, List, Optional
 
 import sqlparse
 import yaml
@@ -193,7 +193,7 @@ def single_item_generator(item: Any) -> Generator[Any, None, None]:
     yield item
 
 
-def flatten(maybe_iterables: Any) -> Union[chain, Generator[Any, None, None]]:
+def flatten(maybe_iterables: Any) -> Iterator:
     """
     flattens `maybe_iterables` by descending into items that are Iterable
     """

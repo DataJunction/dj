@@ -89,22 +89,26 @@ class Node(ABC):
             Iterator: returns all children of a node given filters
                 and optional flattening (by default Iterator[Node])
         """
-        child_generator = (
+        child_generator = iter(
             self.__dict__[field.name]
             for field in fields(self)
             if (not field.name.startswith("_") if not obfuscated else True)
         )  # exclude obfuscated fields if `obfuscated` is True
         if flat:
-            child_generator = flatten(child_generator)
+            child_generator = iter(flatten(child_generator))
 
         if nodes_only:
-            child_generator = filter(  # type: ignore
-                lambda child: isinstance(child, Node),
-                child_generator,
+            child_generator = iter(
+                filter(
+                    lambda child: isinstance(child, Node),
+                    child_generator,
+                ),
             )
 
         if nones:
-            child_generator = filter(lambda child: child is not None, child_generator)  # type: ignore # pylint: disable=C0301
+            child_generator = iter(
+                filter(lambda child: child is not None, child_generator),
+            )  # pylint: disable=C0301
 
         return child_generator
 
@@ -197,7 +201,7 @@ class Named(Expression):
         get the name or alias of the node
         """
         if len(self.parents) == 1:
-            parent = list(self.parents)[0]
+            parent = self.parents.pop()
             if isinstance(parent, Alias):
                 return parent.name
         return self.name
@@ -296,7 +300,7 @@ class Function(Named, Operation):
         return hash(Function)
 
 
-@dataclass(eq=False)
+@dataclass(eq=False)  # type: ignore
 class Value(Expression):
     """base class for all values number, string, boolean"""
 
@@ -424,7 +428,7 @@ class Table(Named):
         return self
 
     def __hash__(self) -> int:
-        return hash((self.__class__, self.name))
+        return hash((Table, self.name))
 
 
 class JoinKind(Enum):
