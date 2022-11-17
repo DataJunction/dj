@@ -44,7 +44,7 @@ def match_keys_subset(parse_tree: dict, *keys: Set[str]) -> bool:
     match a dict having a subset of keys
     """
     tree_keys = set(parse_tree.keys())
-    return any(key <= tree_keys for key in keys)
+    return any(key <= tree_keys for key in keys)  # pragma: no cover
 
 
 def parse_op(parse_tree: dict) -> Operation:
@@ -365,7 +365,7 @@ def parse_query(parse_tree: dict, subquery: bool = False) -> Query:
                 ).add_self_as_parent(),
             )
 
-    raise DJParseException("Failed to parse query")
+    raise DJParseException("Failed to parse query")  # pragma: no cover
 
 
 def parse_oxide_tree(parse_tree: dict) -> Query:

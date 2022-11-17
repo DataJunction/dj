@@ -75,9 +75,9 @@ def test_trivial_apply(trivial_query):
     assert flat == list(trivial_query.flatten())
 
 
-def test_named_alias_or_name():
+def test_named_alias_or_name_aliased():
     """
-    test a named node for returning it's alias name when a child of an alias
+    test a named node for returning its alias name when a child of an alias
     """
     named = Table("a", None)
     alias = Alias(
@@ -87,6 +87,16 @@ def test_named_alias_or_name():
     )
     named.add_parents(alias)
     assert named.alias_or_name() == "alias"
+
+
+def test_named_alias_or_name_not_aliased():
+    """
+    test a named node for returning its name when not a child of an alias
+    """
+    named = Table("a", None)
+    from_ = From(named, [])
+    named.add_parents(from_)
+    assert named.alias_or_name() == "a"
 
 
 @pytest.mark.parametrize("name1, name2", [("a", "b"), ("c", "d")])
@@ -143,4 +153,5 @@ def test_wildcard_table_reference():
     """
     wildcard = Wildcard()
     wildcard.add_table(Table("a", None))
+    wildcard = wildcard.add_table(Table("b", None))
     assert wildcard.table == Table("a", None)
