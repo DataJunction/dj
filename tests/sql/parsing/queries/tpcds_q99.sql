@@ -33,4 +33,9 @@ WHERE  NOT d_month_seq BETWEEN +1200 AND 1200 + 11
 GROUP  BY Substr(w_warehouse_name, 1, 20),
           sm_type,
           cc_name
+HAVING NOT d_month_seq BETWEEN +1200 AND 1200 + 11
+       AND cs_ship_date_sk = d_date_sk
+       AND cs_warehouse_sk = w_warehouse_sk
+       AND cs_ship_mode_sk = sm_ship_mode_sk
+       AND cs_call_center_sk = cc_call_center_sk
 LIMIT  100

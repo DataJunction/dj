@@ -46,7 +46,52 @@ def tpcds_q99():
                 Column(name="sm_type", quote_style=None),
                 Column(name="cc_name", quote_style=None),
             ],
-            having=None,
+            having=BinaryOp(
+                left=BinaryOp(
+                    left=BinaryOp(
+                        left=BinaryOp(
+                            left=UnaryOp(
+                                op=UnaryOpKind.Not,
+                                expr=Between(
+                                    expr=Column(name="d_month_seq", quote_style=None),
+                                    low=UnaryOp(
+                                        op=UnaryOpKind.Plus, expr=Number(value=1200)
+                                    ),
+                                    high=BinaryOp(
+                                        left=Number(value=1200),
+                                        op=BinaryOpKind.Plus,
+                                        right=Number(value=11),
+                                    ),
+                                ),
+                            ),
+                            op=BinaryOpKind.And,
+                            right=BinaryOp(
+                                left=Column(name="cs_ship_date_sk", quote_style=None),
+                                op=BinaryOpKind.Eq,
+                                right=Column(name="d_date_sk", quote_style=None),
+                            ),
+                        ),
+                        op=BinaryOpKind.And,
+                        right=BinaryOp(
+                            left=Column(name="cs_warehouse_sk", quote_style=None),
+                            op=BinaryOpKind.Eq,
+                            right=Column(name="w_warehouse_sk", quote_style=None),
+                        ),
+                    ),
+                    op=BinaryOpKind.And,
+                    right=BinaryOp(
+                        left=Column(name="cs_ship_mode_sk", quote_style=None),
+                        op=BinaryOpKind.Eq,
+                        right=Column(name="sm_ship_mode_sk", quote_style=None),
+                    ),
+                ),
+                op=BinaryOpKind.And,
+                right=BinaryOp(
+                    left=Column(name="cs_call_center_sk", quote_style=None),
+                    op=BinaryOpKind.Eq,
+                    right=Column(name="cc_call_center_sk", quote_style=None),
+                ),
+            ),
             projection=[
                 Function(
                     name="Substr",
@@ -71,23 +116,21 @@ def tpcds_q99():
                                     BinaryOp(
                                         left=BinaryOp(
                                             left=Column(
-                                                name="cs_ship_date_sk",
-                                                quote_style=None,
+                                                name="cs_ship_date_sk", quote_style=None
                                             ),
                                             op=BinaryOpKind.Minus,
                                             right=Column(
-                                                name="cs_sold_date_sk",
-                                                quote_style=None,
+                                                name="cs_sold_date_sk", quote_style=None
                                             ),
                                         ),
                                         op=BinaryOpKind.LtEq,
                                         right=Number(value=30),
-                                    ),
+                                    )
                                 ],
                                 else_result=Number(value=0),
                                 operand=None,
                                 results=[Number(value=1)],
-                            ),
+                            )
                         ],
                     ),
                 ),
@@ -132,12 +175,12 @@ def tpcds_q99():
                                             op=BinaryOpKind.LtEq,
                                             right=Number(value=60),
                                         ),
-                                    ),
+                                    )
                                 ],
                                 else_result=Number(value=0),
                                 operand=None,
                                 results=[Number(value=1)],
-                            ),
+                            )
                         ],
                     ),
                 ),
@@ -182,12 +225,12 @@ def tpcds_q99():
                                             op=BinaryOpKind.LtEq,
                                             right=Number(value=90),
                                         ),
-                                    ),
+                                    )
                                 ],
                                 else_result=Number(value=0),
                                 operand=None,
                                 results=[Number(value=1)],
-                            ),
+                            )
                         ],
                     ),
                 ),
@@ -232,12 +275,12 @@ def tpcds_q99():
                                             op=BinaryOpKind.LtEq,
                                             right=Number(value=120),
                                         ),
-                                    ),
+                                    )
                                 ],
                                 else_result=Number(value=0),
                                 operand=None,
                                 results=[Number(value=1)],
-                            ),
+                            )
                         ],
                     ),
                 ),
@@ -253,23 +296,21 @@ def tpcds_q99():
                                     BinaryOp(
                                         left=BinaryOp(
                                             left=Column(
-                                                name="cs_ship_date_sk",
-                                                quote_style=None,
+                                                name="cs_ship_date_sk", quote_style=None
                                             ),
                                             op=BinaryOpKind.Minus,
                                             right=Column(
-                                                name="cs_sold_date_sk",
-                                                quote_style=None,
+                                                name="cs_sold_date_sk", quote_style=None
                                             ),
                                         ),
                                         op=BinaryOpKind.Gt,
                                         right=Number(value=120),
-                                    ),
+                                    )
                                 ],
                                 else_result=Number(value=0),
                                 operand=None,
                                 results=[Number(value=1)],
-                            ),
+                            )
                         ],
                     ),
                 ),
@@ -283,8 +324,7 @@ def tpcds_q99():
                                 expr=Between(
                                     expr=Column(name="d_month_seq", quote_style=None),
                                     low=UnaryOp(
-                                        op=UnaryOpKind.Plus,
-                                        expr=Number(value=1200),
+                                        op=UnaryOpKind.Plus, expr=Number(value=1200)
                                     ),
                                     high=BinaryOp(
                                         left=Number(value=1200),
