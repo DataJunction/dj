@@ -402,7 +402,7 @@ class Wildcard(Expression):
         return self
 
     def __hash__(self) -> int:
-        return id(Wildcard) #pragma: no cover
+        return id(Wildcard)  # pragma: no cover
 
 
 @dataclass(eq=False)

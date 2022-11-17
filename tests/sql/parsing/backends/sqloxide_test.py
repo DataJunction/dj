@@ -3,16 +3,18 @@ tests for the backend that takes sqloxide output and transforms it into an DJ as
 """
 import pytest
 
-from dj.sql.parsing.ast import UnaryOp, UnaryOpKind, Number, Column, Between, Boolean
-from dj.sql.parsing.backends.sqloxide import parse, parse_op, parse_value
+from dj.sql.parsing.ast import Between, Boolean, Column, Number, UnaryOp, UnaryOpKind
 from dj.sql.parsing.backends.exceptions import DJParseException
+from dj.sql.parsing.backends.sqloxide import parse, parse_op, parse_value
 from tests.sql.utils import TPCDS_QUERY_SET, read_query
+
 
 def test_trivial_sql_string(trivial_query):
     """
     test converting a trivial query to sql string
     """
     assert trivial_query.compare(parse(read_query("trivial_query.sql")))
+
 
 @pytest.mark.parametrize("query_name", TPCDS_QUERY_SET)
 def test_parse_tpcds(request, query_name):
@@ -43,8 +45,8 @@ def test_parse_negated_between():
                 "negated": True,
                 "low": {"Value": {"Number": ("0", False)}},
                 "high": {"Value": {"Number": ("1", False)}},
-            }
-        }
+            },
+        },
     ) == UnaryOp(
         op=UnaryOpKind.Not,
         expr=Between(
