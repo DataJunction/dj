@@ -29,7 +29,6 @@ from dj.sql.parsing.ast import (
     Value,
     Wildcard,
 )
-
 from dj.sql.parsing.backends.exceptions import DJParseException
 
 

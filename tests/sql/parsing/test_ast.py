@@ -2,17 +2,18 @@
 testing ast Nodes and their methods
 """
 import pytest
+
 from dj.sql.parsing.ast import (
     Alias,
-    From,
-    Query,
-    Select,
-    Table,
-    Wildcard,
-    Number,
-    String,
     Boolean,
     Column,
+    From,
+    Number,
+    Query,
+    Select,
+    String,
+    Table,
+    Wildcard,
 )
 
 
@@ -87,14 +88,22 @@ def test_named_alias_or_name():
     named.add_parents(alias)
     assert named.alias_or_name() == "alias"
 
-@pytest.mark.parametrize("name1, name2", [('a', 'b'), ('c', 'd')])
+
+@pytest.mark.parametrize("name1, name2", [("a", "b"), ("c", "d")])
 def test_column_hash(name1, name2):
+    """
+    test column hash
+    """
     assert hash(Column(name1, None)) == hash(Column(name1, None))
     assert hash(Column(name1, None)) != hash(Column(name2, None))
     assert hash(Column(name1, None)) != hash(Table(name1, None))
 
+
 @pytest.mark.parametrize("value1, value2", list(zip(range(5), range(5, 10))))
 def test_number_hash(value1, value2):
+    """
+    test number hash
+    """
     assert hash(Number(value1)) == hash(Number(value1))
     assert hash(Number(value1)) != hash(Number(value2))
     assert hash(Number(value1)) != hash(String(str((value1))))
@@ -102,21 +111,36 @@ def test_number_hash(value1, value2):
 
 @pytest.mark.parametrize("value1, value2", [(True, False), (False, True)])
 def test_boolean_hash(value1, value2):
+    """
+    test boolean hash
+    """
     assert hash(Boolean(value1)) == hash(Boolean(value1))
     assert hash(Boolean(value1)) != hash(Boolean(value2))
     assert hash(Boolean(value1)) != hash(String(str((value1))))
 
+
 def test_column_table():
-    column=Column("x", None)
+    """
+    test column hash
+    """
+    column = Column("x", None)
     column.add_table(Table("a", None))
-    assert column.table==Table("a", None)
+    assert column.table == Table("a", None)
+
 
 def test_table_columns():
-    table=Table("a", None)
+    """
+    test adding/getting columns from table
+    """
+    table = Table("a", None)
     table.add_columns(Column("x", None))
-    assert table.columns==[Column(name='x', quote_style=None)]
+    assert table.columns == [Column(name="x", quote_style=None)]
+
 
 def test_wildcard_table_reference():
+    """
+    test adding/getting table from wildcard
+    """
     wildcard = Wildcard()
     wildcard.add_table(Table("a", None))
     assert wildcard.table == Table("a", None)
