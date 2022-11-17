@@ -201,7 +201,7 @@ class Named(Expression):
         get the name or alias of the node
         """
         if len(self.parents) == 1:
-            parent = self.parents.pop()
+            parent = tuple(self.parents)[0]
             if isinstance(parent, Alias):
                 return parent.name
         return self.name
@@ -401,8 +401,8 @@ class Wildcard(Expression):
             self._table = table
         return self
 
-    def __hash__(self) -> int:
-        return id(Wildcard)  # pragma: no cover
+    def __hash__(self) -> int:  # pragma: no cover
+        return id(Wildcard)
 
 
 @dataclass(eq=False)
