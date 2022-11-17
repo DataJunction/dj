@@ -87,6 +87,11 @@ def test_named_alias_or_name():
     named.add_parents(alias)
     assert named.alias_or_name() == "alias"
 
+@pytest.mark.parametrize("name1, name2", [('a', 'b'), ('c', 'd')])
+def test_column_hash(name1, name2):
+    assert hash(Column(name1, None)) == hash(Column(name1, None))
+    assert hash(Column(name1, None)) != hash(Column(name2, None))
+    assert hash(Column(name1, None)) != hash(Table(name1, None))
 
 @pytest.mark.parametrize("value1, value2", list(zip(range(5), range(5, 10))))
 def test_number_hash(value1, value2):
@@ -101,6 +106,15 @@ def test_boolean_hash(value1, value2):
     assert hash(Boolean(value1)) != hash(Boolean(value2))
     assert hash(Boolean(value1)) != hash(String(str((value1))))
 
+def test_column_table():
+    column=Column("x", None)
+    column.add_table(Table("a", None))
+    assert column.table==Table("a", None)
+
+def test_table_columns():
+    table=Table("a", None)
+    table.add_columns(Column("x", None))
+    assert table.columns==[Column(name='x', quote_style=None)]
 
 def test_wildcard_table_reference():
     wildcard = Wildcard()

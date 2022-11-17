@@ -65,7 +65,7 @@ def parse_op(parse_tree: dict) -> Operation:
                         parse_expression(subtree["right"]),
                     ).add_self_as_parent(),
                 )
-        raise DJParseException(f"Unknown operator {subtree['op']}")
+        raise DJParseException(f"Unknown operator {subtree['op']}")  # pragma: no cover
     if match_keys(parse_tree, {"UnaryOp"}):
         subtree = parse_tree["UnaryOp"]
         for exp in UnaryOpKind:  # type: ignore
@@ -78,7 +78,7 @@ def parse_op(parse_tree: dict) -> Operation:
                         parse_expression(subtree["expr"]),
                     ).add_self_as_parent(),
                 )
-        raise DJParseException(f"Unknown operator {subtree['op']}")
+        raise DJParseException(f"Unknown operator {subtree['op']}")  # pragma: no cover
     if match_keys(parse_tree, {"Between"}):
         subtree = parse_tree["Between"]
         between = cast(
@@ -353,7 +353,7 @@ def parse_query(parse_tree: dict, subquery: bool = False) -> Query:
             if parse_tree["limit"] is not None:
                 limit_value = parse_value(parse_tree["limit"])
                 if not isinstance(limit_value, Number):
-                    raise DJParseException("limit must be a number")
+                    raise DJParseException("limit must be a number")  # pragma: no cover
                 select.limit = limit_value
             return cast(
                 Query,
@@ -376,7 +376,7 @@ def parse_oxide_tree(parse_tree: dict) -> Query:
             parse_tree["Query"],
         )
 
-    raise DJParseException("Failed to parse query")
+    raise DJParseException("Failed to parse query")  # pragma: no cover
 
 
 def parse(sql: str) -> Query:
