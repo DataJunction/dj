@@ -133,7 +133,7 @@ def _(node: Query) -> str:
         f"""{'WITH' if ctes else ""}
 {ctes}
 
-{("(" if node.subquery else "")+sql(node.select)+(")" if node.subquery else "")}
+{"("+sql(node.select)+")" if node.subquery else sql(node.select)}
     """.strip()
         + "\n"
     )
