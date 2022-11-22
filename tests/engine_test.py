@@ -1,19 +1,19 @@
 """
-Tests for ``dj.engine``.
+Tests for ``djqs.engine``.
 """
 # pylint: disable=invalid-name
 
 from pytest_mock import MockerFixture
 
-from dj.engine import (
+from djqs.engine import (
     ColumnMetadata,
     Description,
     get_columns_from_description,
     run_query,
 )
-from dj.models.database import Database
-from dj.models.query import Query
-from dj.typing import ColumnType
+from djqs.models.database import Database
+from djqs.models.query import Query
+from djqs.typing import ColumnType
 
 
 def test_get_columns_from_description(mocker: MockerFixture) -> None:

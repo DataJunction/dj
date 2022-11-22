@@ -9,8 +9,8 @@ from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from dj.models.node import Node, NodeType
-from dj.models.query import Database, QueryCreate, QueryWithResults
+from djqs.models.node import Node, NodeType
+from djqs.models.query import Database, QueryCreate, QueryWithResults
 
 
 def test_read_metrics(session: Session, client: TestClient):
@@ -130,12 +130,12 @@ def test_read_metrics_data(
         submitted_query="SELECT COUNT(*) FROM my_table",
     )
     mocker.patch(
-        "dj.api.graphql.metric.get_query_for_node",
+        "djqs.api.graphql.metric.get_query_for_node",
         return_value=create_query,
     )
     uuid = UUID("74099c09-91f3-4df7-be9d-96a8075ff5a8")
     save_query_and_run = mocker.patch(
-        "dj.api.graphql.metric.save_query_and_run",
+        "djqs.api.graphql.metric.save_query_and_run",
         return_value=QueryWithResults(
             database_id=1,
             id=uuid,
@@ -185,7 +185,7 @@ def test_read_metrics_sql(
         submitted_query="SELECT COUNT(*) FROM my_table",
     )
     mocker.patch(
-        "dj.api.graphql.metric.get_query_for_node",
+        "djqs.api.graphql.metric.get_query_for_node",
         return_value=create_query,
     )
 

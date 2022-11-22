@@ -1,8 +1,8 @@
 """
-Tests for ``dj.sql.parse``.
+Tests for ``djqs.sql.parse``.
 """
 
-from dj.sql.parse import is_metric
+from djqs.sql.parse import is_metric
 
 
 def test_is_metric() -> None:

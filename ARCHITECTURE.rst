@@ -2,7 +2,7 @@
 Architecture
 ============
 
-The source of truth in DataJunction (DJ) is a repository of YAML files (see the `examples <https://github.com/DataJunction/dj/tree/main/examples/configs>`_). These files describe database connections and nodes. The nodes form a DAG (Directed Acyclic Graph), and relationships are inferred from their SQL queries:
+The source of truth in DataJunction (DJ) is a repository of YAML files (see the `examples <https://github.com/DataJunction/djqs/tree/main/examples/configs>`_). These files describe database connections and nodes. The nodes form a DAG (Directed Acyclic Graph), and relationships are inferred from their SQL queries:
 
 .. code-block:: YAML
 
@@ -30,7 +30,7 @@ This information and more can be exposed by an API. To run a DJ server:
 
     $ alembic upgrade head
     $ pip install uvicorn
-    $ uvicorn dj.api.main:app --host 0.0.0.0 --port 8000 --reload
+    $ uvicorn djqs.api.main:app --host 0.0.0.0 --port 8001 --reload
 
 Both the CLI (``dj compile``) and the web service read their configuration from a ``.env`` file:
 
@@ -43,7 +43,7 @@ Both the CLI (``dj compile``) and the web service read their configuration from 
    REPOSITORY=examples/configs
 
    # SQLAlchemy URI where the nodes should be indexed to
-   INDEX=sqlite:///examples/configs/dj.db
+   INDEX=sqlite:///examples/configs/djqs.db
 
    # a broker used to store results from queries
    CELERY_BROKER=redis://host.docker.internal:6379/1

@@ -1,24 +1,24 @@
 """
-Tests for ``dj.sql.dbapi.connection``.
+Tests for ``djqs.sql.dbapi.connection``.
 """
 # pylint: disable=redefined-builtin, invalid-name
 
 from pytest_mock import MockerFixture
 from yarl import URL
 
-from dj.sql.dbapi.connection import connect
+from djqs.sql.dbapi.connection import connect
 
 
 def test_connection() -> None:
     """
     Basic tests for the connection.
     """
-    connection = connect("http://localhost:8000/")
+    connection = connect("http://localhost:8001/")
     assert not connection.closed
     connection.close()
     assert connection.closed
 
-    connection = connect("http://localhost:8000/")
+    connection = connect("http://localhost:8001/")
     assert not connection.cursors
     cursor_1 = connection.cursor()
     cursor_2 = connection.cursor()
@@ -28,7 +28,7 @@ def test_connection() -> None:
     assert cursor_1.closed
     assert cursor_2.closed
 
-    connection = connect(URL("http://localhost:8000/"))
+    connection = connect(URL("http://localhost:8001/"))
 
     # these are no-ops
     assert connection.commit() is None
@@ -43,9 +43,9 @@ def test_connection_execute(mocker: MockerFixture) -> None:
     """
     Test the ``execute`` method.
     """
-    Cursor = mocker.patch("dj.sql.dbapi.connection.Cursor")
+    Cursor = mocker.patch("djqs.sql.dbapi.connection.Cursor")
 
-    connection = connect("http://localhost:8000/")
+    connection = connect("http://localhost:8001/")
     connection.execute(
         "SELECT * FROM some_table WHERE name = %(name)s",
         {"name": "Alice"},

@@ -7,7 +7,7 @@ volumes:
   cockroachdb_metadata: {}
 
 services:
-  dj:
+  djqs:
     depends_on:
       - db_migration
       - cockroachdb_metadata

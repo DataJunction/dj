@@ -7,7 +7,7 @@ from inspect import isfunction, ismethod
 import pytest
 from requests_mock.mocker import Mocker
 
-from dj.sql import dbapi
+from djqs.sql import dbapi
 
 
 def test_module_interface() -> None:
@@ -39,7 +39,7 @@ def test_connection() -> None:
     """
     Test that the connection object implements required methods.
     """
-    connection = dbapi.connect("http://localhost:8000/")
+    connection = dbapi.connect("http://localhost:8001/")
 
     assert ismethod(connection.close)
     assert ismethod(connection.commit)
@@ -52,7 +52,7 @@ def test_cursor(requests_mock: Mocker) -> None:
     Test that the cursor implements required methods.
     """
     requests_mock.post(
-        "http://localhost:8000/queries/",
+        "http://localhost:8001/queries/",
         json={
             "database_id": 1,
             "catalog": None,
@@ -80,7 +80,7 @@ def test_cursor(requests_mock: Mocker) -> None:
         headers={"Content-Type": "application/json"},
     )
 
-    connection = dbapi.connect("http://localhost:8000/")
+    connection = dbapi.connect("http://localhost:8001/")
     cursor = connection.cursor()
 
     # attributes

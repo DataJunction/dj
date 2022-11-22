@@ -1,5 +1,5 @@
 """
-Tests for ``dj.utils``.
+Tests for ``djqs.utils``.
 """
 
 import logging
@@ -10,9 +10,9 @@ from pytest_mock import MockerFixture
 from sqlalchemy.engine.url import make_url
 from yarl import URL
 
-from dj.config import Settings
-from dj.typing import ColumnType
-from dj.utils import (
+from djqs.config import Settings
+from djqs.typing import ColumnType
+from djqs.utils import (
     get_engine,
     get_issue_url,
     get_more_specific_type,
@@ -39,8 +39,8 @@ def test_get_session(mocker: MockerFixture) -> None:
     """
     Test ``get_session``.
     """
-    mocker.patch("dj.utils.get_engine")
-    Session = mocker.patch("dj.utils.Session")  # pylint: disable=invalid-name
+    mocker.patch("djqs.utils.get_engine")
+    Session = mocker.patch("djqs.utils.Session")  # pylint: disable=invalid-name
 
     session = next(get_session())
 
@@ -51,9 +51,9 @@ def test_get_settings(mocker: MockerFixture) -> None:
     """
     Test ``get_settings``.
     """
-    mocker.patch("dj.utils.load_dotenv")
+    mocker.patch("djqs.utils.load_dotenv")
     Settings = mocker.patch(  # pylint: disable=invalid-name, redefined-outer-name
-        "dj.utils.Settings",
+        "djqs.utils.Settings",
     )
 
     # should be already cached, since it's called by the Celery app
@@ -133,7 +133,7 @@ def test_get_issue_url() -> None:
     Test ``get_issue_url``.
     """
     assert get_issue_url() == URL(
-        "https://github.com/DataJunction/dj/issues/new",
+        "https://github.com/DataJunction/djqs/issues/new",
     )
     assert get_issue_url(
         baseurl=URL("https://example.org/"),
@@ -150,6 +150,6 @@ def test_get_engine(mocker: MockerFixture, settings: Settings) -> None:
     """
     Test ``get_engine``.
     """
-    mocker.patch("dj.utils.get_settings", return_value=settings)
+    mocker.patch("djqs.utils.get_settings", return_value=settings)
     engine = get_engine()
     assert engine.url == make_url("sqlite://")

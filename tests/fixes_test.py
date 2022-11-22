@@ -1,3 +1,3 @@
 """
-Tests for ``dj.fixes``.
+Tests for ``djqs.fixes``.
 """

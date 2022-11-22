@@ -5,7 +5,7 @@ Tests for GQL databases.
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from dj.models.database import Database
+from djqs.models.database import Database
 
 
 def test_get_databases(session: Session, client: TestClient):

@@ -4,7 +4,7 @@
 import argparse
 import json
 
-from dj.api.main import app
+from djqs.api.main import app
 
 
 def save_openapi_spec(f: str):

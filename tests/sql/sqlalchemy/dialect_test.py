@@ -7,8 +7,8 @@ from requests_mock.mocker import Mocker
 from sqlalchemy.engine.url import make_url
 from yarl import URL
 
-from dj.sql import dbapi
-from dj.sql.sqlalchemy.dialect import DJDialect
+from djqs.sql import dbapi
+from djqs.sql.sqlalchemy.dialect import DJDialect
 
 
 def test_dbapi() -> None:
@@ -24,18 +24,18 @@ def test_create_connect_args() -> None:
     """
     dialect = DJDialect()
 
-    assert dialect.create_connect_args(make_url("dj://localhost:8000/0")) == (
-        (URL("http://localhost:8000/"), 0),
+    assert dialect.create_connect_args(make_url("djqs://localhost:8001/0")) == (
+        (URL("http://localhost:8001/"), 0),
         {},
     )
     assert dialect.create_connect_args(
-        make_url("dj://localhost:8000/0?scheme=https"),
+        make_url("djqs://localhost:8001/0?scheme=https"),
     ) == (
-        (URL("https://localhost:8000/"), 0),
+        (URL("https://localhost:8001/"), 0),
         {},
     )
-    assert dialect.create_connect_args(make_url("dj://localhost:8000/mount/0")) == (
-        (URL("http://localhost:8000/mount"), 0),
+    assert dialect.create_connect_args(make_url("djqs://localhost:8001/mount/0")) == (
+        (URL("http://localhost:8001/mount"), 0),
         {},
     )
 
@@ -108,9 +108,9 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
     Test ``get_columns``.
     """
     connection = mocker.MagicMock()
-    connection.engine.connect().connection.base_url = URL("http://localhost:8000/")
+    connection.engine.connect().connection.base_url = URL("http://localhost:8001/")
     requests_mock.get(
-        "http://localhost:8000/metrics/",
+        "http://localhost:8001/metrics/",
         json=[
             {
                 "id": 3,
@@ -131,7 +131,7 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
         ],
     )
     requests_mock.get(
-        "http://localhost:8000/nodes/",
+        "http://localhost:8001/nodes/",
         json=[
             {
                 "id": 1,

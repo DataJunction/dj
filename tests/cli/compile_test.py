@@ -1,5 +1,5 @@
 """
-Tests for ``dj.cli.compile``.
+Tests for ``djqs.cli.compile``.
 """
 # pylint: disable=redefined-outer-name, invalid-name
 
@@ -16,7 +16,7 @@ from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from dj.cli.compile import (
+from djqs.cli.compile import (
     add_dimensions_to_columns,
     add_node,
     get_columns_from_tables,
@@ -28,14 +28,14 @@ from dj.cli.compile import (
     update_node_config,
     yaml_file_changed,
 )
-from dj.constants import DEFAULT_DIMENSION_COLUMN
-from dj.models.column import Column
-from dj.models.database import Database
-from dj.models.node import Node, NodeType
-from dj.models.query import Query  # pylint: disable=unused-import
-from dj.models.table import Table
-from dj.sql.parse import get_dependencies
-from dj.typing import ColumnType
+from djqs.constants import DEFAULT_DIMENSION_COLUMN
+from djqs.models.column import Column
+from djqs.models.database import Database
+from djqs.models.node import Node, NodeType
+from djqs.models.query import Query  # pylint: disable=unused-import
+from djqs.models.table import Table
+from djqs.sql.parse import get_dependencies
+from djqs.typing import ColumnType
 
 
 @pytest.mark.asyncio
@@ -149,7 +149,7 @@ async def test_index_databases_force(mocker: MockerFixture, fs: FakeFilesystem) 
     """
     Test ``index_databases`` with the ``--force`` option.
     """
-    _logger = mocker.patch("dj.cli.compile._logger")
+    _logger = mocker.patch("djqs.cli.compile._logger")
     session = mocker.MagicMock()
     session.exec().one_or_none().updated_at = datetime(
         2021,
@@ -191,8 +191,8 @@ def test_get_table_columns(mocker: MockerFixture) -> None:
     """
     Test ``get_table_columns``.
     """
-    mocker.patch("dj.cli.compile.create_engine")
-    inspect = mocker.patch("dj.cli.compile.inspect")
+    mocker.patch("djqs.cli.compile.create_engine")
+    inspect = mocker.patch("djqs.cli.compile.inspect")
     inspect().get_columns.return_value = [
         {"name": "ds", "type": sqlalchemy.sql.sqltypes.DateTime()},
         {"name": "cnt", "type": sqlalchemy.sql.sqltypes.Float()},
@@ -208,8 +208,8 @@ def test_get_table_columns_error(mocker: MockerFixture) -> None:
     """
     Test ``get_table_columns`` raising an exception.
     """
-    mocker.patch("dj.cli.compile.create_engine")
-    inspect = mocker.patch("dj.cli.compile.inspect")
+    mocker.patch("djqs.cli.compile.create_engine")
+    inspect = mocker.patch("djqs.cli.compile.inspect")
     inspect().get_columns.side_effect = Exception(
         "An unexpected error occurred",
     )
@@ -227,10 +227,10 @@ async def test_index_nodes(
     Test ``index_nodes``.
     """
     mocker.patch(
-        "dj.cli.compile.get_table_columns",
+        "djqs.cli.compile.get_table_columns",
         return_value=[],
     )
-    mocker.patch("dj.cli.compile.update_node_config")
+    mocker.patch("djqs.cli.compile.update_node_config")
 
     session.add(
         Database(name="druid", URI="druid://druid_broker:8082/druid/v2/sql/"),
@@ -332,7 +332,7 @@ async def test_add_node_force(
     """
     Test ``add_node`` with the ``--force`` option.
     """
-    _logger = mocker.patch("dj.cli.compile._logger")
+    _logger = mocker.patch("djqs.cli.compile._logger")
     session = mocker.MagicMock()
     session.exec().one_or_none().updated_at = datetime(
         2021,
@@ -343,7 +343,7 @@ async def test_add_node_force(
         tzinfo=timezone.utc,
     )
     databases = mocker.MagicMock()
-    mocker.patch("dj.cli.compile.update_node_config")
+    mocker.patch("djqs.cli.compile.update_node_config")
 
     with freeze_time("2021-01-01T00:00:00Z"):
         fs.create_file("/path/to/repository/nodes/test.yaml")
@@ -380,12 +380,12 @@ async def test_run(mocker: MockerFixture, repository: Path) -> None:
     """
     Test the ``run`` command.
     """
-    get_session = mocker.patch("dj.cli.compile.get_session")
+    get_session = mocker.patch("djqs.cli.compile.get_session")
     session = next(get_session())
     session.get.return_value = False
 
-    index_databases = mocker.patch("dj.cli.compile.index_databases")
-    index_nodes = mocker.patch("dj.cli.compile.index_nodes")
+    index_databases = mocker.patch("djqs.cli.compile.index_databases")
+    index_nodes = mocker.patch("djqs.cli.compile.index_nodes")
 
     await run(repository)
 
@@ -401,11 +401,11 @@ async def test_run_reload(mocker: MockerFixture, repository: Path) -> None:
     """
     Test the ``run`` command with ``--reload``.
     """
-    get_session = mocker.patch("dj.cli.compile.get_session")
+    get_session = mocker.patch("djqs.cli.compile.get_session")
     session = get_session().__next__.return_value
-    awatch = mocker.patch("dj.cli.compile.awatch")
-    mocker.patch("dj.cli.compile.index_databases")
-    mocker.patch("dj.cli.compile.index_nodes")
+    awatch = mocker.patch("djqs.cli.compile.awatch")
+    mocker.patch("djqs.cli.compile.index_databases")
+    mocker.patch("djqs.cli.compile.index_nodes")
     awatch().__aiter__.return_value = ["event"]
 
     await run(repository, reload=True)
@@ -419,7 +419,7 @@ def test_yaml_file_changed() -> None:
     """
     assert yaml_file_changed(None, "/path/to/config.yaml") is True
     assert yaml_file_changed(None, "/path/to/config.yml") is True
-    assert yaml_file_changed(None, "/path/to/dj.db") is False
+    assert yaml_file_changed(None, "/path/to/djqs.db") is False
 
 
 def test_get_dependencies() -> None:
@@ -439,7 +439,7 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
     """
     Test ``update_node_config``.
     """
-    _logger = mocker.patch("dj.cli.compile._logger")
+    _logger = mocker.patch("djqs.cli.compile._logger")
 
     database = Database(name="test", URI="sqlite://")
 
@@ -509,7 +509,7 @@ async def test_update_node_config_user_attributes(
     """
     Test ``update_node_config`` when the user has added attributes to a column.
     """
-    _logger = mocker.patch("dj.cli.compile._logger")
+    _logger = mocker.patch("djqs.cli.compile._logger")
 
     database = Database(name="test", URI="sqlite://")
 
@@ -586,7 +586,7 @@ async def test_update_node_config_sql_query(
     """
     Test ``update_node_config`` when the SQL query is changed.
     """
-    _logger = mocker.patch("dj.cli.compile._logger")
+    _logger = mocker.patch("djqs.cli.compile._logger")
 
     # success
     path = Path("/path/to/repository/configs/nodes/T.yaml")

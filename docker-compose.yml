@@ -5,7 +5,7 @@ volumes:
   redis_data: {}
 
 services:
-  dj:
+  djqs:
     container_name: dj
     environment:
       - DOTENV_FILE=.docker-env/.env
@@ -13,7 +13,7 @@ services:
     volumes:
       - .:/code
     ports:
-      - "8000:8000"
+      - "8001:8001"
     depends_on:
       - db_migration
       - postgres_examples
@@ -28,7 +28,7 @@ services:
       - .:/code
     depends_on:
       - dj
-    command: celery -A dj.api.queries.celery worker --loglevel=info
+    command: celery -A djqs.api.queries.celery worker --loglevel=info
 
   watchdog:
     container_name: watchdog
@@ -39,7 +39,7 @@ services:
       - .:/code
     depends_on:
       - dj
-    command: dj compile --reload
+    command: djqs compile --reload
     restart: on-failure
 
   db_migration:

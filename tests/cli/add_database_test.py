@@ -1,5 +1,5 @@
 """
-Tests for ``dj.cli.add_database``.
+Tests for ``djqs.cli.add_database``.
 """
 # pylint: disable=invalid-name
 
@@ -9,8 +9,8 @@ import pytest
 import yaml
 from pyfakefs.fake_filesystem import FakeFilesystem
 
-from dj.cli import add_database
-from dj.errors import DJException
+from djqs.cli import add_database
+from djqs.errors import DJException
 
 
 @pytest.mark.asyncio

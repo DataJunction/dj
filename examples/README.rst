@@ -14,7 +14,7 @@ You can then see the available databases with:
 
 .. code-block:: bash
 
-    $ curl http://localhost:8000/databases/ | jq
+    $ curl http://localhost:8001/databases/ | jq
 
 You should see:
 
@@ -59,7 +59,7 @@ To run a query:
 
     $ curl -H "Content-Type: application/json" \
     > -d '{"database_id":2,"submitted_query":"SELECT 1 AS foo"}' \
-    > http://127.0.0.1:8000/queries/ | jq
+    > http://127.0.0.1:8001/queries/ | jq
 
 And you should see:
 

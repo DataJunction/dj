@@ -18,7 +18,7 @@ __location__ = os.path.dirname(__file__)
 # If extensions (or modules to document with autodoc) are in another directory,
 # add these directories to sys.path here. If the directory is relative to the
 # documentation root, use os.path.abspath to make it absolute, like shown here.
-sys.path.insert(0, os.path.join(__location__, "../dj"))
+sys.path.insert(0, os.path.join(__location__, "../djqs"))
 
 # -- Run sphinx-apidoc -------------------------------------------------------
 # This hack is necessary since RTD does not issue `sphinx-apidoc` before running
@@ -34,7 +34,7 @@ except ImportError:
     from sphinx import apidoc
 
 output_dir = os.path.join(__location__, "api")
-module_dir = os.path.join(__location__, "../dj")
+module_dir = os.path.join(__location__, "../djqs)
 try:
     shutil.rmtree(output_dir)
 except FileNotFoundError:
@@ -99,7 +99,7 @@ copyright = "2021, Beto Dealmeida"
 # If you don’t need the separation provided between version and release,
 # just set them both to the same value.
 try:
-    from dj import __version__ as version
+    from djqs import __version__ as version
 except ImportError:
     version = ""
 
@@ -226,7 +226,7 @@ html_static_path = ["_static"]
 # html_file_suffix = None
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "dj-doc"
+htmlhelp_basename = "djqs-doc"
 
 
 # -- Options for LaTeX output ------------------------------------------------
@@ -243,7 +243,7 @@ latex_elements = {
 # Grouping the document tree into LaTeX files. List of tuples
 # (source start file, target name, title, author, documentclass [howto/manual]).
 latex_documents = [
-    ("index", "user_guide.tex", "dj Documentation", "Beto Dealmeida", "manual")
+    ("index", "user_guide.tex", "djqs Documentation", "Beto Dealmeida", "manual")
 ]
 
 # The name of an image file (relative to this directory) to place at the top of
