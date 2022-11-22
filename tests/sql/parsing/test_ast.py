@@ -14,6 +14,7 @@ from dj.sql.parsing.ast import (
     String,
     Table,
     Wildcard,
+    flatten,
 )
 
 
@@ -49,7 +50,6 @@ def test_flatten_trivial(trivial_query):
                 where=None,
                 limit=None,
             ),
-            subquery=False,
         ),
         Select(
             distinct=False,
@@ -155,3 +155,12 @@ def test_wildcard_table_reference():
     wildcard.add_table(Table("a", None))
     wildcard = wildcard.add_table(Table("b", None))
     assert wildcard.table == Table("a", None)
+
+
+def test_flatten():
+    """
+    Test ``flatten``
+    """
+    assert list(
+        flatten([1, {1, 2, 3}, range(5), (8, (18, [4, iter(range(9))], [10]))]),
+    ) == [1, 1, 2, 3, range(0, 5), 8, 18, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 10]

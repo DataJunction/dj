@@ -127,13 +127,12 @@ def _(node: Select) -> str:
 
 @sql.register
 def _(node: Query) -> str:
-
+    subquery = bool(node.parents)
     ctes = ",\n".join(f"{cte.name} AS ({sql(cte.child)})" for cte in node.ctes)
     return (
         f"""{'WITH' if ctes else ""}
 {ctes}
-
-{"("+sql(node.select)+")" if node.subquery else sql(node.select)}
+{"("+sql(node.select)+")"  if subquery else sql(node.select)}
     """.strip()
         + "\n"
     )

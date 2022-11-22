@@ -6,7 +6,9 @@ from dataclasses import dataclass, field, fields
 from enum import Enum
 from itertools import chain, zip_longest
 from typing import (
+    Any,
     Callable,
+    Generator,
     Generic,
     Iterator,
     List,
@@ -17,7 +19,20 @@ from typing import (
     Union,
 )
 
-from dj.utils import flatten
+
+def flatten(maybe_iterables: Any) -> Iterator:
+    """
+    flattens `maybe_iterables` by descending into items that are Iterable
+    """
+
+    def single_item_generator(item: Any) -> Generator[Any, None, None]:
+        yield item
+
+    if not isinstance(maybe_iterables, (list, tuple, set, Iterator)):
+        return single_item_generator(maybe_iterables)
+    return chain.from_iterable(
+        (flatten(maybe_iterable) for maybe_iterable in maybe_iterables)
+    )
 
 
 class Node(ABC):
@@ -211,12 +226,16 @@ class Operation(Expression):
     """a type to overarch types that operate on other expressions"""
 
 
+# pylint: disable=C0103
 class UnaryOpKind(Enum):
     """the accepted unary operations"""
 
-    Plus = "+"  # pylint: disable=C0103
-    Minus = "-"  # pylint: disable=C0103
-    Not = "NOT"  # pylint: disable=C0103
+    Plus = "+"
+    Minus = "-"
+    Not = "NOT"
+
+
+# pylint: enable=C0103
 
 
 @dataclass(eq=False)
@@ -230,25 +249,29 @@ class UnaryOp(Operation):
         return hash((UnaryOp, self.op))
 
 
+# pylint: disable=C0103
 class BinaryOpKind(Enum):
     """the accepted binary operations"""
 
-    And = "AND"  # pylint: disable=C0103
-    Or = "OR"  # pylint: disable=C0103
-    Eq = "="  # pylint: disable=C0103
-    NotEq = "<>"  # pylint: disable=C0103
-    Gt = ">"  # pylint: disable=C0103
-    Lt = "<"  # pylint: disable=C0103
-    GtEq = ">="  # pylint: disable=C0103
-    LtEq = "<="  # pylint: disable=C0103
-    BitwiseOr = "|"  # pylint: disable=C0103
-    BitwiseAnd = "&"  # pylint: disable=C0103
-    BitwiseXor = "^"  # pylint: disable=C0103
-    Multiply = "*"  # pylint: disable=C0103
-    Divide = "/"  # pylint: disable=C0103
-    Plus = "+"  # pylint: disable=C0103
-    Minus = "-"  # pylint: disable=C0103
-    Modulo = "%"  # pylint: disable=C0103
+    And = "AND"
+    Or = "OR"
+    Eq = "="
+    NotEq = "<>"
+    Gt = ">"
+    Lt = "<"
+    GtEq = ">="
+    LtEq = "<="
+    BitwiseOr = "|"
+    BitwiseAnd = "&"
+    BitwiseXor = "^"
+    Multiply = "*"
+    Divide = "/"
+    Plus = "+"
+    Minus = "-"
+    Modulo = "%"
+
+
+# pylint: enable=C0103
 
 
 @dataclass(eq=False)
@@ -308,7 +331,7 @@ class Value(Expression):
 
 
 @dataclass(eq=False)
-class Number(Value):  # Number
+class Number(Value):
     """number value"""
 
     value: Union[float, int]
@@ -324,7 +347,7 @@ class Number(Value):  # Number
         return hash((Number, self.value))
 
 
-class String(Value):  # SingleQuotedString
+class String(Value):
     """string value"""
 
     value: str
@@ -333,7 +356,7 @@ class String(Value):  # SingleQuotedString
         return hash((String, self.value))
 
 
-class Boolean(Value):  # Boolean
+class Boolean(Value):
     """boolean True/False value"""
 
     value: bool
@@ -431,13 +454,17 @@ class Table(Named):
         return hash((Table, self.name))
 
 
+# pylint: disable=C0103
 class JoinKind(Enum):
     """the accepted kinds of joins"""
 
-    Inner = "INNER JOIN"  # pylint: disable=C0103
-    LeftOuter = "LEFT JOIN"  # pylint: disable=C0103
-    RightOuter = "RIGHT JOIN"  # pylint: disable=C0103
-    FullOuter = "FULL JOIN"  # pylint: disable=C0103
+    Inner = "INNER JOIN"
+    LeftOuter = "LEFT JOIN"
+    RightOuter = "RIGHT JOIN"
+    FullOuter = "FULL JOIN"
+
+
+# pylint: enable=C0103
 
 
 @dataclass(eq=False)
@@ -456,7 +483,7 @@ class Join(Node):
 class From(Node):
     """a from that belongs to a select"""
 
-    table: Union[Table, Alias]
+    table: Union[Table, Alias[Table], Alias["Select"]]
     joins: List[Join]
 
     def __hash__(self) -> int:
@@ -471,7 +498,7 @@ class Select(Node):
     from_: From
     group_by: List[Expression]
     having: Optional[Expression]
-    projection: List[Union[Expression, Alias[Expression]]]
+    projection: List[Expression]
     where: Optional[Expression]
     limit: Optional[Number]
 
@@ -485,7 +512,6 @@ class Query(Expression):
 
     ctes: List[Alias["Select"]]
     select: "Select"
-    subquery: bool
 
     def __hash__(self):
         return id(self)

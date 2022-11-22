@@ -1,5 +1,5 @@
 """
-parsing backend turing sqloxide output into DJ AST
+parsing backend turning sqloxide output into DJ AST
 """
 from typing import List, Set, Union, cast
 
@@ -155,7 +155,7 @@ def parse_expression(  # pylint: disable=R0911,R0912
                 ).add_self_as_parent(),
             )
         if match_keys(parse_tree, {"Subquery"}):
-            return parse_query(parse_tree["Subquery"], True)
+            return parse_query(parse_tree["Subquery"])
     raise DJParseException("Failed to parse Expression")  # pragma: no cover
 
 
@@ -198,6 +198,26 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
     """
     parse a table
     """
+    if match_keys(parse_tree, {"Derived"}):
+        subtree = parse_tree["Derived"]
+        if match_keys(subtree, {"lateral", "subquery", "alias"}):
+            if subtree["lateral"]:
+                raise DJParseException("Parsing does not support lateral subqueries")
+
+            alias = subtree["alias"]
+            if match_keys(alias, {"name", "columns"}):
+                if alias["columns"]:
+                    raise DJParseException(
+                        "Parsing does not support columns in derived from.",
+                    )
+                return cast(
+                    Alias,
+                    Alias(
+                        alias["name"]["value"],
+                        alias["name"]["quote_style"],
+                        parse_query(subtree["subquery"]),
+                    ).add_self_as_parent(),
+                )
     if match_keys(parse_tree, {"Table"}):
         subtree = parse_tree["Table"]
         name = subtree["name"]
@@ -286,7 +306,6 @@ def parse_from(parse_list: List[dict]) -> From:
                 [parse_join(join) for join in parse_tree["joins"]],
             ).add_self_as_parent(),
         )
-
     raise DJParseException("Failed to parse From")  # pragma: no cover
 
 
@@ -340,7 +359,7 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
     raise DJParseException("Failed to parse ctes")  # pragma: no cover
 
 
-def parse_query(parse_tree: dict, subquery: bool = False) -> Query:
+def parse_query(parse_tree: dict) -> Query:
     """
     parse a query (ctes+select) statement
     """
@@ -361,7 +380,6 @@ def parse_query(parse_tree: dict, subquery: bool = False) -> Query:
                     if parse_tree["with"] is not None
                     else [],
                     select,
-                    subquery,
                 ).add_self_as_parent(),
             )
 
