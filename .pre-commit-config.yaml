@@ -15,6 +15,7 @@ repos:
   - id: debug-statements
     exclude: ^templates/
   - id: end-of-file-fixer
+    exclude: openapi.json
   - id: requirements-txt-fixer
     exclude: ^templates/
   - id: mixed-line-ending
