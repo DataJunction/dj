@@ -22,5 +22,4 @@ def trivial_query():
             where=None,
             limit=None,
         ),
-        subquery=False,
     )

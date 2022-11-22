@@ -236,7 +236,6 @@ def tpcds_q01():
                                 ),
                                 limit=None,
                             ),
-                            subquery=True,
                         ),
                     ),
                     op=BinaryOpKind.And,
@@ -271,5 +270,4 @@ def tpcds_q01():
             ),
             limit=Number(value=100),
         ),
-        subquery=False,
     )
