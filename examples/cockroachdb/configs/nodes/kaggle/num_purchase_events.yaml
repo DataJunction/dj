@@ -1,0 +1,9 @@
+description: Number of Steam user purchase events captured
+type: metric
+query: |-
+  SELECT COUNT(*)
+  FROM kaggle.source.playtime
+  WHERE behavior='purchase'
+columns:
+  _col0:
+    type: INT

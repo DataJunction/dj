@@ -1,0 +1,32 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Run tests with latest dependencies
+
+on:
+  schedule:
+    - cron:  '0 6 * * *'
+
+jobs:
+  daily:
+
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.9', '3.10', '3.11.0rc1']
+
+    steps:
+    - uses: actions/checkout@v2
+    - name: Set up Python ${{ matrix.python-version }}
+      uses: actions/setup-python@v2
+      with:
+        python-version: ${{ matrix.python-version }}
+    - name: Install latest dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -e '.[testing]'
+    - name: Test with pytest
+      run: |
+        pre-commit run --all-files
+        pytest --cov-fail-under=100 --cov=dj -vv tests/ --doctest-modules dj --without-integration --without-slow-integration

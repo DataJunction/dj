@@ -1,0 +1,8 @@
+description: Number of users.
+type: metric
+query: |-
+  SELECT SUM(num_users)
+  FROM basic.transform.country_agg
+columns:
+  _col0:
+    type: INT

@@ -1,0 +1,9 @@
+description: Number of Steam games that include Italian dubs/subs
+type: metric
+query: |-
+  SELECT COUNT(*)
+  FROM kaggle.source.games
+  WHERE LANGUAGE LIKE '%Italian%'
+columns:
+  _col0:
+    type: INT

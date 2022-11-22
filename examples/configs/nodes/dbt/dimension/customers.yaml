@@ -1,0 +1,14 @@
+description: User dimension
+type: dimension
+query: |-
+  SELECT id,
+         first_name,
+         last_name
+  FROM dbt.source.jaffle_shop.customers
+columns:
+  id:
+    type: INT
+  first_name:
+    type: STR
+  last_name:
+    type: STR

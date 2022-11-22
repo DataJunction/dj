@@ -1,0 +1,78 @@
+version: "2.2"
+
+volumes:
+  postgres_data: {}
+  redis_data: {}
+
+services:
+  dj:
+    container_name: dj
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: .
+    volumes:
+      - .:/code
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db_migration
+      - postgres_examples
+      - redis
+
+  celery:
+    container_name: celery
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: .
+    volumes:
+      - .:/code
+    depends_on:
+      - dj
+    command: celery -A dj.api.queries.celery worker --loglevel=info
+
+  watchdog:
+    container_name: watchdog
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: .
+    volumes:
+      - .:/code
+    depends_on:
+      - dj
+    command: dj compile --reload
+    restart: on-failure
+
+  db_migration:
+    container_name: db_migration
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: .
+    volumes:
+      - .:/code
+    command: alembic upgrade head
+    restart: on-failure
+
+  redis:
+    image: redis:latest
+    container_name: query_broker
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  postgres_examples:
+    container_name: postgres_examples
+    image: postgres:latest
+    volumes:
+      - ./examples/docker/postgres_init.sql:/docker-entrypoint-initdb.d/init.sql
+      - postgres_data:/var/lib/postgresql/data
+      # dbt
+      - ./examples/dbt/postgres_init.sql:/docker-entrypoint-initdb.d/init_dbt.sql
+      - ./examples/dbt:/docker-entrypoint-dbt
+    environment:
+      - POSTGRES_PASSWORD=FoolishPassword
+      - POSTGRES_USER=username
+      - POSTGRES_DB=examples
+    ports:
+      - "5433:5432"
