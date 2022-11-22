@@ -1,21 +1,21 @@
 """
-Tests for ``dj.sql.inference``.
+Tests for ``djqs.sql.inference``.
 """
 
 import pytest
 from sqloxide import parse_sql
 
-from dj.models.column import Column
-from dj.models.database import Database
-from dj.models.node import Node
-from dj.models.table import Table
-from dj.sql.inference import (
+from djqs.models.column import Column
+from djqs.models.database import Database
+from djqs.models.node import Node
+from djqs.models.table import Table
+from djqs.sql.inference import (
     evaluate_expression,
     get_column_from_expression,
     infer_columns,
 )
-from dj.sql.parse import find_nodes_by_key
-from dj.typing import ColumnType, Expression
+from djqs.sql.parse import find_nodes_by_key
+from djqs.typing import ColumnType, Expression
 
 
 def get_expression(query: str) -> Expression:

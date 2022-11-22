@@ -70,13 +70,13 @@ And we start a development server:
 
 .. code-block:: bash
 
-    $ uvicorn dj.api.main:app --host 127.0.0.1 --port 8000 --reload
+    $ uvicorn djqs.api.main:app --host 127.0.0.1 --port 8001 --reload
 
 Now, if we want to compute the metric in our Hive warehouse we can build a pipeline that requests the Hive SQL:
 
 .. code-block:: bash
 
-    % curl "http://localhost:8000/metrics/2/sql/?database_id=1"
+    % curl "http://localhost:8001/metrics/2/sql/?database_id=1"
     {
       "database_id": 1,
       "sql": "SELECT count('*') AS count_1 \nFROM (SELECT default.fact_comments.id AS id, default.fact_comments.user_id AS user_id, default.fact_comments.timestamp AS timestamp, default.fact_comments.text AS text \nFROM default.fact_comments) AS \"comments\""
@@ -86,7 +86,7 @@ We can also filter and group our metric by any of its dimensions:
 
 .. code-block:: bash
 
-    % curl http://localhost:8000/metrics/2/
+    % curl http://localhost:8001/metrics/2/
     {
       "id": 2,
       "name": "num_comments",
@@ -106,13 +106,13 @@ For example, if we want to group the metric by the user ID, to see how many comm
 
 .. code-block:: bash
 
-    % curl "http://localhost:8000/metrics/2/sql/?database_id=1&d=comments.user_id&f=comments.user_id>0"
+    % curl "http://localhost:8001/metrics/2/sql/?database_id=1&d=comments.user_id&f=comments.user_id>0"
 
 If instead we want the actual data, instead of the SQL:
 
 .. code-block:: bash
 
-    % curl "http://localhost:8000/metrics/2/data/?database_id=1&d=comments.user_id&f=comments.user_id>0"
+    % curl "http://localhost:8001/metrics/2/data/?database_id=1&d=comments.user_id&f=comments.user_id>0"
 
 And if we omit the ``database_id`` DJ will compute the data using the fastest database (ie, the one with lowest ``cost``). It's also possible to specify tables with different costs:
 
@@ -137,4 +137,4 @@ The tables ``dim_users`` and ``dim_fast_users`` can have different columns. For 
 Getting started
 ===============
 
-While all the functionality above currently works, DJ is still not ready for production use. Only a very small number of functions are supported, and we are still working towards a 0.1 release. If you are interested in helping take a look at the `issues marked with the "good first issue" label <https://github.com/DataJunction/dj/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22>`_.
+While all the functionality above currently works, DJ is still not ready for production use. Only a very small number of functions are supported, and we are still working towards a 0.1 release. If you are interested in helping take a look at the `issues marked with the "good first issue" label <https://github.com/DataJunction/djqs/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22>`_.

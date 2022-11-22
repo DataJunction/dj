@@ -1,5 +1,5 @@
 """
-Tests for ``dj.sql.transpile``.
+Tests for ``djqs.sql.transpile``.
 """
 
 # pylint: disable=line-too-long
@@ -12,19 +12,19 @@ from sqlalchemy.schema import Table as SqlaTable
 from sqlalchemy.sql import select
 from sqloxide import parse_sql
 
-from dj.models.column import Column
-from dj.models.database import Database
-from dj.models.node import Node
-from dj.models.query import Query  # pylint: disable=unused-import
-from dj.models.table import Table
-from dj.sql.transpile import (
+from djqs.models.column import Column
+from djqs.models.database import Database
+from djqs.models.node import Node
+from djqs.models.query import Query  # pylint: disable=unused-import
+from djqs.models.table import Table
+from djqs.sql.transpile import (
     get_expression,
     get_function,
     get_query,
     get_select_for_node,
     get_value,
 )
-from dj.typing import ColumnType, Expression, Function
+from djqs.typing import ColumnType, Expression, Function
 
 from .utils import query_to_string
 
@@ -53,7 +53,7 @@ def test_get_select_for_node_materialized(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE B (cnt INTEGER)")
-    mocker.patch("dj.models.database.create_engine", return_value=engine)
+    mocker.patch("djqs.models.database.create_engine", return_value=engine)
 
     assert (
         query_to_string(get_select_for_node(child, database))
@@ -92,7 +92,7 @@ def test_get_select_for_node_not_materialized(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE A_slow (one TEXT, two TEXT)")
     connection.execute("CREATE TABLE A_fast (one TEXT)")
-    mocker.patch("dj.models.database.create_engine", return_value=engine)
+    mocker.patch("djqs.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -155,7 +155,7 @@ def test_get_select_for_node_choose_slow(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE A_slow (one TEXT, two TEXT)")
     connection.execute("CREATE TABLE A_fast (one TEXT)")
-    mocker.patch("dj.models.database.create_engine", return_value=engine)
+    mocker.patch("djqs.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -201,7 +201,7 @@ def test_get_select_for_node_projection(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("dj.models.database.create_engine", return_value=engine)
+    mocker.patch("djqs.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -246,7 +246,7 @@ def test_get_select_for_node_where(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("dj.models.database.create_engine", return_value=engine)
+    mocker.patch("djqs.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -292,7 +292,7 @@ def test_get_select_for_node_groupby(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("dj.models.database.create_engine", return_value=engine)
+    mocker.patch("djqs.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -337,7 +337,7 @@ def test_get_select_for_node_limit(mocker: MockerFixture) -> None:
     engine = create_engine(database.URI)
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
-    mocker.patch("dj.models.database.create_engine", return_value=engine)
+    mocker.patch("djqs.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -441,7 +441,7 @@ def test_get_select_for_node_with_join(mocker: MockerFixture) -> None:
     connection = engine.connect()
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
     connection.execute("CREATE TABLE B (two TEXT, three TEXT)")
-    mocker.patch("dj.models.database.create_engine", return_value=engine)
+    mocker.patch("djqs.models.database.create_engine", return_value=engine)
 
     child = Node(
         name="B",
@@ -523,7 +523,7 @@ def test_date_trunc_invalid() -> None:
         str(excinfo.value)
         == """Dialect "unknown" doesn't support `DATE_TRUNC`
 The following error happened:
-- The function "DATE_TRUNC" hasn't been implemented for dialect "unknown" in DJ yet. You can file an issue at https://github.com/DataJunction/dj/issues/new?title=DATE_TRUNC+for+unknown to request it to be added, or use the documentation at https://github.com/DataJunction/dj/blob/main/docs/functions.rst#date_trunc to implement it. (error code: 1)"""
+- The function "DATE_TRUNC" hasn't been implemented for dialect "unknown" in DJ yet. You can file an issue at https://github.com/DataJunction/djqs/issues/new?title=DATE_TRUNC+for+unknown to request it to be added, or use the documentation at https://github.com/DataJunction/djqs/blob/main/docs/functions.rst#date_trunc to implement it. (error code: 1)"""
     )
 
     function = {
@@ -545,7 +545,7 @@ The following error happened:
         str(excinfo.value)
         == """Resolution "invalid" not supported by dialect "sqlite"
 The following error happened:
-- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "sqlite" yet. You can file an issue at https://github.com/DataJunction/dj/issues/new?title=Resolution+missing+for+sqlite:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/dj/blob/main/docs/functions.rst#date_trunc to implement it. (error code: 1)"""
+- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "sqlite" yet. You can file an issue at https://github.com/DataJunction/djqs/issues/new?title=Resolution+missing+for+sqlite:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/djqs/blob/main/docs/functions.rst#date_trunc to implement it. (error code: 1)"""
     )
 
     with pytest.raises(Exception) as excinfo:
@@ -554,7 +554,7 @@ The following error happened:
         str(excinfo.value)
         == """Resolution "invalid" not supported by dialect "druid"
 The following error happened:
-- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "druid" yet. You can file an issue at https://github.com/DataJunction/dj/issues/new?title=Resolution+missing+for+druid:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/dj/blob/main/docs/functions.rst#date_trunc to implement it. (error code: 1)"""
+- The resolution "invalid" in the `DATE_TRUNC` function hasn't been implemented in DJ for the dialect "druid" yet. You can file an issue at https://github.com/DataJunction/djqs/issues/new?title=Resolution+missing+for+druid:+invalid to request it to be added, or use the documentation at https://github.com/DataJunction/djqs/blob/main/docs/functions.rst#date_trunc to implement it. (error code: 1)"""
     )
 
 

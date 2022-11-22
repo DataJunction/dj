@@ -8,8 +8,8 @@ from logging.config import fileConfig
 from sqlmodel import SQLModel, create_engine
 
 from alembic import context
-from dj.models import Column, Database, Node, Query, Table
-from dj.utils import get_settings
+from djqs.models import Column, Database, Node, Query, Table
+from djqs.utils import get_settings
 
 settings = get_settings()
 

@@ -33,7 +33,7 @@ You can check that everything is working by querying the list of available datab
 
 .. code-block:: bash
 
-    % curl http://localhost:8000/databases/ | jq
+    % curl http://localhost:8001/databases/ | jq
     [
       {
         "id": 0,
@@ -44,7 +44,7 @@ You can check that everything is working by querying the list of available datab
         "created_at": "2022-04-10T20:22:58.274082",
         "updated_at": "2022-04-10T20:22:58.274092",
         "name": "dj",
-        "URI": "dj://localhost:8000/0"
+        "URI": "djqs://localhost:8001/0"
       },
       {
         "id": 1,
@@ -98,7 +98,7 @@ You can run queries against any of these databases:
 
     $ curl -H "Content-Type: application/json" \
     > -d '{"database_id":1,"submitted_query":"SELECT 1 AS foo"}' \
-    > http://127.0.0.1:8000/queries/ | jq
+    > http://127.0.0.1:8001/queries/ | jq
     {
       "database_id": 1,
       "catalog": null,
@@ -137,7 +137,7 @@ To see the list of available nodes:
 
 .. code-block:: bash
 
-    $ curl http://localhost:8000/nodes/ | jq
+    $ curl http://localhost:8001/nodes/ | jq
     [
       {
         "id": 1,
@@ -200,7 +200,7 @@ And metrics:
 
 .. code-block:: bash
 
-    $ curl http://localhost:8000/metrics/ | jq
+    $ curl http://localhost:8001/metrics/ | jq
     [
       {
         "id": 8,
@@ -242,20 +242,20 @@ To get data for a given metric:
 
 .. code-block:: bash
 
-    $ curl http://localhost:8000/metrics/8/data/ | jq
+    $ curl http://localhost:8001/metrics/8/data/ | jq
 
 You can also pass query parameters to group by a dimension (``d``) or filter (``f``):
 
 .. code-block:: bash
 
-    $ curl "http://localhost:8000/metrics/8/data/?d=basic.transform.country_agg.country" | jq
-    $ curl "http://localhost:8000/metrics/8/data/?f=basic.transform.country_agg.country='France'" | jq
+    $ curl "http://localhost:8001/metrics/8/data/?d=basic.transform.country_agg.country" | jq
+    $ curl "http://localhost:8001/metrics/8/data/?f=basic.transform.country_agg.country='France'" | jq
 
 Similarly, you can request the SQL for a given metric with given constraints:
 
 .. code-block:: bash
 
-    $ curl "http://localhost:8000/metrics/8/sql/?d=basic.transform.country_agg.country" | jq
+    $ curl "http://localhost:8001/metrics/8/sql/?d=basic.transform.country_agg.country" | jq
     {
       "database_id": 3,
       "sql": "SELECT sum("basic.transform.country_agg".num_users) AS sum_1, "basic.transform.country_agg".country \nFROM (SELECT "basic.source.users".country AS country, count("basic.source.users".id) AS num_users \nFROM (SELECT basic.dim_users.id AS id, basic.dim_users.full_name AS full_name, basic.dim_users.age AS age, basic.dim_users.country AS country, basic.dim_users.gender AS gender, basic.dim_users.preferred_language AS preferred_language \nFROM basic.dim_users) AS "basic.source.users" GROUP BY "basic.source.users".country) AS "basic.transform.country_agg" GROUP BY "basic.transform.country_agg".country"
@@ -274,14 +274,14 @@ You can also run SQL queries against the metrics in DJ, using the special databa
 API docs
 ========
 
-Once you have Docker running you can see the API docs at http://localhost:8000/docs.
+Once you have Docker running you can see the API docs at http://localhost:8001/docs.
 
 Creating a PR
 =============
 
 When creating a PR, make sure to run ``make test`` to check for test coverage. You can also run ``make check`` to run the pre-commit hooks.
 
-A few `fixtures <https://docs.pytest.org/en/7.1.x/explanation/fixtures.html#about-fixtures>`_ are `available <https://github.com/DataJunction/dj/blob/main/tests/conftest.py>`_ to help writing unit tests.
+A few `fixtures <https://docs.pytest.org/en/7.1.x/explanation/fixtures.html#about-fixtures>`_ are `available <https://github.com/DataJunction/djqs/blob/main/tests/conftest.py>`_ to help writing unit tests.
 
 Adding new dependencies
 =======================
@@ -312,7 +312,7 @@ We use `Alembic <https://alembic.sqlalchemy.org/en/latest/index.html>`_ to manag
 5. Now run ``alembic downgrade $SHA``, where ``$SHA`` is the previous migration. You can see the hash with ``alembic history``.
 6. Once you've confirmed that both the upgrade and downgrade work, upgrade again and commit the file.
 
-If the migrations include ``alter_column`` or ``drop_column`` make sure to wrap them in a ``batch_alter_table`` context manager so that they work correctly with SQLite. You can see `an example here <https://github.com/DataJunction/dj/pull/224/files#diff-22327a751511fb5eba403e0f30e124c08543243f67c2d09cee4cd756a2ef9df9R27-R28>`_.
+If the migrations include ``alter_column`` or ``drop_column`` make sure to wrap them in a ``batch_alter_table`` context manager so that they work correctly with SQLite. You can see `an example here <https://github.com/DataJunction/djqs/pull/224/files#diff-22327a751511fb5eba403e0f30e124c08543243f67c2d09cee4cd756a2ef9df9R27-R28>`_.
 
 Development tips
 ===================

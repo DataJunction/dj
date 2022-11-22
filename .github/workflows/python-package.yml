@@ -31,4 +31,4 @@ jobs:
     - name: Test with pytest
       run: |
         pre-commit run --all-files
-        pytest --cov-fail-under=100 --cov=dj -vv tests/ --doctest-modules dj --without-integration --without-slow-integration
+        pytest --cov-fail-under=100 --cov=djqs -vv tests/ --doctest-modules djqs --without-integration --without-slow-integration

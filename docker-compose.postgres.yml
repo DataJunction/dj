@@ -6,7 +6,7 @@ volumes:
   postgres_metadata: {}
 
 services:
-  dj:
+  djqs:
     environment:
       - DOTENV_FILE=.docker-env/.env-postgres
     depends_on:

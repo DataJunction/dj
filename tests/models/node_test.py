@@ -1,5 +1,5 @@
 """
-Tests for ``dj.models.node``.
+Tests for ``djqs.models.node``.
 """
 
 # pylint: disable=use-implicit-booleaness-not-comparison
@@ -7,7 +7,7 @@ Tests for ``dj.models.node``.
 import pytest
 from sqlmodel import Session
 
-from dj.models.node import Node, NodeType
+from djqs.models.node import Node, NodeType
 
 
 def test_node_relationship(session: Session) -> None:

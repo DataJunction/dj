@@ -1,5 +1,5 @@
 """
-Tests for ``dj.console``.
+Tests for ``djqs.console``.
 """
 # pylint: disable=invalid-name
 
@@ -10,9 +10,9 @@ import pytest
 from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 
-from dj import console
-from dj.config import Settings
-from dj.errors import DJError, DJException, ErrorCode
+from djqs import console
+from djqs.config import Settings
+from djqs.errors import DJError, DJException, ErrorCode
 
 
 @pytest.mark.asyncio
@@ -20,11 +20,11 @@ async def test_main_compile(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "compile" action.
     """
-    compile_ = mocker.patch("dj.console.compile_")
+    compile_ = mocker.patch("djqs.console.compile_")
     compile_.run = mocker.AsyncMock()
 
     mocker.patch(
-        "dj.console.docopt",
+        "djqs.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -34,9 +34,9 @@ async def test_main_compile(mocker: MockerFixture) -> None:
         },
     )
     mocker.patch(
-        "dj.console.get_settings",
+        "djqs.console.get_settings",
         return_value=Settings(
-            index="sqlite:///dj.db",
+            index="sqlite:///djqs.db",
             repository=Path("/path/to/repository"),
         ),
     )
@@ -50,11 +50,11 @@ async def test_main_compile_passing_repository(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "compile" action.
     """
-    compile_ = mocker.patch("dj.console.compile_")
+    compile_ = mocker.patch("djqs.console.compile_")
     compile_.run = mocker.AsyncMock()
 
     mocker.patch(
-        "dj.console.docopt",
+        "djqs.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -73,12 +73,12 @@ async def test_main_canceled(mocker: MockerFixture) -> None:
     """
     Test canceling the ``main`` coroutine.
     """
-    compile_ = mocker.patch("dj.console.compile_")
+    compile_ = mocker.patch("djqs.console.compile_")
     compile_.run = mocker.AsyncMock(side_effect=asyncio.CancelledError("Canceled"))
-    _logger = mocker.patch("dj.console._logger")
+    _logger = mocker.patch("djqs.console._logger")
 
     mocker.patch(
-        "dj.console.docopt",
+        "djqs.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -99,12 +99,12 @@ async def test_main_error(mocker: MockerFixture) -> None:
     Test canceling the ``main`` coroutine.
     """
     exc = DJException("An error occurred")
-    compile_ = mocker.patch("dj.console.compile_")
+    compile_ = mocker.patch("djqs.console.compile_")
     compile_.run = mocker.AsyncMock(side_effect=exc)
-    _logger = mocker.patch("dj.console._logger")
+    _logger = mocker.patch("djqs.console._logger")
 
     mocker.patch(
-        "dj.console.docopt",
+        "djqs.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -126,7 +126,7 @@ async def test_main_no_action(mocker: MockerFixture) -> None:
     """
 
     mocker.patch(
-        "dj.console.docopt",
+        "djqs.console.docopt",
         return_value={
             "--loglevel": "debug",
             "compile": False,
@@ -142,7 +142,7 @@ def test_run(mocker: MockerFixture) -> None:
     Test ``run``.
     """
     main = mocker.AsyncMock()
-    mocker.patch("dj.console.main", main)
+    mocker.patch("djqs.console.main", main)
 
     console.run()
 
@@ -154,12 +154,12 @@ def test_interrupt(mocker: MockerFixture) -> None:
     Test that ``CTRL-C`` stops the CLI.
     """
     main = mocker.AsyncMock(side_effect=KeyboardInterrupt())
-    mocker.patch("dj.console.main", main)
-    _logger = mocker.patch("dj.console._logger")
+    mocker.patch("djqs.console.main", main)
+    _logger = mocker.patch("djqs.console._logger")
 
     console.run()
 
-    _logger.info.assert_called_with("Stopping DJ")
+    _logger.info.assert_called_with("Stopping DJ query server")
 
 
 @pytest.mark.asyncio
@@ -167,11 +167,11 @@ async def test_main_add_database(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "add-database" action.
     """
-    add_database = mocker.patch("dj.console.add_database")
+    add_database = mocker.patch("djqs.console.add_database")
     add_database.run = mocker.AsyncMock()
 
     mocker.patch(
-        "dj.console.docopt",
+        "djqs.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -186,9 +186,9 @@ async def test_main_add_database(mocker: MockerFixture) -> None:
         },
     )
     mocker.patch(
-        "dj.console.get_settings",
+        "djqs.console.get_settings",
         return_value=Settings(
-            index="sqlite:///dj.db",
+            index="sqlite:///djqs.db",
             repository=Path("/path/to/repository"),
         ),
     )
@@ -209,11 +209,11 @@ async def test_main_add_database_passing_repository(mocker: MockerFixture) -> No
     """
     Test ``main`` with the "add-database" action.
     """
-    add_database = mocker.patch("dj.console.add_database")
+    add_database = mocker.patch("djqs.console.add_database")
     add_database.run = mocker.AsyncMock()
 
     mocker.patch(
-        "dj.console.docopt",
+        "djqs.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -256,11 +256,11 @@ async def test_main_add_database_raise_already_exists(
             ),
         ],
     )
-    _logger = mocker.patch("dj.console._logger")
+    _logger = mocker.patch("djqs.console._logger")
     test_repo = "/foo"
     fs.create_dir(test_repo)
     mocker.patch(
-        "dj.console.docopt",
+        "djqs.console.docopt",
         return_value={
             "--loglevel": "debug",
             "--force": False,
@@ -275,9 +275,9 @@ async def test_main_add_database_raise_already_exists(
         },
     )
     mocker.patch(
-        "dj.console.get_settings",
+        "djqs.console.get_settings",
         return_value=Settings(
-            index="sqlite:///dj.db",
+            index="sqlite:///djqs.db",
             repository=Path(test_repo),
         ),
     )
@@ -292,20 +292,20 @@ async def test_main_urls(mocker: MockerFixture) -> None:
     """
     Test ``main`` with the "urls" action.
     """
-    urls = mocker.patch("dj.console.urls")
+    urls = mocker.patch("djqs.console.urls")
     urls.run = mocker.AsyncMock()
 
     mocker.patch(
-        "dj.console.docopt",
+        "djqs.console.docopt",
         return_value={
             "--loglevel": "debug",
             "urls": True,
         },
     )
     mocker.patch(
-        "dj.console.get_settings",
-        return_value=Settings(url="http://localhost:8000/"),
+        "djqs.console.get_settings",
+        return_value=Settings(url="http://localhost:8001/"),
     )
 
     await console.main()
-    urls.run.assert_called_with("http://localhost:8000/")
+    urls.run.assert_called_with("http://localhost:8001/")

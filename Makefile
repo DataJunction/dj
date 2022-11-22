@@ -1,11 +1,11 @@
 pyenv: .python-version
 
 .python-version: setup.cfg
-	if [ -z "`pyenv virtualenvs | grep dj`" ]; then\
-	    pyenv virtualenv dj;\
+	if [ -z "`pyenv virtualenvs | grep djqs`" ]; then\
+	    pyenv virtualenv djqs;\
 	fi
 	if [ ! -f .python-version ]; then\
-	    pyenv local dj;\
+	    pyenv local djqs;\
 	fi
 	pip install -r requirements/test.txt
 	touch .python-version
@@ -27,16 +27,16 @@ docker-run-with-cockroachdb:
 	docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up
 
 test: pyenv
-	pytest --cov=dj -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
+	pytest --cov=djqs -vv tests/ --doctest-modules djqs --without-integration --without-slow-integration ${PYTEST_ARGS}
 
 integration: pyenv
-	pytest --cov=dj -vv tests/ --doctest-modules dj --with-integration --with-slow-integration
+	pytest --cov=djqs -vv tests/ --doctest-modules djqs --with-integration --with-slow-integration
 
 clean:
-	pyenv virtualenv-delete dj
+	pyenv virtualenv-delete djqs
 
 spellcheck:
-	codespell -L froms -S "*.json" dj docs/*rst tests templates
+	codespell -L froms -S "*.json" djqs docs/*rst tests templates
 
 check:
 	pre-commit run --all-files

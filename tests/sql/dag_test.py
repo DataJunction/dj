@@ -1,5 +1,5 @@
 """
-Tests for ``dj.sql.dag``.
+Tests for ``djqs.sql.dag``.
 """
 
 from collections import defaultdict
@@ -8,18 +8,18 @@ from typing import Dict, Set
 import pytest
 from pytest_mock import MockerFixture
 
-from dj.models.column import Column
-from dj.models.database import Database
-from dj.models.node import Node, NodeType
-from dj.models.table import Table
-from dj.sql.dag import (
+from djqs.models.column import Column
+from djqs.models.database import Database
+from djqs.models.node import Node, NodeType
+from djqs.models.table import Table
+from djqs.sql.dag import (
     get_cheapest_online_database,
     get_computable_databases,
     get_database_for_nodes,
     get_dimensions,
     get_referenced_columns_from_sql,
 )
-from dj.typing import ColumnType
+from djqs.typing import ColumnType
 
 
 def test_get_computable_databases() -> None:
@@ -257,7 +257,7 @@ async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
     database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
 
-    get_session = mocker.patch("dj.sql.build.get_session")
+    get_session = mocker.patch("djqs.sql.build.get_session")
     session = next(get_session())
     session.exec().all.return_value = [database_1, database_2]
 
@@ -285,12 +285,12 @@ async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     assert await get_database_for_nodes(session, [], referenced_columns) == database_1
 
     # with no active database
-    create_engine = mocker.patch("dj.models.database.create_engine")
+    create_engine = mocker.patch("djqs.models.database.create_engine")
     create_engine.side_effect = Exception("foo")
     database_1 = Database(id=1, name="fast", URI="sqlite://", cost=1.0)
     database_2 = Database(id=2, name="slow", URI="sqlite://", cost=10.0)
 
-    get_session = mocker.patch("dj.sql.build.get_session")
+    get_session = mocker.patch("djqs.sql.build.get_session")
     session = next(get_session())
     session.exec().all.return_value = [database_1, database_2]
     with pytest.raises(Exception) as excinfo:
@@ -314,7 +314,7 @@ async def test_get_cheapest_online_database(mocker: MockerFixture) -> None:
     fast_ping.done.side_effect = [True, True]
     fast_ping.result.return_value = True
 
-    asyncio = mocker.patch("dj.sql.dag.asyncio")
+    asyncio = mocker.patch("djqs.sql.dag.asyncio")
     asyncio.wait = mocker.AsyncMock(
         side_effect=[([fast_ping], [slow_ping]), ([slow_ping], [])],
     )
@@ -339,7 +339,7 @@ async def test_get_cheapest_online_database_offline(mocker: MockerFixture) -> No
     fast_ping.done.side_effect = [True, True]
     fast_ping.result.return_value = True
 
-    asyncio = mocker.patch("dj.sql.dag.asyncio")
+    asyncio = mocker.patch("djqs.sql.dag.asyncio")
     asyncio.wait = mocker.AsyncMock(
         side_effect=[([fast_ping], [slow_ping]), ([slow_ping], [])],
     )
@@ -364,7 +364,7 @@ async def test_get_cheapest_online_database_timeout(mocker: MockerFixture) -> No
     fast_ping.done.side_effect = [True, True]
     fast_ping.result.return_value = True
 
-    asyncio = mocker.patch("dj.sql.dag.asyncio")
+    asyncio = mocker.patch("djqs.sql.dag.asyncio")
     asyncio.wait = mocker.AsyncMock(
         side_effect=[([fast_ping], [slow_ping]), ([], [slow_ping])],
     )

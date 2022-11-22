@@ -1,5 +1,5 @@
 """
-Tests for ``dj.sql.dbapi.cursor``.
+Tests for ``djqs.sql.dbapi.cursor``.
 """
 # pylint: disable=redefined-builtin
 
@@ -10,8 +10,8 @@ from pytest_mock import MockerFixture
 from requests_mock.mocker import Mocker
 from yarl import URL
 
-from dj.sql.dbapi.cursor import Cursor
-from dj.sql.dbapi.exceptions import (
+from djqs.sql.dbapi.cursor import Cursor
+from djqs.sql.dbapi.exceptions import (
     InternalError,
     NotSupportedError,
     ProgrammingError,
@@ -23,9 +23,9 @@ def test_cursor_execute(mocker: MockerFixture) -> None:
     """
     Test the ``execute`` method.
     """
-    requests = mocker.patch("dj.sql.dbapi.cursor.requests")
+    requests = mocker.patch("djqs.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/json"
-    url = URL("http://localhost:8000/")
+    url = URL("http://localhost:8001/")
     headers = {
         "Content-Type": "application/msgpack",
         "Accept": "application/msgpack; q=1.0, application/json; q=0.5",
@@ -56,11 +56,11 @@ def test_cursor_execute_msgpack(mocker: MockerFixture) -> None:
     """
     Test the ``execute`` method with msgpack.
     """
-    msgpack = mocker.patch("dj.sql.dbapi.cursor.msgpack")
+    msgpack = mocker.patch("djqs.sql.dbapi.cursor.msgpack")
     msgpack.packb.return_value = b"data"
-    requests = mocker.patch("dj.sql.dbapi.cursor.requests")
+    requests = mocker.patch("djqs.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/msgpack"
-    url = URL("http://localhost:8000/")
+    url = URL("http://localhost:8001/")
     headers = {
         "Content-Type": "application/msgpack",
         "Accept": "application/msgpack; q=1.0, application/json; q=0.5",
@@ -81,9 +81,9 @@ def test_cursor_execute_invalid_content_type(mocker: MockerFixture) -> None:
     """
     Test the ``execute`` method with an invalid content type.
     """
-    requests = mocker.patch("dj.sql.dbapi.cursor.requests")
+    requests = mocker.patch("djqs.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/protobuf"
-    url = URL("http://localhost:8000/")
+    url = URL("http://localhost:8001/")
     cursor = Cursor(url)
 
     with pytest.raises(Exception) as excinfo:
@@ -96,7 +96,7 @@ def test_cursor_execute_error(requests_mock: Mocker) -> None:
     Test the ``execute`` method when an error is returned.
     """
     requests_mock.post(
-        "http://localhost:8000/queries/",
+        "http://localhost:8001/queries/",
         json={
             "message": "The query is invalid",
             "errors": [
@@ -122,7 +122,7 @@ def test_cursor_execute_error(requests_mock: Mocker) -> None:
         },
     )
 
-    url = URL("http://localhost:8000/")
+    url = URL("http://localhost:8001/")
     cursor = Cursor(url)
 
     with pytest.raises(ProgrammingError) as excinfo:
@@ -130,7 +130,7 @@ def test_cursor_execute_error(requests_mock: Mocker) -> None:
     assert str(excinfo.value) == "The query is invalid"
 
     requests_mock.post(
-        "http://localhost:8000/queries/",
+        "http://localhost:8001/queries/",
         status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
     )
 
@@ -145,7 +145,7 @@ def test_cursor_execute_multiple_statements() -> None:
     """
     Test that the ``execute`` method raises a warning on multiple statements.
     """
-    url = URL("http://localhost:8000/")
+    url = URL("http://localhost:8001/")
     cursor = Cursor(url)
 
     with pytest.raises(Warning) as excinfo:
@@ -157,7 +157,7 @@ def test_execute_many() -> None:
     """
     Test ``execute_many``.
     """
-    url = URL("http://localhost:8000/")
+    url = URL("http://localhost:8001/")
     cursor = Cursor(url)
 
     with pytest.raises(NotSupportedError) as excinfo:
@@ -175,7 +175,7 @@ def test_fetch_methods(mocker: MockerFixture) -> None:
     """
     Test ``fetchone``, ``fetchmany``, ``fetchall``.
     """
-    requests = mocker.patch("dj.sql.dbapi.cursor.requests")
+    requests = mocker.patch("djqs.sql.dbapi.cursor.requests")
     requests.post().headers.get.return_value = "application/json"
     requests.post().json.return_value = {
         "database_id": 1,
@@ -201,7 +201,7 @@ def test_fetch_methods(mocker: MockerFixture) -> None:
         "previous": None,
         "errors": [],
     }
-    url = URL("http://localhost:8000/")
+    url = URL("http://localhost:8001/")
     cursor = Cursor(url)
 
     cursor.execute("SELECT A FROM metrics GROUP BY B.group")
@@ -222,7 +222,7 @@ def test_fetch_before_execute() -> None:
     """
     Test that an exception is raised when fetching results before executing query.
     """
-    url = URL("http://localhost:8000/")
+    url = URL("http://localhost:8001/")
     cursor = Cursor(url)
 
     with pytest.raises(ProgrammingError) as excinfo:

@@ -1,11 +1,11 @@
 """
-Tests for ``dj.models.database``.
+Tests for ``djqs.models.database``.
 """
 
-from dj.models.column import Column
-from dj.models.database import Database
-from dj.models.table import Table
-from dj.typing import ColumnType
+from djqs.models.column import Column
+from djqs.models.database import Database
+from djqs.models.table import Table
+from djqs.typing import ColumnType
 
 
 def test_hash() -> None:

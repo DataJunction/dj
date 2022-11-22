@@ -1,8 +1,8 @@
 """
-Tests for ``dj.sql.dbapi.utils``.
+Tests for ``djqs.sql.dbapi.utils``.
 """
 
-from dj.sql.dbapi.utils import escape_parameter
+from djqs.sql.dbapi.utils import escape_parameter
 
 
 def test_escape_parameter() -> None:

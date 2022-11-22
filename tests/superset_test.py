@@ -6,7 +6,7 @@ from pytest_mock import MockerFixture
 from requests_mock.mocker import Mocker
 from yarl import URL
 
-from dj.superset import DJEngineSpec
+from djqs.superset import DJEngineSpec
 
 
 def test_select_star() -> None:
@@ -28,12 +28,12 @@ def test_get_metrics(mocker: MockerFixture, requests_mock: Mocker) -> None:
     """
     database = mocker.MagicMock()
     database.get_sqla_engine().connect().connection.base_url = URL(
-        "https://localhost:8000/0",
+        "https://localhost:8001/0",
     )
     inspector = mocker.MagicMock()
 
     requests_mock.get(
-        "https://localhost:8000/0/metrics/",
+        "https://localhost:8001/0/metrics/",
         json=[
             {
                 "name": "core.num_comments",
@@ -59,7 +59,7 @@ def test_execute(mocker: MockerFixture) -> None:
     quotes identifiers starting with an underscore.
     """
     cursor = mocker.MagicMock()
-    super_ = mocker.patch("dj.superset.super")
+    super_ = mocker.patch("djqs.superset.super")
     DJEngineSpec.execute(cursor, "SELECT time AS __timestamp FROM table")
     super_().execute.assert_called_with(
         cursor,

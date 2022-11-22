@@ -6,7 +6,7 @@ Tests for the databases API.
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from dj.models.database import Database
+from djqs.models.database import Database
 
 
 def test_read_databases(session: Session, client: TestClient) -> None:

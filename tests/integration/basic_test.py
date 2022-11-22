@@ -11,7 +11,7 @@ def test_query() -> None:
     """
     Test a simple query.
     """
-    engine = create_engine("dj://localhost:8000/0")
+    engine = create_engine("djqs://localhost:8001/0")
     connection = engine.connect()
 
     sql = """
