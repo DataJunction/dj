@@ -1,5 +1,5 @@
 description: A Postgres database
-URI: postgresql://username:FoolishPassword@postgres_examples:5432/examples
+URI: postgresql://username:FoolishPassword@postgres-examples-djqs:5432/examples
 extra_params:
   connect_args:
     sslmode: prefer
