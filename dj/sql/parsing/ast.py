@@ -14,6 +14,7 @@ from typing import (
     List,
     Optional,
     Set,
+    Tuple,
     Type,
     TypeVar,
     Union,
@@ -49,18 +50,17 @@ class Node(ABC):
 
     """
 
-    _parents: Optional[Set["Node"]]
+    _parents: Set["Node"]
+
+    def __post_init__(self):
+        self._parents = set()
 
     @property
     def parents(self) -> Set["Node"]:
         """
         get the parents of the node
         """
-        try:
-            return self._parents  # type: ignore
-        except AttributeError:
-            self._parents = set()
-            return self._parents
+        return self._parents
 
     def add_parents(self, *parents: "Node") -> "Node":
         """
@@ -120,7 +120,7 @@ class Node(ABC):
                 ),
             )
 
-        if nones:
+        if not nones:
             child_generator = iter(
                 filter(lambda child: child is not None, child_generator),
             )  # pylint: disable=C0301
@@ -163,10 +163,22 @@ class Node(ABC):
         compare two ASTs
         """
 
-        return self == other and all(
-            child.compare(other_child)
-            for child, other_child in zip_longest(self.children, other.children)
-        )
+        return not self.diff(other)
+
+    def diff(self, other: "Node") -> List[Tuple["Node", "Node"]]:
+        """
+        compare two ASTs for differences and return the pairs of differences
+        """
+
+        def _diff(self, other: "Node", diffs: List[Tuple["Node", "Node"]]):
+            if self != other:
+                diffs.append((self, other))
+            for child, other_child in zip_longest(self.children, other.children):
+                _diff(child, other_child, diffs)
+
+        diffs: List[Tuple["Node", "Node"]] = []
+        _diff(self, other, diffs)
+        return diffs
 
     def __eq__(self, other) -> bool:
         """
@@ -202,14 +214,16 @@ class Named(Expression):
     """An Expression that has a name"""
 
     name: str
-    quote_style: Optional[str]
+    quote_style: str = ""
 
     @property
     def quoted_name(self) -> str:
         """
         get the name of the Named Node including the quotes if any
         """
-        return f'{self.quote_style if self.quote_style else ""}{self.name}{self.quote_style if self.quote_style else ""}'  # pylint: disable=C0301
+        return (
+            f"{self.quote_style}{self.name}{self.quote_style}"  # pylint: disable=C0301
+        )
 
     def alias_or_name(self) -> str:
         """
@@ -304,10 +318,10 @@ class Between(Operation):
 class Case(Expression):
     """a case statement of branches"""
 
-    conditions: List[Expression]
-    else_result: Optional[Expression]
-    operand: Optional[Expression]
-    results: List[Expression]
+    conditions: List[Expression] = field(default_factory=list)
+    else_result: Optional[Expression] = None
+    operand: Optional[Expression] = None
+    results: List[Expression] = field(default_factory=list)
 
     def __hash__(self) -> int:
         return id(self)
@@ -317,7 +331,7 @@ class Case(Expression):
 class Function(Named, Operation):
     """represents a function used in a statement"""
 
-    args: List[Expression]
+    args: List[Expression] = field(default_factory=list)
 
     def __hash__(self) -> int:
         return hash(Function)
@@ -337,6 +351,7 @@ class Number(Value):
     value: Union[float, int]
 
     def __post_init__(self):
+        super().__post_init__()
         if type(self.value) not in (float, int):
             try:
                 self.value = int(self.value)
@@ -372,7 +387,7 @@ NodeType = TypeVar("NodeType", bound=Node)  # pylint: disable=C0103
 class Alias(Named, Generic[NodeType]):
     """wraps node types with an alias"""
 
-    child: Node
+    child: Node = field(default_factory=Node)
 
     def __hash__(self) -> int:
         return hash((Alias, self.name))
@@ -484,7 +499,7 @@ class From(Node):
     """a from that belongs to a select"""
 
     table: Union[Table, Alias[Table], Alias["Select"]]
-    joins: List[Join]
+    joins: List[Join] = field(default_factory=list)
 
     def __hash__(self) -> int:
         return id(self)
@@ -496,11 +511,11 @@ class Select(Node):
 
     distinct: bool
     from_: From
-    group_by: List[Expression]
-    having: Optional[Expression]
-    projection: List[Expression]
-    where: Optional[Expression]
-    limit: Optional[Number]
+    group_by: List[Expression] = field(default_factory=list)
+    having: Optional[Expression] = None
+    projection: List[Expression] = field(default_factory=list)
+    where: Optional[Expression] = None
+    limit: Optional[Number] = None
 
     def __hash__(self) -> int:
         return id(self)
@@ -510,8 +525,8 @@ class Select(Node):
 class Query(Expression):
     """overarching query type"""
 
-    ctes: List[Alias["Select"]]
     select: "Select"
+    ctes: List[Alias["Select"]] = field(default_factory=list)
 
     def __hash__(self):
         return id(self)

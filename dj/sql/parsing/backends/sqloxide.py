@@ -34,14 +34,14 @@ from dj.sql.parsing.backends.exceptions import DJParseException
 
 def match_keys(parse_tree: dict, *keys: Set[str]) -> bool:
     """
-    match a dictionary having exact keys
+    match a parse tree having exact keys
     """
     return set(parse_tree.keys()) in keys
 
 
 def match_keys_subset(parse_tree: dict, *keys: Set[str]) -> bool:
     """
-    match a dict having a subset of keys
+    match a parse tree having a subset of keys
     """
     tree_keys = set(parse_tree.keys())
     return any(key <= tree_keys for key in keys)  # pragma: no cover
@@ -150,7 +150,9 @@ def parse_expression(  # pylint: disable=R0911,R0912
                 Alias,
                 Alias(
                     subtree["alias"]["value"],
-                    subtree["alias"]["quote_style"],
+                    subtree["alias"]["quote_style"]
+                    if subtree["alias"]["quote_style"] is not None
+                    else "",
                     parse_column(subtree["expr"]),
                 ).add_self_as_parent(),
             )
@@ -180,15 +182,25 @@ def parse_column(parse_tree: dict):
     """
     if match_keys(parse_tree, {"Identifier"}):
         subtree = parse_tree["Identifier"]
-        return Column(subtree["value"], subtree["quote_style"])
+        return Column(
+            subtree["value"],
+            subtree["quote_style"] if subtree["quote_style"] is not None else "",
+        )
     if match_keys(parse_tree, {"CompoundIdentifier"}):
         subtree = parse_tree["CompoundIdentifier"]
         if len(subtree) != 2:
             raise DJParseException(
                 "Could not handle compound identifier of more than two identifiers",
             )
-        table = Table(subtree[0]["value"], subtree[0]["quote_style"])
-        column = Column(subtree[1]["value"], subtree[1]["quote_style"], table)
+        table = Table(
+            subtree[0]["value"],
+            subtree[0]["quote_style"] if subtree[0]["quote_style"] is not None else "",
+        )
+        column = Column(
+            subtree[1]["value"],
+            subtree[1]["quote_style"] if subtree[1]["quote_style"] is not None else "",
+            table,
+        )
         table.add_columns(column)
         return column
     return parse_expression(parse_tree)
@@ -214,7 +226,9 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
                     Alias,
                     Alias(
                         alias["name"]["value"],
-                        alias["name"]["quote_style"],
+                        alias["name"]["quote_style"]
+                        if alias["name"]["quote_style"] is not None
+                        else "",
                         parse_query(subtree["subquery"]),
                     ).add_self_as_parent(),
                 )
@@ -225,13 +239,18 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
             raise DJParseException(
                 "Could not handle identifier for table with more than one identifier",
             )
-        table = Table(name[0]["value"], name[0]["quote_style"])
+        table = Table(
+            name[0]["value"],
+            name[0]["quote_style"] if name[0]["quote_style"] is not None else "",
+        )
         if subtree["alias"]:
             return cast(
                 Alias,
                 Alias(
                     subtree["alias"]["name"]["value"],
-                    subtree["alias"]["name"]["quote_style"],
+                    subtree["alias"]["name"]["quote_style"]
+                    if subtree["alias"]["name"]["quote_style"] is not None
+                    else "",
                     table,
                 ).add_self_as_parent(),
             )
@@ -253,7 +272,7 @@ def parse_function(parse_tree: dict) -> Function:
             Function,
             Function(
                 names[0]["value"],
-                names[0]["quote_style"],
+                names[0]["quote_style"] if names[0]["quote_style"] is not None else "",
                 [parse_expression(exp) for exp in args],
             ).add_self_as_parent(),
         )
@@ -350,7 +369,9 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
                     Alias,
                     Alias(
                         aliased_query["alias"]["name"]["value"],
-                        aliased_query["alias"]["name"]["quote_style"],
+                        aliased_query["alias"]["name"]["quote_style"]
+                        if aliased_query["alias"]["name"]["quote_style"] is not None
+                        else "",
                         parse_select(aliased_query["query"]["body"]["Select"]),
                     ).add_self_as_parent(),
                 ),
@@ -376,10 +397,10 @@ def parse_query(parse_tree: dict) -> Query:
             return cast(
                 Query,
                 Query(
-                    parse_ctes(parse_tree["with"])
+                    ctes=parse_ctes(parse_tree["with"])
                     if parse_tree["with"] is not None
                     else [],
-                    select,
+                    select=select,
                 ).add_self_as_parent(),
             )
 

@@ -18,7 +18,12 @@ from dj.api.main import app
 from dj.config import Settings
 from dj.utils import get_project_repository, get_session, get_settings
 
-from .sql.parsing.queries import *  # pylint: disable=W0401,W0614
+from .sql.parsing.queries import (  # pylint: disable=W0611
+    derived_subquery,
+    tpcds_q01,
+    tpcds_q99,
+    trivial_query,
+)
 
 
 @pytest.fixture

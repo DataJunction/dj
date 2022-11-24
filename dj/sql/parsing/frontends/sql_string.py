@@ -80,7 +80,7 @@ def _(node: Alias) -> str:
 @sql.register
 def _(node: Column) -> str:
     if node.table:
-        return f'{node.quote_style if node.quote_style else ""}{node.table.alias_or_name()}.{node.name}{node.quote_style if node.quote_style else ""}'  # pylint: disable=C0301
+        return f"{node.quote_style}{node.table.alias_or_name()}.{node.name}{node.quote_style}"  # pylint: disable=C0301
     return node.quoted_name
 
 
@@ -129,10 +129,10 @@ def _(node: Select) -> str:
 def _(node: Query) -> str:
     subquery = bool(node.parents)
     ctes = ",\n".join(f"{cte.name} AS ({sql(cte.child)})" for cte in node.ctes)
-    return (
-        f"""{'WITH' if ctes else ""}
-{ctes}
-{"("+sql(node.select)+")"  if subquery else sql(node.select)}
-    """.strip()
-        + "\n"
-    )
+    with_ = "WITH" if ctes else ""
+    select = f"({sql(node.select)})" if subquery else sql(node.select)
+    return f"""
+        {with_}
+        {ctes}
+        {select}
+    """

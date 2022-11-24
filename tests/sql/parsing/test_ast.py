@@ -18,18 +18,34 @@ from dj.sql.parsing.ast import (
 )
 
 
+def test_trivial_ne(trivial_query):
+    """
+    test find_all on a trivial query
+    """
+    assert not trivial_query.compare(
+        Query(
+            ctes=[],
+            select=Select(
+                distinct=False,
+                from_=From(table=Table(name="b")),
+                projection=[Column("a")],
+            ),
+        ),
+    )
+
+
 def test_findall_trivial(trivial_query):
     """
     test find_all on a trivial query
     """
-    assert [Table(name="a", quote_style=None)] == list(trivial_query.find_all(Table))
+    assert [Table(name="a")] == list(trivial_query.find_all(Table))
 
 
 def test_filter_trivial(trivial_query):
     """
     test filtering nodes of a trivial query
     """
-    assert [Table(name="a", quote_style=None)] == list(
+    assert [Table(name="a")] == list(
         trivial_query.filter(lambda node: isinstance(node, Table)),
     )
 
@@ -43,25 +59,18 @@ def test_flatten_trivial(trivial_query):
             ctes=[],
             select=Select(
                 distinct=False,
-                from_=From(table=Table(name="a", quote_style=None), joins=[]),
-                group_by=[],
-                having=None,
+                from_=From(table=Table(name="a")),
                 projection=[Wildcard()],
-                where=None,
-                limit=None,
             ),
         ),
         Select(
             distinct=False,
-            from_=From(table=Table(name="a", quote_style=None), joins=[]),
+            from_=From(table=Table(name="a")),
             group_by=[],
-            having=None,
             projection=[Wildcard()],
-            where=None,
-            limit=None,
         ),
-        From(table=Table(name="a", quote_style=None), joins=[]),
-        Table(name="a", quote_style=None),
+        From(table=Table(name="a")),
+        Table(name="a"),
         Wildcard(),
     ] == list(trivial_query.flatten())
 
@@ -79,11 +88,10 @@ def test_named_alias_or_name_aliased():
     """
     test a named node for returning its alias name when a child of an alias
     """
-    named = Table("a", None)
+    named = Table("a")
     alias = Alias(
         "alias",
-        None,
-        named,
+        child=named,
     )
     named.add_parents(alias)
     assert named.alias_or_name() == "alias"
@@ -93,8 +101,8 @@ def test_named_alias_or_name_not_aliased():
     """
     test a named node for returning its name when not a child of an alias
     """
-    named = Table("a", None)
-    from_ = From(named, [])
+    named = Table("a")
+    from_ = From(named)
     named.add_parents(from_)
     assert named.alias_or_name() == "a"
 
@@ -133,18 +141,18 @@ def test_column_table():
     """
     test column hash
     """
-    column = Column("x", None)
-    column.add_table(Table("a", None))
-    assert column.table == Table("a", None)
+    column = Column("x")
+    column.add_table(Table("a"))
+    assert column.table == Table("a")
 
 
 def test_table_columns():
     """
     test adding/getting columns from table
     """
-    table = Table("a", None)
-    table.add_columns(Column("x", None))
-    assert table.columns == [Column(name="x", quote_style=None)]
+    table = Table("a")
+    table.add_columns(Column("x"))
+    assert table.columns == [Column(name="x")]
 
 
 def test_wildcard_table_reference():
@@ -152,9 +160,9 @@ def test_wildcard_table_reference():
     test adding/getting table from wildcard
     """
     wildcard = Wildcard()
-    wildcard.add_table(Table("a", None))
-    wildcard = wildcard.add_table(Table("b", None))
-    assert wildcard.table == Table("a", None)
+    wildcard.add_table(Table("a"))
+    wildcard = wildcard.add_table(Table("b"))
+    assert wildcard.table == Table("a")
 
 
 def test_flatten():

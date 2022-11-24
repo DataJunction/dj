@@ -15,11 +15,7 @@ def trivial_query():
         ctes=[],
         select=Select(
             distinct=False,
-            from_=From(table=Table(name="a", quote_style=None), joins=[]),
-            group_by=[],
-            having=None,
+            from_=From(table=Table(name="a")),
             projection=[Wildcard()],
-            where=None,
-            limit=None,
         ),
     )

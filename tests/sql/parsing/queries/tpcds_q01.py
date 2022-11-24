@@ -31,71 +31,88 @@ def tpcds_q01():
         ctes=[
             Alias(
                 name="customer_total_return",
-                quote_style=None,
                 child=Select(
                     distinct=False,
                     from_=From(
-                        table=Table(name="store_returns", quote_style=None),
+                        table=Table(
+                            name="store_returns",
+                        ),
                         joins=[
                             Join(
                                 kind=JoinKind.Inner,
-                                table=Table(name="date_dim", quote_style=None),
+                                table=Table(
+                                    name="date_dim",
+                                ),
                                 on=BinaryOp(
                                     left=Column(
                                         name="sr_customer_sk",
-                                        quote_style=None,
-                                        _table=Table("store_returns", quote_style=None),
+                                        _table=Table(
+                                            "store_returns",
+                                        ),
                                     ),
                                     op=BinaryOpKind.Eq,
                                     right=Column(
                                         name="d_date_sk",
-                                        quote_style=None,
-                                        _table=Table("date_dim", quote_style=None),
+                                        _table=Table(
+                                            "date_dim",
+                                        ),
                                     ),
                                 ),
                             ),
                         ],
                     ),
                     group_by=[
-                        Column(name="sr_customer_sk", quote_style=None),
-                        Column(name="sr_store_sk", quote_style=None),
+                        Column(
+                            name="sr_customer_sk",
+                        ),
+                        Column(
+                            name="sr_store_sk",
+                        ),
                     ],
-                    having=None,
                     projection=[
                         Alias(
                             name="ctr_customer_sk",
-                            quote_style=None,
-                            child=Column(name="sr_customer_sk", quote_style=None),
+                            child=Column(
+                                name="sr_customer_sk",
+                            ),
                         ),
                         Alias(
                             name="ctr_store_sk",
-                            quote_style=None,
-                            child=Column(name="sr_store_sk", quote_style=None),
+                            child=Column(
+                                name="sr_store_sk",
+                            ),
                         ),
                         Alias(
                             name="ctr_total_return",
-                            quote_style=None,
                             child=Function(
                                 name="Sum",
-                                quote_style=None,
-                                args=[Column(name="sr_return_amt", quote_style=None)],
+                                args=[
+                                    Column(
+                                        name="sr_return_amt",
+                                    ),
+                                ],
                             ),
                         ),
                     ],
                     where=BinaryOp(
                         left=BinaryOp(
-                            left=Column(name="sr_returned_date_sk", quote_style=None),
+                            left=Column(
+                                name="sr_returned_date_sk",
+                            ),
                             op=BinaryOpKind.Eq,
-                            right=Column(name="d_date_sk", quote_style=None),
+                            right=Column(
+                                name="d_date_sk",
+                            ),
                         ),
                         op=BinaryOpKind.And,
                         right=BinaryOp(
-                            left=Column(name="d_year", quote_style=None),
+                            left=Column(
+                                name="d_year",
+                            ),
                             op=BinaryOpKind.Eq,
                             right=Number(value=2001),
                         ),
                     ),
-                    limit=None,
                 ),
             ),
         ],
@@ -104,27 +121,35 @@ def tpcds_q01():
             from_=From(
                 table=Alias(
                     name="ctr1",
-                    quote_style=None,
-                    child=Table(name="customer_total_return", quote_style=None),
+                    child=Table(
+                        name="customer_total_return",
+                    ),
                 ),
                 joins=[
                     Join(
                         kind=JoinKind.Inner,
-                        table=Table(name="store", quote_style=None),
+                        table=Table(
+                            name="store",
+                        ),
                         on=BinaryOp(
                             left=BinaryOp(
                                 left=BinaryOp(
-                                    left=Column(name="s_store_sk", quote_style=None),
+                                    left=Column(
+                                        name="s_store_sk",
+                                    ),
                                     op=BinaryOpKind.Eq,
                                     right=Column(
                                         name="ctr_store_sk",
-                                        quote_style=None,
-                                        _table=Table("ctr1", quote_style=None),
+                                        _table=Table(
+                                            "ctr1",
+                                        ),
                                     ),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
-                                    left=Column(name="s_state", quote_style=None),
+                                    left=Column(
+                                        name="s_state",
+                                    ),
                                     op=BinaryOpKind.Eq,
                                     right=String(value="TN"),
                                 ),
@@ -133,31 +158,41 @@ def tpcds_q01():
                             right=BinaryOp(
                                 left=Column(
                                     name="ctr_customer_sk",
-                                    quote_style=None,
-                                    _table=Table("ctr1", quote_style=None),
+                                    _table=Table(
+                                        "ctr1",
+                                    ),
                                 ),
                                 op=BinaryOpKind.Eq,
-                                right=Column(name="c_customer_sk", quote_style=None),
+                                right=Column(
+                                    name="c_customer_sk",
+                                ),
                             ),
                         ),
                     ),
                     Join(
                         kind=JoinKind.LeftOuter,
-                        table=Table(name="customer", quote_style=None),
+                        table=Table(
+                            name="customer",
+                        ),
                         on=BinaryOp(
                             left=BinaryOp(
                                 left=BinaryOp(
-                                    left=Column(name="s_store_sk", quote_style=None),
+                                    left=Column(
+                                        name="s_store_sk",
+                                    ),
                                     op=BinaryOpKind.Eq,
                                     right=Column(
                                         name="ctr_store_sk",
-                                        quote_style=None,
-                                        _table=Table("ctr1", quote_style=None),
+                                        _table=Table(
+                                            "ctr1",
+                                        ),
                                     ),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
-                                    left=Column(name="s_state", quote_style=None),
+                                    left=Column(
+                                        name="s_state",
+                                    ),
                                     op=BinaryOpKind.Eq,
                                     right=String(value="TN"),
                                 ),
@@ -166,26 +201,32 @@ def tpcds_q01():
                             right=BinaryOp(
                                 left=Column(
                                     name="ctr_customer_sk",
-                                    quote_style=None,
-                                    _table=Table("ctr1", quote_style=None),
+                                    _table=Table(
+                                        "ctr1",
+                                    ),
                                 ),
                                 op=BinaryOpKind.Eq,
-                                right=Column(name="c_customer_sk", quote_style=None),
+                                right=Column(
+                                    name="c_customer_sk",
+                                ),
                             ),
                         ),
                     ),
                 ],
             ),
-            group_by=[],
-            having=None,
-            projection=[Column(name="c_customer_id", quote_style=None)],
+            projection=[
+                Column(
+                    name="c_customer_id",
+                ),
+            ],
             where=BinaryOp(
                 left=BinaryOp(
                     left=BinaryOp(
                         left=Column(
                             name="ctr_total_return",
-                            quote_style=None,
-                            _table=Table("ctr1", quote_style=None),
+                            _table=Table(
+                                "ctr1",
+                            ),
                         ),
                         op=BinaryOpKind.Gt,
                         right=Query(
@@ -195,25 +236,18 @@ def tpcds_q01():
                                 from_=From(
                                     table=Alias(
                                         name="ctr2",
-                                        quote_style=None,
                                         child=Table(
                                             name="customer_total_return",
-                                            quote_style=None,
                                         ),
                                     ),
-                                    joins=[],
                                 ),
-                                group_by=[],
-                                having=None,
                                 projection=[
                                     BinaryOp(
                                         left=Function(
                                             name="Avg",
-                                            quote_style=None,
                                             args=[
                                                 Column(
                                                     name="ctr_total_return",
-                                                    quote_style=None,
                                                 ),
                                             ],
                                         ),
@@ -224,14 +258,16 @@ def tpcds_q01():
                                 where=BinaryOp(
                                     left=Column(
                                         name="ctr_store_sk",
-                                        quote_style=None,
-                                        _table=Table("ctr1", quote_style=None),
+                                        _table=Table(
+                                            "ctr1",
+                                        ),
                                     ),
                                     op=BinaryOpKind.Eq,
                                     right=Column(
                                         name="ctr_store_sk",
-                                        quote_style=None,
-                                        _table=Table("ctr2", quote_style=None),
+                                        _table=Table(
+                                            "ctr2",
+                                        ),
                                     ),
                                 ),
                                 limit=None,
@@ -240,19 +276,24 @@ def tpcds_q01():
                     ),
                     op=BinaryOpKind.And,
                     right=BinaryOp(
-                        left=Column(name="s_store_sk", quote_style=None),
+                        left=Column(
+                            name="s_store_sk",
+                        ),
                         op=BinaryOpKind.Eq,
                         right=Column(
                             name="ctr_store_sk",
-                            quote_style=None,
-                            _table=Table("ctr1", quote_style=None),
+                            _table=Table(
+                                "ctr1",
+                            ),
                         ),
                     ),
                 ),
                 op=BinaryOpKind.Or,
                 right=BinaryOp(
                     left=BinaryOp(
-                        left=Column(name="s_state", quote_style=None),
+                        left=Column(
+                            name="s_state",
+                        ),
                         op=BinaryOpKind.NotEq,
                         right=String(value="TN"),
                     ),
@@ -260,11 +301,14 @@ def tpcds_q01():
                     right=BinaryOp(
                         left=Column(
                             name="ctr_customer_sk",
-                            quote_style=None,
-                            _table=Table("ctr1", quote_style=None),
+                            _table=Table(
+                                "ctr1",
+                            ),
                         ),
                         op=BinaryOpKind.Eq,
-                        right=Column(name="c_customer_sk", quote_style=None),
+                        right=Column(
+                            name="c_customer_sk",
+                        ),
                     ),
                 ),
             ),

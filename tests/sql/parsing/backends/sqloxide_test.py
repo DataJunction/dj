@@ -9,11 +9,18 @@ from dj.sql.parsing.backends.sqloxide import parse, parse_op, parse_value
 from tests.sql.utils import TPCDS_QUERY_SET, read_query
 
 
-def test_trivial_sql_string(trivial_query):
+def test_trivial_sql_parse(trivial_query):
     """
-    test converting a trivial query to sql string
+    test parsing a trivial query
     """
     assert trivial_query.compare(parse(read_query("trivial_query.sql")))
+
+
+def test_derived_subquery_parse(derived_subquery):
+    """
+    test parsing a query with a from (select...)
+    """
+    assert derived_subquery.compare(parse(read_query("derived_subquery.sql")))
 
 
 @pytest.mark.parametrize("query_name", TPCDS_QUERY_SET)
