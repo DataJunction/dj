@@ -4,9 +4,20 @@ volumes:
   postgres_data: {}
   redis_data: {}
 
+networks:
+  djqs-network:
+    driver: bridge
+  dj_dj-network:
+    external: true
+
 services:
   djqs:
-    container_name: dj
+    container_name: djqs
+    stdin_open: true
+    tty: true
+    networks:
+      - dj_dj-network
+      - djqs-network
     environment:
       - DOTENV_FILE=.docker-env/.env
     build: .
@@ -15,35 +26,41 @@ services:
     ports:
       - "8001:8001"
     depends_on:
-      - db_migration
-      - postgres_examples
-      - redis
+      - db-migration-djqs
+      - postgres-examples-djqs
+      - redis-djqs
 
-  celery:
-    container_name: celery
+  celery-djqs:
+    container_name: celery-djqs
+    networks:
+      - djqs-network
     environment:
       - DOTENV_FILE=.docker-env/.env
     build: .
     volumes:
       - .:/code
     depends_on:
-      - dj
+      - djqs
     command: celery -A djqs.api.queries.celery worker --loglevel=info
 
-  watchdog:
-    container_name: watchdog
+  watchdog-djqs:
+    container_name: watchdog-djqs
+    networks:
+      - djqs-network
     environment:
       - DOTENV_FILE=.docker-env/.env
     build: .
     volumes:
       - .:/code
     depends_on:
-      - dj
+      - djqs
     command: djqs compile --reload
     restart: on-failure
 
-  db_migration:
-    container_name: db_migration
+  db-migration-djqs:
+    container_name: db-migration
+    networks:
+      - djqs-network
     environment:
       - DOTENV_FILE=.docker-env/.env
     build: .
@@ -52,17 +69,21 @@ services:
     command: alembic upgrade head
     restart: on-failure
 
-  redis:
+  redis-djqs:
     image: redis:latest
     container_name: query_broker
+    networks:
+      - djqs-network
     restart: unless-stopped
     ports:
       - "6379:6379"
     volumes:
       - redis_data:/data
 
-  postgres_examples:
-    container_name: postgres_examples
+  postgres-examples-djqs:
+    container_name: postgres-examples-djqs
+    networks:
+      - djqs-network
     image: postgres:latest
     volumes:
       - ./examples/docker/postgres_init.sql:/docker-entrypoint-initdb.d/init.sql
@@ -75,4 +96,4 @@ services:
       - POSTGRES_USER=username
       - POSTGRES_DB=examples
     ports:
-      - "5433:5432"
+      - "5434:5432"
