@@ -23,6 +23,19 @@ def test_derived_subquery_parse(derived_subquery):
     assert derived_subquery.compare(parse(read_query("derived_subquery.sql")))
 
 
+def test_derived_subquery_parse_lateral_fail():
+    """
+    test parsing a query with a from (select...)
+    """
+    with pytest.raises(DJParseException):
+        parse(
+            """SELECT * FROM   tbl t
+            LEFT JOIN LATERAL
+                (SELECT * FROM b WHERE b.t_id = t.t_id) t
+            ON TRUE;""",
+        )
+
+
 @pytest.mark.parametrize("query_name", TPCDS_QUERY_SET)
 def test_parse_tpcds(request, query_name):
     """

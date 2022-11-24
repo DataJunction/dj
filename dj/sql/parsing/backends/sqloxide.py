@@ -212,26 +212,24 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
     """
     if match_keys(parse_tree, {"Derived"}):
         subtree = parse_tree["Derived"]
-        if match_keys(subtree, {"lateral", "subquery", "alias"}):
-            if subtree["lateral"]:
-                raise DJParseException("Parsing does not support lateral subqueries")
+        if subtree["lateral"]:
+            raise DJParseException("Parsing does not support lateral subqueries")
 
-            alias = subtree["alias"]
-            if match_keys(alias, {"name", "columns"}):
-                if alias["columns"]:
-                    raise DJParseException(
-                        "Parsing does not support columns in derived from.",
-                    )
-                return cast(
-                    Alias,
-                    Alias(
-                        alias["name"]["value"],
-                        alias["name"]["quote_style"]
-                        if alias["name"]["quote_style"] is not None
-                        else "",
-                        parse_query(subtree["subquery"]),
-                    ).add_self_as_parent(),
-                )
+        alias = subtree["alias"]
+        if alias["columns"]:
+            raise DJParseException(  # pragma: no cover
+                "Parsing does not support columns in derived from.",
+            )
+        return cast(
+            Alias,
+            Alias(
+                alias["name"]["value"],
+                alias["name"]["quote_style"]
+                if alias["name"]["quote_style"] is not None
+                else "",
+                parse_query(subtree["subquery"]),
+            ).add_self_as_parent(),
+        )
     if match_keys(parse_tree, {"Table"}):
         subtree = parse_tree["Table"]
         name = subtree["name"]
