@@ -1,4 +1,3 @@
-
 """
 fixtures for derived_subquery.sql
 """
@@ -17,7 +16,7 @@ from dj.sql.parsing.ast import (
     Query,
     Select,
     Table,
-    Wildcard
+    Wildcard,
 )
 
 
@@ -27,32 +26,32 @@ def derived_subquery():
     dj ast for derived_subquery
     """
     return Query(
-    select=Select(
-        distinct=False,
-        from_=From(
-            table=Alias(
-                name="t1",
-                child=Query(
-                    select=Select(
-                        distinct=False,
-                        from_=From(table=Table(name="t")),
-                        projection=[Wildcard()],
+        select=Select(
+            distinct=False,
+            from_=From(
+                table=Alias(
+                    name="t1",
+                    child=Query(
+                        select=Select(
+                            distinct=False,
+                            from_=From(table=Table(name="t")),
+                            projection=[Wildcard()],
+                        ),
+                        ctes=[],
                     ),
-                    ctes=[],
                 ),
-            ),
-            joins=[
-                Join(
-                    kind=JoinKind.Inner,
-                    table=Table(name="t2"),
-                    on=BinaryOp(
-                        left=Column(name="c"),
-                        op=BinaryOpKind.Eq,
-                        right=Column(name="c"),
+                joins=[
+                    Join(
+                        kind=JoinKind.Inner,
+                        table=Table(name="t2"),
+                        on=BinaryOp(
+                            left=Column(name="c"),
+                            op=BinaryOpKind.Eq,
+                            right=Column(name="c"),
+                        ),
                     ),
-                )
-            ],
+                ],
+            ),
+            projection=[Column(name="a"), Column(name="b")],
         ),
-        projection=[Column(name="a"), Column(name="b")],
-    ),
-)
+    )

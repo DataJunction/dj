@@ -170,14 +170,14 @@ class Node(ABC):
         compare two ASTs for differences and return the pairs of differences
         """
 
-        def _diff(self, other: "Node", diffs: List[Tuple["Node", "Node"]]):
+        def _diff(self, other: "Node"):
             if self != other:
                 diffs.append((self, other))
             for child, other_child in zip_longest(self.children, other.children):
-                _diff(child, other_child, diffs)
+                _diff(child, other_child)
 
         diffs: List[Tuple["Node", "Node"]] = []
-        _diff(self, other, diffs)
+        _diff(self, other)
         return diffs
 
     def __eq__(self, other) -> bool:
