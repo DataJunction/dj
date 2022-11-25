@@ -1,6 +1,6 @@
 # WARNING: this is not a standalone docker config file. It must be used in addition to the docker-compose.yml.
 #          If in doubt please use the Makefile commands to build DJ docker containers.
-version: "2.2"
+version: "3"
 
 volumes:
   postgres_metadata: {}
