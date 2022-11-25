@@ -71,7 +71,7 @@ services:
 
   redis-djqs:
     image: redis:latest
-    container_name: query_broker
+    container_name: query-broker-djqs
     networks:
       - djqs-network
     restart: unless-stopped
