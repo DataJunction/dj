@@ -1,12 +1,18 @@
-version: "2.2"
-
+version: "3"
+name: dj
 volumes:
   postgres_data: {}
   redis_data: {}
 
+networks:
+  core:
+    driver: bridge
+
 services:
   dj:
     container_name: dj
+    networks:
+      - core
     environment:
       - DOTENV_FILE=.docker-env/.env
     build: .
@@ -21,6 +27,8 @@ services:
 
   celery:
     container_name: celery
+    networks:
+      - core
     environment:
       - DOTENV_FILE=.docker-env/.env
     build: .
@@ -32,6 +40,8 @@ services:
 
   watchdog:
     container_name: watchdog
+    networks:
+      - core
     environment:
       - DOTENV_FILE=.docker-env/.env
     build: .
@@ -44,6 +54,8 @@ services:
 
   db_migration:
     container_name: db_migration
+    networks:
+      - core
     environment:
       - DOTENV_FILE=.docker-env/.env
     build: .
@@ -55,6 +67,8 @@ services:
   redis:
     image: redis:latest
     container_name: query_broker
+    networks:
+      - core
     restart: unless-stopped
     ports:
       - "6379:6379"
@@ -63,6 +77,8 @@ services:
 
   postgres_examples:
     container_name: postgres_examples
+    networks:
+      - core
     image: postgres:latest
     volumes:
       - ./examples/docker/postgres_init.sql:/docker-entrypoint-initdb.d/init.sql
