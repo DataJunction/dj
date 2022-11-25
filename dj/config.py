@@ -24,7 +24,7 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     url: str = "http://localhost:8000/"
 
     # SQLAlchemy URI for the metadata database.
-    index: str = "sqlite:///dj.db"
+    index: str = "sqlite:///dj.db?check_same_thread=False"
 
     # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
     # "databases".
