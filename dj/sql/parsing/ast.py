@@ -8,7 +8,6 @@ from itertools import chain, zip_longest
 from typing import (
     Any,
     Callable,
-    Generator,
     Generic,
     Iterator,
     List,
@@ -105,14 +104,21 @@ class Node(ABC):
                 (typically accessed via a property)
             nones: yield values that are None
                 (optional fields without a value); trumped by `nodes_only`
-
         Returns:
             Iterator: returns all children of a node given filters
                 and optional flattening (by default Iterator[Node])
         """
-        child_generator = (self.__dict__[field.name] for field in fields(self))
-        if not obfuscated:
-            child_generator = (field for field in child_generator if not field.name.startswith("_"))
+
+        def make_child_generator():
+            """
+            makes a generator enclosing self
+            to return not obfuscated fields (fields without starting `_`)
+            """
+            for self_field in fields(self):
+                if not self_field.name.startswith("_") if not obfuscated else True:
+                    yield self.__dict__[self_field.name]
+
+        child_generator = iter(make_child_generator())
         if flat:
             child_generator = iter(flatten(child_generator))
 

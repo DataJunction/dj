@@ -7,15 +7,15 @@ import pytest
 
 from dj.sql.parsing.ast import (
     Alias,
+    Case,
     Column,
     From,
+    IsNull,
     Query,
     Select,
     Table,
-    Case,
     UnaryOp,
     UnaryOpKind,
-    IsNull,
 )
 
 
@@ -43,7 +43,7 @@ def case_when_null():
                     quote_style="",
                     child=Case(
                         conditions=[
-                            IsNull(expr=Column(name="item_sk", quote_style=""))
+                            IsNull(expr=Column(name="item_sk", quote_style="")),
                         ],
                         else_result=Column(name="item_sk", quote_style=""),
                         operand=None,
@@ -58,7 +58,7 @@ def case_when_null():
                             UnaryOp(
                                 op=UnaryOpKind.Not,
                                 expr=IsNull(expr=Column(name="d_date", quote_style="")),
-                            )
+                            ),
                         ],
                         else_result=Column(name="d_date", quote_style=""),
                         operand=None,
