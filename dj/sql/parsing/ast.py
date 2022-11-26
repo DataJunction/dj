@@ -26,11 +26,8 @@ def flatten(maybe_iterables: Any) -> Iterator:
     flattens `maybe_iterables` by descending into items that are Iterable
     """
 
-    def single_item_generator(item: Any) -> Generator[Any, None, None]:
-        yield item
-
     if not isinstance(maybe_iterables, (list, tuple, set, Iterator)):
-        return single_item_generator(maybe_iterables)
+        return iter([maybe_iterables])
     return chain.from_iterable(
         (flatten(maybe_iterable) for maybe_iterable in maybe_iterables)
     )
