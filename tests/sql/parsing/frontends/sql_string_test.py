@@ -7,6 +7,16 @@ from dj.sql.parsing.frontends.sql_string import sql
 from tests.sql.utils import TPCDS_QUERY_SET, compare_query_strings, read_query
 
 
+def test_case_when_null_sql_string(case_when_null):
+    """
+    test converting a case_when_null query to sql string
+    """
+    assert compare_query_strings(
+        sql(case_when_null).strip(),
+        read_query("case_when_null.sql"),
+    )
+
+
 def test_trivial_sql_string(trivial_query):
     """
     test converting a trivial query to sql string
@@ -22,8 +32,8 @@ def test_sql_string_tpcds(request, query_name):
     """
     test turning sql queries into strings via the string frontend
     """
-    gen_sql = sql(request.getfixturevalue(query_name))
     query = read_query(f"{query_name}.sql")
+    gen_sql = sql(request.getfixturevalue(query_name))
     assert compare_query_strings(gen_sql, query)
 
 

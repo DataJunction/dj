@@ -19,6 +19,7 @@ from dj.config import Settings
 from dj.utils import get_project_repository, get_session, get_settings
 
 from .sql.parsing.queries import (  # pylint: disable=W0611
+    case_when_null,
     derived_subquery,
     tpcds_q01,
     tpcds_q99,

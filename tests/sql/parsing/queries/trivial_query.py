@@ -18,4 +18,4 @@ def trivial_query():
             from_=From(table=Table(name="a")),
             projection=[Wildcard()],
         ),
-    )
+    ).compile_parents()
