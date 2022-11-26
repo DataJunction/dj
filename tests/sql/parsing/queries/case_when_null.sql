@@ -8,4 +8,4 @@ SELECT CASE
        END              d_date,
        web.cume_sales   web_sales,
        store.cume_sales store_sales
-FROM   web_v1 web 
+FROM   web_v1 web
