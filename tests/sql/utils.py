@@ -2,10 +2,11 @@
 Helper functions.
 """
 import os
-import re
-from collections import Counter
 
 from sqlalchemy.sql import Select
+
+from dj.sql.parsing.backends.sqloxide import parse
+from dj.sql.parsing.frontends.sql_string import sql
 
 TPCDS_QUERY_SET = ["tpcds_q01", "tpcds_q99"]
 
@@ -19,27 +20,9 @@ def query_to_string(query: Select) -> str:
 
 def compare_query_strings(str1, str2: str) -> bool:
     """
-    compare two query strings based on sorted tokens
+    compare two query strings
     """
-
-    ignore = {"as", "\n", "\t", " ", "(", ")", ";"}
-    counted1 = Counter(
-        "".join(
-            token
-            for token in re.sub(r"[\(\)]", " ", str1.lower()).split()
-            if token not in ignore
-        ),
-    )
-    counted2 = Counter(
-        "".join(
-            token
-            for token in re.sub(r"[\(\)]", " ", str2.lower()).split()
-            if token not in ignore
-        ),
-    )
-    return not list((counted1 - counted2).keys() - ignore) + list(
-        k for k in (counted2 - counted1).keys() - ignore
-    )
+    return parse(sql(parse(str1))).compare(parse(sql(parse(str2))))
 
 
 def read_query(name: str) -> str:

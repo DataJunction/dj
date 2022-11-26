@@ -13,6 +13,7 @@ from dj.sql.parsing.ast import (
     Column,
     From,
     Function,
+    IsNull,
     Join,
     Node,
     Query,
@@ -30,7 +31,9 @@ def sql(node: Any) -> str:
     """
     return the ansi sql representing the sub-ast
     """
-    raise Exception("Can only convert specific Node types to a sql string")
+    raise Exception(
+        f"Can only convert specific Node types to a sql string not {type(node)}",
+    )
 
 
 @sql.register
@@ -51,6 +54,11 @@ def _(node: Between) -> str:
 @sql.register
 def _(node: Function) -> str:
     return f"{node.quoted_name}({', '.join(sql(arg) for arg in node.args)})"
+
+
+@sql.register
+def _(node: IsNull) -> str:
+    return f"{sql(node.expr)} IS NULL"
 
 
 @sql.register
@@ -122,7 +130,7 @@ def _(node: Select) -> str:
         parts.extend(("HAVING ", sql(node.having), "\n"))
     if node.limit is not None:
         parts.extend(("LIMIT ", sql(node.limit), "\n"))
-    return "".join(parts)
+    return " ".join(parts)
 
 
 @sql.register
@@ -135,4 +143,4 @@ def _(node: Query) -> str:
         {with_}
         {ctes}
         {select}
-    """
+    """.strip()

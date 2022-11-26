@@ -395,4 +395,4 @@ def tpcds_q99():
             ),
             limit=Number(value=100),
         ),
-    )
+    ).compile_parents()

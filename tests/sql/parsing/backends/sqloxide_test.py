@@ -9,6 +9,13 @@ from dj.sql.parsing.backends.sqloxide import parse, parse_op, parse_value
 from tests.sql.utils import TPCDS_QUERY_SET, read_query
 
 
+def test_case_when_null_sql_parse(case_when_null):
+    """
+    test parsing a case_when_null query
+    """
+    assert case_when_null.compare(parse(read_query("case_when_null.sql")))
+
+
 def test_trivial_sql_parse(trivial_query):
     """
     test parsing a trivial query

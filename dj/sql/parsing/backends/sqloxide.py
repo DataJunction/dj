@@ -16,6 +16,7 @@ from dj.sql.parsing.ast import (
     Expression,
     From,
     Function,
+    IsNull,
     Join,
     JoinKind,
     Number,
@@ -142,6 +143,24 @@ def parse_expression(  # pylint: disable=R0911,R0912
             return parse_case(parse_tree["Case"])
         if match_keys(parse_tree, {"Function"}):
             return parse_function(parse_tree["Function"])
+        if match_keys(parse_tree, {"IsNull"}, {"IsNotNull"}):
+            if "IsNull" in parse_tree:
+                return cast(
+                    IsNull,
+                    IsNull(parse_expression(parse_tree["IsNull"])).add_self_as_parent(),
+                )
+            return cast(
+                UnaryOp,
+                UnaryOp(
+                    UnaryOpKind.Not,
+                    cast(
+                        IsNull,
+                        IsNull(
+                            parse_expression(parse_tree["IsNotNull"]),
+                        ).add_self_as_parent(),
+                    ),
+                ).add_self_as_parent(),
+            )
         if match_keys(parse_tree, {"Identifier"}, {"CompoundIdentifier"}):
             return parse_column(parse_tree)
         if match_keys(parse_tree, {"ExprWithAlias"}):

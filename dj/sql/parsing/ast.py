@@ -70,6 +70,15 @@ class Node(ABC):
             self.parents.add(parent)
         return self
 
+    def compile_parents(self) -> "Node":
+        """
+        recurse through ast and add parents to nodes
+
+        Note: this function is useful for building asts by hand
+        """
+        self.apply(lambda node: (node.add_self_as_parent(), None)[1])
+        return self
+
     def add_self_as_parent(self) -> "Node":
         """
         adds self as a parent to all children
@@ -269,6 +278,7 @@ class BinaryOpKind(Enum):
 
     And = "AND"
     Or = "OR"
+    Is = "IS"
     Eq = "="
     NotEq = "<>"
     Gt = ">"
@@ -335,6 +345,16 @@ class Function(Named, Operation):
 
     def __hash__(self) -> int:
         return hash(Function)
+
+
+@dataclass(eq=False)
+class IsNull(Operation):
+    """class representing IS NULL"""
+
+    expr: Expression
+
+    def __hash__(self) -> int:
+        return hash(IsNull)
 
 
 @dataclass(eq=False)  # type: ignore

@@ -28,226 +28,100 @@ def tpcds_q01():
     dj ast for tpcds query 1
     """
     return Query(
-        ctes=[
-            Alias(
-                name="customer_total_return",
-                child=Select(
-                    distinct=False,
-                    from_=From(
-                        table=Table(
-                            name="store_returns",
-                        ),
-                        joins=[
-                            Join(
-                                kind=JoinKind.Inner,
-                                table=Table(
-                                    name="date_dim",
-                                ),
-                                on=BinaryOp(
-                                    left=Column(
-                                        name="sr_customer_sk",
-                                        _table=Table(
-                                            "store_returns",
-                                        ),
-                                    ),
-                                    op=BinaryOpKind.Eq,
-                                    right=Column(
-                                        name="d_date_sk",
-                                        _table=Table(
-                                            "date_dim",
-                                        ),
-                                    ),
-                                ),
-                            ),
-                        ],
-                    ),
-                    group_by=[
-                        Column(
-                            name="sr_customer_sk",
-                        ),
-                        Column(
-                            name="sr_store_sk",
-                        ),
-                    ],
-                    projection=[
-                        Alias(
-                            name="ctr_customer_sk",
-                            child=Column(
-                                name="sr_customer_sk",
-                            ),
-                        ),
-                        Alias(
-                            name="ctr_store_sk",
-                            child=Column(
-                                name="sr_store_sk",
-                            ),
-                        ),
-                        Alias(
-                            name="ctr_total_return",
-                            child=Function(
-                                name="Sum",
-                                args=[
-                                    Column(
-                                        name="sr_return_amt",
-                                    ),
-                                ],
-                            ),
-                        ),
-                    ],
-                    where=BinaryOp(
-                        left=BinaryOp(
-                            left=Column(
-                                name="sr_returned_date_sk",
-                            ),
-                            op=BinaryOpKind.Eq,
-                            right=Column(
-                                name="d_date_sk",
-                            ),
-                        ),
-                        op=BinaryOpKind.And,
-                        right=BinaryOp(
-                            left=Column(
-                                name="d_year",
-                            ),
-                            op=BinaryOpKind.Eq,
-                            right=Number(value=2001),
-                        ),
-                    ),
-                ),
-            ),
-        ],
         select=Select(
             distinct=False,
             from_=From(
                 table=Alias(
                     name="ctr1",
-                    child=Table(
-                        name="customer_total_return",
-                    ),
+                    quote_style="",
+                    child=Table(name="customer_total_return", quote_style=""),
                 ),
                 joins=[
                     Join(
                         kind=JoinKind.Inner,
-                        table=Table(
-                            name="store",
-                        ),
+                        table=Table(name="store", quote_style=""),
                         on=BinaryOp(
                             left=BinaryOp(
                                 left=BinaryOp(
-                                    left=Column(
-                                        name="s_store_sk",
-                                    ),
+                                    left=Column(name="s_store_sk", quote_style=""),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(
-                                        name="ctr_store_sk",
-                                        _table=Table(
-                                            "ctr1",
-                                        ),
-                                    ),
+                                    right=Column(name="ctr_store_sk", quote_style=""),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
-                                    left=Column(
-                                        name="s_state",
-                                    ),
+                                    left=Column(name="s_state", quote_style=""),
                                     op=BinaryOpKind.Eq,
                                     right=String(value="TN"),
                                 ),
                             ),
                             op=BinaryOpKind.And,
                             right=BinaryOp(
-                                left=Column(
-                                    name="ctr_customer_sk",
-                                    _table=Table(
-                                        "ctr1",
-                                    ),
-                                ),
+                                left=Column(name="ctr_customer_sk", quote_style=""),
                                 op=BinaryOpKind.Eq,
-                                right=Column(
-                                    name="c_customer_sk",
-                                ),
+                                right=Column(name="c_customer_sk", quote_style=""),
                             ),
                         ),
                     ),
                     Join(
                         kind=JoinKind.LeftOuter,
-                        table=Table(
-                            name="customer",
-                        ),
+                        table=Table(name="customer", quote_style=""),
                         on=BinaryOp(
                             left=BinaryOp(
                                 left=BinaryOp(
-                                    left=Column(
-                                        name="s_store_sk",
-                                    ),
+                                    left=Column(name="s_store_sk", quote_style=""),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(
-                                        name="ctr_store_sk",
-                                        _table=Table(
-                                            "ctr1",
-                                        ),
-                                    ),
+                                    right=Column(name="ctr_store_sk", quote_style=""),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
-                                    left=Column(
-                                        name="s_state",
-                                    ),
+                                    left=Column(name="s_state", quote_style=""),
                                     op=BinaryOpKind.Eq,
                                     right=String(value="TN"),
                                 ),
                             ),
                             op=BinaryOpKind.And,
                             right=BinaryOp(
-                                left=Column(
-                                    name="ctr_customer_sk",
-                                    _table=Table(
-                                        "ctr1",
-                                    ),
-                                ),
+                                left=Column(name="ctr_customer_sk", quote_style=""),
                                 op=BinaryOpKind.Eq,
-                                right=Column(
-                                    name="c_customer_sk",
-                                ),
+                                right=Column(name="c_customer_sk", quote_style=""),
                             ),
                         ),
                     ),
                 ],
             ),
-            projection=[
-                Column(
-                    name="c_customer_id",
-                ),
-            ],
+            group_by=[],
+            having=None,
+            projection=[Column(name="c_customer_id", quote_style="")],
             where=BinaryOp(
                 left=BinaryOp(
                     left=BinaryOp(
-                        left=Column(
-                            name="ctr_total_return",
-                            _table=Table(
-                                "ctr1",
-                            ),
-                        ),
+                        left=Column(name="ctr_total_return", quote_style=""),
                         op=BinaryOpKind.Gt,
                         right=Query(
-                            ctes=[],
                             select=Select(
                                 distinct=True,
                                 from_=From(
                                     table=Alias(
                                         name="ctr2",
+                                        quote_style="",
                                         child=Table(
                                             name="customer_total_return",
+                                            quote_style="",
                                         ),
                                     ),
+                                    joins=[],
                                 ),
+                                group_by=[],
+                                having=None,
                                 projection=[
                                     BinaryOp(
                                         left=Function(
                                             name="Avg",
+                                            quote_style="",
                                             args=[
                                                 Column(
                                                     name="ctr_total_return",
+                                                    quote_style="",
                                                 ),
                                             ],
                                         ),
@@ -256,62 +130,100 @@ def tpcds_q01():
                                     ),
                                 ],
                                 where=BinaryOp(
-                                    left=Column(
-                                        name="ctr_store_sk",
-                                        _table=Table(
-                                            "ctr1",
-                                        ),
-                                    ),
+                                    left=Column(name="ctr_store_sk", quote_style=""),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(
-                                        name="ctr_store_sk",
-                                        _table=Table(
-                                            "ctr2",
-                                        ),
-                                    ),
+                                    right=Column(name="ctr_store_sk", quote_style=""),
                                 ),
                                 limit=None,
                             ),
+                            ctes=[],
                         ),
                     ),
                     op=BinaryOpKind.And,
                     right=BinaryOp(
-                        left=Column(
-                            name="s_store_sk",
-                        ),
+                        left=Column(name="s_store_sk", quote_style=""),
                         op=BinaryOpKind.Eq,
-                        right=Column(
-                            name="ctr_store_sk",
-                            _table=Table(
-                                "ctr1",
-                            ),
-                        ),
+                        right=Column(name="ctr_store_sk", quote_style=""),
                     ),
                 ),
                 op=BinaryOpKind.Or,
                 right=BinaryOp(
                     left=BinaryOp(
-                        left=Column(
-                            name="s_state",
-                        ),
+                        left=Column(name="s_state", quote_style=""),
                         op=BinaryOpKind.NotEq,
                         right=String(value="TN"),
                     ),
                     op=BinaryOpKind.And,
                     right=BinaryOp(
-                        left=Column(
-                            name="ctr_customer_sk",
-                            _table=Table(
-                                "ctr1",
-                            ),
-                        ),
+                        left=Column(name="ctr_customer_sk", quote_style=""),
                         op=BinaryOpKind.Eq,
-                        right=Column(
-                            name="c_customer_sk",
-                        ),
+                        right=Column(name="c_customer_sk", quote_style=""),
                     ),
                 ),
             ),
             limit=Number(value=100),
         ),
-    )
+        ctes=[
+            Alias(
+                name="customer_total_return",
+                quote_style="",
+                child=Select(
+                    distinct=False,
+                    from_=From(
+                        table=Table(name="store_returns", quote_style=""),
+                        joins=[
+                            Join(
+                                kind=JoinKind.Inner,
+                                table=Table(name="date_dim", quote_style=""),
+                                on=BinaryOp(
+                                    left=Column(name="sr_customer_sk", quote_style=""),
+                                    op=BinaryOpKind.Eq,
+                                    right=Column(name="d_date_sk", quote_style=""),
+                                ),
+                            ),
+                        ],
+                    ),
+                    group_by=[
+                        Column(name="sr_customer_sk", quote_style=""),
+                        Column(name="sr_store_sk", quote_style=""),
+                    ],
+                    having=None,
+                    projection=[
+                        Alias(
+                            name="ctr_customer_sk",
+                            quote_style="",
+                            child=Column(name="sr_customer_sk", quote_style=""),
+                        ),
+                        Alias(
+                            name="ctr_store_sk",
+                            quote_style="",
+                            child=Column(name="sr_store_sk", quote_style=""),
+                        ),
+                        Alias(
+                            name="ctr_total_return",
+                            quote_style="",
+                            child=Function(
+                                name="Sum",
+                                quote_style="",
+                                args=[Column(name="sr_return_amt", quote_style="")],
+                            ),
+                        ),
+                    ],
+                    where=BinaryOp(
+                        left=BinaryOp(
+                            left=Column(name="sr_returned_date_sk", quote_style=""),
+                            op=BinaryOpKind.Eq,
+                            right=Column(name="d_date_sk", quote_style=""),
+                        ),
+                        op=BinaryOpKind.And,
+                        right=BinaryOp(
+                            left=Column(name="d_year", quote_style=""),
+                            op=BinaryOpKind.Eq,
+                            right=Number(value=2001),
+                        ),
+                    ),
+                    limit=None,
+                ),
+            ),
+        ],
+    ).compile_parents()

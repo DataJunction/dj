@@ -54,4 +54,4 @@ def derived_subquery():
             ),
             projection=[Column(name="a"), Column(name="b")],
         ),
-    )
+    ).compile_parents()
