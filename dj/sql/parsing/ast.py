@@ -110,11 +110,9 @@ class Node(ABC):
             Iterator: returns all children of a node given filters
                 and optional flattening (by default Iterator[Node])
         """
-        child_generator = iter(
-            self.__dict__[field.name]
-            for field in fields(self)
-            if (not field.name.startswith("_") if not obfuscated else True)
-        )  # exclude obfuscated fields if `obfuscated` is True
+        child_generator = (self.__dict__[field.name] for field in fields(self))
+        if not obfuscated:
+            child_generator = (field for field in child_generator if not field.name.startswith("_"))
         if flat:
             child_generator = iter(flatten(child_generator))
 
