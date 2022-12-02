@@ -1,11 +1,11 @@
 """
 Utility functions.
 """
-# pylint: disable=line-too-long
-
 import logging
 import os
 from functools import lru_cache
+
+# pylint: disable=line-too-long
 from pathlib import Path
 from typing import Iterator, List, Optional
 
