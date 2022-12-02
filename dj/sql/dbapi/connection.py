@@ -10,7 +10,6 @@ from yarl import URL
 from dj.constants import DJ_DATABASE_ID
 from dj.sql.dbapi.cursor import Cursor
 from dj.sql.dbapi.decorators import check_closed
-from dj.sql.dbapi.exceptions import NotSupportedError
 
 
 class Connection:
