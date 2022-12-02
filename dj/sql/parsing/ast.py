@@ -118,6 +118,7 @@ class Node(ABC):
                 if not self_field.name.startswith("_") if not obfuscated else True:
                     yield self.__dict__[self_field.name]
 
+        # `iter`s used to satisfy mypy (`child_generator` type changes between generator, filter)
         child_generator = iter(make_child_generator())
         if flat:
             child_generator = iter(flatten(child_generator))
