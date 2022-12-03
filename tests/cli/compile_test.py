@@ -266,6 +266,7 @@ async def test_index_nodes(
         {
             "name": "core.comments",
             "description": "A fact table with comments",
+            "environment": "production",
             "type": NodeType.SOURCE,
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
@@ -274,6 +275,7 @@ async def test_index_nodes(
         {
             "name": "core.dim_users",
             "description": "User dimension",
+            "environment": "production",
             "type": NodeType.DIMENSION,
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
@@ -282,6 +284,7 @@ async def test_index_nodes(
         {
             "name": "core.num_comments",
             "description": "Number of comments",
+            "environment": "production",
             "type": NodeType.METRIC,
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
@@ -290,6 +293,7 @@ async def test_index_nodes(
         {
             "name": "core.users",
             "description": "A user table",
+            "environment": "production",
             "type": NodeType.SOURCE,
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
@@ -352,6 +356,7 @@ async def test_add_node_force(
         "name": "test",
         "path": Path("/path/to/repository/nodes/test.yaml"),
         "description": "",
+        "environment": "production",
         "type": "transform",
     }
 

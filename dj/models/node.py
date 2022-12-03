@@ -70,6 +70,20 @@ class NodeType(str, enum.Enum):
     DIMENSION = "dimension"
 
 
+class NodeEnvironment(str, enum.Enum):
+    """
+    Node environment.
+
+    A node can be in one of the following environments:
+
+    1. PRODUCTION is an environment where the DAG must remain valid
+    2. STAGING is an environment with fewer restrictions for adding nodes
+    """
+
+    PRODUCTION = "production"
+    STAGING = "staging"
+
+
 class NodeYAML(TypedDict, total=False):
     """
     Schema of a node in the YAML file.
@@ -82,15 +96,24 @@ class NodeYAML(TypedDict, total=False):
     tables: Dict[str, List[TableYAML]]
 
 
-class Node(SQLModel, table=True):  # type: ignore
+class NodeBase(SQLModel):
+    """
+    A base node.
+    """
+
+    name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
+    description: str = ""
+    type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
+    query: Optional[str] = None
+    environment: NodeEnvironment = NodeEnvironment.PRODUCTION
+
+
+class Node(NodeBase, table=True):  # type: ignore
     """
     A node.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
-    description: str = ""
-
     created_at: datetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
@@ -99,9 +122,6 @@ class Node(SQLModel, table=True):  # type: ignore
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )
-
-    type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
-    query: Optional[str] = None
 
     tables: List[Table] = Relationship(
         back_populates="node",
