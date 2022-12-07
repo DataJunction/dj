@@ -7,3 +7,4 @@ Contributors
 * Hamidreza Hashemi <zzzzz1st@yahoo.com>
 * Ali Raza <dejavu87@gmail.com>
 * Sam Redai <samuelspersonalemail@gmail.com>
+* Nick Ouellet <nick@ouellet.dev>
