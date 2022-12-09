@@ -17,7 +17,10 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    cast,
 )
+
+from typing_extensions import Self
 
 
 def flatten(maybe_iterables: Any) -> Iterator:
@@ -30,6 +33,11 @@ def flatten(maybe_iterables: Any) -> Iterator:
     return chain.from_iterable(
         (flatten(maybe_iterable) for maybe_iterable in maybe_iterables)
     )
+
+
+class DJEnum(Enum):
+    def __repr__(self) -> str:
+        return str(self)
 
 
 class Node(ABC):
@@ -62,8 +70,7 @@ class Node(ABC):
         """
         add parents to the node
         """
-        for parent in parents:
-            self.parents.add(parent)
+        self.parents.update(parents)
         return self
 
     def compile_parents(self) -> "Node":
@@ -220,25 +227,51 @@ class Expression(Node):
     """an expression type simply for type checking"""
 
 
-@dataclass(eq=False)  # type: ignore
-class Named(Expression):
-    """An Expression that has a name"""
+@dataclass(eq=False)
+class Name(Node):
+    """
+    the string name specified in sql with quote style
+    """
 
     name: str
     quote_style: str = ""
 
-    @property
-    def quoted_name(self) -> str:
-        """
-        get the name of the Named Node including the quotes if any
-        """
+    def __str__(self) -> str:
         return (
             f"{self.quote_style}{self.name}{self.quote_style}"  # pylint: disable=C0301
         )
 
+    def to_identifier(self) -> "Identifier":
+        return cast(Identifier, Identifier([self]).add_self_as_parent())
+
+    def __hash__(self) -> int:
+        return hash(self.name + self.quote_style)
+
+
+@dataclass(eq=False)
+class Identifier(Node):
+    idents: List[Name]
+
+    def __str__(self) -> str:
+        return ".".join(str(ident) for ident in self.idents)
+
+    def __hash__(self) -> int:
+        return hash(Identifier)
+
+
+@dataclass(eq=False)  # type: ignore
+class Named(Expression):
+    """An Expression that has a name"""
+
+    ident: Identifier
+
+    @property
+    def name(self) -> str:
+        return str(self.ident)
+
     def alias_or_name(self) -> str:
         """
-        get the name or alias of the node
+        get the alias of a node if it is the descendant of an alias otherwise get its own ident
         """
         if len(self.parents) == 1:
             parent = tuple(self.parents)[0]
@@ -252,7 +285,7 @@ class Operation(Expression):
 
 
 # pylint: disable=C0103
-class UnaryOpKind(Enum):
+class UnaryOpKind(DJEnum):
     """the accepted unary operations"""
 
     Plus = "+"
@@ -275,7 +308,7 @@ class UnaryOp(Operation):
 
 
 # pylint: disable=C0103
-class BinaryOpKind(Enum):
+class BinaryOpKind(DJEnum):
     """the accepted binary operations"""
 
     And = "AND"
@@ -492,13 +525,14 @@ class Table(Named):
 
 
 # pylint: disable=C0103
-class JoinKind(Enum):
+class JoinKind(DJEnum):
     """the accepted kinds of joins"""
 
     Inner = "INNER JOIN"
     LeftOuter = "LEFT JOIN"
     RightOuter = "RIGHT JOIN"
     FullOuter = "FULL JOIN"
+    CrossJoin = "CROSS JOIN"
 
 
 # pylint: enable=C0103
