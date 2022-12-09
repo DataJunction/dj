@@ -16,9 +16,11 @@ from dj.sql.parsing.ast import (
     Expression,
     From,
     Function,
+    Identifier,
     IsNull,
     Join,
     JoinKind,
+    Name,
     Number,
     Operation,
     Query,
@@ -168,10 +170,7 @@ def parse_expression(  # pylint: disable=R0911,R0912
             return cast(
                 Alias,
                 Alias(
-                    subtree["alias"]["value"],
-                    subtree["alias"]["quote_style"]
-                    if subtree["alias"]["quote_style"] is not None
-                    else "",
+                    parse_name(subtree["alias"]).to_identifier(),
                     parse_column(subtree["expr"]),
                 ).add_self_as_parent(),
             )
@@ -195,33 +194,44 @@ def parse_value(parse_tree: dict) -> Value:
     raise DJParseException("Not a primitive")  # pragma: no cover
 
 
+def parse_name(parse_tree: dict) -> Name:
+    """parse a name"""
+    if match_keys(parse_tree, {"value", "quote_style"}):
+        return Name(
+            name=parse_tree["value"],
+            quote_style=parse_tree["quote_style"]
+            if parse_tree["quote_style"] is not None
+            else "",
+        )
+    raise DJParseException("Failed to parse Name")
+
+
+def parse_identifier(parse_tree: dict):
+    """
+    parse an identifier
+    """
+    if match_keys(parse_tree, {"Identifier"}):
+        subtree = parse_tree["Identifier"]
+        return Identifier([parse_name(subtree)]).add_self_as_parent()
+    if match_keys(parse_tree, {"CompoundIdentifier"}):
+        return Identifier(
+            [parse_name(subtree) for subtree in parse_tree["CompoundIdentifier"]],
+        ).add_self_as_parent()
+    raise DJParseException("Failed to parse Identifier")
+
+
 def parse_column(parse_tree: dict):
     """
     parse a column
     """
-    if match_keys(parse_tree, {"Identifier"}):
-        subtree = parse_tree["Identifier"]
+    if match_keys(parse_tree, {"Identifier"}, {"CompoundIdentifier"}):
+        subtree = parse_tree.get("Identifier", parse_tree.get("CompoundIdentifier"))
         return Column(
-            subtree["value"],
-            subtree["quote_style"] if subtree["quote_style"] is not None else "",
-        )
-    if match_keys(parse_tree, {"CompoundIdentifier"}):
-        subtree = parse_tree["CompoundIdentifier"]
-        if len(subtree) != 2:
-            raise DJParseException(
-                "Could not handle compound identifier of more than two identifiers",
-            )
-        table = Table(
-            subtree[0]["value"],
-            subtree[0]["quote_style"] if subtree[0]["quote_style"] is not None else "",
-        )
-        column = Column(
-            subtree[1]["value"],
-            subtree[1]["quote_style"] if subtree[1]["quote_style"] is not None else "",
-            table,
-        )
-        table.add_columns(column)
-        return column
+            cast(
+                Identifier,
+                Identifier([parse_name(name) for name in subtree]).add_self_as_parent(),
+            ),
+        ).add_self_as_parent()
     return parse_expression(parse_tree)
 
 
@@ -242,36 +252,38 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
         return cast(
             Alias,
             Alias(
-                alias["name"]["value"],
-                alias["name"]["quote_style"]
-                if alias["name"]["quote_style"] is not None
-                else "",
+                cast(
+                    Identifier,
+                    Identifier([parse_name(alias["name"])]).add_self_as_parent(),
+                ),
                 parse_query(subtree["subquery"]),
             ).add_self_as_parent(),
         )
     if match_keys(parse_tree, {"Table"}):
         subtree = parse_tree["Table"]
-        name = subtree["name"]
-        if len(name) != 1:
-            raise DJParseException(
-                "Could not handle identifier for table with more than one identifier",
-            )
+
         table = Table(
-            name[0]["value"],
-            name[0]["quote_style"] if name[0]["quote_style"] is not None else "",
-        )
+            cast(
+                Identifier,
+                Identifier(
+                    [parse_name(name) for name in subtree["name"]],
+                ).add_self_as_parent(),
+            ),
+        ).add_self_as_parent()
         if subtree["alias"]:
             return cast(
                 Alias,
                 Alias(
-                    subtree["alias"]["name"]["value"],
-                    subtree["alias"]["name"]["quote_style"]
-                    if subtree["alias"]["name"]["quote_style"] is not None
-                    else "",
+                    cast(
+                        Identifier,
+                        Identifier(
+                            [parse_name(subtree["alias"]["name"])],
+                        ).add_self_as_parent(),
+                    ),
                     table,
                 ).add_self_as_parent(),
             )
-        return table
+        return cast(Table, table)
 
     raise DJParseException("Failed to parse Table")  # pragma: no cover
 
@@ -283,13 +295,16 @@ def parse_function(parse_tree: dict) -> Function:
     if match_keys_subset(parse_tree, {"name", "args"}):
         args = parse_tree["args"]
         names = parse_tree["name"]
-        if len(names) != 1:
-            raise DJParseException("Expected a single name for Function")
+
         return cast(
             Function,
             Function(
-                names[0]["value"],
-                names[0]["quote_style"] if names[0]["quote_style"] is not None else "",
+                cast(
+                    Identifier,
+                    Identifier(
+                        [parse_name(name) for name in names],
+                    ).add_self_as_parent(),
+                ),
                 [parse_expression(exp) for exp in args],
             ).add_self_as_parent(),
         )
@@ -312,6 +327,8 @@ def parse_join(parse_tree: dict) -> Join:
                 join_operator,
                 {join_kind},
             ):
+                if "On" not in join_operator[join_kind]:
+                    raise DJParseException("Join must specify ON")
                 return cast(
                     Join,
                     Join(
@@ -385,10 +402,7 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
                 cast(
                     Alias,
                     Alias(
-                        aliased_query["alias"]["name"]["value"],
-                        aliased_query["alias"]["name"]["quote_style"]
-                        if aliased_query["alias"]["name"]["quote_style"] is not None
-                        else "",
+                        parse_name(aliased_query["alias"]["name"]).to_identifier(),
                         parse_select(aliased_query["query"]["body"]["Select"]),
                     ).add_self_as_parent(),
                 ),

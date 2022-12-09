@@ -53,7 +53,7 @@ def _(node: Between) -> str:
 
 @sql.register
 def _(node: Function) -> str:
-    return f"{node.quoted_name}({', '.join(sql(arg) for arg in node.args)})"
+    return f"{node.name}({', '.join(sql(arg) for arg in node.args)})"
 
 
 @sql.register
@@ -67,10 +67,12 @@ def _(node: Case) -> str:
         f"{sql(cond)} THEN {sql(result)}"
         for cond, result in zip(node.conditions, node.results)
     )
-    return f"""(CASE
-    WHEN {branches}
-    ELSE {sql(node.else_result)}
-END)"""
+    case = "CASE"
+    case += "\n\tWHEN"
+    case += branches
+    case += "\n\tELSE " + sql(node.else_result)
+    case += "\nEND"
+    return f"({case})"
 
 
 @sql.register
@@ -82,14 +84,14 @@ def _(node: Value) -> str:
 
 @sql.register
 def _(node: Alias) -> str:
-    return f"{sql(node.child)} AS {node.quoted_name}"
+    return f"{sql(node.child)} AS {node.name}"
 
 
 @sql.register
 def _(node: Column) -> str:
     if node.table:
-        return f"{node.quote_style}{node.table.alias_or_name()}.{node.name}{node.quote_style}"  # pylint: disable=C0301
-    return node.quoted_name
+        return f"{node.table.alias_or_name()}.{node.name}"  # pylint: disable=C0301
+    return node.name
 
 
 @sql.register
@@ -99,7 +101,7 @@ def _(node: Wildcard) -> str:  # pylint: disable=W0613
 
 @sql.register
 def _(node: Table) -> str:
-    return node.quoted_name
+    return node.name
 
 
 @sql.register
