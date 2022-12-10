@@ -145,6 +145,18 @@ def test_column_hash(name1, name2):
     )
 
 
+@pytest.mark.parametrize("name1, name2", [("a", "b"), ("c", "d")])
+def test_name_hash(name1, name2):
+    """
+    test name hash
+    """
+    assert hash(Name(name1)) == hash(
+        Name(name1),
+    )
+    assert hash(Name(name1)) != hash(Name(name2))
+    assert hash(Name(name1, "'")) == hash(Name(name1, "'"))
+
+
 @pytest.mark.parametrize("value1, value2", list(zip(range(5), range(5, 10))))
 def test_number_hash(value1, value2):
     """

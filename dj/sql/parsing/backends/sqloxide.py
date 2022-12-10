@@ -203,21 +203,7 @@ def parse_name(parse_tree: dict) -> Name:
             if parse_tree["quote_style"] is not None
             else "",
         )
-    raise DJParseException("Failed to parse Name")
-
-
-def parse_identifier(parse_tree: dict):
-    """
-    parse an identifier
-    """
-    if match_keys(parse_tree, {"Identifier"}):
-        subtree = parse_tree["Identifier"]
-        return Identifier([parse_name(subtree)]).add_self_as_parent()
-    if match_keys(parse_tree, {"CompoundIdentifier"}):
-        return Identifier(
-            [parse_name(subtree) for subtree in parse_tree["CompoundIdentifier"]],
-        ).add_self_as_parent()
-    raise DJParseException("Failed to parse Identifier")
+    raise DJParseException("Failed to parse Name")  # pragma: no cover
 
 
 def parse_column(parse_tree: dict):

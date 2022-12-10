@@ -115,3 +115,11 @@ def test_multiple_from_exception():
     """
     with pytest.raises(DJParseException):
         parse("select * from a, b")
+
+
+def test_join_must_specify_on():
+    """
+    tests to make sure a join must specify an on clause
+    """
+    with pytest.raises(DJParseException):
+        parse("select * from a inner join b")
