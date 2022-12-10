@@ -225,13 +225,23 @@ def parse_column(parse_tree: dict):
     parse a column
     """
     if match_keys(parse_tree, {"Identifier"}, {"CompoundIdentifier"}):
-        subtree = parse_tree.get("Identifier", parse_tree.get("CompoundIdentifier"))
-        return Column(
-            cast(
-                Identifier,
-                Identifier([parse_name(name) for name in subtree]).add_self_as_parent(),
-            ),
-        ).add_self_as_parent()
+        if "CompoundIdentifier" in parse_tree:
+            subtree = parse_tree["CompoundIdentifier"]
+            return cast(
+                Column,
+                Column(
+                    cast(
+                        Identifier,
+                        Identifier(
+                            [parse_name(name) for name in subtree],
+                        ).add_self_as_parent(),
+                    ),
+                ).add_self_as_parent(),
+            )
+        return cast(
+            Column,
+            Column(parse_name(parse_tree["Identifier"]).to_identifier()),
+        )
     return parse_expression(parse_tree)
 
 

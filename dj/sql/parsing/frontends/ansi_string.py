@@ -67,12 +67,10 @@ def _(node: Case) -> str:
         f"{sql(cond)} THEN {sql(result)}"
         for cond, result in zip(node.conditions, node.results)
     )
-    case = "CASE"
-    case += "\n\tWHEN"
-    case += branches
-    case += "\n\tELSE " + sql(node.else_result)
-    case += "\nEND"
-    return f"({case})"
+    return f"""(CASE
+    WHEN {branches}
+    ELSE {sql(node.else_result)}
+END)"""
 
 
 @sql.register

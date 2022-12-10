@@ -12,8 +12,10 @@ from dj.sql.parsing.ast import (
     Column,
     From,
     Function,
+    Identifier,
     Join,
     JoinKind,
+    Name,
     Number,
     Query,
     Select,
@@ -32,58 +34,145 @@ def tpcds_q01():
             distinct=False,
             from_=From(
                 table=Alias(
-                    name="ctr1",
-                    quote_style="",
-                    child=Table(name="customer_total_return", quote_style=""),
+                    ident=Identifier(idents=[Name(name="ctr1", quote_style="")]),
+                    child=Table(
+                        ident=Identifier(
+                            idents=[Name(name="customer_total_return", quote_style="")],
+                        ),
+                    ),
                 ),
                 joins=[
                     Join(
                         kind=JoinKind.Inner,
-                        table=Table(name="store", quote_style=""),
+                        table=Table(
+                            ident=Identifier(
+                                idents=[Name(name="store", quote_style="")],
+                            ),
+                        ),
                         on=BinaryOp(
                             left=BinaryOp(
                                 left=BinaryOp(
-                                    left=Column(name="s_store_sk", quote_style=""),
+                                    left=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="s_store_sk", quote_style=""),
+                                            ],
+                                        ),
+                                    ),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="ctr_store_sk", quote_style=""),
+                                    right=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="ctr1", quote_style=""),
+                                                Name(
+                                                    name="ctr_store_sk",
+                                                    quote_style="",
+                                                ),
+                                            ],
+                                        ),
+                                    ),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
-                                    left=Column(name="s_state", quote_style=""),
+                                    left=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="s_state", quote_style=""),
+                                            ],
+                                        ),
+                                    ),
                                     op=BinaryOpKind.Eq,
                                     right=String(value="TN"),
                                 ),
                             ),
                             op=BinaryOpKind.And,
                             right=BinaryOp(
-                                left=Column(name="ctr_customer_sk", quote_style=""),
+                                left=Column(
+                                    ident=Identifier(
+                                        idents=[
+                                            Name(name="ctr1", quote_style=""),
+                                            Name(
+                                                name="ctr_customer_sk",
+                                                quote_style="",
+                                            ),
+                                        ],
+                                    ),
+                                ),
                                 op=BinaryOpKind.Eq,
-                                right=Column(name="c_customer_sk", quote_style=""),
+                                right=Column(
+                                    ident=Identifier(
+                                        idents=[
+                                            Name(name="c_customer_sk", quote_style=""),
+                                        ],
+                                    ),
+                                ),
                             ),
                         ),
                     ),
                     Join(
                         kind=JoinKind.LeftOuter,
-                        table=Table(name="customer", quote_style=""),
+                        table=Table(
+                            ident=Identifier(
+                                idents=[Name(name="customer", quote_style="")],
+                            ),
+                        ),
                         on=BinaryOp(
                             left=BinaryOp(
                                 left=BinaryOp(
-                                    left=Column(name="s_store_sk", quote_style=""),
+                                    left=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="s_store_sk", quote_style=""),
+                                            ],
+                                        ),
+                                    ),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="ctr_store_sk", quote_style=""),
+                                    right=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="ctr1", quote_style=""),
+                                                Name(
+                                                    name="ctr_store_sk",
+                                                    quote_style="",
+                                                ),
+                                            ],
+                                        ),
+                                    ),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
-                                    left=Column(name="s_state", quote_style=""),
+                                    left=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="s_state", quote_style=""),
+                                            ],
+                                        ),
+                                    ),
                                     op=BinaryOpKind.Eq,
                                     right=String(value="TN"),
                                 ),
                             ),
                             op=BinaryOpKind.And,
                             right=BinaryOp(
-                                left=Column(name="ctr_customer_sk", quote_style=""),
+                                left=Column(
+                                    ident=Identifier(
+                                        idents=[
+                                            Name(name="ctr1", quote_style=""),
+                                            Name(
+                                                name="ctr_customer_sk",
+                                                quote_style="",
+                                            ),
+                                        ],
+                                    ),
+                                ),
                                 op=BinaryOpKind.Eq,
-                                right=Column(name="c_customer_sk", quote_style=""),
+                                right=Column(
+                                    ident=Identifier(
+                                        idents=[
+                                            Name(name="c_customer_sk", quote_style=""),
+                                        ],
+                                    ),
+                                ),
                             ),
                         ),
                     ),
@@ -91,22 +180,42 @@ def tpcds_q01():
             ),
             group_by=[],
             having=None,
-            projection=[Column(name="c_customer_id", quote_style="")],
+            projection=[
+                Column(
+                    ident=Identifier(
+                        idents=[Name(name="c_customer_id", quote_style="")],
+                    ),
+                ),
+            ],
             where=BinaryOp(
                 left=BinaryOp(
                     left=BinaryOp(
-                        left=Column(name="ctr_total_return", quote_style=""),
+                        left=Column(
+                            ident=Identifier(
+                                idents=[
+                                    Name(name="ctr1", quote_style=""),
+                                    Name(name="ctr_total_return", quote_style=""),
+                                ],
+                            ),
+                        ),
                         op=BinaryOpKind.Gt,
                         right=Query(
                             select=Select(
                                 distinct=True,
                                 from_=From(
                                     table=Alias(
-                                        name="ctr2",
-                                        quote_style="",
+                                        ident=Identifier(
+                                            idents=[Name(name="ctr2", quote_style="")],
+                                        ),
                                         child=Table(
-                                            name="customer_total_return",
-                                            quote_style="",
+                                            ident=Identifier(
+                                                idents=[
+                                                    Name(
+                                                        name="customer_total_return",
+                                                        quote_style="",
+                                                    ),
+                                                ],
+                                            ),
                                         ),
                                     ),
                                     joins=[],
@@ -116,12 +225,21 @@ def tpcds_q01():
                                 projection=[
                                     BinaryOp(
                                         left=Function(
-                                            name="Avg",
-                                            quote_style="",
+                                            ident=Identifier(
+                                                idents=[
+                                                    Name(name="Avg", quote_style=""),
+                                                ],
+                                            ),
                                             args=[
                                                 Column(
-                                                    name="ctr_total_return",
-                                                    quote_style="",
+                                                    ident=Identifier(
+                                                        idents=[
+                                                            Name(
+                                                                name="ctr_total_return",
+                                                                quote_style="",
+                                                            ),
+                                                        ],
+                                                    ),
                                                 ),
                                             ],
                                         ),
@@ -130,9 +248,29 @@ def tpcds_q01():
                                     ),
                                 ],
                                 where=BinaryOp(
-                                    left=Column(name="ctr_store_sk", quote_style=""),
+                                    left=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="ctr1", quote_style=""),
+                                                Name(
+                                                    name="ctr_store_sk",
+                                                    quote_style="",
+                                                ),
+                                            ],
+                                        ),
+                                    ),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="ctr_store_sk", quote_style=""),
+                                    right=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="ctr2", quote_style=""),
+                                                Name(
+                                                    name="ctr_store_sk",
+                                                    quote_style="",
+                                                ),
+                                            ],
+                                        ),
+                                    ),
                                 ),
                                 limit=None,
                             ),
@@ -141,23 +279,49 @@ def tpcds_q01():
                     ),
                     op=BinaryOpKind.And,
                     right=BinaryOp(
-                        left=Column(name="s_store_sk", quote_style=""),
+                        left=Column(
+                            ident=Identifier(
+                                idents=[Name(name="s_store_sk", quote_style="")],
+                            ),
+                        ),
                         op=BinaryOpKind.Eq,
-                        right=Column(name="ctr_store_sk", quote_style=""),
+                        right=Column(
+                            ident=Identifier(
+                                idents=[
+                                    Name(name="ctr1", quote_style=""),
+                                    Name(name="ctr_store_sk", quote_style=""),
+                                ],
+                            ),
+                        ),
                     ),
                 ),
                 op=BinaryOpKind.Or,
                 right=BinaryOp(
                     left=BinaryOp(
-                        left=Column(name="s_state", quote_style=""),
+                        left=Column(
+                            ident=Identifier(
+                                idents=[Name(name="s_state", quote_style="")],
+                            ),
+                        ),
                         op=BinaryOpKind.NotEq,
                         right=String(value="TN"),
                     ),
                     op=BinaryOpKind.And,
                     right=BinaryOp(
-                        left=Column(name="ctr_customer_sk", quote_style=""),
+                        left=Column(
+                            ident=Identifier(
+                                idents=[
+                                    Name(name="ctr1", quote_style=""),
+                                    Name(name="ctr_customer_sk", quote_style=""),
+                                ],
+                            ),
+                        ),
                         op=BinaryOpKind.Eq,
-                        right=Column(name="c_customer_sk", quote_style=""),
+                        right=Column(
+                            ident=Identifier(
+                                idents=[Name(name="c_customer_sk", quote_style="")],
+                            ),
+                        ),
                     ),
                 ),
             ),
@@ -165,59 +329,138 @@ def tpcds_q01():
         ),
         ctes=[
             Alias(
-                name="customer_total_return",
-                quote_style="",
+                ident=Identifier(
+                    idents=[Name(name="customer_total_return", quote_style="")],
+                ),
                 child=Select(
                     distinct=False,
                     from_=From(
-                        table=Table(name="store_returns", quote_style=""),
+                        table=Table(
+                            ident=Identifier(
+                                idents=[Name(name="store_returns", quote_style="")],
+                            ),
+                        ),
                         joins=[
                             Join(
                                 kind=JoinKind.Inner,
-                                table=Table(name="date_dim", quote_style=""),
+                                table=Table(
+                                    ident=Identifier(
+                                        idents=[Name(name="date_dim", quote_style="")],
+                                    ),
+                                ),
                                 on=BinaryOp(
-                                    left=Column(name="sr_customer_sk", quote_style=""),
+                                    left=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(
+                                                    name="store_returns",
+                                                    quote_style="",
+                                                ),
+                                                Name(
+                                                    name="sr_customer_sk",
+                                                    quote_style="",
+                                                ),
+                                            ],
+                                        ),
+                                    ),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="d_date_sk", quote_style=""),
+                                    right=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="date_dim", quote_style=""),
+                                                Name(name="d_date_sk", quote_style=""),
+                                            ],
+                                        ),
+                                    ),
                                 ),
                             ),
                         ],
                     ),
                     group_by=[
-                        Column(name="sr_customer_sk", quote_style=""),
-                        Column(name="sr_store_sk", quote_style=""),
+                        Column(
+                            ident=Identifier(
+                                idents=[Name(name="sr_customer_sk", quote_style="")],
+                            ),
+                        ),
+                        Column(
+                            ident=Identifier(
+                                idents=[Name(name="sr_store_sk", quote_style="")],
+                            ),
+                        ),
                     ],
                     having=None,
                     projection=[
                         Alias(
-                            name="ctr_customer_sk",
-                            quote_style="",
-                            child=Column(name="sr_customer_sk", quote_style=""),
+                            ident=Identifier(
+                                idents=[Name(name="ctr_customer_sk", quote_style="")],
+                            ),
+                            child=Column(
+                                ident=Identifier(
+                                    idents=[
+                                        Name(name="sr_customer_sk", quote_style=""),
+                                    ],
+                                ),
+                            ),
                         ),
                         Alias(
-                            name="ctr_store_sk",
-                            quote_style="",
-                            child=Column(name="sr_store_sk", quote_style=""),
+                            ident=Identifier(
+                                idents=[Name(name="ctr_store_sk", quote_style="")],
+                            ),
+                            child=Column(
+                                ident=Identifier(
+                                    idents=[Name(name="sr_store_sk", quote_style="")],
+                                ),
+                            ),
                         ),
                         Alias(
-                            name="ctr_total_return",
-                            quote_style="",
+                            ident=Identifier(
+                                idents=[Name(name="ctr_total_return", quote_style="")],
+                            ),
                             child=Function(
-                                name="Sum",
-                                quote_style="",
-                                args=[Column(name="sr_return_amt", quote_style="")],
+                                ident=Identifier(
+                                    idents=[Name(name="Sum", quote_style="")],
+                                ),
+                                args=[
+                                    Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(
+                                                    name="sr_return_amt",
+                                                    quote_style="",
+                                                ),
+                                            ],
+                                        ),
+                                    ),
+                                ],
                             ),
                         ),
                     ],
                     where=BinaryOp(
                         left=BinaryOp(
-                            left=Column(name="sr_returned_date_sk", quote_style=""),
+                            left=Column(
+                                ident=Identifier(
+                                    idents=[
+                                        Name(
+                                            name="sr_returned_date_sk",
+                                            quote_style="",
+                                        ),
+                                    ],
+                                ),
+                            ),
                             op=BinaryOpKind.Eq,
-                            right=Column(name="d_date_sk", quote_style=""),
+                            right=Column(
+                                ident=Identifier(
+                                    idents=[Name(name="d_date_sk", quote_style="")],
+                                ),
+                            ),
                         ),
                         op=BinaryOpKind.And,
                         right=BinaryOp(
-                            left=Column(name="d_year", quote_style=""),
+                            left=Column(
+                                ident=Identifier(
+                                    idents=[Name(name="d_year", quote_style="")],
+                                ),
+                            ),
                             op=BinaryOpKind.Eq,
                             right=Number(value=2001),
                         ),

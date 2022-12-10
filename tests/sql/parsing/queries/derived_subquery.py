@@ -11,8 +11,10 @@ from dj.sql.parsing.ast import (
     BinaryOpKind,
     Column,
     From,
+    Identifier,
     Join,
     JoinKind,
+    Name,
     Query,
     Select,
     Table,
@@ -30,12 +32,23 @@ def derived_subquery():
             distinct=False,
             from_=From(
                 table=Alias(
-                    name="t1",
+                    ident=Identifier(idents=[Name(name="t1", quote_style="")]),
                     child=Query(
                         select=Select(
                             distinct=False,
-                            from_=From(table=Table(name="t")),
+                            from_=From(
+                                table=Table(
+                                    ident=Identifier(
+                                        idents=[Name(name="t", quote_style="")],
+                                    ),
+                                ),
+                                joins=[],
+                            ),
+                            group_by=[],
+                            having=None,
                             projection=[Wildcard()],
+                            where=None,
+                            limit=None,
                         ),
                         ctes=[],
                     ),
@@ -43,15 +56,53 @@ def derived_subquery():
                 joins=[
                     Join(
                         kind=JoinKind.Inner,
-                        table=Table(name="t2"),
+                        table=Table(
+                            ident=Identifier(idents=[Name(name="t2", quote_style="")]),
+                        ),
                         on=BinaryOp(
-                            left=Column(name="c"),
+                            left=Column(
+                                ident=Identifier(
+                                    idents=[
+                                        Name(name="t1", quote_style=""),
+                                        Name(name="c", quote_style=""),
+                                    ],
+                                ),
+                            ),
                             op=BinaryOpKind.Eq,
-                            right=Column(name="c"),
+                            right=Column(
+                                ident=Identifier(
+                                    idents=[
+                                        Name(name="t2", quote_style=""),
+                                        Name(name="c", quote_style=""),
+                                    ],
+                                ),
+                            ),
                         ),
                     ),
                 ],
             ),
-            projection=[Column(name="a"), Column(name="b")],
+            group_by=[],
+            having=None,
+            projection=[
+                Column(
+                    ident=Identifier(
+                        idents=[
+                            Name(name="t1", quote_style=""),
+                            Name(name="a", quote_style=""),
+                        ],
+                    ),
+                ),
+                Column(
+                    ident=Identifier(
+                        idents=[
+                            Name(name="t2", quote_style=""),
+                            Name(name="b", quote_style=""),
+                        ],
+                    ),
+                ),
+            ],
+            where=None,
+            limit=None,
         ),
+        ctes=[],
     ).compile_parents()

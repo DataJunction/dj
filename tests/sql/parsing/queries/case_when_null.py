@@ -10,7 +10,9 @@ from dj.sql.parsing.ast import (
     Case,
     Column,
     From,
+    Identifier,
     IsNull,
+    Name,
     Query,
     Select,
     Table,
@@ -29,9 +31,10 @@ def case_when_null():
             distinct=False,
             from_=From(
                 table=Alias(
-                    name="web",
-                    quote_style="",
-                    child=Table(name="web_v1", quote_style=""),
+                    ident=Identifier(idents=[Name(name="web", quote_style="")]),
+                    child=Table(
+                        ident=Identifier(idents=[Name(name="web_v1", quote_style="")]),
+                    ),
                 ),
                 joins=[],
             ),
@@ -39,41 +42,101 @@ def case_when_null():
             having=None,
             projection=[
                 Alias(
-                    name="item_sk",
-                    quote_style="",
+                    ident=Identifier(idents=[Name(name="item_sk", quote_style="")]),
                     child=Case(
                         conditions=[
-                            IsNull(expr=Column(name="item_sk", quote_style="")),
+                            IsNull(
+                                expr=Column(
+                                    ident=Identifier(
+                                        idents=[
+                                            Name(name="web", quote_style=""),
+                                            Name(name="item_sk", quote_style=""),
+                                        ],
+                                    ),
+                                ),
+                            ),
                         ],
-                        else_result=Column(name="item_sk", quote_style=""),
+                        else_result=Column(
+                            ident=Identifier(
+                                idents=[
+                                    Name(name="store", quote_style=""),
+                                    Name(name="item_sk", quote_style=""),
+                                ],
+                            ),
+                        ),
                         operand=None,
-                        results=[Column(name="item_sk", quote_style="")],
+                        results=[
+                            Column(
+                                ident=Identifier(
+                                    idents=[
+                                        Name(name="web", quote_style=""),
+                                        Name(name="item_sk", quote_style=""),
+                                    ],
+                                ),
+                            ),
+                        ],
                     ),
                 ),
                 Alias(
-                    name="d_date",
-                    quote_style="",
+                    ident=Identifier(idents=[Name(name="d_date", quote_style="")]),
                     child=Case(
                         conditions=[
                             UnaryOp(
                                 op=UnaryOpKind.Not,
-                                expr=IsNull(expr=Column(name="d_date", quote_style="")),
+                                expr=IsNull(
+                                    expr=Column(
+                                        ident=Identifier(
+                                            idents=[
+                                                Name(name="web", quote_style=""),
+                                                Name(name="d_date", quote_style=""),
+                                            ],
+                                        ),
+                                    ),
+                                ),
                             ),
                         ],
-                        else_result=Column(name="d_date", quote_style=""),
+                        else_result=Column(
+                            ident=Identifier(
+                                idents=[
+                                    Name(name="store", quote_style=""),
+                                    Name(name="d_date", quote_style=""),
+                                ],
+                            ),
+                        ),
                         operand=None,
-                        results=[Column(name="d_date", quote_style="")],
+                        results=[
+                            Column(
+                                ident=Identifier(
+                                    idents=[
+                                        Name(name="web", quote_style=""),
+                                        Name(name="d_date", quote_style=""),
+                                    ],
+                                ),
+                            ),
+                        ],
                     ),
                 ),
                 Alias(
-                    name="web_sales",
-                    quote_style="",
-                    child=Column(name="cume_sales", quote_style=""),
+                    ident=Identifier(idents=[Name(name="web_sales", quote_style="")]),
+                    child=Column(
+                        ident=Identifier(
+                            idents=[
+                                Name(name="web", quote_style=""),
+                                Name(name="cume_sales", quote_style=""),
+                            ],
+                        ),
+                    ),
                 ),
                 Alias(
-                    name="store_sales",
-                    quote_style="",
-                    child=Column(name="cume_sales", quote_style=""),
+                    ident=Identifier(idents=[Name(name="store_sales", quote_style="")]),
+                    child=Column(
+                        ident=Identifier(
+                            idents=[
+                                Name(name="store", quote_style=""),
+                                Name(name="cume_sales", quote_style=""),
+                            ],
+                        ),
+                    ),
                 ),
             ],
             where=None,
