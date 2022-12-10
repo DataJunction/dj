@@ -20,8 +20,6 @@ from typing import (
     cast,
 )
 
-from typing_extensions import Self
-
 
 def flatten(maybe_iterables: Any) -> Iterator:
     """
@@ -36,6 +34,10 @@ def flatten(maybe_iterables: Any) -> Iterator:
 
 
 class DJEnum(Enum):
+    """
+    A DJ AST enum
+    """
+
     def __repr__(self) -> str:
         return str(self)
 
@@ -191,8 +193,9 @@ class Node(ABC):
         def _diff(self, other: "Node"):
             if self != other:
                 diffs.append((self, other))
-            for child, other_child in zip_longest(self.children, other.children):
-                _diff(child, other_child)
+            else:
+                for child, other_child in zip_longest(self.children, other.children):
+                    _diff(child, other_child)
 
         diffs: List[Tuple["Node", "Node"]] = []
         _diff(self, other)
@@ -242,6 +245,9 @@ class Name(Node):
         )
 
     def to_identifier(self) -> "Identifier":
+        """
+        transforms a single Name to a single item Identifier
+        """
         return cast(Identifier, Identifier([self]).add_self_as_parent())
 
     def __hash__(self) -> int:
@@ -250,6 +256,10 @@ class Name(Node):
 
 @dataclass(eq=False)
 class Identifier(Node):
+    """
+    Represents a sequence of names for something Named in a query
+    """
+
     idents: List[Name]
 
     def __str__(self) -> str:
@@ -267,6 +277,9 @@ class Named(Expression):
 
     @property
     def name(self) -> str:
+        """
+        return the name of the named node
+        """
         return str(self.ident)
 
     def alias_or_name(self) -> str:

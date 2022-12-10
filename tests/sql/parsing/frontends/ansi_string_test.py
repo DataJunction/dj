@@ -3,7 +3,7 @@ tests for DJ ast representation as sql string
 """
 import pytest
 
-from dj.sql.parsing.frontends.sql_string import sql
+from dj.sql.parsing.frontends.ansi_string import sql
 from tests.sql.utils import TPCDS_QUERY_SET, compare_query_strings, read_query
 
 
