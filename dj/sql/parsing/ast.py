@@ -21,6 +21,9 @@ from typing import (
 )
 
 
+from dj.sql.parsing.backends.exceptions import DJParseException
+
+
 def flatten(maybe_iterables: Any) -> Iterator:
     """
     flattens `maybe_iterables` by descending into items that are Iterable
@@ -244,6 +247,18 @@ class Name(Node):
             f"{self.quote_style}{self.name}{self.quote_style}"  # pylint: disable=C0301
         )
 
+    def to_column(self) -> "Column":
+        """
+        transform the name into a column
+        """
+        return cast(Column, Column(self).add_self_as_parent())
+
+    def to_table(self) -> "Table":
+        """
+        transform the name into a Table
+        """
+        return cast(Table, Table(self).add_self_as_parent())
+
     def to_namespace(self) -> "Namespace":
         """
         transforms a single Name to a single item Identifier
@@ -262,33 +277,37 @@ class Namespace(Node):
 
     names: List[Name]
 
-    def to_column(self)->"Column":
+    def to_column(self) -> "Column":
         """
-        transform the namespace into a column 
+        transform the namespace into a column
             whose name is the last name in the namespace
 
-        if the namespace contains a single name, 
+        if the namespace contains a single name,
             the created column will have no namespace
         otherwise, the remaining names for the column's namespace
         """
+        if not self.names:
+            raise DJParseException("Namespace is empty")
         col = Column(self.names.pop())
         if self.names:
             col.add_namespace(self)
-        return col        
+        return col
 
-    def to_table(self)->"Table":
+    def to_table(self) -> "Table":
         """
-        transform the namespace into a Table 
+        transform the namespace into a Table
             whose name is the last name in the namespace
 
-        if the namespace contains a single name, 
+        if the namespace contains a single name,
             the created table will have no namespace
         otherwise, the remaining names for the table's namespace
         """
+        if not self.names:
+            raise DJParseException("Namespace is empty")
         table = Table(self.names.pop())
         if self.names:
             table.add_namespace(self)
-        return table 
+        return cast(Table, table.add_self_as_parent())
 
     def __str__(self) -> str:
         return ".".join(str(name) for name in self.names)
@@ -481,6 +500,7 @@ class Alias(Named, Generic[NodeType]):
     def __hash__(self) -> int:
         return hash((Alias, self.name))
 
+
 @dataclass(eq=False)
 class Column(Named):
     """column used in statements"""
@@ -497,7 +517,7 @@ class Column(Named):
     def add_ref(self, ref: Union["Table", Namespace, None]) -> "Column":
         """
         add a ref to the column if one does not exist
-        or if the ref is of a new type 
+        or if the ref is of a new type
         e.g. validation sees a namespace has a table
         """
         if self._ref is None or type(self._ref) is not type(ref):

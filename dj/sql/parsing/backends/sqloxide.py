@@ -16,7 +16,7 @@ from dj.sql.parsing.ast import (
     Expression,
     From,
     Function,
-    Identifier,
+    Namespace,
     IsNull,
     Join,
     JoinKind,
@@ -194,6 +194,11 @@ def parse_value(parse_tree: dict) -> Value:
     raise DJParseException("Not a primitive")  # pragma: no cover
 
 
+def parse_namespace(parse_tree: List[dict]) -> Namespace:
+    """parse a namespace"""
+    return Namespace([parse_name(name) for name in parse_tree])
+
+
 def parse_name(parse_tree: dict) -> Name:
     """parse a name"""
     if match_keys(parse_tree, {"value", "quote_style"}):
@@ -213,21 +218,8 @@ def parse_column(parse_tree: dict):
     if match_keys(parse_tree, {"Identifier"}, {"CompoundIdentifier"}):
         if "CompoundIdentifier" in parse_tree:
             subtree = parse_tree["CompoundIdentifier"]
-            return cast(
-                Column,
-                Column(
-                    cast(
-                        Identifier,
-                        Identifier(
-                            [parse_name(name) for name in subtree],
-                        ).add_self_as_parent(),
-                    ),
-                ).add_self_as_parent(),
-            )
-        return cast(
-            Column,
-            Column(parse_name(parse_tree["Identifier"]).to_identifier()),
-        )
+            return parse_namespace(subtree).to_column()
+        return parse_name(parse_tree["Identifier"]).to_column()
     return parse_expression(parse_tree)
 
 
@@ -248,38 +240,23 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
         return cast(
             Alias,
             Alias(
-                cast(
-                    Identifier,
-                    Identifier([parse_name(alias["name"])]).add_self_as_parent(),
-                ),
+                parse_name(alias["name"]),
                 parse_query(subtree["subquery"]),
             ).add_self_as_parent(),
         )
     if match_keys(parse_tree, {"Table"}):
         subtree = parse_tree["Table"]
 
-        table = Table(
-            cast(
-                Identifier,
-                Identifier(
-                    [parse_name(name) for name in subtree["name"]],
-                ).add_self_as_parent(),
-            ),
-        ).add_self_as_parent()
+        table = parse_namespace(subtree["name"]).to_table()
         if subtree["alias"]:
             return cast(
                 Alias,
                 Alias(
-                    cast(
-                        Identifier,
-                        Identifier(
-                            [parse_name(subtree["alias"]["name"])],
-                        ).add_self_as_parent(),
-                    ),
+                    parse_name(subtree["alias"]["name"]),
                     table,
                 ).add_self_as_parent(),
             )
-        return cast(Table, table)
+        return table
 
     raise DJParseException("Failed to parse Table")  # pragma: no cover
 
@@ -444,14 +421,14 @@ def parse_oxide_tree(parse_tree: dict) -> Query:
     raise DJParseException("Failed to parse query")  # pragma: no cover
 
 
-def parse(sql: str) -> Query:
+def parse(sql: str, dialect: str = "hive") -> Query:
     """
     Parse a string into a DJ ast using sqloxide backend.
 
     Parses only a single Select query (can include ctes)
 
     """
-    oxide_parsed = parse_sql(sql, "ansi")
+    oxide_parsed = parse_sql(sql, dialect)
     if len(oxide_parsed) != 1:
         raise DJParseException("Expected a single sql statement.")
     return parse_oxide_tree(oxide_parsed[0])
