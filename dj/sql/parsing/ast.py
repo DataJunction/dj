@@ -244,47 +244,68 @@ class Name(Node):
             f"{self.quote_style}{self.name}{self.quote_style}"  # pylint: disable=C0301
         )
 
-    def to_identifier(self) -> "Identifier":
+    def to_namespace(self) -> "Namespace":
         """
         transforms a single Name to a single item Identifier
         """
-        return cast(Identifier, Identifier([self]).add_self_as_parent())
+        return cast(Namespace, Namespace([self]).add_self_as_parent())
 
     def __hash__(self) -> int:
         return hash(self.name + self.quote_style)
 
 
 @dataclass(eq=False)
-class Identifier(Node):
+class Namespace(Node):
     """
-    Represents a sequence of names for something Named in a query
+    Represents a sequence of names prececeding some Table or Column
     """
 
-    idents: List[Name]
+    names: List[Name]
+
+    def to_column(self)->"Column":
+        """
+        transform the namespace into a column 
+            whose name is the last name in the namespace
+
+        if the namespace contains a single name, 
+            the created column will have no namespace
+        otherwise, the remaining names for the column's namespace
+        """
+        col = Column(self.names.pop())
+        if self.names:
+            col.add_namespace(self)
+        return col        
+
+    def to_table(self)->"Table":
+        """
+        transform the namespace into a Table 
+            whose name is the last name in the namespace
+
+        if the namespace contains a single name, 
+            the created table will have no namespace
+        otherwise, the remaining names for the table's namespace
+        """
+        table = Table(self.names.pop())
+        if self.names:
+            table.add_namespace(self)
+        return table 
 
     def __str__(self) -> str:
-        return ".".join(str(ident) for ident in self.idents)
+        return ".".join(str(name) for name in self.names)
 
     def __hash__(self) -> int:
-        return hash(Identifier)
+        return hash(Namespace)
 
 
 @dataclass(eq=False)  # type: ignore
 class Named(Expression):
     """An Expression that has a name"""
 
-    ident: Identifier
-
-    @property
-    def name(self) -> str:
-        """
-        return the name of the named node
-        """
-        return str(self.ident)
+    name: Name
 
     def alias_or_name(self) -> str:
         """
-        get the alias of a node if it is the descendant of an alias otherwise get its own ident
+        get the alias name of a node if it is the descendant of an alias otherwise get its own name
         """
         if len(self.parents) == 1:
             parent = tuple(self.parents)[0]
@@ -460,27 +481,40 @@ class Alias(Named, Generic[NodeType]):
     def __hash__(self) -> int:
         return hash((Alias, self.name))
 
-
 @dataclass(eq=False)
 class Column(Named):
     """column used in statements"""
 
-    _table: Optional["Table"] = field(repr=False, default=None)
+    _ref: Union["Table", Namespace, None] = field(repr=False, default=None)
 
     @property
-    def table(self) -> Optional["Table"]:
+    def ref(self) -> Union["Table", Namespace, None]:
         """
-        return the table the column was referenced from
+        return the preceding Namespace or Table if one
         """
-        return self._table
+        return self._ref
+
+    def add_ref(self, ref: Union["Table", Namespace, None]) -> "Column":
+        """
+        add a ref to the column if one does not exist
+        or if the ref is of a new type 
+        e.g. validation sees a namespace has a table
+        """
+        if self._ref is None or type(self._ref) is not type(ref):
+            self._ref = ref
+        return self
+
+    def add_namespace(self, namespace: Namespace) -> "Column":
+        """
+        add a referenced namespace
+        """
+        return self.add_ref(namespace)
 
     def add_table(self, table: "Table") -> "Column":
         """
         add a referenced table
         """
-        if self._table is None:
-            self._table = table
-        return self
+        return self.add_ref(table)
 
     def __hash__(self) -> int:
         return hash((Column, self.name))
@@ -516,6 +550,23 @@ class Table(Named):
     """a type for tables"""
 
     _columns: List[Column] = field(repr=False, default_factory=list)
+
+    _namespace: Optional[Namespace] = field(repr=False, default=None)
+
+    @property
+    def namespace(self) -> Optional[Namespace]:
+        """
+        return the preceding Namespace
+        """
+        return self._namespace
+
+    def add_namespace(self, namespace: Optional[Namespace]) -> "Table":
+        """
+        add a namespace to the Table if one does not exist
+        """
+        if self._namespace is None:
+            self._namespace = namespace
+        return self
 
     @property
     def columns(self) -> List[Column]:
