@@ -196,7 +196,10 @@ def parse_value(parse_tree: dict) -> Value:
 
 def parse_namespace(parse_tree: List[dict]) -> Namespace:
     """parse a namespace"""
-    return Namespace([parse_name(name) for name in parse_tree])
+    return cast(
+        Namespace,
+        Namespace([parse_name(name) for name in parse_tree]).add_self_as_parent(),
+    )
 
 
 def parse_name(parse_tree: dict) -> Name:
@@ -272,12 +275,7 @@ def parse_function(parse_tree: dict) -> Function:
         return cast(
             Function,
             Function(
-                cast(
-                    Identifier,
-                    Identifier(
-                        [parse_name(name) for name in names],
-                    ).add_self_as_parent(),
-                ),
+                *parse_namespace(names).pop_self(),
                 [parse_expression(exp) for exp in args],
             ).add_self_as_parent(),
         )
