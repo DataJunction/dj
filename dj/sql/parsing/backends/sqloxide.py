@@ -419,7 +419,7 @@ def parse_oxide_tree(parse_tree: dict) -> Query:
     raise DJParseException("Failed to parse query")  # pragma: no cover
 
 
-def parse(sql: str, dialect: str = "hive") -> Query:
+def parse(sql: str, dialect: str = "ansi") -> Query:
     """
     Parse a string into a DJ ast using sqloxide backend.
 
