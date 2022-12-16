@@ -43,7 +43,8 @@ class DJEnum(Enum):
     def __repr__(self) -> str:
         return str(self)
 
-
+# typevar used for node methods that return self
+# so the typesystem can correlate the self type with the return type
 TNode = TypeVar("TNode", bound="Node")
 
 
@@ -60,27 +61,28 @@ class Node(ABC):
 
     """
 
-    _parents: Set[TNode]
+    _parents: Set["Node"]
 
     def __post_init__(self):
         self._parents = set()
+        self.add_self_as_parent()
 
     @property
-    def parents(self) -> Set[TNode]:
+    def parents(self) -> Set["Node"]:
         """get the parents of the node"""
         return self._parents
 
-    def clear_parents(self) -> TNode:
+    def clear_parents(self: TNode) -> TNode:
         """remove all parents from the node"""
         self._parents = set()
         return self
 
-    def add_parents(self: TNode, *parents: TNode) -> TNode:
+    def add_parents(self: TNode, *parents: "Node") -> TNode:
         """add parents to the node"""
         self.parents.update(parents)
         return self
 
-    def remove_parents(self: TNode, *parents: TNode) -> TNode:
+    def remove_parents(self: TNode, *parents: "Node") -> TNode:
         """remove potential parents if they belong to the node"""
         self._parents -= set(parents)
         return self
@@ -90,7 +92,7 @@ class Node(ABC):
 
         Note: this function is useful for building asts by hand
         """
-        self.apply(lambda node: (node.add_self_as_parent(), None)[1])
+        self.apply(lambda node: (node, None)[1])
         return self
 
     def add_self_as_parent(self: TNode) -> TNode:
@@ -232,21 +234,19 @@ class Name(Node):
             f"{self.quote_style}{self.name}{self.quote_style}"  # pylint: disable=C0301
         )
 
-    def to_column(self) -> "Column":
-        """transform the name into a column"""
-        return Column(self).add_self_as_parent()
-
-    def to_table(self) -> "Table":
-        """transform the name into a Table"""
-        return Table(self).add_self_as_parent()
+    def to(self, type: Type["Named"]) -> "Named":
+        """transform the name into a specific Named that only requires a name to create"""
+        return type(self)
 
     def to_namespace(self) -> "Namespace":
         """transforms a single Name to a single item Identifier"""
-        return Namespace([self]).add_self_as_parent()
+        return Namespace([self])
 
     def __hash__(self) -> int:
         return hash(self.name + self.quote_style)
 
+
+TNamed = TypeVar("TNamed", bound="Named")
 
 @dataclass(eq=False)
 class Namespace(Node):
@@ -254,7 +254,7 @@ class Namespace(Node):
 
     names: List[Name]
 
-    def to_column(self) -> "Column":
+    def to(self, type: Type[TNamed]) -> TNamed:
         """transform the namespace into a column whose name is the last name in the namespace
 
         if the namespace contains a single name,
@@ -263,24 +263,10 @@ class Namespace(Node):
         """
         if not self.names:
             raise DJParseException("Namespace is empty")
-        col = Column(self.names.pop().clear_parents()).add_self_as_parent()
+        converted = type(self.names.pop().clear_parents())
         if self.names:
-            col.add_namespace(self)
-        return col
-
-    def to_table(self) -> "Table":
-        """transform the namespace into a Table whose name is the last name in the namespace
-
-        if the namespace contains a single name,
-            the created table will have no namespace
-        otherwise, the remaining names for the table's namespace
-        """
-        if not self.names:
-            raise DJParseException("Namespace is empty")
-        table = Table(self.names.pop().clear_parents()).add_self_as_parent()
-        if self.names:
-            table.add_namespace(self)
-        return table
+            converted.add_namespace(self)
+        return converted
 
     def pop_self(self) -> Tuple[Name, "Namespace"]:
         """a utility function that returns the last name and the remaining namespace as a tuple
@@ -289,7 +275,7 @@ class Namespace(Node):
         the last name for another attribute
         """
         last = self.names.pop().clear_parents()
-        return last, self
+        return self, last
 
     def __str__(self) -> str:
         return ".".join(str(name) for name in self.names)
@@ -304,18 +290,18 @@ class Named(Expression):
 
     name: Name
 
-    _namespace: Optional[Namespace] = field(repr=False, default=None)
+    _namespace: Optional[Namespace] = field(repr=False, init=False, default=None)
 
     @property
     def namespace(self) -> Optional[Namespace]:
         """return the preceding Namespace of the Named node if any"""
         return self._namespace
 
-    def add_namespace(self, namespace: Optional[Namespace]) -> "Table":
+    def add_namespace(self: TNamed, namespace: Optional[Namespace]) -> TNamed:
         """add a namespace to the Table if one does not exist"""
         if self._namespace is None:
             self._namespace = namespace
-        return self
+        return self.add_self_as_parent()
 
     def alias_or_name(self) -> str:
         """get the alias name of a node if it is the descendant of an alias otherwise get its own name"""
