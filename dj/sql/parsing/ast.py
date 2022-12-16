@@ -17,7 +17,6 @@ from typing import (
     Type,
     TypeVar,
     Union,
-    cast,
 )
 
 
@@ -45,9 +44,11 @@ class DJEnum(Enum):
         return str(self)
 
 
+TNode = TypeVar("TNode", bound="Node")
+
+
 class Node(ABC):
-    """
-    Base class for all DJ AST nodes.
+    """Base class for all DJ AST nodes.
 
     DJ nodes are python dataclasses with the following patterns:
         - Attributes are either
@@ -59,46 +60,47 @@ class Node(ABC):
 
     """
 
-    _parents: Set["Node"]
+    _parents: Set[TNode]
 
     def __post_init__(self):
         self._parents = set()
 
     @property
-    def parents(self) -> Set["Node"]:
-        """
-        get the parents of the node
-        """
+    def parents(self) -> Set[TNode]:
+        """get the parents of the node"""
         return self._parents
 
-    def add_parents(self, *parents: "Node") -> "Node":
-        """
-        add parents to the node
-        """
+    def clear_parents(self) -> TNode:
+        """remove all parents from the node"""
+        self._parents = set()
+        return self
+
+    def add_parents(self: TNode, *parents: TNode) -> TNode:
+        """add parents to the node"""
         self.parents.update(parents)
         return self
 
-    def compile_parents(self) -> "Node":
-        """
-        recurse through ast and add parents to nodes
+    def remove_parents(self: TNode, *parents: TNode) -> TNode:
+        """remove potential parents if they belong to the node"""
+        self._parents -= set(parents)
+        return self
+
+    def compile_parents(self: TNode) -> TNode:
+        """recurse through ast and add parents to nodes
 
         Note: this function is useful for building asts by hand
         """
         self.apply(lambda node: (node.add_self_as_parent(), None)[1])
         return self
 
-    def add_self_as_parent(self) -> "Node":
-        """
-        adds self as a parent to all children
-        """
+    def add_self_as_parent(self: TNode) -> TNode:
+        """adds self as a parent to all children"""
         for child in self.children:
             child.add_parents(self)
         return self
 
     def flatten(self) -> Iterator["Node"]:
-        """
-        flatten the sub-ast of the node as an iterator
-        """
+        """flatten the sub-ast of the node as an iterator"""
         return self.filter(lambda _: True)
 
     def fields(
@@ -108,7 +110,8 @@ class Node(ABC):
         obfuscated: bool = False,
         nones: bool = False,
     ) -> Iterator:
-        """
+        """Returns an iterator over fields of a node with particular filters
+
         Args:
             flat: return a flattened iterator (if children are iterable)
             nodes_only: do not yield children that are not Nodes (trumped by `obfuscated`)
@@ -122,10 +125,7 @@ class Node(ABC):
         """
 
         def make_child_generator():
-            """
-            makes a generator enclosing self
-            to return not obfuscated fields (fields without starting `_`)
-            """
+            """makes a generator enclosing self to return not obfuscated fields (fields without starting `_`)"""
             for self_field in fields(self):
                 if not self_field.name.startswith("_") if not obfuscated else True:
                     yield self.__dict__[self_field.name]
@@ -152,25 +152,18 @@ class Node(ABC):
 
     @property
     def children(self) -> Iterator["Node"]:
-        """
-        returns an iterator of all nodes that are one step
-        from the current node down including through iterables
-        """
+        """returns an iterator of all nodes that are one step from the current node down including through iterables"""
         return self.fields(flat=True, nodes_only=True, obfuscated=False, nones=False)
 
     def filter(self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
-        """
-        find all nodes that `func` returns `True` for
-        """
+        """find all nodes that `func` returns `True` for"""
         if func(self):
             yield self
         for node in chain(*[child.filter(func) for child in self.children]):
             yield node
 
     def find_all(self, node_type: Type["Node"]) -> Iterator["Node"]:
-        """
-        find all nodes of a particular type in the node's sub-ast
-        """
+        """find all nodes of a particular type in the node's sub-ast"""
         return self.filter(lambda n: isinstance(n, node_type))
 
     def apply(self, func: Callable[["Node"], None]):
@@ -182,16 +175,12 @@ class Node(ABC):
             child.apply(func)
 
     def compare(self, other: "Node") -> bool:
-        """
-        compare two ASTs
-        """
+        """a compare two ASTs"""
 
         return not self.diff(other)
 
     def diff(self, other: "Node") -> List[Tuple["Node", "Node"]]:
-        """
-        compare two ASTs for differences and return the pairs of differences
-        """
+        """compare two ASTs for differences and return the pairs of differences"""
 
         def _diff(self, other: "Node"):
             if self != other:
@@ -205,8 +194,8 @@ class Node(ABC):
         return diffs
 
     def __eq__(self, other) -> bool:
-        """
-        Compares two nodes for "top level" equality.
+        """Compares two nodes for "top level" equality.
+
         Checks for type equality and primitive field types for full equality.
         Compares all others for type equality only. No recursing.
         Note: Does not check (sub)AST. See `Node.compare` for comparing (sub)ASTs.
@@ -224,9 +213,7 @@ class Node(ABC):
 
     @abstractmethod
     def __hash__(self) -> int:
-        """
-        hash a node
-        """
+        """hash a node"""
 
 
 class Expression(Node):
@@ -235,9 +222,7 @@ class Expression(Node):
 
 @dataclass(eq=False)
 class Name(Node):
-    """
-    the string name specified in sql with quote style
-    """
+    """the string name specified in sql with quote style"""
 
     name: str
     quote_style: str = ""
@@ -248,22 +233,16 @@ class Name(Node):
         )
 
     def to_column(self) -> "Column":
-        """
-        transform the name into a column
-        """
-        return cast(Column, Column(self).add_self_as_parent())
+        """transform the name into a column"""
+        return Column(self).add_self_as_parent()
 
     def to_table(self) -> "Table":
-        """
-        transform the name into a Table
-        """
-        return cast(Table, Table(self).add_self_as_parent())
+        """transform the name into a Table"""
+        return Table(self).add_self_as_parent()
 
     def to_namespace(self) -> "Namespace":
-        """
-        transforms a single Name to a single item Identifier
-        """
-        return cast(Namespace, Namespace([self]).add_self_as_parent())
+        """transforms a single Name to a single item Identifier"""
+        return Namespace([self]).add_self_as_parent()
 
     def __hash__(self) -> int:
         return hash(self.name + self.quote_style)
@@ -271,16 +250,12 @@ class Name(Node):
 
 @dataclass(eq=False)
 class Namespace(Node):
-    """
-    Represents a sequence of names prececeding some Table or Column
-    """
+    """Represents a sequence of names prececeding some Table or Column"""
 
     names: List[Name]
 
     def to_column(self) -> "Column":
-        """
-        transform the namespace into a column
-            whose name is the last name in the namespace
+        """transform the namespace into a column whose name is the last name in the namespace
 
         if the namespace contains a single name,
             the created column will have no namespace
@@ -288,15 +263,13 @@ class Namespace(Node):
         """
         if not self.names:
             raise DJParseException("Namespace is empty")
-        col = Column(self.names.pop())
+        col = Column(self.names.pop().clear_parents()).add_self_as_parent()
         if self.names:
             col.add_namespace(self)
         return col
 
     def to_table(self) -> "Table":
-        """
-        transform the namespace into a Table
-            whose name is the last name in the namespace
+        """transform the namespace into a Table whose name is the last name in the namespace
 
         if the namespace contains a single name,
             the created table will have no namespace
@@ -304,10 +277,19 @@ class Namespace(Node):
         """
         if not self.names:
             raise DJParseException("Namespace is empty")
-        table = Table(self.names.pop())
+        table = Table(self.names.pop().clear_parents()).add_self_as_parent()
         if self.names:
             table.add_namespace(self)
-        return cast(Table, table.add_self_as_parent())
+        return table
+
+    def pop_self(self) -> Tuple[Name, "Namespace"]:
+        """a utility function that returns the last name and the remaining namespace as a tuple
+
+        useful for parsing compound identifiers and revealing
+        the last name for another attribute
+        """
+        last = self.names.pop().clear_parents()
+        return last, self
 
     def __str__(self) -> str:
         return ".".join(str(name) for name in self.names)
@@ -322,10 +304,21 @@ class Named(Expression):
 
     name: Name
 
+    _namespace: Optional[Namespace] = field(repr=False, default=None)
+
+    @property
+    def namespace(self) -> Optional[Namespace]:
+        """return the preceding Namespace of the Named node if any"""
+        return self._namespace
+
+    def add_namespace(self, namespace: Optional[Namespace]) -> "Table":
+        """add a namespace to the Table if one does not exist"""
+        if self._namespace is None:
+            self._namespace = namespace
+        return self
+
     def alias_or_name(self) -> str:
-        """
-        get the alias name of a node if it is the descendant of an alias otherwise get its own name
-        """
+        """get the alias name of a node if it is the descendant of an alias otherwise get its own name"""
         if len(self.parents) == 1:
             parent = tuple(self.parents)[0]
             if isinstance(parent, Alias):
@@ -362,7 +355,7 @@ class UnaryOp(Operation):
 
 # pylint: disable=C0103
 class BinaryOpKind(DJEnum):
-    """the accepted binary operations"""
+    """the DJ AST accepted binary operations"""
 
     And = "AND"
     Or = "OR"
@@ -400,9 +393,7 @@ class BinaryOp(Operation):
 
 @dataclass(eq=False)
 class Between(Operation):
-    """
-    a between statement
-    """
+    """a between statement"""
 
     expr: Expression
     low: Expression
@@ -505,36 +496,18 @@ class Alias(Named, Generic[NodeType]):
 class Column(Named):
     """column used in statements"""
 
-    _ref: Union["Table", Namespace, None] = field(repr=False, default=None)
+    _table: Optional["Table"] = field(repr=False, default=None)
 
     @property
-    def ref(self) -> Union["Table", Namespace, None]:
-        """
-        return the preceding Namespace or Table if one
-        """
-        return self._ref
-
-    def add_ref(self, ref: Union["Table", Namespace, None]) -> "Column":
-        """
-        add a ref to the column if one does not exist
-        or if the ref is of a new type
-        e.g. validation sees a namespace has a table
-        """
-        if self._ref is None or type(self._ref) is not type(ref):
-            self._ref = ref
-        return self
-
-    def add_namespace(self, namespace: Namespace) -> "Column":
-        """
-        add a referenced namespace
-        """
-        return self.add_ref(namespace)
+    def table(self) -> Optional["Table"]:
+        """return the table the column was referenced from"""
+        return self._table
 
     def add_table(self, table: "Table") -> "Column":
-        """
-        add a referenced table
-        """
-        return self.add_ref(table)
+        """add a referenced table"""
+        if self._table is None:
+            self._table = table
+        return self
 
     def __hash__(self) -> int:
         return hash((Column, self.name))
@@ -548,15 +521,11 @@ class Wildcard(Expression):
 
     @property
     def table(self) -> Optional["Table"]:
-        """
-        return the table the column was referenced from
-        """
+        """return the table the column was referenced from if there's one"""
         return self._table
 
     def add_table(self, table: "Table") -> "Wildcard":
-        """
-        add a referenced table
-        """
+        """add a referenced table"""
         if self._table is None:
             self._table = table
         return self
@@ -571,34 +540,13 @@ class Table(Named):
 
     _columns: List[Column] = field(repr=False, default_factory=list)
 
-    _namespace: Optional[Namespace] = field(repr=False, default=None)
-
-    @property
-    def namespace(self) -> Optional[Namespace]:
-        """
-        return the preceding Namespace
-        """
-        return self._namespace
-
-    def add_namespace(self, namespace: Optional[Namespace]) -> "Table":
-        """
-        add a namespace to the Table if one does not exist
-        """
-        if self._namespace is None:
-            self._namespace = namespace
-        return self
-
     @property
     def columns(self) -> List[Column]:
-        """
-        return the columns referenced from this table
-        """
+        """return the columns referenced from this table"""
         return self._columns
 
     def add_columns(self, *columns: Column) -> "Table":
-        """
-        add columns referenced from this table
-        """
+        """add columns referenced from this table"""
         for column in columns:
             self._columns.append(column)
             column.add_table(self)
