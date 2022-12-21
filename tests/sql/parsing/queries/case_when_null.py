@@ -10,9 +10,9 @@ from dj.sql.parsing.ast import (
     Case,
     Column,
     From,
-    Identifier,
     IsNull,
     Name,
+    Namespace,
     Query,
     Select,
     Table,
@@ -28,12 +28,13 @@ def case_when_null():
     """
     return Query(
         select=Select(
-            distinct=False,
             from_=From(
                 table=Alias(
-                    ident=Identifier(idents=[Name(name="web", quote_style="")]),
+                    name=Name(name="web", quote_style=""),
+                    namespace=None,
                     child=Table(
-                        ident=Identifier(idents=[Name(name="web_v1", quote_style="")]),
+                        name=Name(name="web_v1", quote_style=""),
+                        namespace=None,
                     ),
                 ),
                 joins=[],
@@ -42,105 +43,90 @@ def case_when_null():
             having=None,
             projection=[
                 Alias(
-                    ident=Identifier(idents=[Name(name="item_sk", quote_style="")]),
+                    name=Name(name="item_sk", quote_style=""),
+                    namespace=None,
                     child=Case(
                         conditions=[
                             IsNull(
                                 expr=Column(
-                                    ident=Identifier(
-                                        idents=[
-                                            Name(name="web", quote_style=""),
-                                            Name(name="item_sk", quote_style=""),
-                                        ],
+                                    name=Name(name="item_sk", quote_style=""),
+                                    namespace=Namespace(
+                                        names=[Name(name="web", quote_style="")],
                                     ),
                                 ),
                             ),
                         ],
                         else_result=Column(
-                            ident=Identifier(
-                                idents=[
-                                    Name(name="store", quote_style=""),
-                                    Name(name="item_sk", quote_style=""),
-                                ],
+                            name=Name(name="item_sk", quote_style=""),
+                            namespace=Namespace(
+                                names=[Name(name="store", quote_style="")],
                             ),
                         ),
                         operand=None,
                         results=[
                             Column(
-                                ident=Identifier(
-                                    idents=[
-                                        Name(name="web", quote_style=""),
-                                        Name(name="item_sk", quote_style=""),
-                                    ],
+                                name=Name(name="item_sk", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="web", quote_style="")],
                                 ),
                             ),
                         ],
                     ),
                 ),
                 Alias(
-                    ident=Identifier(idents=[Name(name="d_date", quote_style="")]),
+                    name=Name(name="d_date", quote_style=""),
+                    namespace=None,
                     child=Case(
                         conditions=[
                             UnaryOp(
                                 op=UnaryOpKind.Not,
                                 expr=IsNull(
                                     expr=Column(
-                                        ident=Identifier(
-                                            idents=[
-                                                Name(name="web", quote_style=""),
-                                                Name(name="d_date", quote_style=""),
-                                            ],
+                                        name=Name(name="d_date", quote_style=""),
+                                        namespace=Namespace(
+                                            names=[Name(name="web", quote_style="")],
                                         ),
                                     ),
                                 ),
                             ),
                         ],
                         else_result=Column(
-                            ident=Identifier(
-                                idents=[
-                                    Name(name="store", quote_style=""),
-                                    Name(name="d_date", quote_style=""),
-                                ],
+                            name=Name(name="d_date", quote_style=""),
+                            namespace=Namespace(
+                                names=[Name(name="store", quote_style="")],
                             ),
                         ),
                         operand=None,
                         results=[
                             Column(
-                                ident=Identifier(
-                                    idents=[
-                                        Name(name="web", quote_style=""),
-                                        Name(name="d_date", quote_style=""),
-                                    ],
+                                name=Name(name="d_date", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="web", quote_style="")],
                                 ),
                             ),
                         ],
                     ),
                 ),
                 Alias(
-                    ident=Identifier(idents=[Name(name="web_sales", quote_style="")]),
+                    name=Name(name="web_sales", quote_style=""),
+                    namespace=None,
                     child=Column(
-                        ident=Identifier(
-                            idents=[
-                                Name(name="web", quote_style=""),
-                                Name(name="cume_sales", quote_style=""),
-                            ],
-                        ),
+                        name=Name(name="cume_sales", quote_style=""),
+                        namespace=Namespace(names=[Name(name="web", quote_style="")]),
                     ),
                 ),
                 Alias(
-                    ident=Identifier(idents=[Name(name="store_sales", quote_style="")]),
+                    name=Name(name="store_sales", quote_style=""),
+                    namespace=None,
                     child=Column(
-                        ident=Identifier(
-                            idents=[
-                                Name(name="store", quote_style=""),
-                                Name(name="cume_sales", quote_style=""),
-                            ],
-                        ),
+                        name=Name(name="cume_sales", quote_style=""),
+                        namespace=Namespace(names=[Name(name="store", quote_style="")]),
                     ),
                 ),
             ],
             where=None,
             limit=None,
+            distinct=False,
         ),
         ctes=[],
-    ).compile_parents()
+    )

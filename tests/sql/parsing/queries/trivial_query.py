@@ -3,7 +3,7 @@ a trivial query
 """
 import pytest
 
-from dj.sql.parsing.ast import From, Identifier, Name, Query, Select, Table, Wildcard
+from dj.sql.parsing.ast import From, Name, Query, Select, Table, Wildcard
 
 
 @pytest.fixture
@@ -13,9 +13,8 @@ def trivial_query():
     """
     return Query(
         select=Select(
-            distinct=False,
             from_=From(
-                table=Table(ident=Identifier(idents=[Name(name="a", quote_style="")])),
+                table=Table(name=Name(name="a", quote_style=""), namespace=None),
                 joins=[],
             ),
             group_by=[],
@@ -23,6 +22,7 @@ def trivial_query():
             projection=[Wildcard()],
             where=None,
             limit=None,
+            distinct=False,
         ),
         ctes=[],
-    ).compile_parents()
+    )

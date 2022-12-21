@@ -3,8 +3,8 @@ tests for DJ ast representation as sql string
 """
 import pytest
 
-from dj.sql.parsing.ast import Column, From, Identifier, Name, Query, Select, Table
-from dj.sql.parsing.frontends.ansi_string import sql
+from dj.sql.parsing.ast import Column, From, Name, Namespace, Query, Select, Table
+from dj.sql.parsing.frontends.string import sql
 from tests.sql.utils import TPCDS_QUERY_SET, compare_query_strings, read_query
 
 
@@ -38,15 +38,6 @@ def test_sql_string_tpcds(request, query_name):
     assert compare_query_strings(gen_sql, query)
 
 
-@pytest.mark.parametrize("value", (1, "hello", 3.14, {"x": "y"}, [1, 2, 3]))
-def test_only_node(value):
-    """
-    test non node values to make sure we don't convert them to sql by mistake
-    """
-    with pytest.raises(Exception):
-        sql(value)
-
-
 def test_column_table_eq_compound_ident():
     """tests to see if marking a column as belonging to a table
     returns the same thing as a column with a compound identifier
@@ -57,7 +48,7 @@ def test_column_table_eq_compound_ident():
                 distinct=False,
                 from_=From(
                     table=Table(
-                        ident=Identifier(idents=[Name(name="a", quote_style="")]),
+                        Name(name="a", quote_style=""),
                     ),
                     joins=[],
                 ),
@@ -65,13 +56,8 @@ def test_column_table_eq_compound_ident():
                 having=None,
                 projection=[
                     Column(
-                        ident=Identifier(
-                            idents=[
-                                Name(name="a", quote_style=""),
-                                Name(name="x", quote_style=""),
-                            ],
-                        ),
-                    ),
+                        Name(name="x", quote_style=""),
+                    ).add_namespace(Namespace([Name("a")])),
                 ],
                 where=None,
                 limit=None,
@@ -84,18 +70,16 @@ def test_column_table_eq_compound_ident():
                 distinct=False,
                 from_=From(
                     table=Table(
-                        ident=Identifier(idents=[Name(name="a", quote_style="")]),
+                        Name(name="a", quote_style=""),
                     ),
                     joins=[],
                 ),
                 group_by=[],
                 having=None,
                 projection=[
-                    Column(
-                        ident=Identifier(idents=[Name(name="x", quote_style="")]),
-                    ).add_table(
+                    Column(Name(name="x", quote_style="")).add_table(
                         Table(
-                            ident=Identifier(idents=[Name(name="a", quote_style="")]),
+                            Name(name="a", quote_style=""),
                         ),
                     ),
                 ],
@@ -112,7 +96,7 @@ def test_column_already_has_table():
     tests that adding a table to a column a second time does not change the table
     """
     col = Column(
-        ident=Identifier(idents=[Name(name="x", quote_style="")]),
-    ).add_table(Table(ident=Identifier(idents=[Name(name="a", quote_style="")])))
-    col.add_table(Table(ident=Identifier(idents=[Name(name="b", quote_style="")])))
-    assert col.table.name == "a"
+        Name(name="x", quote_style=""),
+    ).add_table(Table(Name(name="a", quote_style="")))
+    col.add_table(Table(Name(name="b", quote_style="")))
+    assert col.table.name == Name("a")

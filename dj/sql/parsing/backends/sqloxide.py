@@ -16,11 +16,11 @@ from dj.sql.parsing.ast import (
     Expression,
     From,
     Function,
-    Namespace,
     IsNull,
     Join,
     JoinKind,
     Name,
+    Namespace,
     Number,
     Operation,
     Query,
@@ -137,8 +137,8 @@ def parse_expression(  # pylint: disable=R0911,R0912
         if match_keys(parse_tree, {"ExprWithAlias"}):
             subtree = parse_tree["ExprWithAlias"]
             return Alias(
-                parse_name(subtree["alias"]).to_identifier(),
-                parse_column(subtree["expr"]),
+                parse_name(subtree["alias"]),
+                child=parse_column(subtree["expr"]),
             )
         if match_keys(parse_tree, {"Subquery"}):
             return parse_query(parse_tree["Subquery"])
@@ -180,8 +180,8 @@ def parse_column(parse_tree: dict):
     if match_keys(parse_tree, {"Identifier"}, {"CompoundIdentifier"}):
         if "CompoundIdentifier" in parse_tree:
             subtree = parse_tree["CompoundIdentifier"]
-            return parse_namespace(subtree).to_column()
-        return parse_name(parse_tree["Identifier"]).to_column()
+            return parse_namespace(subtree).to_named_type(Column)
+        return parse_name(parse_tree["Identifier"]).to_named_type(Column)
     return parse_expression(parse_tree)
 
 
@@ -199,16 +199,16 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
             )
         return Alias(
             parse_name(alias["name"]),
-            parse_query(subtree["subquery"]),
+            child=parse_query(subtree["subquery"]),
         )
     if match_keys(parse_tree, {"Table"}):
         subtree = parse_tree["Table"]
 
-        table = parse_namespace(subtree["name"]).to_table()
+        table = parse_namespace(subtree["name"]).to_named_type(Table)
         if subtree["alias"]:
             return Alias(
                 parse_name(subtree["alias"]["name"]),
-                table,
+                child=table,
             )
         return table
 
@@ -223,7 +223,7 @@ def parse_function(parse_tree: dict) -> Function:
         namespace, name = parse_namespace(names).pop_self()
         return Function(
             name,
-            [parse_expression(exp) for exp in args],
+            args=[parse_expression(exp) for exp in args],
         ).add_namespace(namespace)
     raise DJParseException("Failed to parse Function")  # pragma: no cover
 
@@ -255,18 +255,17 @@ def parse_join(parse_tree: dict) -> Join:
 
 def parse_from(parse_list: List[dict]) -> From:
     """parse the from of a select"""
-    if len(parse_list) != 1:
-        raise DJParseException("Expected single From statement")
-    parse_tree = parse_list[0]
-    if match_keys(
-        parse_tree,
-        {"relation", "joins"},
-    ):
-        return From(
-            parse_table(parse_tree["relation"]),
-            [parse_join(join) for join in parse_tree["joins"]],
-        )
-    raise DJParseException("Failed to parse From")  # pragma: no cover
+    tables, joins = [], []
+    for parse_tree in parse_list:
+        if match_keys(
+            parse_tree,
+            {"relation", "joins"},
+        ):
+            tables.append(parse_table(parse_tree["relation"]))
+            joins+=[parse_join(join) for join in parse_tree["joins"]]
+        else:
+            raise DJParseException("Failed to parse From")  # pragma: no cover
+    return From(tables, joins)
 
 
 def parse_select(parse_tree: dict) -> Select:
@@ -276,7 +275,6 @@ def parse_select(parse_tree: dict) -> Select:
         {"distinct", "from", "group_by", "having", "projection", "selection"},
     ):
         return Select(
-            parse_tree["distinct"],
             parse_from(parse_tree["from"]),
             [parse_expression(exp) for exp in parse_tree["group_by"]],
             parse_expression(parse_tree["having"])
@@ -287,6 +285,7 @@ def parse_select(parse_tree: dict) -> Select:
             if parse_tree["selection"] is not None
             else None,
             None,
+            parse_tree["distinct"],
         )
 
     raise DJParseException("Failed to parse Select")  # pragma: no cover
@@ -296,13 +295,13 @@ def parse_ctes(parse_tree: dict) -> List[Alias[Select]]:
     """parse the ctes of a query"""
     if match_keys_subset(parse_tree, {"cte_tables"}):
         subtree = parse_tree["cte_tables"]
-        ctes = []
+        ctes: List[Alias[Select]] = []
         for aliased_query in subtree:
             ctes.append(
                 Alias(
                     parse_name(aliased_query["alias"]["name"]),
-                    parse_select(aliased_query["query"]["body"]["Select"]),
-                )
+                    child=parse_select(aliased_query["query"]["body"]["Select"]),
+                ),
             )
         return ctes
     raise DJParseException("Failed to parse ctes")  # pragma: no cover
@@ -337,7 +336,7 @@ def parse_oxide_tree(parse_tree: dict) -> Query:
             parse_tree["Query"],
         )
 
-    raise DJParseException("Failed to parse query")  # pragma: no cover
+    raise DJParseException("Failed to parse Query")  # pragma: no cover
 
 
 def parse(sql: str, dialect: str = "ansi") -> Query:

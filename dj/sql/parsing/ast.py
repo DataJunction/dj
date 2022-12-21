@@ -19,7 +19,6 @@ from typing import (
     Union,
 )
 
-
 from dj.sql.parsing.backends.exceptions import DJParseException
 
 
@@ -43,9 +42,10 @@ class DJEnum(Enum):
     def __repr__(self) -> str:
         return str(self)
 
+
 # typevar used for node methods that return self
 # so the typesystem can correlate the self type with the return type
-TNode = TypeVar("TNode", bound="Node")
+TNode = TypeVar("TNode", bound="Node")  # pylint: disable=C0103
 
 
 class Node(ABC):
@@ -87,14 +87,6 @@ class Node(ABC):
         self._parents -= set(parents)
         return self
 
-    def compile_parents(self: TNode) -> TNode:
-        """recurse through ast and add parents to nodes
-
-        Note: this function is useful for building asts by hand
-        """
-        self.apply(lambda node: (node, None)[1])
-        return self
-
     def add_self_as_parent(self: TNode) -> TNode:
         """adds self as a parent to all children"""
         for child in self.children:
@@ -127,7 +119,7 @@ class Node(ABC):
         """
 
         def make_child_generator():
-            """makes a generator enclosing self to return not obfuscated fields (fields without starting `_`)"""
+            """makes a generator enclosing self to return not obfuscated fields (fields without starting `_`)"""  # pylint: disable=C0301
             for self_field in fields(self):
                 if not self_field.name.startswith("_") if not obfuscated else True:
                     yield self.__dict__[self_field.name]
@@ -154,7 +146,7 @@ class Node(ABC):
 
     @property
     def children(self) -> Iterator["Node"]:
-        """returns an iterator of all nodes that are one step from the current node down including through iterables"""
+        """returns an iterator of all nodes that are one step from the current node down including through iterables"""  # pylint: disable=C0301
         return self.fields(flat=True, nodes_only=True, obfuscated=False, nones=False)
 
     def filter(self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
@@ -217,6 +209,10 @@ class Node(ABC):
     def __hash__(self) -> int:
         """hash a node"""
 
+    @abstractmethod
+    def __str__(self) -> str:
+        """get the string of a node"""
+
 
 class Expression(Node):
     """an expression type simply for type checking"""
@@ -229,14 +225,9 @@ class Name(Node):
     name: str
     quote_style: str = ""
 
-    def __str__(self) -> str:
-        return (
-            f"{self.quote_style}{self.name}{self.quote_style}"  # pylint: disable=C0301
-        )
-
-    def to(self, type: Type["Named"]) -> "Named":
+    def to_named_type(self, named_type: Type["Named"]) -> "Named":
         """transform the name into a specific Named that only requires a name to create"""
-        return type(self)
+        return named_type(self)
 
     def to_namespace(self) -> "Namespace":
         """transforms a single Name to a single item Identifier"""
@@ -245,8 +236,14 @@ class Name(Node):
     def __hash__(self) -> int:
         return hash(self.name + self.quote_style)
 
+    def __str__(self) -> str:
+        return (
+            f"{self.quote_style}{self.name}{self.quote_style}"  # pylint: disable=C0301
+        )
 
-TNamed = TypeVar("TNamed", bound="Named")
+
+TNamed = TypeVar("TNamed", bound="Named")  # pylint: disable=C0103
+
 
 @dataclass(eq=False)
 class Namespace(Node):
@@ -254,7 +251,7 @@ class Namespace(Node):
 
     names: List[Name]
 
-    def to(self, type: Type[TNamed]) -> TNamed:
+    def to_named_type(self, named_type: Type[TNamed]) -> TNamed:
         """transform the namespace into a column whose name is the last name in the namespace
 
         if the namespace contains a single name,
@@ -263,12 +260,12 @@ class Namespace(Node):
         """
         if not self.names:
             raise DJParseException("Namespace is empty")
-        converted = type(self.names.pop().clear_parents())
+        converted = named_type(self.names.pop().clear_parents())
         if self.names:
             converted.add_namespace(self)
         return converted
 
-    def pop_self(self) -> Tuple[Name, "Namespace"]:
+    def pop_self(self) -> Tuple["Namespace", Name]:
         """a utility function that returns the last name and the remaining namespace as a tuple
 
         useful for parsing compound identifiers and revealing
@@ -290,21 +287,16 @@ class Named(Expression):
 
     name: Name
 
-    _namespace: Optional[Namespace] = field(repr=False, init=False, default=None)
-
-    @property
-    def namespace(self) -> Optional[Namespace]:
-        """return the preceding Namespace of the Named node if any"""
-        return self._namespace
+    namespace: Optional[Namespace] = None
 
     def add_namespace(self: TNamed, namespace: Optional[Namespace]) -> TNamed:
         """add a namespace to the Table if one does not exist"""
-        if self._namespace is None:
-            self._namespace = namespace
+        if self.namespace is None:
+            self.namespace = namespace
         return self.add_self_as_parent()
 
-    def alias_or_name(self) -> str:
-        """get the alias name of a node if it is the descendant of an alias otherwise get its own name"""
+    def alias_or_name(self) -> Name:
+        """get the alias name of a node if it is the descendant of an alias otherwise get its own name"""  # pylint: disable=C0301
         if len(self.parents) == 1:
             parent = tuple(self.parents)[0]
             if isinstance(parent, Alias):
@@ -337,6 +329,9 @@ class UnaryOp(Operation):
 
     def __hash__(self) -> int:
         return hash((UnaryOp, self.op))
+
+    def __str__(self) -> str:
+        return f"{self.op.value} {(self.expr)}"
 
 
 # pylint: disable=C0103
@@ -376,6 +371,9 @@ class BinaryOp(Operation):
     def __hash__(self) -> int:
         return hash((BinaryOp, self.op))
 
+    def __str__(self) -> str:
+        return f"{(self.left)} {self.op.value} {(self.right)}"
+
 
 @dataclass(eq=False)
 class Between(Operation):
@@ -387,6 +385,9 @@ class Between(Operation):
 
     def __hash__(self) -> int:
         return hash((Between, self.low, self.high))
+
+    def __str__(self) -> str:
+        return f"{(self.expr)} BETWEEN {(self.low)} AND {(self.high)}"
 
 
 @dataclass(eq=False)
@@ -401,6 +402,16 @@ class Case(Expression):
     def __hash__(self) -> int:
         return id(self)
 
+    def __str__(self) -> str:
+        branches = "\n\tWHEN ".join(
+            f"{(cond)} THEN {(result)}"
+            for cond, result in zip(self.conditions, self.results)
+        )
+        return f"""(CASE
+        WHEN {branches}
+        ELSE {(self.else_result)}
+    END)"""
+
 
 @dataclass(eq=False)
 class Function(Named, Operation):
@@ -410,6 +421,9 @@ class Function(Named, Operation):
 
     def __hash__(self) -> int:
         return hash(Function)
+
+    def __str__(self) -> str:
+        return f"{self.name}({', '.join(str(arg) for arg in self.args)})"
 
 
 @dataclass(eq=False)
@@ -421,12 +435,20 @@ class IsNull(Operation):
     def __hash__(self) -> int:
         return hash(IsNull)
 
+    def __str__(self) -> str:
+        return f"{(self.expr)} IS NULL"
+
 
 @dataclass(eq=False)  # type: ignore
 class Value(Expression):
     """base class for all values number, string, boolean"""
 
     value: Union[str, bool, float, int]
+
+    def __str__(self) -> str:
+        if isinstance(self, String):
+            return f"'{self.value}'"
+        return str(self.value)
 
 
 @dataclass(eq=False)
@@ -477,6 +499,9 @@ class Alias(Named, Generic[NodeType]):
     def __hash__(self) -> int:
         return hash((Alias, self.name))
 
+    def __str__(self) -> str:
+        return f"{self.child} AS {self.name}"
+
 
 @dataclass(eq=False)
 class Column(Named):
@@ -497,6 +522,11 @@ class Column(Named):
 
     def __hash__(self) -> int:
         return hash((Column, self.name))
+
+    def __str__(self) -> str:
+        prefix = "" if self.namespace is None else str(self.namespace) + "."
+        prefix += "" if self.table is None else str(self.table.alias_or_name()) + "."
+        return prefix + str(self.name)
 
 
 @dataclass(eq=False)
@@ -519,6 +549,9 @@ class Wildcard(Expression):
     def __hash__(self) -> int:  # pragma: no cover
         return id(Wildcard)
 
+    def __str__(self) -> str:
+        return "*"
+
 
 @dataclass(eq=False)
 class Table(Named):
@@ -540,6 +573,12 @@ class Table(Named):
 
     def __hash__(self) -> int:
         return hash((Table, self.name))
+
+    def __str__(self) -> str:
+        namespace_str = ""
+        if self.namespace:
+            namespace_str = str(self.namespace) + "."
+        return namespace_str + str(self.name)
 
 
 # pylint: disable=C0103
@@ -567,32 +606,59 @@ class Join(Node):
     def __hash__(self) -> int:
         return hash((Join, self.kind))
 
+    def __str__(self) -> str:
+        return f"""{self.kind.value} {self.table}
+        ON {self.on}"""
+
 
 @dataclass(eq=False)
 class From(Node):
     """a from that belongs to a select"""
 
-    table: Union[Table, Alias[Table], Alias["Select"]]
+    tables: List[Union[Table, Alias[Table], Alias["Select"]]]
     joins: List[Join] = field(default_factory=list)
 
     def __hash__(self) -> int:
         return id(self)
+
+    def __str__(self) -> str:
+        return (
+            f"FROM {', '.join(str(table) for table in self.tables)}"
+            + "\n"
+            + "\n".join(str(join) for join in self.joins)
+        )
 
 
 @dataclass(eq=False)
 class Select(Node):
     """a single select statement type"""
 
-    distinct: bool
     from_: From
     group_by: List[Expression] = field(default_factory=list)
     having: Optional[Expression] = None
     projection: List[Expression] = field(default_factory=list)
     where: Optional[Expression] = None
     limit: Optional[Number] = None
+    distinct: bool = False
 
     def __hash__(self) -> int:
         return id(self)
+
+    def __str__(self) -> str:
+        parts = ["SELECT "]
+        if self.distinct:
+            parts.append("DISTINCT ")
+        projection = ",\n\t".join(str(exp) for exp in self.projection)
+        parts.extend((projection, "\n", str(self.from_), "\n"))
+        if self.where is not None:
+            parts.extend(("WHERE ", str(self.where), "\n"))
+        if self.group_by:
+            parts.extend(("GROUP BY ", ", ".join(str(exp) for exp in self.group_by)))
+        if self.having is not None:
+            parts.extend(("HAVING ", str(self.having), "\n"))
+        if self.limit is not None:
+            parts.extend(("LIMIT ", str(self.limit), "\n"))
+        return " ".join(parts)
 
 
 @dataclass(eq=False)
@@ -604,3 +670,14 @@ class Query(Expression):
 
     def __hash__(self):
         return id(self)
+
+    def __str__(self) -> str:
+        subquery = bool(self.parents)
+        ctes = ",\n".join(f"{cte.name} AS ({(cte.child)})" for cte in self.ctes)
+        with_ = "WITH" if ctes else ""
+        select = f"({(self.select)})" if subquery else (self.select)
+        return f"""
+            {with_}
+            {ctes}
+            {select}
+        """.strip()
