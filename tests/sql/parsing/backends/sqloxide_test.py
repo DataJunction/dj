@@ -7,7 +7,6 @@ from dj.sql.parsing.ast import (
     Between,
     Boolean,
     Column,
-    Identifier,
     Name,
     Number,
     UnaryOp,
@@ -86,7 +85,7 @@ def test_parse_negated_between():
     ) == UnaryOp(
         op=UnaryOpKind.Not,
         expr=Between(
-            expr=Column(ident=Identifier(idents=[Name(name="x", quote_style="")])),
+            expr=Column(Name(name="x", quote_style="")),
             low=Number(value=0),
             high=Number(value=1),
         ),

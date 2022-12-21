@@ -11,10 +11,10 @@ from dj.sql.parsing.ast import (
     BinaryOpKind,
     Column,
     From,
-    Identifier,
     Join,
     JoinKind,
     Name,
+    Namespace,
     Query,
     Select,
     Table,
@@ -29,18 +29,16 @@ def derived_subquery():
     """
     return Query(
         select=Select(
-            distinct=False,
             from_=From(
                 table=Alias(
-                    ident=Identifier(idents=[Name(name="t1", quote_style="")]),
+                    name=Name(name="t1", quote_style=""),
+                    namespace=None,
                     child=Query(
                         select=Select(
-                            distinct=False,
                             from_=From(
                                 table=Table(
-                                    ident=Identifier(
-                                        idents=[Name(name="t", quote_style="")],
-                                    ),
+                                    name=Name(name="t", quote_style=""),
+                                    namespace=None,
                                 ),
                                 joins=[],
                             ),
@@ -49,6 +47,7 @@ def derived_subquery():
                             projection=[Wildcard()],
                             where=None,
                             limit=None,
+                            distinct=False,
                         ),
                         ctes=[],
                     ),
@@ -57,24 +56,21 @@ def derived_subquery():
                     Join(
                         kind=JoinKind.Inner,
                         table=Table(
-                            ident=Identifier(idents=[Name(name="t2", quote_style="")]),
+                            name=Name(name="t2", quote_style=""),
+                            namespace=None,
                         ),
                         on=BinaryOp(
                             left=Column(
-                                ident=Identifier(
-                                    idents=[
-                                        Name(name="t1", quote_style=""),
-                                        Name(name="c", quote_style=""),
-                                    ],
+                                name=Name(name="c", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="t1", quote_style="")],
                                 ),
                             ),
                             op=BinaryOpKind.Eq,
                             right=Column(
-                                ident=Identifier(
-                                    idents=[
-                                        Name(name="t2", quote_style=""),
-                                        Name(name="c", quote_style=""),
-                                    ],
+                                name=Name(name="c", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="t2", quote_style="")],
                                 ),
                             ),
                         ),
@@ -85,24 +81,17 @@ def derived_subquery():
             having=None,
             projection=[
                 Column(
-                    ident=Identifier(
-                        idents=[
-                            Name(name="t1", quote_style=""),
-                            Name(name="a", quote_style=""),
-                        ],
-                    ),
+                    name=Name(name="a", quote_style=""),
+                    namespace=Namespace(names=[Name(name="t1", quote_style="")]),
                 ),
                 Column(
-                    ident=Identifier(
-                        idents=[
-                            Name(name="t2", quote_style=""),
-                            Name(name="b", quote_style=""),
-                        ],
-                    ),
+                    name=Name(name="b", quote_style=""),
+                    namespace=Namespace(names=[Name(name="t2", quote_style="")]),
                 ),
             ],
             where=None,
             limit=None,
+            distinct=False,
         ),
         ctes=[],
-    ).compile_parents()
+    )

@@ -8,7 +8,6 @@ from dj.sql.parsing.ast import (
     Boolean,
     Column,
     From,
-    Identifier,
     Name,
     Number,
     Query,
@@ -29,8 +28,8 @@ def test_trivial_ne(trivial_query):
             ctes=[],
             select=Select(
                 distinct=False,
-                from_=From(table=Table(Identifier([Name(name="b")]))),
-                projection=[Column(Identifier([Name("a")]))],
+                from_=From(table=Table(Name(name="b"))),
+                projection=[Column(Name("a"))],
             ),
         ),
     )
@@ -40,14 +39,14 @@ def test_findall_trivial(trivial_query):
     """
     test find_all on a trivial query
     """
-    assert [Table(Identifier([Name("a")]))] == list(trivial_query.find_all(Table))
+    assert [Table(Name("a"))] == list(trivial_query.find_all(Table))
 
 
 def test_filter_trivial(trivial_query):
     """
     test filtering nodes of a trivial query
     """
-    assert [Table(Identifier([Name("a")]))] == list(
+    assert [Table(Name("a"))] == list(
         trivial_query.filter(lambda node: isinstance(node, Table)),
     )
 
@@ -60,12 +59,7 @@ def test_flatten_trivial(trivial_query):
         Query(
             select=Select(
                 distinct=False,
-                from_=From(
-                    table=Table(
-                        ident=Identifier(idents=[Name(name="a", quote_style="")]),
-                    ),
-                    joins=[],
-                ),
+                from_=From(table=Table(name=Name(name="a", quote_style="")), joins=[]),
                 group_by=[],
                 having=None,
                 projection=[Wildcard()],
@@ -76,22 +70,15 @@ def test_flatten_trivial(trivial_query):
         ),
         Select(
             distinct=False,
-            from_=From(
-                table=Table(ident=Identifier(idents=[Name(name="a", quote_style="")])),
-                joins=[],
-            ),
+            from_=From(table=Table(name=Name(name="a", quote_style="")), joins=[]),
             group_by=[],
             having=None,
             projection=[Wildcard()],
             where=None,
             limit=None,
         ),
-        From(
-            table=Table(ident=Identifier(idents=[Name(name="a", quote_style="")])),
-            joins=[],
-        ),
-        Table(ident=Identifier(idents=[Name(name="a", quote_style="")])),
-        Identifier(idents=[Name(name="a", quote_style="")]),
+        From(table=Table(name=Name(name="a", quote_style="")), joins=[]),
+        Table(name=Name(name="a", quote_style="")),
         Name(name="a", quote_style=""),
         Wildcard(),
     ] == list(trivial_query.flatten())
@@ -110,23 +97,21 @@ def test_named_alias_or_name_aliased():
     """
     test a named node for returning its alias name when a child of an alias
     """
-    named = Table(Identifier([Name(name="a")]))
-    alias = Alias(
-        Identifier([Name(name="alias")]),
+    named = Table(Name(name="a"))
+    _ = Alias(
+        Name(name="alias"),
         child=named,
     )
-    named.add_parents(alias)
-    assert named.alias_or_name() == "alias"
+    assert named.alias_or_name() == Name("alias")
 
 
 def test_named_alias_or_name_not_aliased():
     """
     test a named node for returning its name when not a child of an alias
     """
-    named = Table(Identifier([Name(name="a")]))
-    from_ = From(named)
-    named.add_parents(from_)
-    assert named.alias_or_name() == "a"
+    named = Table(Name(name="a"))
+    _ = From(named)
+    assert named.alias_or_name() == Name("a")
 
 
 @pytest.mark.parametrize("name1, name2", [("a", "b"), ("c", "d")])
@@ -134,14 +119,14 @@ def test_column_hash(name1, name2):
     """
     test column hash
     """
-    assert hash(Column(Identifier([Name(name1)]))) == hash(
-        Column(Identifier([Name(name1)])),
+    assert hash(Column(Name(name1))) == hash(
+        Column(Name(name1)),
     )
-    assert hash(Column(Identifier([Name(name1)]))) != hash(
-        Column(Identifier([Name(name2)])),
+    assert hash(Column(Name(name1))) != hash(
+        Column(Name(name2)),
     )
-    assert hash(Column(Identifier([Name(name1)]))) != hash(
-        Table(Identifier([Name(name1)])),
+    assert hash(Column(Name(name1))) != hash(
+        Table(Name(name1)),
     )
 
 
@@ -181,18 +166,18 @@ def test_column_table():
     """
     test column hash
     """
-    column = Column(Identifier([Name("x")]))
-    column.add_table(Table(Identifier([Name("a")])))
-    assert column.table == Table(Identifier([Name("a")]))
+    column = Column(Name("x"))
+    column.add_table(Table(Name("a")))
+    assert column.table == Table(Name("a"))
 
 
 def test_table_columns():
     """
     test adding/getting columns from table
     """
-    table = Table(Identifier([Name("a")]))
-    table.add_columns(Column(Identifier([Name("x")])))
-    assert table.columns == [Column(Identifier([Name("x")]))]
+    table = Table(Name("a"))
+    table.add_columns(Column(Name("x")))
+    assert table.columns == [Column(Name("x"))]
 
 
 def test_wildcard_table_reference():
@@ -200,9 +185,9 @@ def test_wildcard_table_reference():
     test adding/getting table from wildcard
     """
     wildcard = Wildcard()
-    wildcard.add_table(Table(Identifier([Name("a")])))
-    wildcard = wildcard.add_table(Table(Identifier([Name("b")])))
-    assert wildcard.table == Table(Identifier([Name("a")]))
+    wildcard.add_table(Table(Name("a")))
+    wildcard = wildcard.add_table(Table(Name("b")))
+    assert wildcard.table == Table(Name("a"))
 
 
 def test_flatten():
