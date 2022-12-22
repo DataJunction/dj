@@ -30,28 +30,32 @@ def derived_subquery():
     return Query(
         select=Select(
             from_=From(
-                table=Alias(
-                    name=Name(name="t1", quote_style=""),
-                    namespace=None,
-                    child=Query(
-                        select=Select(
-                            from_=From(
-                                table=Table(
-                                    name=Name(name="t", quote_style=""),
-                                    namespace=None,
+                tables=[
+                    Alias(
+                        name=Name(name="t1", quote_style=""),
+                        namespace=None,
+                        child=Query(
+                            select=Select(
+                                from_=From(
+                                    tables=[
+                                        Table(
+                                            name=Name(name="t", quote_style=""),
+                                            namespace=None,
+                                        ),
+                                    ],
+                                    joins=[],
                                 ),
-                                joins=[],
+                                group_by=[],
+                                having=None,
+                                projection=[Wildcard()],
+                                where=None,
+                                limit=None,
+                                distinct=False,
                             ),
-                            group_by=[],
-                            having=None,
-                            projection=[Wildcard()],
-                            where=None,
-                            limit=None,
-                            distinct=False,
+                            ctes=[],
                         ),
-                        ctes=[],
                     ),
-                ),
+                ],
                 joins=[
                     Join(
                         kind=JoinKind.Inner,

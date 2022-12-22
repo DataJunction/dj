@@ -10,7 +10,7 @@ def sql(node: Node, dialect: str = "ansi") -> str:
     """
     try:
         return {"ansi": str}[dialect.lower().strip()](node)
-    except KeyError:
+    except KeyError as exc:
         raise ValueError(
             f"{dialect} is not an acceptable dialect.",
-        )
+        ) from exc

@@ -9,6 +9,7 @@ from dj.sql.parsing.ast import (
     Column,
     From,
     Name,
+    Namespace,
     Number,
     Query,
     Select,
@@ -17,6 +18,7 @@ from dj.sql.parsing.ast import (
     Wildcard,
     flatten,
 )
+from dj.sql.parsing.backends.exceptions import DJParseException
 
 
 def test_trivial_ne(trivial_query):
@@ -28,7 +30,7 @@ def test_trivial_ne(trivial_query):
             ctes=[],
             select=Select(
                 distinct=False,
-                from_=From(table=Table(Name(name="b"))),
+                from_=From(tables=[Table(Name(name="b"))]),
                 projection=[Column(Name("a"))],
             ),
         ),
@@ -59,7 +61,10 @@ def test_flatten_trivial(trivial_query):
         Query(
             select=Select(
                 distinct=False,
-                from_=From(table=Table(name=Name(name="a", quote_style="")), joins=[]),
+                from_=From(
+                    tables=[Table(name=Name(name="a", quote_style=""))],
+                    joins=[],
+                ),
                 group_by=[],
                 having=None,
                 projection=[Wildcard()],
@@ -70,14 +75,14 @@ def test_flatten_trivial(trivial_query):
         ),
         Select(
             distinct=False,
-            from_=From(table=Table(name=Name(name="a", quote_style="")), joins=[]),
+            from_=From(tables=[Table(name=Name(name="a", quote_style=""))], joins=[]),
             group_by=[],
             having=None,
             projection=[Wildcard()],
             where=None,
             limit=None,
         ),
-        From(table=Table(name=Name(name="a", quote_style="")), joins=[]),
+        From(tables=[Table(name=Name(name="a", quote_style=""))], joins=[]),
         Table(name=Name(name="a", quote_style="")),
         Name(name="a", quote_style=""),
         Wildcard(),
@@ -197,3 +202,30 @@ def test_flatten():
     assert list(
         flatten([1, {1, 2, 3}, range(5), (8, (18, [4, iter(range(9))], [10]))]),
     ) == [1, 1, 2, 3, range(0, 5), 8, 18, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 10]
+
+
+def test_remove_parents():
+    """
+    test removing parents
+    """
+    col = Column(Name("x"))
+    col.name.remove_parents(col)
+    assert col.name.parents == set()
+
+
+def test_empty_namespace_conversion_raises():
+    """
+    test if an empty namespace conversion raises
+    """
+    with pytest.raises(DJParseException):
+        Namespace([]).to_named_type(Column)
+
+
+def test_double_add_namespace():
+    """
+    test if an empty namespace conversion raises
+    """
+    col = Column(Name("x"))
+    col.add_namespace(Namespace([Name("a")]))
+    col.add_namespace(Namespace([Name("b")]))
+    assert str(col) == "a.x"
