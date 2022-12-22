@@ -14,6 +14,8 @@ from dj.sql.parsing.ast import (
     Function,
     Join,
     JoinKind,
+    Name,
+    Namespace,
     Number,
     Query,
     Select,
@@ -29,61 +31,109 @@ def tpcds_q01():
     """
     return Query(
         select=Select(
-            distinct=False,
             from_=From(
-                table=Alias(
-                    name="ctr1",
-                    quote_style="",
-                    child=Table(name="customer_total_return", quote_style=""),
-                ),
+                tables=[
+                    Alias(
+                        name=Name(name="ctr1", quote_style=""),
+                        namespace=None,
+                        child=Table(
+                            name=Name(name="customer_total_return", quote_style=""),
+                            namespace=None,
+                        ),
+                    ),
+                ],
                 joins=[
                     Join(
                         kind=JoinKind.Inner,
-                        table=Table(name="store", quote_style=""),
+                        table=Table(
+                            name=Name(name="store", quote_style=""),
+                            namespace=None,
+                        ),
                         on=BinaryOp(
                             left=BinaryOp(
                                 left=BinaryOp(
-                                    left=Column(name="s_store_sk", quote_style=""),
+                                    left=Column(
+                                        name=Name(name="s_store_sk", quote_style=""),
+                                        namespace=None,
+                                    ),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="ctr_store_sk", quote_style=""),
+                                    right=Column(
+                                        name=Name(name="ctr_store_sk", quote_style=""),
+                                        namespace=Namespace(
+                                            names=[Name(name="ctr1", quote_style="")],
+                                        ),
+                                    ),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
-                                    left=Column(name="s_state", quote_style=""),
+                                    left=Column(
+                                        name=Name(name="s_state", quote_style=""),
+                                        namespace=None,
+                                    ),
                                     op=BinaryOpKind.Eq,
                                     right=String(value="TN"),
                                 ),
                             ),
                             op=BinaryOpKind.And,
                             right=BinaryOp(
-                                left=Column(name="ctr_customer_sk", quote_style=""),
+                                left=Column(
+                                    name=Name(name="ctr_customer_sk", quote_style=""),
+                                    namespace=Namespace(
+                                        names=[Name(name="ctr1", quote_style="")],
+                                    ),
+                                ),
                                 op=BinaryOpKind.Eq,
-                                right=Column(name="c_customer_sk", quote_style=""),
+                                right=Column(
+                                    name=Name(name="c_customer_sk", quote_style=""),
+                                    namespace=None,
+                                ),
                             ),
                         ),
                     ),
                     Join(
                         kind=JoinKind.LeftOuter,
-                        table=Table(name="customer", quote_style=""),
+                        table=Table(
+                            name=Name(name="customer", quote_style=""),
+                            namespace=None,
+                        ),
                         on=BinaryOp(
                             left=BinaryOp(
                                 left=BinaryOp(
-                                    left=Column(name="s_store_sk", quote_style=""),
+                                    left=Column(
+                                        name=Name(name="s_store_sk", quote_style=""),
+                                        namespace=None,
+                                    ),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="ctr_store_sk", quote_style=""),
+                                    right=Column(
+                                        name=Name(name="ctr_store_sk", quote_style=""),
+                                        namespace=Namespace(
+                                            names=[Name(name="ctr1", quote_style="")],
+                                        ),
+                                    ),
                                 ),
                                 op=BinaryOpKind.And,
                                 right=BinaryOp(
-                                    left=Column(name="s_state", quote_style=""),
+                                    left=Column(
+                                        name=Name(name="s_state", quote_style=""),
+                                        namespace=None,
+                                    ),
                                     op=BinaryOpKind.Eq,
                                     right=String(value="TN"),
                                 ),
                             ),
                             op=BinaryOpKind.And,
                             right=BinaryOp(
-                                left=Column(name="ctr_customer_sk", quote_style=""),
+                                left=Column(
+                                    name=Name(name="ctr_customer_sk", quote_style=""),
+                                    namespace=Namespace(
+                                        names=[Name(name="ctr1", quote_style="")],
+                                    ),
+                                ),
                                 op=BinaryOpKind.Eq,
-                                right=Column(name="c_customer_sk", quote_style=""),
+                                right=Column(
+                                    name=Name(name="c_customer_sk", quote_style=""),
+                                    namespace=None,
+                                ),
                             ),
                         ),
                     ),
@@ -91,24 +141,35 @@ def tpcds_q01():
             ),
             group_by=[],
             having=None,
-            projection=[Column(name="c_customer_id", quote_style="")],
+            projection=[
+                Column(name=Name(name="c_customer_id", quote_style=""), namespace=None),
+            ],
             where=BinaryOp(
                 left=BinaryOp(
                     left=BinaryOp(
-                        left=Column(name="ctr_total_return", quote_style=""),
+                        left=Column(
+                            name=Name(name="ctr_total_return", quote_style=""),
+                            namespace=Namespace(
+                                names=[Name(name="ctr1", quote_style="")],
+                            ),
+                        ),
                         op=BinaryOpKind.Gt,
                         right=Query(
                             select=Select(
-                                distinct=True,
                                 from_=From(
-                                    table=Alias(
-                                        name="ctr2",
-                                        quote_style="",
-                                        child=Table(
-                                            name="customer_total_return",
-                                            quote_style="",
+                                    tables=[
+                                        Alias(
+                                            name=Name(name="ctr2", quote_style=""),
+                                            namespace=None,
+                                            child=Table(
+                                                name=Name(
+                                                    name="customer_total_return",
+                                                    quote_style="",
+                                                ),
+                                                namespace=None,
+                                            ),
                                         ),
-                                    ),
+                                    ],
                                     joins=[],
                                 ),
                                 group_by=[],
@@ -116,12 +177,15 @@ def tpcds_q01():
                                 projection=[
                                     BinaryOp(
                                         left=Function(
-                                            name="Avg",
-                                            quote_style="",
+                                            name=Name(name="Avg", quote_style=""),
+                                            namespace=Namespace(names=[]),
                                             args=[
                                                 Column(
-                                                    name="ctr_total_return",
-                                                    quote_style="",
+                                                    name=Name(
+                                                        name="ctr_total_return",
+                                                        quote_style="",
+                                                    ),
+                                                    namespace=None,
                                                 ),
                                             ],
                                         ),
@@ -130,100 +194,185 @@ def tpcds_q01():
                                     ),
                                 ],
                                 where=BinaryOp(
-                                    left=Column(name="ctr_store_sk", quote_style=""),
+                                    left=Column(
+                                        name=Name(name="ctr_store_sk", quote_style=""),
+                                        namespace=Namespace(
+                                            names=[Name(name="ctr1", quote_style="")],
+                                        ),
+                                    ),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="ctr_store_sk", quote_style=""),
+                                    right=Column(
+                                        name=Name(name="ctr_store_sk", quote_style=""),
+                                        namespace=Namespace(
+                                            names=[Name(name="ctr2", quote_style="")],
+                                        ),
+                                    ),
                                 ),
                                 limit=None,
+                                distinct=True,
                             ),
                             ctes=[],
                         ),
                     ),
                     op=BinaryOpKind.And,
                     right=BinaryOp(
-                        left=Column(name="s_store_sk", quote_style=""),
+                        left=Column(
+                            name=Name(name="s_store_sk", quote_style=""),
+                            namespace=None,
+                        ),
                         op=BinaryOpKind.Eq,
-                        right=Column(name="ctr_store_sk", quote_style=""),
+                        right=Column(
+                            name=Name(name="ctr_store_sk", quote_style=""),
+                            namespace=Namespace(
+                                names=[Name(name="ctr1", quote_style="")],
+                            ),
+                        ),
                     ),
                 ),
                 op=BinaryOpKind.Or,
                 right=BinaryOp(
                     left=BinaryOp(
-                        left=Column(name="s_state", quote_style=""),
+                        left=Column(
+                            name=Name(name="s_state", quote_style=""),
+                            namespace=None,
+                        ),
                         op=BinaryOpKind.NotEq,
                         right=String(value="TN"),
                     ),
                     op=BinaryOpKind.And,
                     right=BinaryOp(
-                        left=Column(name="ctr_customer_sk", quote_style=""),
+                        left=Column(
+                            name=Name(name="ctr_customer_sk", quote_style=""),
+                            namespace=Namespace(
+                                names=[Name(name="ctr1", quote_style="")],
+                            ),
+                        ),
                         op=BinaryOpKind.Eq,
-                        right=Column(name="c_customer_sk", quote_style=""),
+                        right=Column(
+                            name=Name(name="c_customer_sk", quote_style=""),
+                            namespace=None,
+                        ),
                     ),
                 ),
             ),
             limit=Number(value=100),
+            distinct=False,
         ),
         ctes=[
             Alias(
-                name="customer_total_return",
-                quote_style="",
+                name=Name(name="customer_total_return", quote_style=""),
+                namespace=None,
                 child=Select(
-                    distinct=False,
                     from_=From(
-                        table=Table(name="store_returns", quote_style=""),
+                        tables=[
+                            Table(
+                                name=Name(name="store_returns", quote_style=""),
+                                namespace=None,
+                            ),
+                        ],
                         joins=[
                             Join(
                                 kind=JoinKind.Inner,
-                                table=Table(name="date_dim", quote_style=""),
+                                table=Table(
+                                    name=Name(name="date_dim", quote_style=""),
+                                    namespace=None,
+                                ),
                                 on=BinaryOp(
-                                    left=Column(name="sr_customer_sk", quote_style=""),
+                                    left=Column(
+                                        name=Name(
+                                            name="sr_customer_sk",
+                                            quote_style="",
+                                        ),
+                                        namespace=Namespace(
+                                            names=[
+                                                Name(
+                                                    name="store_returns",
+                                                    quote_style="",
+                                                ),
+                                            ],
+                                        ),
+                                    ),
                                     op=BinaryOpKind.Eq,
-                                    right=Column(name="d_date_sk", quote_style=""),
+                                    right=Column(
+                                        name=Name(name="d_date_sk", quote_style=""),
+                                        namespace=Namespace(
+                                            names=[
+                                                Name(name="date_dim", quote_style=""),
+                                            ],
+                                        ),
+                                    ),
                                 ),
                             ),
                         ],
                     ),
                     group_by=[
-                        Column(name="sr_customer_sk", quote_style=""),
-                        Column(name="sr_store_sk", quote_style=""),
+                        Column(
+                            name=Name(name="sr_customer_sk", quote_style=""),
+                            namespace=None,
+                        ),
+                        Column(
+                            name=Name(name="sr_store_sk", quote_style=""),
+                            namespace=None,
+                        ),
                     ],
                     having=None,
                     projection=[
                         Alias(
-                            name="ctr_customer_sk",
-                            quote_style="",
-                            child=Column(name="sr_customer_sk", quote_style=""),
+                            name=Name(name="ctr_customer_sk", quote_style=""),
+                            namespace=None,
+                            child=Column(
+                                name=Name(name="sr_customer_sk", quote_style=""),
+                                namespace=None,
+                            ),
                         ),
                         Alias(
-                            name="ctr_store_sk",
-                            quote_style="",
-                            child=Column(name="sr_store_sk", quote_style=""),
+                            name=Name(name="ctr_store_sk", quote_style=""),
+                            namespace=None,
+                            child=Column(
+                                name=Name(name="sr_store_sk", quote_style=""),
+                                namespace=None,
+                            ),
                         ),
                         Alias(
-                            name="ctr_total_return",
-                            quote_style="",
+                            name=Name(name="ctr_total_return", quote_style=""),
+                            namespace=None,
                             child=Function(
-                                name="Sum",
-                                quote_style="",
-                                args=[Column(name="sr_return_amt", quote_style="")],
+                                name=Name(name="Sum", quote_style=""),
+                                namespace=Namespace(names=[]),
+                                args=[
+                                    Column(
+                                        name=Name(name="sr_return_amt", quote_style=""),
+                                        namespace=None,
+                                    ),
+                                ],
                             ),
                         ),
                     ],
                     where=BinaryOp(
                         left=BinaryOp(
-                            left=Column(name="sr_returned_date_sk", quote_style=""),
+                            left=Column(
+                                name=Name(name="sr_returned_date_sk", quote_style=""),
+                                namespace=None,
+                            ),
                             op=BinaryOpKind.Eq,
-                            right=Column(name="d_date_sk", quote_style=""),
+                            right=Column(
+                                name=Name(name="d_date_sk", quote_style=""),
+                                namespace=None,
+                            ),
                         ),
                         op=BinaryOpKind.And,
                         right=BinaryOp(
-                            left=Column(name="d_year", quote_style=""),
+                            left=Column(
+                                name=Name(name="d_year", quote_style=""),
+                                namespace=None,
+                            ),
                             op=BinaryOpKind.Eq,
                             right=Number(value=2001),
                         ),
                     ),
                     limit=None,
+                    distinct=False,
                 ),
             ),
         ],
-    ).compile_parents()
+    )

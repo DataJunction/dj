@@ -13,6 +13,8 @@ from dj.sql.parsing.ast import (
     From,
     Join,
     JoinKind,
+    Name,
+    Namespace,
     Query,
     Select,
     Table,
@@ -27,31 +29,73 @@ def derived_subquery():
     """
     return Query(
         select=Select(
-            distinct=False,
             from_=From(
-                table=Alias(
-                    name="t1",
-                    child=Query(
-                        select=Select(
-                            distinct=False,
-                            from_=From(table=Table(name="t")),
-                            projection=[Wildcard()],
+                tables=[
+                    Alias(
+                        name=Name(name="t1", quote_style=""),
+                        namespace=None,
+                        child=Query(
+                            select=Select(
+                                from_=From(
+                                    tables=[
+                                        Table(
+                                            name=Name(name="t", quote_style=""),
+                                            namespace=None,
+                                        ),
+                                    ],
+                                    joins=[],
+                                ),
+                                group_by=[],
+                                having=None,
+                                projection=[Wildcard()],
+                                where=None,
+                                limit=None,
+                                distinct=False,
+                            ),
+                            ctes=[],
                         ),
-                        ctes=[],
                     ),
-                ),
+                ],
                 joins=[
                     Join(
                         kind=JoinKind.Inner,
-                        table=Table(name="t2"),
+                        table=Table(
+                            name=Name(name="t2", quote_style=""),
+                            namespace=None,
+                        ),
                         on=BinaryOp(
-                            left=Column(name="c"),
+                            left=Column(
+                                name=Name(name="c", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="t1", quote_style="")],
+                                ),
+                            ),
                             op=BinaryOpKind.Eq,
-                            right=Column(name="c"),
+                            right=Column(
+                                name=Name(name="c", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="t2", quote_style="")],
+                                ),
+                            ),
                         ),
                     ),
                 ],
             ),
-            projection=[Column(name="a"), Column(name="b")],
+            group_by=[],
+            having=None,
+            projection=[
+                Column(
+                    name=Name(name="a", quote_style=""),
+                    namespace=Namespace(names=[Name(name="t1", quote_style="")]),
+                ),
+                Column(
+                    name=Name(name="b", quote_style=""),
+                    namespace=Namespace(names=[Name(name="t2", quote_style="")]),
+                ),
+            ],
+            where=None,
+            limit=None,
+            distinct=False,
         ),
-    ).compile_parents()
+        ctes=[],
+    )
