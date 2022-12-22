@@ -108,14 +108,6 @@ def test_union_exception():
         parse("select x from a union select x from b")
 
 
-def test_multiple_from_exception():
-    """
-    tests that implicit joins fails
-    """
-    with pytest.raises(DJParseException):
-        parse("select * from a, b")
-
-
 def test_join_must_specify_on():
     """
     tests to make sure a join must specify an on clause

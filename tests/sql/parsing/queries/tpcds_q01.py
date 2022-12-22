@@ -32,14 +32,16 @@ def tpcds_q01():
     return Query(
         select=Select(
             from_=From(
-                table=Alias(
-                    name=Name(name="ctr1", quote_style=""),
-                    namespace=None,
-                    child=Table(
-                        name=Name(name="customer_total_return", quote_style=""),
+                tables=[
+                    Alias(
+                        name=Name(name="ctr1", quote_style=""),
                         namespace=None,
+                        child=Table(
+                            name=Name(name="customer_total_return", quote_style=""),
+                            namespace=None,
+                        ),
                     ),
-                ),
+                ],
                 joins=[
                     Join(
                         kind=JoinKind.Inner,
@@ -155,17 +157,19 @@ def tpcds_q01():
                         right=Query(
                             select=Select(
                                 from_=From(
-                                    table=Alias(
-                                        name=Name(name="ctr2", quote_style=""),
-                                        namespace=None,
-                                        child=Table(
-                                            name=Name(
-                                                name="customer_total_return",
-                                                quote_style="",
-                                            ),
+                                    tables=[
+                                        Alias(
+                                            name=Name(name="ctr2", quote_style=""),
                                             namespace=None,
+                                            child=Table(
+                                                name=Name(
+                                                    name="customer_total_return",
+                                                    quote_style="",
+                                                ),
+                                                namespace=None,
+                                            ),
                                         ),
-                                    ),
+                                    ],
                                     joins=[],
                                 ),
                                 group_by=[],
@@ -260,10 +264,12 @@ def tpcds_q01():
                 namespace=None,
                 child=Select(
                     from_=From(
-                        table=Table(
-                            name=Name(name="store_returns", quote_style=""),
-                            namespace=None,
-                        ),
+                        tables=[
+                            Table(
+                                name=Name(name="store_returns", quote_style=""),
+                                namespace=None,
+                            ),
+                        ],
                         joins=[
                             Join(
                                 kind=JoinKind.Inner,

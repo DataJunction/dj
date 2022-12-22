@@ -14,7 +14,7 @@ def trivial_query():
     return Query(
         select=Select(
             from_=From(
-                table=Table(name=Name(name="a", quote_style=""), namespace=None),
+                tables=[Table(name=Name(name="a", quote_style=""), namespace=None)],
                 joins=[],
             ),
             group_by=[],

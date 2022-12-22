@@ -229,10 +229,6 @@ class Name(Node):
         """transform the name into a specific Named that only requires a name to create"""
         return named_type(self)
 
-    def to_namespace(self) -> "Namespace":
-        """transforms a single Name to a single item Identifier"""
-        return Namespace([self])
-
     def __hash__(self) -> int:
         return hash(self.name + self.quote_style)
 

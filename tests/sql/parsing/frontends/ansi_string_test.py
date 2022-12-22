@@ -8,6 +8,24 @@ from dj.sql.parsing.frontends.string import sql
 from tests.sql.utils import TPCDS_QUERY_SET, compare_query_strings, read_query
 
 
+def test_unnaceptable_dialect():
+    """
+    test that a dialect that we do not know raises
+    """
+    with pytest.raises(ValueError):
+        sql(Name("x"), "Unacceptable")
+
+
+def test_namespaced_table():
+    """
+    test namespaced table to string
+    """
+    assert (
+        str(Table("a").add_namespace(Namespace([Name("db"), Name("schema")])))
+        == "db.schema.a"
+    )
+
+
 def test_case_when_null_sql_string(case_when_null):
     """
     test converting a case_when_null query to sql string
@@ -47,9 +65,11 @@ def test_column_table_eq_compound_ident():
             select=Select(
                 distinct=False,
                 from_=From(
-                    table=Table(
-                        Name(name="a", quote_style=""),
-                    ),
+                    tables=[
+                        Table(
+                            Name(name="a", quote_style=""),
+                        ),
+                    ],
                     joins=[],
                 ),
                 group_by=[],
@@ -69,9 +89,11 @@ def test_column_table_eq_compound_ident():
             select=Select(
                 distinct=False,
                 from_=From(
-                    table=Table(
-                        Name(name="a", quote_style=""),
-                    ),
+                    tables=[
+                        Table(
+                            Name(name="a", quote_style=""),
+                        ),
+                    ],
                     joins=[],
                 ),
                 group_by=[],

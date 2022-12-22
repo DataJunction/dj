@@ -262,7 +262,7 @@ def parse_from(parse_list: List[dict]) -> From:
             {"relation", "joins"},
         ):
             tables.append(parse_table(parse_tree["relation"]))
-            joins+=[parse_join(join) for join in parse_tree["joins"]]
+            joins += [parse_join(join) for join in parse_tree["joins"]]
         else:
             raise DJParseException("Failed to parse From")  # pragma: no cover
     return From(tables, joins)

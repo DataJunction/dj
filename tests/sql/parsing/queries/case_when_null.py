@@ -29,14 +29,16 @@ def case_when_null():
     return Query(
         select=Select(
             from_=From(
-                table=Alias(
-                    name=Name(name="web", quote_style=""),
-                    namespace=None,
-                    child=Table(
-                        name=Name(name="web_v1", quote_style=""),
+                tables=[
+                    Alias(
+                        name=Name(name="web", quote_style=""),
                         namespace=None,
+                        child=Table(
+                            name=Name(name="web_v1", quote_style=""),
+                            namespace=None,
+                        ),
                     ),
-                ),
+                ],
                 joins=[],
             ),
             group_by=[],

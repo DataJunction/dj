@@ -33,10 +33,12 @@ def tpcds_q99():
     return Query(
         select=Select(
             from_=From(
-                table=Table(
-                    name=Name(name="catalog_sales", quote_style=""),
-                    namespace=None,
-                ),
+                tables=[
+                    Table(
+                        name=Name(name="catalog_sales", quote_style=""),
+                        namespace=None,
+                    ),
+                ],
                 joins=[],
             ),
             group_by=[
