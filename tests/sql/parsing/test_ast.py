@@ -8,6 +8,8 @@ from dj.sql.parsing.ast import (
     Boolean,
     Column,
     From,
+    Name,
+    Namespace,
     Number,
     Query,
     Select,
@@ -16,6 +18,7 @@ from dj.sql.parsing.ast import (
     Wildcard,
     flatten,
 )
+from dj.sql.parsing.backends.exceptions import DJParseException
 
 
 def test_trivial_ne(trivial_query):
@@ -27,8 +30,8 @@ def test_trivial_ne(trivial_query):
             ctes=[],
             select=Select(
                 distinct=False,
-                from_=From(table=Table(name="b")),
-                projection=[Column("a")],
+                from_=From(tables=[Table(Name(name="b"))]),
+                projection=[Column(Name("a"))],
             ),
         ),
     )
@@ -38,14 +41,14 @@ def test_findall_trivial(trivial_query):
     """
     test find_all on a trivial query
     """
-    assert [Table(name="a")] == list(trivial_query.find_all(Table))
+    assert [Table(Name("a"))] == list(trivial_query.find_all(Table))
 
 
 def test_filter_trivial(trivial_query):
     """
     test filtering nodes of a trivial query
     """
-    assert [Table(name="a")] == list(
+    assert [Table(Name("a"))] == list(
         trivial_query.filter(lambda node: isinstance(node, Table)),
     )
 
@@ -56,21 +59,32 @@ def test_flatten_trivial(trivial_query):
     """
     assert [
         Query(
-            ctes=[],
             select=Select(
                 distinct=False,
-                from_=From(table=Table(name="a")),
+                from_=From(
+                    tables=[Table(name=Name(name="a", quote_style=""))],
+                    joins=[],
+                ),
+                group_by=[],
+                having=None,
                 projection=[Wildcard()],
+                where=None,
+                limit=None,
             ),
+            ctes=[],
         ),
         Select(
             distinct=False,
-            from_=From(table=Table(name="a")),
+            from_=From(tables=[Table(name=Name(name="a", quote_style=""))], joins=[]),
             group_by=[],
+            having=None,
             projection=[Wildcard()],
+            where=None,
+            limit=None,
         ),
-        From(table=Table(name="a")),
-        Table(name="a"),
+        From(tables=[Table(name=Name(name="a", quote_style=""))], joins=[]),
+        Table(name=Name(name="a", quote_style="")),
+        Name(name="a", quote_style=""),
         Wildcard(),
     ] == list(trivial_query.flatten())
 
@@ -88,23 +102,21 @@ def test_named_alias_or_name_aliased():
     """
     test a named node for returning its alias name when a child of an alias
     """
-    named = Table("a")
-    alias = Alias(
-        "alias",
+    named = Table(Name(name="a"))
+    _ = Alias(
+        Name(name="alias"),
         child=named,
     )
-    named.add_parents(alias)
-    assert named.alias_or_name() == "alias"
+    assert named.alias_or_name() == Name("alias")
 
 
 def test_named_alias_or_name_not_aliased():
     """
     test a named node for returning its name when not a child of an alias
     """
-    named = Table("a")
-    from_ = From(named)
-    named.add_parents(from_)
-    assert named.alias_or_name() == "a"
+    named = Table(Name(name="a"))
+    _ = From(named)
+    assert named.alias_or_name() == Name("a")
 
 
 @pytest.mark.parametrize("name1, name2", [("a", "b"), ("c", "d")])
@@ -112,9 +124,27 @@ def test_column_hash(name1, name2):
     """
     test column hash
     """
-    assert hash(Column(name1, None)) == hash(Column(name1, None))
-    assert hash(Column(name1, None)) != hash(Column(name2, None))
-    assert hash(Column(name1, None)) != hash(Table(name1, None))
+    assert hash(Column(Name(name1))) == hash(
+        Column(Name(name1)),
+    )
+    assert hash(Column(Name(name1))) != hash(
+        Column(Name(name2)),
+    )
+    assert hash(Column(Name(name1))) != hash(
+        Table(Name(name1)),
+    )
+
+
+@pytest.mark.parametrize("name1, name2", [("a", "b"), ("c", "d")])
+def test_name_hash(name1, name2):
+    """
+    test name hash
+    """
+    assert hash(Name(name1)) == hash(
+        Name(name1),
+    )
+    assert hash(Name(name1)) != hash(Name(name2))
+    assert hash(Name(name1, "'")) == hash(Name(name1, "'"))
 
 
 @pytest.mark.parametrize("value1, value2", list(zip(range(5), range(5, 10))))
@@ -141,18 +171,18 @@ def test_column_table():
     """
     test column hash
     """
-    column = Column("x")
-    column.add_table(Table("a"))
-    assert column.table == Table("a")
+    column = Column(Name("x"))
+    column.add_table(Table(Name("a")))
+    assert column.table == Table(Name("a"))
 
 
 def test_table_columns():
     """
     test adding/getting columns from table
     """
-    table = Table("a")
-    table.add_columns(Column("x"))
-    assert table.columns == [Column(name="x")]
+    table = Table(Name("a"))
+    table.add_columns(Column(Name("x")))
+    assert table.columns == [Column(Name("x"))]
 
 
 def test_wildcard_table_reference():
@@ -160,9 +190,9 @@ def test_wildcard_table_reference():
     test adding/getting table from wildcard
     """
     wildcard = Wildcard()
-    wildcard.add_table(Table("a"))
-    wildcard = wildcard.add_table(Table("b"))
-    assert wildcard.table == Table("a")
+    wildcard.add_table(Table(Name("a")))
+    wildcard = wildcard.add_table(Table(Name("b")))
+    assert wildcard.table == Table(Name("a"))
 
 
 def test_flatten():
@@ -172,3 +202,30 @@ def test_flatten():
     assert list(
         flatten([1, {1, 2, 3}, range(5), (8, (18, [4, iter(range(9))], [10]))]),
     ) == [1, 1, 2, 3, range(0, 5), 8, 18, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 10]
+
+
+def test_remove_parents():
+    """
+    test removing parents
+    """
+    col = Column(Name("x"))
+    col.name.remove_parents(col)
+    assert col.name.parents == set()
+
+
+def test_empty_namespace_conversion_raises():
+    """
+    test if an empty namespace conversion raises
+    """
+    with pytest.raises(DJParseException):
+        Namespace([]).to_named_type(Column)
+
+
+def test_double_add_namespace():
+    """
+    test if an empty namespace conversion raises
+    """
+    col = Column(Name("x"))
+    col.add_namespace(Namespace([Name("a")]))
+    col.add_namespace(Namespace([Name("b")]))
+    assert str(col) == "a.x"

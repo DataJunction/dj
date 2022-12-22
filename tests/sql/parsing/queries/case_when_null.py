@@ -11,6 +11,8 @@ from dj.sql.parsing.ast import (
     Column,
     From,
     IsNull,
+    Name,
+    Namespace,
     Query,
     Select,
     Table,
@@ -26,58 +28,107 @@ def case_when_null():
     """
     return Query(
         select=Select(
-            distinct=False,
             from_=From(
-                table=Alias(
-                    name="web",
-                    quote_style="",
-                    child=Table(name="web_v1", quote_style=""),
-                ),
+                tables=[
+                    Alias(
+                        name=Name(name="web", quote_style=""),
+                        namespace=None,
+                        child=Table(
+                            name=Name(name="web_v1", quote_style=""),
+                            namespace=None,
+                        ),
+                    ),
+                ],
                 joins=[],
             ),
             group_by=[],
             having=None,
             projection=[
                 Alias(
-                    name="item_sk",
-                    quote_style="",
+                    name=Name(name="item_sk", quote_style=""),
+                    namespace=None,
                     child=Case(
                         conditions=[
-                            IsNull(expr=Column(name="item_sk", quote_style="")),
+                            IsNull(
+                                expr=Column(
+                                    name=Name(name="item_sk", quote_style=""),
+                                    namespace=Namespace(
+                                        names=[Name(name="web", quote_style="")],
+                                    ),
+                                ),
+                            ),
                         ],
-                        else_result=Column(name="item_sk", quote_style=""),
+                        else_result=Column(
+                            name=Name(name="item_sk", quote_style=""),
+                            namespace=Namespace(
+                                names=[Name(name="store", quote_style="")],
+                            ),
+                        ),
                         operand=None,
-                        results=[Column(name="item_sk", quote_style="")],
+                        results=[
+                            Column(
+                                name=Name(name="item_sk", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="web", quote_style="")],
+                                ),
+                            ),
+                        ],
                     ),
                 ),
                 Alias(
-                    name="d_date",
-                    quote_style="",
+                    name=Name(name="d_date", quote_style=""),
+                    namespace=None,
                     child=Case(
                         conditions=[
                             UnaryOp(
                                 op=UnaryOpKind.Not,
-                                expr=IsNull(expr=Column(name="d_date", quote_style="")),
+                                expr=IsNull(
+                                    expr=Column(
+                                        name=Name(name="d_date", quote_style=""),
+                                        namespace=Namespace(
+                                            names=[Name(name="web", quote_style="")],
+                                        ),
+                                    ),
+                                ),
                             ),
                         ],
-                        else_result=Column(name="d_date", quote_style=""),
+                        else_result=Column(
+                            name=Name(name="d_date", quote_style=""),
+                            namespace=Namespace(
+                                names=[Name(name="store", quote_style="")],
+                            ),
+                        ),
                         operand=None,
-                        results=[Column(name="d_date", quote_style="")],
+                        results=[
+                            Column(
+                                name=Name(name="d_date", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="web", quote_style="")],
+                                ),
+                            ),
+                        ],
                     ),
                 ),
                 Alias(
-                    name="web_sales",
-                    quote_style="",
-                    child=Column(name="cume_sales", quote_style=""),
+                    name=Name(name="web_sales", quote_style=""),
+                    namespace=None,
+                    child=Column(
+                        name=Name(name="cume_sales", quote_style=""),
+                        namespace=Namespace(names=[Name(name="web", quote_style="")]),
+                    ),
                 ),
                 Alias(
-                    name="store_sales",
-                    quote_style="",
-                    child=Column(name="cume_sales", quote_style=""),
+                    name=Name(name="store_sales", quote_style=""),
+                    namespace=None,
+                    child=Column(
+                        name=Name(name="cume_sales", quote_style=""),
+                        namespace=Namespace(names=[Name(name="store", quote_style="")]),
+                    ),
                 ),
             ],
             where=None,
             limit=None,
+            distinct=False,
         ),
         ctes=[],
-    ).compile_parents()
+    )

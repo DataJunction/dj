@@ -3,7 +3,15 @@ tests for the backend that takes sqloxide output and transforms it into an DJ as
 """
 import pytest
 
-from dj.sql.parsing.ast import Between, Boolean, Column, Number, UnaryOp, UnaryOpKind
+from dj.sql.parsing.ast import (
+    Between,
+    Boolean,
+    Column,
+    Name,
+    Number,
+    UnaryOp,
+    UnaryOpKind,
+)
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.sql.parsing.backends.sqloxide import parse, parse_op, parse_value
 from tests.sql.utils import TPCDS_QUERY_SET, read_query
@@ -77,7 +85,7 @@ def test_parse_negated_between():
     ) == UnaryOp(
         op=UnaryOpKind.Not,
         expr=Between(
-            expr=Column(name="x", quote_style=None),
+            expr=Column(Name(name="x", quote_style="")),
             low=Number(value=0),
             high=Number(value=1),
         ),
@@ -100,33 +108,9 @@ def test_union_exception():
         parse("select x from a union select x from b")
 
 
-def test_function_more_than_one_compound_ident_exception():
+def test_join_must_specify_on():
     """
-    tests that a function identified with more than one ident in a compound identifier fails
-    """
-    with pytest.raises(DJParseException):
-        parse("select s.um(x) from a")
-
-
-def test_table_more_than_one_compound_ident_exception():
-    """
-    tests that a table identified with more than one idents in a compound identifier fails
+    tests to make sure a join must specify an on clause
     """
     with pytest.raises(DJParseException):
-        parse("select x from a.b")
-
-
-def test_column_more_than_two_compound_ident_exception():
-    """
-    tests that a column identified with more than two idents in a compound identifier fails
-    """
-    with pytest.raises(DJParseException):
-        parse("select x.y.z from a")
-
-
-def test_multiple_from_exception():
-    """
-    tests that implicit joins fails
-    """
-    with pytest.raises(DJParseException):
-        parse("select * from a, b")
+        parse("select * from a inner join b")
