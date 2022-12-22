@@ -337,6 +337,35 @@ with a string expression. Pytest will only run tests which contain names that ma
 
     make test PYTEST_ARGS="-k test_main_compile"
 
+Running TPC-DS Parsing Tests
+-------------------------
+
+A TPC-DS test suite is included but skipped by default. As we incrementally build support for various SQL syntax into the DJ
+SQL AST, it's helpful to run these tests using the `--tpcds` flag.
+
+.. code-block:: sh
+
+    make test PYTEST_ARGS="--tpcds"
+
+You can run only the TPC-DS tests without the other tests using a `-k` filter.
+
+.. code-block:: sh
+
+    make test PYTEST_ARGS="--tpcds -k tpcds"
+
+Another useful option is matching on the full test identifier to run the test for a single specific query file from the
+parametrize list. This is useful when paired with `--pdb` to drop into the debugger.
+
+.. code-block:: sh
+
+    make test PYTEST_ARGS="--tpcds --pdb -k test_parsing_ansi_tpcds_queries[./ansi/query1.sql]"
+
+If you prefer to use tox, these flags all work the same way.
+
+.. code-block:: sh
+
+    tox tests/sql/parsing/queries/tpcds/test_tpcds.py::test_parsing_sparksql_tpcds_queries -- --tpcds
+
 Enabling ``pdb`` When Running Tests
 -----------------------------------
 
