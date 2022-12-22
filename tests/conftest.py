@@ -99,3 +99,16 @@ def client(session: Session, settings: Settings) -> Iterator[TestClient]:
         yield client
 
     app.dependency_overrides.clear()
+
+
+def pytest_addoption(parser):
+    """
+    Add a --tpcds flag that enables tpcds query parsing tests
+    """
+    parser.addoption(
+        "--tpcds",
+        action="store_true",
+        dest="tpcds",
+        default=False,
+        help="include tests for parsing TPC-DS queries",
+    )
