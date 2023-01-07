@@ -5,7 +5,7 @@ Tests for building nodes and extracting dependencies
 import pytest
 from sqlmodel import Session, select
 
-from dj.construction.build import (
+from dj.construction.extract import (
     ColumnDependencies,
     CompoundBuildException,
     DimensionJoinException,
