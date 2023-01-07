@@ -12,7 +12,6 @@ from typing import (
     Iterator,
     List,
     Optional,
-    Set,
     Tuple,
     Type,
     TypeVar,
@@ -20,6 +19,8 @@ from typing import (
 )
 
 from dj.sql.parsing.backends.exceptions import DJParseException
+
+PRIMITIVES = {int, float, str, bool, type(None)}
 
 
 def flatten(maybe_iterables: Any) -> Iterator:
@@ -53,7 +54,7 @@ class Node(ABC):
 
     DJ nodes are python dataclasses with the following patterns:
         - Attributes are either
-            - primitives (int, float, str, bool, None)
+            - PRIMITIVES (int, float, str, bool, None)
             - iterable from (list, tuple, set)
             - Enum
             - descendant of `Node`
@@ -61,48 +62,69 @@ class Node(ABC):
 
     """
 
-    _parents: Set["Node"]
+    parent: Optional["Node"] = None
+    parent_key: Optional[str] = None
 
     def __post_init__(self):
-        self._parents = set()
         self.add_self_as_parent()
 
-    @property
-    def parents(self) -> Set["Node"]:
-        """get the parents of the node"""
-        return self._parents
-
-    def clear_parents(self: TNode) -> TNode:
-        """remove all parents from the node"""
-        self._parents = set()
+    def clear_parent(self: TNode) -> TNode:
+        """remove parent from the node"""
+        self.parent = None
         return self
 
-    def add_parents(self: TNode, *parents: "Node") -> TNode:
-        """add parents to the node"""
-        self.parents.update(parents)
-        return self
-
-    def remove_parents(self: TNode, *parents: "Node") -> TNode:
-        """remove potential parents if they belong to the node"""
-        self._parents -= set(parents)
+    def set_parent(self: TNode, parent: "Node", parent_key: str) -> TNode:
+        """add parent to the node"""
+        self.parent = parent
+        self.parent_key = parent_key
         return self
 
     def add_self_as_parent(self: TNode) -> TNode:
         """adds self as a parent to all children"""
-        for child in self.children:
-            child.add_parents(self)
+        for name, child in self.fields(
+            flat=True,
+            nodes_only=True,
+            obfuscated=False,
+            nones=False,
+            named=True,
+        ):
+            child.set_parent(self, name)
         return self
+
+    def __setattr__(self, key: str, value: Any):
+        """Facilitates setting children using `.` syntax ensuring parent is attributed"""
+        if key == "parent":
+            object.__setattr__(self, key, value)
+            return
+
+        object.__setattr__(self, key, value)
+        for child in flatten(value):
+            if isinstance(child, Node) and not key.startswith("_"):
+                child.set_parent(self, key)
+
+    def get_nearest_parent_of_type(
+        self: "Node",
+        node_type: Type[TNode],
+    ) -> Optional[TNode]:
+        """traverse up the tree until you find a node of `node_type` or hit the root"""
+        if isinstance(self.parent, node_type):
+            return self.parent
+        if self.parent is None:
+            return None
+        return self.parent.get_nearest_parent_of_type(node_type)
 
     def flatten(self) -> Iterator["Node"]:
         """flatten the sub-ast of the node as an iterator"""
         return self.filter(lambda _: True)
 
+    # pylint: disable=R0913
     def fields(
         self,
         flat: bool = True,
         nodes_only: bool = True,
         obfuscated: bool = False,
         nones: bool = False,
+        named: bool = False,
     ) -> Iterator:
         """Returns an iterator over fields of a node with particular filters
 
@@ -113,6 +135,7 @@ class Node(ABC):
                 (typically accessed via a property)
             nones: yield values that are None
                 (optional fields without a value); trumped by `nodes_only`
+            named: yield pairs `(field name: str, field value)`
         Returns:
             Iterator: returns all children of a node given filters
                 and optional flattening (by default Iterator[Node])
@@ -121,25 +144,40 @@ class Node(ABC):
         def make_child_generator():
             """makes a generator enclosing self to return not obfuscated fields (fields without starting `_`)"""  # pylint: disable=C0301
             for self_field in fields(self):
-                if not self_field.name.startswith("_") if not obfuscated else True:
-                    yield self.__dict__[self_field.name]
+                if (
+                    not self_field.name.startswith("_") if not obfuscated else True
+                ) and (self_field.name in self.__dict__):
+                    value = self.__dict__[self_field.name]
+                    values = [value]
+                    if flat:
+                        values = flatten(value)
+                    for value in values:
+                        if named:
+                            yield (self_field.name, value)
+                        else:
+                            yield value
 
         # `iter`s used to satisfy mypy (`child_generator` type changes between generator, filter)
         child_generator = iter(make_child_generator())
-        if flat:
-            child_generator = iter(flatten(child_generator))
 
         if nodes_only:
             child_generator = iter(
                 filter(
-                    lambda child: isinstance(child, Node),
+                    lambda child: isinstance(child, Node)
+                    if not named
+                    else isinstance(child[1], Node),
                     child_generator,
                 ),
             )
 
         if not nones:
             child_generator = iter(
-                filter(lambda child: child is not None, child_generator),
+                filter(
+                    lambda child: (child is not None)
+                    if not named
+                    else (child[1] is not None),
+                    child_generator,
+                ),
             )  # pylint: disable=C0301
 
         return child_generator
@@ -147,7 +185,13 @@ class Node(ABC):
     @property
     def children(self) -> Iterator["Node"]:
         """returns an iterator of all nodes that are one step from the current node down including through iterables"""  # pylint: disable=C0301
-        return self.fields(flat=True, nodes_only=True, obfuscated=False, nones=False)
+        return self.fields(
+            flat=True,
+            nodes_only=True,
+            obfuscated=False,
+            nones=False,
+            named=False,
+        )
 
     def filter(self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
         """find all nodes that `func` returns `True` for"""
@@ -156,9 +200,9 @@ class Node(ABC):
         for node in chain(*[child.filter(func) for child in self.children]):
             yield node
 
-    def find_all(self, node_type: Type["Node"]) -> Iterator["Node"]:
+    def find_all(self, node_type: Type[TNode]) -> Iterator[TNode]:
         """find all nodes of a particular type in the node's sub-ast"""
-        return self.filter(lambda n: isinstance(n, node_type))
+        return self.filter(lambda n: isinstance(n, node_type))  # type: ignore
 
     def apply(self, func: Callable[["Node"], None]):
         """
@@ -171,7 +215,7 @@ class Node(ABC):
     def compare(self, other: "Node") -> bool:
         """a compare two ASTs"""
 
-        return not self.diff(other)
+        return id(self) == id(other) or hash(self) == hash(other)
 
     def diff(self, other: "Node") -> List[Tuple["Node", "Node"]]:
         """compare two ASTs for differences and return the pairs of differences"""
@@ -194,10 +238,9 @@ class Node(ABC):
         Compares all others for type equality only. No recursing.
         Note: Does not check (sub)AST. See `Node.compare` for comparing (sub)ASTs.
         """
-        primitives = {int, float, str, bool, type(None)}
         return type(self) == type(other) and all(  # pylint: disable=C0123
             s == o
-            if type(s) in primitives  # pylint: disable=C0123
+            if type(s) in PRIMITIVES  # pylint: disable=C0123
             else type(s) == type(o)  # pylint: disable=C0123
             for s, o in zip(
                 (self.fields(False, False, False, True)),
@@ -205,17 +248,36 @@ class Node(ABC):
             )
         )
 
-    @abstractmethod
     def __hash__(self) -> int:
         """hash a node"""
+        return hash(
+            tuple(
+                self.fields(
+                    flat=True,
+                    nodes_only=False,
+                    obfuscated=True,
+                    nones=True,
+                    named=False,
+                ),
+            ),
+        )
 
     @abstractmethod
     def __str__(self) -> str:
         """get the string of a node"""
 
 
+TExpression = TypeVar("TExpression", bound="Expression")  # pylint: disable=C0103
+
+
 class Expression(Node):
     """an expression type simply for type checking"""
+
+    def alias_or_self(self: TExpression) -> TExpression:
+        """get the alias name of an expression if it is the descendant of an alias otherwise get its own name"""  # pylint: disable=C0301
+        if isinstance(self.parent, Alias):
+            return self.parent  # type: ignore
+        return self
 
 
 @dataclass(eq=False)
@@ -228,9 +290,6 @@ class Name(Node):
     def to_named_type(self, named_type: Type["Named"]) -> "Named":
         """transform the name into a specific Named that only requires a name to create"""
         return named_type(self)
-
-    def __hash__(self) -> int:
-        return hash(self.name + self.quote_style)
 
     def __str__(self) -> str:
         return (
@@ -256,7 +315,7 @@ class Namespace(Node):
         """
         if not self.names:
             raise DJParseException("Namespace is empty")
-        converted = named_type(self.names.pop().clear_parents())
+        converted = named_type(self.names.pop().clear_parent())
         if self.names:
             converted.add_namespace(self)
         return converted
@@ -267,14 +326,11 @@ class Namespace(Node):
         useful for parsing compound identifiers and revealing
         the last name for another attribute
         """
-        last = self.names.pop().clear_parents()
+        last = self.names.pop().clear_parent()
         return self, last
 
     def __str__(self) -> str:
         return ".".join(str(name) for name in self.names)
-
-    def __hash__(self) -> int:
-        return hash(Namespace)
 
 
 @dataclass(eq=False)  # type: ignore
@@ -293,11 +349,7 @@ class Named(Expression):
 
     def alias_or_name(self) -> Name:
         """get the alias name of a node if it is the descendant of an alias otherwise get its own name"""  # pylint: disable=C0301
-        if len(self.parents) == 1:
-            parent = tuple(self.parents)[0]
-            if isinstance(parent, Alias):
-                return parent.name
-        return self.name
+        return self.alias_or_self().name
 
 
 class Operation(Expression):
@@ -322,9 +374,6 @@ class UnaryOp(Operation):
 
     op: UnaryOpKind  # pylint: disable=C0103
     expr: Expression
-
-    def __hash__(self) -> int:
-        return hash((UnaryOp, self.op))
 
     def __str__(self) -> str:
         return f"{self.op.value} {(self.expr)}"
@@ -360,12 +409,9 @@ class BinaryOpKind(DJEnum):
 class BinaryOp(Operation):
     """represents an operation that operates on two expressions"""
 
-    left: Expression
     op: BinaryOpKind  # pylint: disable=C0103
+    left: Expression
     right: Expression
-
-    def __hash__(self) -> int:
-        return hash((BinaryOp, self.op))
 
     def __str__(self) -> str:
         return f"{(self.left)} {self.op.value} {(self.right)}"
@@ -379,9 +425,6 @@ class Between(Operation):
     low: Expression
     high: Expression
 
-    def __hash__(self) -> int:
-        return hash((Between, self.low, self.high))
-
     def __str__(self) -> str:
         return f"{(self.expr)} BETWEEN {(self.low)} AND {(self.high)}"
 
@@ -394,9 +437,6 @@ class Case(Expression):
     else_result: Optional[Expression] = None
     operand: Optional[Expression] = None
     results: List[Expression] = field(default_factory=list)
-
-    def __hash__(self) -> int:
-        return id(self)
 
     def __str__(self) -> str:
         branches = "\n\tWHEN ".join(
@@ -415,9 +455,6 @@ class Function(Named, Operation):
 
     args: List[Expression] = field(default_factory=list)
 
-    def __hash__(self) -> int:
-        return hash(Function)
-
     def __str__(self) -> str:
         return f"{self.name}({', '.join(str(arg) for arg in self.args)})"
 
@@ -427,9 +464,6 @@ class IsNull(Operation):
     """class representing IS NULL"""
 
     expr: Expression
-
-    def __hash__(self) -> int:
-        return hash(IsNull)
 
     def __str__(self) -> str:
         return f"{(self.expr)} IS NULL"
@@ -461,26 +495,17 @@ class Number(Value):
             except ValueError:
                 self.value = float(self.value)
 
-    def __hash__(self) -> int:
-        return hash((Number, self.value))
-
 
 class String(Value):
     """string value"""
 
     value: str
 
-    def __hash__(self) -> int:
-        return hash((String, self.value))
-
 
 class Boolean(Value):
     """boolean True/False value"""
 
     value: bool
-
-    def __hash__(self) -> int:
-        return hash((Boolean, self.value))
 
 
 NodeType = TypeVar("NodeType", bound=Node)  # pylint: disable=C0103
@@ -491,9 +516,6 @@ class Alias(Named, Generic[NodeType]):
     """wraps node types with an alias"""
 
     child: Node = field(default_factory=Node)
-
-    def __hash__(self) -> int:
-        return hash((Alias, self.name))
 
     def __str__(self) -> str:
         return f"{self.child} AS {self.name}"
@@ -516,12 +538,15 @@ class Column(Named):
             self._table = table
         return self
 
-    def __hash__(self) -> int:
-        return hash((Column, self.name))
-
     def __str__(self) -> str:
-        prefix = "" if self.namespace is None else str(self.namespace) + "."
-        prefix += "" if self.table is None else str(self.table.alias_or_name()) + "."
+        prefix = "" if self.namespace is None else str(self.namespace)
+        if self.table is not None:
+            prefix += "" if not prefix else "."
+            if isinstance(self.table.parent, Alias):
+                prefix += str(self.table.parent.name)
+            else:
+                prefix += str(self.table)
+        prefix += "." if prefix else ""
         return prefix + str(self.name)
 
 
@@ -541,9 +566,6 @@ class Wildcard(Expression):
         if self._table is None:
             self._table = table
         return self
-
-    def __hash__(self) -> int:  # pragma: no cover
-        return id(Wildcard)
 
     def __str__(self) -> str:
         return "*"
@@ -567,9 +589,6 @@ class Table(Named):
             column.add_table(self)
         return self
 
-    def __hash__(self) -> int:
-        return hash((Table, self.name))
-
     def __str__(self) -> str:
         namespace_str = ""
         if self.namespace:
@@ -589,6 +608,7 @@ class JoinKind(DJEnum):
 
 
 # pylint: enable=C0103
+TableExpression = Union[Table, Alias[Table], "Select", Alias["Select"]]
 
 
 @dataclass(eq=False)
@@ -596,11 +616,8 @@ class Join(Node):
     """a join between tables"""
 
     kind: JoinKind
-    table: Union[Table, Alias]
+    table: TableExpression
     on: Expression  # pylint: disable=C0103
-
-    def __hash__(self) -> int:
-        return hash((Join, self.kind))
 
     def __str__(self) -> str:
         return f"""{self.kind.value} {self.table}
@@ -611,11 +628,8 @@ class Join(Node):
 class From(Node):
     """a from that belongs to a select"""
 
-    tables: List[Union[Table, Alias[Table], Alias["Select"]]]
+    tables: List[TableExpression]
     joins: List[Join] = field(default_factory=list)
-
-    def __hash__(self) -> int:
-        return id(self)
 
     def __str__(self) -> str:
         return (
@@ -626,7 +640,7 @@ class From(Node):
 
 
 @dataclass(eq=False)
-class Select(Node):
+class Select(Expression):
     """a single select statement type"""
 
     from_: From
@@ -637,10 +651,8 @@ class Select(Node):
     limit: Optional[Number] = None
     distinct: bool = False
 
-    def __hash__(self) -> int:
-        return id(self)
-
     def __str__(self) -> str:
+        subselect = not isinstance(self.parent, Query)
         parts = ["SELECT "]
         if self.distinct:
             parts.append("DISTINCT ")
@@ -654,7 +666,10 @@ class Select(Node):
             parts.extend(("HAVING ", str(self.having), "\n"))
         if self.limit is not None:
             parts.extend(("LIMIT ", str(self.limit), "\n"))
-        return " ".join(parts)
+        select = " ".join(parts)
+        if subselect:
+            return "(" + select + ")"
+        return select
 
 
 @dataclass(eq=False)
@@ -664,12 +679,9 @@ class Query(Expression):
     select: "Select"
     ctes: List[Alias["Select"]] = field(default_factory=list)
 
-    def __hash__(self):
-        return id(self)
-
     def __str__(self) -> str:
-        subquery = bool(self.parents)
-        ctes = ",\n".join(f"{cte.name} AS ({(cte.child)})" for cte in self.ctes)
+        subquery = bool(self.parent)
+        ctes = ",\n".join(f"{cte.name} AS {(cte.child)}" for cte in self.ctes)
         with_ = "WITH" if ctes else ""
         select = f"({(self.select)})" if subquery else (self.select)
         return f"""
