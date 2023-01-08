@@ -31,8 +31,8 @@ def test_dj_exception() -> None:
     exc = DJException(
         "Message",
         errors=[
-            DJError(message="Error 1", code=ErrorCode.UNKWNON_ERROR),
-            DJError(message="Error 2", code=ErrorCode.UNKWNON_ERROR),
+            DJError(message="Error 1", code=ErrorCode.UNKNOWN_ERROR),
+            DJError(message="Error 2", code=ErrorCode.UNKNOWN_ERROR),
         ],
     )
     assert (

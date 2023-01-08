@@ -8,16 +8,12 @@ from sqlmodel import Session, select
 from dj.construction.extract import (
     ColumnDependencies,
     CompoundBuildException,
-    DimensionJoinException,
-    InvalidSQLException,
-    MissingColumnException,
-    NodeTypeException,
-    UnknownNodeException,
     extract_dependencies,
     extract_dependencies_from_query,
     get_dj_node,
     make_name,
 )
+from dj.errors import DJError, DJException, ErrorCode
 from dj.models import Column
 from dj.models.node import Node, NodeType
 from dj.sql.parsing.ast import Alias, BinaryOp, BinaryOpKind
@@ -61,88 +57,25 @@ def test_make_name(namespace: str, name: str, expected_make_name: str):
     assert make_name(namespace, name) == expected_make_name
 
 
-def test_invalid_sql_exception():
-    """
-    Test raising an InvalidSQLException
-    """
-    assert "This is an exception message `foo`" in str(
-        InvalidSQLException("This is an exception message", Name("foo")),
-    )
-    assert "This is an exception message `foo` from `bar`" in str(
-        InvalidSQLException("This is an exception message", Name("foo"), Table("bar")),
-    )
-
-
-def test_dimension_join_exception():
-    """
-    Test raising an DimensionJoinException
-    """
-    assert "This is an exception message `foo`" in str(
-        DimensionJoinException("This is an exception message", "foo"),
-    )
-    assert "This is an exception message `foo`" in str(
-        DimensionJoinException("This is an exception message", "foo", Name("bar")),
-    )
-
-
-def test_missing_column_exception():
-    """
-    Test raising a MissingColumnException
-    """
-    assert "This is an exception message `foo`" in str(
-        MissingColumnException("This is an exception message", ASTColumn("foo")),
-    )
-    assert "This is an exception message `foo` from `bar`" in str(
-        MissingColumnException(
-            "This is an exception message",
-            ASTColumn("foo"),
-            Table("bar"),
-        ),
-    )
-
-
-def test_node_type_exception():
-    """
-    Test raising a NodeTypeException
-    """
-    assert "This is an exception message `foo`" in str(
-        NodeTypeException("This is an exception message", Name("foo")),
-    )
-    assert "This is an exception message `foo` from `bar`" in str(
-        NodeTypeException("This is an exception message", Name("foo"), Table("bar")),
-    )
-
-
-def test_unknown_node_exception():
-    """
-    Test raising an UnknownNodeException
-    """
-    assert "This is an exception message `foo`" in str(
-        UnknownNodeException("This is an exception message", Name("foo")),
-    )
-    assert "This is an exception message `foo` from `bar`" in str(
-        UnknownNodeException("This is an exception message", Name("foo"), Table("bar")),
-    )
-
-
 def test_compound_build_exception():
     """
     Test raising a CompoundBuildException
     """
     CompoundBuildException().reset()
     CompoundBuildException().set_raise(False)  # pylint: disable=protected-access
-    with CompoundBuildException().catch:  # pylint: disable=protected-access
-        raise InvalidSQLException("This SQL is invalid.", node=Name("foo"))
+    CompoundBuildException().catch(
+        error=DJError(
+            code=ErrorCode.INVALID_SQL_QUERY,
+            message="This SQL is invalid.",
+        ),
+        message="Testing a compound build exception",
+    )
 
     assert len(CompoundBuildException().errors) == 1
-    assert isinstance(CompoundBuildException().errors[0], InvalidSQLException)
+    assert CompoundBuildException().errors[0].code == ErrorCode.INVALID_SQL_QUERY
 
     CompoundBuildException().clear()
-    assert CompoundBuildException().errors == []
-    assert CompoundBuildException()._raise is False  # pylint: disable=protected-access
-
     CompoundBuildException().reset()
-    assert CompoundBuildException()._raise is True  # pylint: disable=protected-access
 
 
 class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
@@ -355,7 +288,7 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             "select event_type from customer_events2 having event_type_id.event_type='an_event'",
             "hive",
         )
-        with pytest.raises(InvalidSQLException):
+        with pytest.raises(DJException):
             extract_dependencies_from_query(session, query)
 
     def test_select_with_dimension_in_improper_place(self, session: Session):
@@ -370,10 +303,10 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             """,
             "hive",
         )
-        with pytest.raises(InvalidSQLException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             extract_dependencies_from_query(session, query)
 
-        assert "Cannot reference a dimension here." in str(exc_info.value)
+        assert "Cannot extract dependencies from SELECT" in str(exc_info.value)
 
     def test_select_with_dimension_in_improper_place_raise_false(
         self,
@@ -397,8 +330,8 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
         )  # Configure CompoundBuildException to just accumulate errors
         extract_dependencies_from_query(session, query)
         assert len(CompoundBuildException().errors) == 2
-        assert isinstance(CompoundBuildException().errors[0], MissingColumnException)
-        assert isinstance(CompoundBuildException().errors[1], InvalidSQLException)
+        assert CompoundBuildException().errors[0].code == ErrorCode.MISSING_COLUMNS
+        assert CompoundBuildException().errors[1].code == ErrorCode.INVALID_SQL_QUERY
         CompoundBuildException().reset()  # Reset the singleton
 
     def test_select_with_dimension_unjoinable(self, session: Session):
@@ -412,7 +345,7 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             """,
             "hive",
         )
-        with pytest.raises(DimensionJoinException):
+        with pytest.raises(DJException):
             extract_dependencies_from_query(session, query)
 
     def test_no_such_namespaced_column_in_existing_node(self, session: Session):
@@ -423,7 +356,7 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             "select a.event_type2 from customer_events2 a",
             "hive",
         )
-        with pytest.raises(MissingColumnException):
+        with pytest.raises(DJException):
             extract_dependencies_from_query(session, query)
 
     def test_no_such_column_in_existing_node(self, session: Session):
@@ -434,7 +367,7 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             "select event_type2 from customer_events2 ",
             "hive",
         )
-        with pytest.raises(MissingColumnException):
+        with pytest.raises(DJException):
             extract_dependencies_from_query(session, query)
 
     def test_dupe_column_refs(self, session: Session):
@@ -445,7 +378,7 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             "select event_type from customer_events2, event_type_id",
             "hive",
         )
-        with pytest.raises(InvalidSQLException):
+        with pytest.raises(DJException):
             extract_dependencies_from_query(session, query)
 
     def test_simple_select_from_single_transform(self, session: Session):
@@ -984,7 +917,7 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             "hive",
         )
 
-        with pytest.raises(InvalidSQLException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             extract_dependencies_from_query(session, query)
 
         assert (
@@ -1138,7 +1071,7 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             "hive",
         )
 
-        with pytest.raises(InvalidSQLException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             extract_dependencies_from_query(session, query)
 
         assert "You may only use an unnamed subquery alone" in str(exc_info.value)
@@ -1156,10 +1089,14 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             "hive",
         )
 
-        with pytest.raises(InvalidSQLException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             extract_dependencies_from_query(session, query)
 
-        assert "Duplicate name `ce` for table. `purchases AS ce`" in str(exc_info.value)
+        assert (
+            "Cannot extract dependencies from SELECT\n"
+            "The following error happened:\n"
+            "- Duplicate name `ce` for table purchases AS ce (error code: 201)"
+        ) in str(exc_info.value)
 
     def test_raise_on_unaliased_expression(self, session: Session):
         """
@@ -1184,7 +1121,7 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             "hive",
         )
 
-        with pytest.raises(InvalidSQLException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             extract_dependencies_from_query(session, query)
 
         assert "1 * 2 is an unnamed expression. Try adding an alias." in str(
@@ -1526,17 +1463,15 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
         returned_transactions = session.exec(
             select(Node).where(Node.name == "returned_transactions"),
         ).one()
-        with pytest.raises(CompoundBuildException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             extract_dependencies(session=session, node=returned_transactions)
 
-        assert "Found 2 issues:" in str(exc_info.value)
-        assert (
-            "InvalidSQLException: `transaction_id` appears in multiple "
-            "references and so must be namespaced." in str(exc_info.value)
+        assert "Cannot extract dependencies from node `returned_transactions`" in str(
+            exc_info.value,
         )
         assert (
-            "InvalidSQLException: `transaction_time` appears in multiple "
-            "references and so must be namespaced." in str(exc_info.value)
+            "`transaction_time` appears in multiple references and so must be namespaced."
+            in str(exc_info.value)
         )
 
     def test_extract_dependencies_from_node_with_unraised_exceptions(
@@ -1594,19 +1529,19 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             raise_=False,
         )
 
-        assert "UnknownNodeException" in str(CompoundBuildException())
+        assert "Found 2 issues" in str(CompoundBuildException())
 
     def test_get_dj_node_raise_unknown_node_exception(self, session: Session):
         """
         Test raising an unknown node exception when calling get_dj_node
         """
         CompoundBuildException().reset()
-        with pytest.raises(UnknownNodeException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             get_dj_node(session, "foobar")
 
         assert "No  node `foobar` exists." in str(exc_info.value)
 
-        with pytest.raises(UnknownNodeException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             get_dj_node(session, "foobar", kinds={NodeType.METRIC, NodeType.DIMENSION})
 
         assert "NodeType.DIMENSION" in str(exc_info.value)
@@ -1614,13 +1549,16 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
         assert "NodeType.SOURCE" not in str(exc_info.value)
         assert "NodeType.TRANSFORM" not in str(exc_info.value)
 
-        with pytest.raises(NodeTypeException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             # test that the event_type raises because it's a dimension and not a transform
             get_dj_node(session, "event_type", kinds={NodeType.TRANSFORM})
 
         assert (
-            "Node `event_type` is of type `NODETYPE.DIMENSION`. "
-            "Expected kind to be of NodeType.TRANSFORM. `event_type`"
+            "Cannot get DJ node event_type\n"
+            "The following error happened:\n"
+            "- Node `event_type` is of type `NODETYPE.DIMENSION`. "
+            "Expected kind to be of {' or '.join(str(k) for k in kinds)}. "
+            "(error code: 204)"
         ) in str(exc_info.value)
 
     def test_raise_on_unknown_namespace_for_a_column(self, session: Session):
@@ -1631,13 +1569,13 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             "select baz.a from purchases",
             "hive",
         )
-        with pytest.raises(MissingColumnException) as exc_info:
+        with pytest.raises(DJException) as exc_info:
             extract_dependencies_from_query(session, query)
 
-        assert "No namespace `baz` from which to reference column `a`." in str(
+        assert "No namespace `baz` from which to reference column `a`" in str(
             exc_info.value,
         )
-
+        assert "Cannot extract dependencies from SELECT" in str(exc_info.value)
         CompoundBuildException().reset()
         CompoundBuildException().set_raise(False)
         extract_dependencies_from_query(session, query)
