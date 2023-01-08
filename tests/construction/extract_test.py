@@ -370,8 +370,36 @@ class TestExtractingDependencies:  # pylint: disable=too-many-public-methods
             """,
             "hive",
         )
-        with pytest.raises(InvalidSQLException):
+        with pytest.raises(InvalidSQLException) as exc_info:
             extract_dependencies_from_query(session, query)
+
+        assert "Cannot reference a dimension here." in str(exc_info.value)
+
+    def test_select_with_dimension_in_improper_place_raise_false(
+        self,
+        session: Session,
+    ):
+        """
+        Test a select with an invalid dimension where the exception is stored but not raised
+        """
+        query = parse(
+            """
+            select a.event_type from customer_events2 a
+            left join customer_events2 b
+            on a.event_type=b.event_type and event_type_id.event_type='an_event'
+            """,
+            "hive",
+        )
+
+        CompoundBuildException().reset()
+        CompoundBuildException().set_raise(
+            False,
+        )  # Configure CompoundBuildException to just accumulate errors
+        extract_dependencies_from_query(session, query)
+        assert len(CompoundBuildException().errors) == 2
+        assert isinstance(CompoundBuildException().errors[0], MissingColumnException)
+        assert isinstance(CompoundBuildException().errors[1], InvalidSQLException)
+        CompoundBuildException().reset()  # Reset the singleton
 
     def test_select_with_dimension_unjoinable(self, session: Session):
         """
