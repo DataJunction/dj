@@ -14,7 +14,7 @@ class ErrorCode(int, Enum):
     """
 
     # generic errors
-    UNKWNON_ERROR = 0
+    UNKNOWN_ERROR = 0
     NOT_IMPLEMENTED_ERROR = 1
     ALREADY_EXISTS = 2
 
@@ -25,6 +25,15 @@ class ErrorCode(int, Enum):
 
     # SQL API
     INVALID_ARGUMENTS_TO_FUNCTION = 200
+    INVALID_SQL_QUERY = 201
+    MISSING_COLUMNS = 202
+    UNKNOWN_NODE = 203
+    NODE_TYPE_ERROR = 204
+    INVALID_DIMENSION_JOIN = 205
+    INVALID_COLUMN = 206
+
+    # SQL Build Error
+    COMPOUND_BUILD_EXCEPTION = 300
 
 
 class DebugType(TypedDict, total=False):
@@ -60,12 +69,14 @@ class DJError(SQLModel):
     code: ErrorCode
     message: str
     debug: Optional[Dict[str, Any]]
+    context: str = ""
 
     def __str__(self) -> str:
         """
         Format the error nicely.
         """
-        return f"{self.message} (error code: {self.code})"
+        context = f" from `{self.context}`" if self.context else ""
+        return f"{self.message}{context} (error code: {self.code})"
 
 
 class DJWarningType(TypedDict):

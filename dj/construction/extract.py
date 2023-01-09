@@ -2,7 +2,6 @@
 Functions for building queries, from nodes or SQL.
 """
 
-from contextlib import contextmanager
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import Dict, Generator, List, Optional, Set, Tuple, Union
@@ -10,10 +9,17 @@ from typing import Dict, Generator, List, Optional, Set, Tuple, Union
 from sqlalchemy.orm.exc import NoResultFound
 from sqlmodel import Session, select
 
+from dj.errors import DJError, DJException, ErrorCode
 from dj.models.node import Node, NodeType
-from dj.sql.parsing.ast import Alias, Column, Named
-from dj.sql.parsing.ast import Node as ASTNode
-from dj.sql.parsing.ast import Query, Select, Table, TableExpression
+from dj.sql.parsing.ast import (
+    Alias,
+    Column,
+    Named,
+    Query,
+    Select,
+    Table,
+    TableExpression,
+)
 from dj.sql.parsing.backends.sqloxide import parse
 
 
@@ -27,91 +33,14 @@ def make_name(namespace, name="") -> str:
     return ret
 
 
-class BuildException(Exception):
-    """Generic DJ Build Exception"""
+class CompoundBuildException:
+    """
+    Exception singleton to optionally build up exceptions or raise
+    """
 
-
-class InvalidSQLException(BuildException):
-    """Something is structurally wrong with query"""
-
-    def __init__(self, message: str, node: ASTNode, context: Optional[ASTNode] = None):
-        self.message = message
-        self.node = node
-        self.context = context
-
-    def __str__(self) -> str:
-        ret = f"{self.message} `{self.node}`"
-        if self.context:
-            ret += f" from `{self.context}`"
-        return ret
-
-
-class MissingColumnException(BuildException):
-    """Column cannot be resolved in query"""
-
-    def __init__(self, message: str, column: Column, context: Optional[ASTNode] = None):
-        self.message = message
-        self.column = column
-        self.context = context
-
-    def __str__(self) -> str:
-        ret = f"{self.message} `{self.column}`"
-        if self.context:
-            ret += f" from `{self.context}`"
-        return ret
-
-
-class UnknownNodeException(BuildException):
-    """Node in query does not exist"""
-
-    def __init__(self, message: str, node: str, context: Optional[ASTNode] = None):
-        self.message = message
-        self.node = node
-        self.context = context
-
-    def __str__(self) -> str:
-        ret = f"{self.message} `{self.node}`"
-        if self.context:
-            ret += f" from `{self.context}`"
-        return ret
-
-
-class NodeTypeException(BuildException):
-    """Node is the wrong type"""
-
-    def __init__(self, message: str, node: str, context: Optional[ASTNode] = None):
-        self.message = message
-        self.node = node
-        self.context = context
-
-    def __str__(self) -> str:
-        ret = f"{self.message} `{self.node}`"
-        if self.context:
-            ret += f" from `{self.context}`"
-        return ret
-
-
-class DimensionJoinException(BuildException):
-    """A dimension is not joinable in a query"""
-
-    def __init__(self, message: str, node: str, context: Optional[ASTNode] = None):
-        self.message = message
-        self.node = node
-        self.context = context
-
-    def __str__(self) -> str:
-        ret = f"{self.message} `{self.node}`"
-        if self.context:
-            ret += f" from `{self.context}`"
-        return ret
-
-
-class CompoundBuildException(BuildException):
-    """Exception singleton to optionally build up exceptions or raise"""
-
+    errors: List[DJError]
     _instance: Optional["CompoundBuildException"] = None
     _raise: bool = True
-    errors: List[BuildException]
 
     def __new__(cls, *args, **kwargs):
         if not cls._instance:
@@ -122,29 +51,34 @@ class CompoundBuildException(BuildException):
         return cls._instance
 
     def reset(self):
-        """resets the singleton"""
+        """
+        Resets the singleton
+        """
         self._raise = True
         self.errors = []
 
     def clear(self):
-        """erases stored exceptions"""
+        """
+        Erases stored errors
+        """
         self.errors = []
 
     def set_raise(self, raise_: bool):
-        """set whether to raise caught exceptions or build them up"""
+        """
+        Set whether to raise caught exceptions or accumulate them
+        """
         self._raise = raise_
 
-    @property  # type: ignore
-    @contextmanager
-    def catch(self):
-        """context manager used to wrap raising exceptions"""
-        try:
-            yield
-        except BuildException as exc:
-            if not self._raise:
-                self.errors.append(exc)
-            else:
-                raise exc
+    def catch(self, error: DJError, message: Optional[str]):
+        """
+        Accumulate DJ exceptions
+        """
+        if self._raise:
+            raise DJException(
+                message=message or error.message,
+                errors=[error],
+            )
+        self.errors.append(error)
 
     def __str__(self) -> str:
         plural = "s" if len(self.errors) > 1 else ""
@@ -165,20 +99,27 @@ def get_dj_node(
     match = None
     try:
         match = session.exec(query).one()
-    except NoResultFound as exc:
-        with CompoundBuildException().catch:
-            kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
-            raise UnknownNodeException(
-                f"No {kind_msg} node `{node_name}` exists.",
-                node_name,
-            ) from exc
+    except NoResultFound:
+        kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
+        CompoundBuildException().catch(
+            error=DJError(
+                code=ErrorCode.UNKNOWN_NODE,
+                message=f"No {kind_msg} node `{node_name}` exists.",
+            ),
+            message=f"Cannot get DJ node {node_name}",
+        )
 
     if match and kinds and (match.type not in kinds):
-        with CompoundBuildException().catch:
-            raise NodeTypeException(
-                f"Node `{match.name}` is of type `{str(match.type).upper()}`. Expected kind to be of {' or '.join(str(k) for k in kinds)}.",  # pylint: disable=C0301
-                node_name,
-            )
+        CompoundBuildException().catch(
+            error=DJError(
+                code=ErrorCode.NODE_TYPE_ERROR,
+                message=(
+                    f"Node `{match.name}` is of type `{str(match.type).upper()}`. "
+                    "Expected kind to be of {' or '.join(str(k) for k in kinds)}."
+                ),
+            ),
+            message=f"Cannot get DJ node {node_name}",
+        )
 
     return match
 
@@ -292,19 +233,22 @@ def extract_dependencies_from_select(
 
         # you cannot combine an unnamed subquery with anything else
         if (namespace and "" in namespaces) or (namespace == "" and namespaces):
-            with CompoundBuildException().catch:
-                raise InvalidSQLException(
-                    "You may only use an unnamed subquery alone.",
-                    table,
-                )
-
+            CompoundBuildException().catch(
+                error=DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=f"You may only use an unnamed subquery alone for {table}",
+                ),
+                message="Cannot extract dependencies from SELECT",
+            )
         # you cannot have multiple references with the same name
         if namespace in namespaces:
-            with CompoundBuildException().catch:
-                raise InvalidSQLException(
-                    f"Duplicate name `{namespace}` for table.",
-                    table,
-                )
+            CompoundBuildException().catch(
+                DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=f"Duplicate name `{namespace}` for table {table}",
+                ),
+                message="Cannot extract dependencies from SELECT",
+            )
 
         namespaces[namespace] = set()
 
@@ -319,14 +263,16 @@ def extract_dependencies_from_select(
 
             for col in table.projection:
                 if not isinstance(col, Named):
-                    with CompoundBuildException().catch:
-                        raise InvalidSQLException(
-                            f"{col} is an unnamed expression. Try adding an alias.",
-                            col,
-                            select,
-                        )
-
-                namespaces[namespace].add(col.name.name)
+                    CompoundBuildException().catch(
+                        error=DJError(
+                            code=ErrorCode.INVALID_SQL_QUERY,
+                            message=f"{col} is an unnamed expression. Try adding an alias.",
+                            context=str(select),
+                        ),
+                        message="Cannot extract dependencies from SELECT.",
+                    )
+                else:
+                    namespaces[namespace].add(col.name.name)
         # tables are sought as nodes and nothing else
         # can be source, transform, dimension
         else:  # not select then is table
@@ -362,28 +308,38 @@ def extract_dependencies_from_select(
         if (
             cols is None
         ):  # there is just no namespace at all where the node could come from
-            with CompoundBuildException().catch:
-                raise MissingColumnException(
-                    f"No namespace `{namespace}` from which to reference column `{col.name.name}`.",
-                    col,
-                    col.parent,
-                )
-
+            CompoundBuildException().catch(
+                error=DJError(
+                    code=ErrorCode.MISSING_COLUMNS,
+                    message=(
+                        f"No namespace `{namespace}` from which to reference column "
+                        f"`{col.name.name}`."
+                    ),
+                    context=str(col.parent),
+                ),
+                message="Cannot extract dependencies from SELECT.",
+            )
             return None
         if (
             col.name.name not in cols
         ):  # the proposed namespace does not contain the column; which error to raise?
             exc_msg = f"Namespace `{namespace}` has no column `{col.name.name}`."
-            exc = MissingColumnException
+            error_code = ErrorCode.MISSING_COLUMNS
             if not namespace:
                 exc_msg = (
                     f"Column `{col.name.name}` does not exist in any referenced tables."
                 )
                 if col.name.name in multiple_refs:
                     exc_msg = f"`{col.name.name}` appears in multiple references and so must be namespaced."  # pylint: disable=C0301
-                    exc = InvalidSQLException  # type: ignore
-            with CompoundBuildException().catch:
-                raise exc(exc_msg, col, col.parent)
+                    error_code = ErrorCode.INVALID_SQL_QUERY
+            CompoundBuildException().catch(
+                error=DJError(
+                    code=error_code,
+                    message=exc_msg,
+                    context=str(col.parent),
+                ),
+                message="Cannot extract dependencies from SELECT",
+            )
 
             return None
         if namespace:  # there is a proposed namespace that has the column
@@ -415,12 +371,14 @@ def extract_dependencies_from_select(
                 for col in select.having.find_all(Column)
             ]
     elif select.having:
-        with CompoundBuildException().catch:
-            raise InvalidSQLException(
-                "HAVING without a GROUP BY is not allowed. Use WHERE instead.",
-                select.having,
-                select,
-            )
+        CompoundBuildException().catch(
+            DJError(
+                code=ErrorCode.INVALID_SQL_QUERY,
+                message="HAVING without a GROUP BY is not allowed. Use WHERE instead",
+                context=str(select),
+            ),
+            message="Cannot extract dependencies from SELECT",
+        )
 
     if select.where:
         gbfo += [
@@ -440,7 +398,7 @@ def extract_dependencies_from_select(
         try:
             namespace = check_col(col, add)  # type: ignore
             bad_namespace = namespace is None
-        except BuildException as exc:
+        except DJException as exc:
             bad_col_exc = exc
             bad_namespace = True
         if bad_namespace:
@@ -449,29 +407,40 @@ def extract_dependencies_from_select(
                 dim = None
                 try:
                     dim = get_dj_node(session, namespace, {NodeType.DIMENSION})
-                except BuildException:  # pragma: no cover
+                except DJException:  # pragma: no cover
                     pass
-                with CompoundBuildException().catch:
-                    if dim is not None:
-                        raise InvalidSQLException(
-                            "Cannot reference a dimension here.",
-                            col,
-                            col.parent,
-                        )
-                    if bad_col_exc is not None:  # pragma: no cover
-                        raise bad_col_exc
-
+                CompoundBuildException().catch(
+                    error=DJError(
+                        code=ErrorCode.INVALID_SQL_QUERY,
+                        message=f"Cannot reference a dimension with {col.name}",
+                        context=str(col.parent),
+                    ),
+                    message="Cannot extract dependencies from SELECT",
+                )
+                if bad_col_exc is not None:  # pragma: no cover
+                    CompoundBuildException().catch(
+                        error=DJError(
+                            code=ErrorCode.INVALID_COLUMN,
+                            message=f"Invalid column in query {col.name}",
+                        ),
+                        message="Cannot extract dependencies from SELECT",
+                    )
             else:
 
                 dim = get_dj_node(session, namespace, {NodeType.DIMENSION})
                 if dim is not None:  # pragma: no cover
                     if col.name.name not in {c.name for c in dim.columns}:
-                        with CompoundBuildException().catch:
-                            raise MissingColumnException(
-                                f"Dimension `{dim.name}` has no column `{col.name.name}`.",
-                                col,
-                                col.parent,
-                            )
+                        CompoundBuildException().catch(
+                            error=DJError(
+                                code=ErrorCode.MISSING_COLUMNS,
+                                message=(
+                                    f"Dimension `{dim.name}` has no column "
+                                    "`{col.name.name}`.",
+                                ),
+                                context=str(col.parent),
+                            ),
+                            message="Cannot extract dependencies from SELECT",
+                        )
                     else:
                         add.append((col, dim))
                         dimension_columns.add(dim)
@@ -491,12 +460,18 @@ def extract_dependencies_from_select(
             if joinable:
                 break
         if not joinable:
-            with CompoundBuildException().catch:
-                raise DimensionJoinException(
-                    f"Dimension `{dim.name}` is not joinable. A SOURCE, TRANSFORM, or DIMENSION node which references this dimension must be used directly in the FROM clause.",  # pylint: disable=C0301
-                    dim,
-                    select.from_,
-                )
+            CompoundBuildException().catch(
+                error=DJError(
+                    code=ErrorCode.INVALID_DIMENSION_JOIN,
+                    message=(
+                        f"Dimension `{dim.name}` is not joinable. A SOURCE, "
+                        "TRANSFORM, or DIMENSION node which references this "
+                        "dimension must be used directly in the FROM clause."
+                    ),
+                    context=str(select.from_),
+                ),
+                message="Cannot extract dependencies from SELECT",
+            )
 
     for subquery in subqueries:
         table_deps.subqueries.append(
@@ -554,10 +529,13 @@ def extract_dependencies(
         travelled += 1
 
     if CompoundBuildException().errors and raise_:
-        raise CompoundBuildException()
+        raise DJException(
+            message=f"Cannot extract dependencies from node `{node.name}`",
+            errors=CompoundBuildException().errors,
+        )
 
-    for exc in CompoundBuildException().errors:
-        if isinstance(exc, (UnknownNodeException, NodeTypeException)):
-            dep_nodes[1].add(exc.node)
+    for err in CompoundBuildException().errors:
+        if err.code in (ErrorCode.UNKNOWN_NODE, ErrorCode.NODE_TYPE_ERROR):
+            dep_nodes[1].add(err.context)
 
     return dep_nodes
