@@ -13,4 +13,4 @@ BookTheme = 'auto'
 [security]
   enableInlineShortcodes = false
   [security.exec]
-    allow = ['rst2html.py']
+    allow = ['rst2html.py', 'rst2html']
