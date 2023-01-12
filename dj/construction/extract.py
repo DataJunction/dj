@@ -628,7 +628,10 @@ def extract_dependencies(
     CompoundBuildException().set_raise(False)
 
     dep_nodes, bad_dep_nodes = _extract_dependencies(
-        session=session, node=node, dialect=dialect, distance=distance,
+        session=session,
+        node=node,
+        dialect=dialect,
+        distance=distance,
     )
 
     if CompoundBuildException().errors and raise_:
