@@ -1,10 +1,10 @@
 """
-Functions for building queries, from nodes or SQL.
+Functions for extracting DJ information from nodes or SQL for validation and building.
 """
 
 from dataclasses import dataclass, field
 from itertools import chain
-from typing import Dict, Generator, List, Optional, Set, Tuple, Union
+from typing import Dict, Generator, List, Optional, Set, Tuple, Union, cast
 
 from sqlalchemy.orm.exc import NoResultFound
 from sqlmodel import Session, select
@@ -15,6 +15,7 @@ from dj.sql.parsing.ast import (
     Alias,
     Column,
     Named,
+    Namespace,
     Query,
     Select,
     Table,
@@ -23,7 +24,7 @@ from dj.sql.parsing.ast import (
 from dj.sql.parsing.backends.sqloxide import parse
 
 
-def make_name(namespace, name="") -> str:
+def make_name(namespace: Optional[Namespace], name="") -> str:
     """utility taking a namespace and name to make a possible name of a DJ Node"""
     ret = ""
     if namespace:
@@ -69,7 +70,7 @@ class CompoundBuildException:
         """
         self._raise = raise_
 
-    def catch(self, error: DJError, message: Optional[str]):
+    def append(self, error: DJError, message: Optional[str]):
         """
         Accumulate DJ exceptions
         """
@@ -101,16 +102,16 @@ def get_dj_node(
         match = session.exec(query).one()
     except NoResultFound:
         kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
-        CompoundBuildException().catch(
+        CompoundBuildException().append(
             error=DJError(
                 code=ErrorCode.UNKNOWN_NODE,
-                message=f"No {kind_msg} node `{node_name}` exists.",
+                message=f"No node `{node_name}` exists of kind {kind_msg}.",
             ),
             message=f"Cannot get DJ node {node_name}",
         )
 
     if match and kinds and (match.type not in kinds):
-        CompoundBuildException().catch(
+        CompoundBuildException().append(
             error=DJError(
                 code=ErrorCode.NODE_TYPE_ERROR,
                 message=(
@@ -194,7 +195,259 @@ class QueryDependencies:
         return ret
 
 
-# pylint: disable=R0914, R0912, R0915
+def _check_col(
+    col: Column,
+    table_nodes: Dict[str, TableExpression],
+    add: List[Tuple[Column, Union[TableExpression, Node]]],
+    multiple_refs: Set[str],
+    namespaces: Dict[str, Set[str]],
+) -> Optional[str]:
+    """Check if a column can be had in the query"""
+    namespace = make_name(col.namespace)  # str preceding the column name
+    cols = namespaces.get(namespace)
+    if cols is None:  # there is just no namespace at all where the node could come from
+        CompoundBuildException().append(
+            error=DJError(
+                code=ErrorCode.MISSING_COLUMNS,
+                message=(
+                    f"No namespace `{namespace}` from which to reference column "
+                    f"`{col.name.name}`."
+                ),
+                context=str(col.parent),
+            ),
+            message="Cannot extract dependencies from SELECT.",
+        )
+        return None
+    if (
+        col.name.name not in cols
+    ):  # the proposed namespace does not contain the column; which error to raise?
+        exc_msg = f"Namespace `{namespace}` has no column `{col.name.name}`."
+        error_code = ErrorCode.MISSING_COLUMNS
+        if not namespace:
+            exc_msg = (
+                f"Column `{col.name.name}` does not exist in any referenced tables."
+            )
+            if col.name.name in multiple_refs:
+                exc_msg = f"`{col.name.name}` appears in multiple references and so must be namespaced."  # pylint: disable=C0301
+                error_code = ErrorCode.INVALID_SQL_QUERY
+        CompoundBuildException().append(
+            error=DJError(
+                code=error_code,
+                message=exc_msg,
+                context=str(col.parent),
+            ),
+            message="Cannot extract dependencies from SELECT",
+        )
+
+        return None
+    if namespace:  # there is a proposed namespace that has the column
+        add.append((col, table_nodes[namespace]))
+    else:  # finally check if the column that does not have a namespace is in any namespace
+        for nmpsc, nmspc_cols in namespaces.items():  # pragma: no cover
+            if col.name.name in nmspc_cols:
+                add.append((col, table_nodes[nmpsc]))
+                return namespace
+    return namespace
+
+
+def _tables_to_namespaces(
+    session: Session,
+    namespaces: Dict[str, Set[str]],
+    table: TableExpression,
+    table_deps: SelectDependencies,
+) -> Tuple[
+    List[Select],
+    Dict[str, TableExpression],
+    Tuple[Set[Node], Set[Node], Set[Node]],
+]:
+    """get all usable namespaces and columns from tables"""
+
+    # namespace: ast node defining namespace
+    table_nodes: Dict[str, TableExpression] = {}
+
+    # track subqueries encountered to extract from them after
+    subqueries: List[Select] = []
+
+    # used to check need and capacity for merging in dimensions
+    dimension_columns: Set[Node] = set()
+    sources_transforms: Set[Node] = set()
+    dimensions_tables: Set[Node] = set()
+
+    # get all usable namespaces and columns from the tables
+    namespace = ""
+    if isinstance(table, Named):
+        namespace = make_name(table.namespace, table.name.name)
+
+    # you cannot combine an unnamed subquery with anything else
+    if (namespace and "" in namespaces) or (namespace == "" and namespaces):
+        CompoundBuildException().append(
+            error=DJError(
+                code=ErrorCode.INVALID_SQL_QUERY,
+                message=f"You may only use an unnamed subquery alone for {table}",
+            ),
+            message="Cannot extract dependencies from SELECT",
+        )
+    # you cannot have multiple references with the same name
+    if namespace in namespaces:
+        CompoundBuildException().append(
+            DJError(
+                code=ErrorCode.INVALID_SQL_QUERY,
+                message=f"Duplicate name `{namespace}` for table {table}",
+            ),
+            message="Cannot extract dependencies from SELECT",
+        )
+
+    namespaces[namespace] = set()
+
+    if isinstance(table, Alias):
+        table: Union[Table, Select] = table.child  # type: ignore
+
+    # subquery handling
+    # we track subqueries separately and extract at the end
+    # but introspect the columns to make sure the parent query selection is valid
+    if isinstance(table, Select):
+        subqueries.append(table)
+
+        for col in table.projection:
+            if not isinstance(col, Named):
+                CompoundBuildException().append(
+                    error=DJError(
+                        code=ErrorCode.INVALID_SQL_QUERY,
+                        message=f"{col} is an unnamed expression. Try adding an alias.",
+                        context=str(select),
+                    ),
+                    message="Cannot extract dependencies from SELECT.",
+                )
+            else:
+                namespaces[namespace].add(col.name.name)
+    # tables are sought as nodes and nothing else
+    # can be source, transform, dimension
+    else:  # not select then is table
+        node_name = make_name(table.namespace, table.name.name)
+        table_node = get_dj_node(
+            session,
+            node_name,
+            {NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION},
+        )
+        if table_node is not None:
+            namespaces[namespace] |= {c.name for c in table_node.columns}
+            table_deps.tables.append((table, table_node))
+            if table_node.type in {NodeType.SOURCE, NodeType.TRANSFORM}:
+                sources_transforms.add(table_node)
+    table_nodes[namespace] = table
+
+    return (
+        subqueries,
+        table_nodes,
+        (dimension_columns, sources_transforms, dimensions_tables),
+    )
+
+
+# pylint: disable=R0914, R0913, R0912, W0621
+def _validate_groupby_filters_ons_columns(
+    session: Session,
+    select: Select,
+    table_nodes: Dict[str, TableExpression],
+    table_deps: SelectDependencies,
+    multiple_refs: Set[str],
+    namespaces: Dict[str, Set[str]],
+) -> Set[Node]:
+    """check groupby, filters, and join ons columns for existence"""
+
+    # used to check need and capacity for merging in dimensions
+    dimension_columns: Set[Node] = set()
+
+    gbfo: List[
+        Tuple[List[Tuple[Column, Union[TableExpression, Node]]], Column, bool]
+    ] = []
+
+    if select.group_by:
+        gbfo += [
+            (table_deps.columns.group_by, col, True)
+            for col in chain(*(exp.find_all(Column) for exp in select.group_by))
+        ]
+        if select.having:
+            gbfo += [
+                (table_deps.columns.filters, col, True)
+                for col in select.having.find_all(Column)
+            ]
+    elif select.having:
+        CompoundBuildException().append(
+            DJError(
+                code=ErrorCode.INVALID_SQL_QUERY,
+                message="HAVING without a GROUP BY is not allowed. Did you want to use WHERE clause instead?",  # pylint: disable=C0301
+                context=str(select),
+            ),
+            message="Cannot extract dependencies from SELECT",
+        )
+
+    if select.where:
+        gbfo += [
+            (table_deps.columns.filters, col, True)
+            for col in select.where.find_all(Column)
+        ]
+
+    if select.from_.joins:
+        for join in select.from_.joins:
+            gbfo += [
+                (table_deps.columns.ons, col, False) for col in join.on.find_all(Column)
+            ]
+
+    for add, col, dim_allowed in gbfo:
+        bad_namespace = False
+        bad_col_exc = None
+        try:
+            namespace = _check_col(col, table_nodes, add, multiple_refs, namespaces)  # type: ignore
+            bad_namespace = namespace is None
+        except DJException as exc:
+            bad_col_exc = exc
+            bad_namespace = True
+        if bad_namespace:
+            namespace = make_name(col.namespace)
+            if not dim_allowed:
+                dim = None
+                try:
+                    dim = get_dj_node(session, namespace, {NodeType.DIMENSION})
+                except DJException:  # pragma: no cover
+                    pass
+                CompoundBuildException().append(
+                    error=DJError(
+                        code=ErrorCode.INVALID_SQL_QUERY,
+                        message=f"Cannot reference a dimension with {col.name}",
+                        context=str(col.parent),
+                    ),
+                    message="Cannot extract dependencies from SELECT",
+                )
+                if bad_col_exc is not None:  # pragma: no cover
+                    CompoundBuildException().append(
+                        error=DJError(
+                            code=ErrorCode.INVALID_COLUMN,
+                            message=f"Invalid column in query {col.name}",
+                        ),
+                        message="Cannot extract dependencies from SELECT",
+                    )
+            else:
+
+                dim = get_dj_node(session, namespace, {NodeType.DIMENSION})
+                if dim is not None:  # pragma: no cover
+                    if col.name.name not in {c.name for c in dim.columns}:
+                        CompoundBuildException().append(
+                            error=DJError(
+                                code=ErrorCode.MISSING_COLUMNS,
+                                message=(
+                                    f"Dimension `{dim.name}` has no column "
+                                    "`{col.name.name}`.",
+                                ),
+                                context=str(col.parent),
+                            ),
+                            message="Cannot extract dependencies from SELECT",
+                        )
+                    else:
+                        add.append((col, dim))
+                        dimension_columns.add(dim)
+    return dimension_columns
+
+
 # flake8: noqa: C901
 def extract_dependencies_from_select(
     session: Session,
@@ -225,225 +478,48 @@ def extract_dependencies_from_select(
     sources_transforms: Set[Node] = set()
     dimensions_tables: Set[Node] = set()
 
-    # get all usable namespaces and columns from the tables
     for table in tables:
-        namespace = ""
-        if isinstance(table, Named):
-            namespace = make_name(table.namespace, table.name.name)
-
-        # you cannot combine an unnamed subquery with anything else
-        if (namespace and "" in namespaces) or (namespace == "" and namespaces):
-            CompoundBuildException().catch(
-                error=DJError(
-                    code=ErrorCode.INVALID_SQL_QUERY,
-                    message=f"You may only use an unnamed subquery alone for {table}",
-                ),
-                message="Cannot extract dependencies from SELECT",
-            )
-        # you cannot have multiple references with the same name
-        if namespace in namespaces:
-            CompoundBuildException().catch(
-                DJError(
-                    code=ErrorCode.INVALID_SQL_QUERY,
-                    message=f"Duplicate name `{namespace}` for table {table}",
-                ),
-                message="Cannot extract dependencies from SELECT",
-            )
-
-        namespaces[namespace] = set()
-
-        if isinstance(table, Alias):
-            table: Union[Table, Select] = table.child  # type: ignore
-
-        # subquery handling
-        # we track subqueries separately and extract at the end
-        # but introspect the columns to make sure the parent query selection is valid
-        if isinstance(table, Select):
-            subqueries.append(table)
-
-            for col in table.projection:
-                if not isinstance(col, Named):
-                    CompoundBuildException().catch(
-                        error=DJError(
-                            code=ErrorCode.INVALID_SQL_QUERY,
-                            message=f"{col} is an unnamed expression. Try adding an alias.",
-                            context=str(select),
-                        ),
-                        message="Cannot extract dependencies from SELECT.",
-                    )
-                else:
-                    namespaces[namespace].add(col.name.name)
-        # tables are sought as nodes and nothing else
-        # can be source, transform, dimension
-        else:  # not select then is table
-            node_name = make_name(table.namespace, table.name.name)
-            table_node = get_dj_node(
-                session,
-                node_name,
-                {NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION},
-            )
-            if table_node is not None:
-                namespaces[namespace] |= {c.name for c in table_node.columns}
-                table_deps.tables.append((table, table_node))
-                if table_node.type in {NodeType.SOURCE, NodeType.TRANSFORM}:
-                    sources_transforms.add(table_node)
-        table_nodes[namespace] = table
+        (
+            _subqueries,
+            _table_nodes,
+            (_dimension_columns, _sources_transforms, _dimensions_tables),
+        ) = _tables_to_namespaces(session, namespaces, table, table_deps)
+        subqueries += _subqueries
+        table_nodes.update(_table_nodes)
+        dimension_columns |= _dimension_columns
+        sources_transforms |= _sources_transforms
+        dimensions_tables |= _dimensions_tables
 
     # organize column discovery recording dupes
     # we'll use this lookup to validate columns
-    no_namespace_safe_cols = set()
-    multiple_refs = set()
+    no_namespace_safe_cols: Set[str] = set()
+    multiple_refs: Set[str] = set()
     for namespaces_cols in namespaces.values():
-        for col in namespaces_cols:  # type: ignore
+        for col in namespaces_cols:
             if col in no_namespace_safe_cols:
                 multiple_refs.add(col)
             no_namespace_safe_cols.add(col)
 
     namespaces[""] = no_namespace_safe_cols - multiple_refs  # type: ignore
 
-    def check_col(col: Column, add: list) -> Optional[str]:
-        """Check if a column can be had in the query"""
-        namespace = make_name(col.namespace)  # str preceding the column name
-        cols = namespaces.get(namespace)
-        if (
-            cols is None
-        ):  # there is just no namespace at all where the node could come from
-            CompoundBuildException().catch(
-                error=DJError(
-                    code=ErrorCode.MISSING_COLUMNS,
-                    message=(
-                        f"No namespace `{namespace}` from which to reference column "
-                        f"`{col.name.name}`."
-                    ),
-                    context=str(col.parent),
-                ),
-                message="Cannot extract dependencies from SELECT.",
-            )
-            return None
-        if (
-            col.name.name not in cols
-        ):  # the proposed namespace does not contain the column; which error to raise?
-            exc_msg = f"Namespace `{namespace}` has no column `{col.name.name}`."
-            error_code = ErrorCode.MISSING_COLUMNS
-            if not namespace:
-                exc_msg = (
-                    f"Column `{col.name.name}` does not exist in any referenced tables."
-                )
-                if col.name.name in multiple_refs:
-                    exc_msg = f"`{col.name.name}` appears in multiple references and so must be namespaced."  # pylint: disable=C0301
-                    error_code = ErrorCode.INVALID_SQL_QUERY
-            CompoundBuildException().catch(
-                error=DJError(
-                    code=error_code,
-                    message=exc_msg,
-                    context=str(col.parent),
-                ),
-                message="Cannot extract dependencies from SELECT",
-            )
-
-            return None
-        if namespace:  # there is a proposed namespace that has the column
-            add.append((col, table_nodes[namespace]))
-        else:  # finally check if the column that does not have a namespace is in any namespace
-            for nmpsc, nmspc_cols in namespaces.items():  # pragma: no cover
-                if col.name.name in nmspc_cols:
-                    add.append((col, table_nodes[nmpsc]))
-                    return namespace
-        return namespace
-
     # check projection
-    for col in chain(*(exp.find_all(Column) for exp in select.projection)):
-        check_col(col, table_deps.columns.projection)  # type: ignore
-
-    # check groupby, filters, and join ons
-    gbfo: List[
-        Tuple[List[Tuple[Column, Union[TableExpression, Node]]], Column, bool]
-    ] = []
-
-    if select.group_by:
-        gbfo += [
-            (table_deps.columns.group_by, col, True)
-            for col in chain(*(exp.find_all(Column) for exp in select.group_by))
-        ]
-        if select.having:
-            gbfo += [
-                (table_deps.columns.filters, col, True)
-                for col in select.having.find_all(Column)
-            ]
-    elif select.having:
-        CompoundBuildException().catch(
-            DJError(
-                code=ErrorCode.INVALID_SQL_QUERY,
-                message="HAVING without a GROUP BY is not allowed. Use WHERE instead",
-                context=str(select),
-            ),
-            message="Cannot extract dependencies from SELECT",
+    for col in chain(*(exp.find_all(Column) for exp in select.projection)):  # type: ignore
+        _check_col(
+            cast(Column, col),
+            table_nodes,
+            table_deps.columns.projection,
+            multiple_refs,
+            namespaces,
         )
 
-    if select.where:
-        gbfo += [
-            (table_deps.columns.filters, col, True)
-            for col in select.where.find_all(Column)
-        ]
-
-    if select.from_.joins:
-        for join in select.from_.joins:
-            gbfo += [
-                (table_deps.columns.ons, col, False) for col in join.on.find_all(Column)
-            ]
-
-    for add, col, dim_allowed in gbfo:
-        bad_namespace = False
-        bad_col_exc = None
-        try:
-            namespace = check_col(col, add)  # type: ignore
-            bad_namespace = namespace is None
-        except DJException as exc:
-            bad_col_exc = exc
-            bad_namespace = True
-        if bad_namespace:
-            namespace = make_name(col.namespace)
-            if not dim_allowed:
-                dim = None
-                try:
-                    dim = get_dj_node(session, namespace, {NodeType.DIMENSION})
-                except DJException:  # pragma: no cover
-                    pass
-                CompoundBuildException().catch(
-                    error=DJError(
-                        code=ErrorCode.INVALID_SQL_QUERY,
-                        message=f"Cannot reference a dimension with {col.name}",
-                        context=str(col.parent),
-                    ),
-                    message="Cannot extract dependencies from SELECT",
-                )
-                if bad_col_exc is not None:  # pragma: no cover
-                    CompoundBuildException().catch(
-                        error=DJError(
-                            code=ErrorCode.INVALID_COLUMN,
-                            message=f"Invalid column in query {col.name}",
-                        ),
-                        message="Cannot extract dependencies from SELECT",
-                    )
-            else:
-
-                dim = get_dj_node(session, namespace, {NodeType.DIMENSION})
-                if dim is not None:  # pragma: no cover
-                    if col.name.name not in {c.name for c in dim.columns}:
-                        CompoundBuildException().catch(
-                            error=DJError(
-                                code=ErrorCode.MISSING_COLUMNS,
-                                message=(
-                                    f"Dimension `{dim.name}` has no column "
-                                    "`{col.name.name}`.",
-                                ),
-                                context=str(col.parent),
-                            ),
-                            message="Cannot extract dependencies from SELECT",
-                        )
-                    else:
-                        add.append((col, dim))
-                        dimension_columns.add(dim)
+    dimension_columns |= _validate_groupby_filters_ons_columns(
+        session,
+        select,
+        table_nodes,
+        table_deps,
+        multiple_refs,
+        namespaces,
+    )
 
     # check if there are any column dimension dependencies we need to join but cannot
     # if a dimension is already used directly in the from (manually join or ref'd) -
@@ -460,7 +536,7 @@ def extract_dependencies_from_select(
             if joinable:
                 break
         if not joinable:
-            CompoundBuildException().catch(
+            CompoundBuildException().append(
                 error=DJError(
                     code=ErrorCode.INVALID_DIMENSION_JOIN,
                     message=(
@@ -494,6 +570,47 @@ def extract_dependencies_from_query(
     )
 
 
+def _extract_dependencies(
+    session: Session,
+    node: Node,
+    dialect: Optional[str] = None,
+    distance: int = -1,
+) -> Tuple[Set[Node], Set[str]]:
+    """Helper for extract_dependencies"""
+    _distance = float("inf") if distance < 0 else float(distance)
+    if node.query is None:
+        raise Exception("Node has no query")
+    ast = parse(node.query, dialect)
+    deps: QueryDependencies = extract_dependencies_from_query(session, ast)
+    dep_nodes: Set[Node] = deps.all_node_dependencies
+    bad_dep_nodes: Set[str] = set()
+    added = True
+    travelled = 0
+    new_dep_nodes: Set[Node] = set()
+    new_bad_dep_nodes: Set[str] = set()
+    while added and travelled < _distance:
+        for dep_node in dep_nodes:
+            if dep_node.type != NodeType.SOURCE:
+                extract_dep_nodes, extract_bad_dep_nodes = _extract_dependencies(
+                    session,
+                    dep_node,
+                    dialect,
+                )
+                new_dep_nodes |= extract_dep_nodes
+                new_bad_dep_nodes |= extract_bad_dep_nodes
+        curr_len = len(dep_nodes) + len(bad_dep_nodes)
+        dep_nodes |= new_dep_nodes
+        bad_dep_nodes |= new_bad_dep_nodes
+        added = curr_len != (len(dep_nodes) + len(bad_dep_nodes))
+        travelled += 1
+
+    for err in CompoundBuildException().errors:
+        if err.code in (ErrorCode.UNKNOWN_NODE, ErrorCode.NODE_TYPE_ERROR):
+            bad_dep_nodes.add(err.context)
+
+    return dep_nodes, bad_dep_nodes
+
+
 def extract_dependencies(
     session: Session,
     node: Node,
@@ -507,26 +624,12 @@ def extract_dependencies(
         <0 infinitely far,
         0 only neighbors e.g. only nodes referenced directly in the node query
     """
-    _distance = float("inf") if distance < 0 else float(distance)
-    if node.query is None:
-        raise Exception("Node has no query")
-    ast = parse(node.query, dialect)
     CompoundBuildException().reset()
     CompoundBuildException().set_raise(False)
-    deps: QueryDependencies = extract_dependencies_from_query(session, ast)
-    dep_nodes: Tuple[Set[Node], Set[str]] = (deps.all_node_dependencies, set())
-    added = True
-    travelled = 0
-    new: Tuple[Set[Node], Set[str]] = (set(), set())
-    while added and travelled < _distance:
-        for dep_node in dep_nodes[0]:
-            if dep_node.type != NodeType.SOURCE:
-                extract = extract_dependencies(session, dep_node, dialect)
-                new = (new[0] | extract[0], new[1] | extract[1])
-        curr_len = len(dep_nodes[0]) + len(dep_nodes[1])
-        dep_nodes = (new[0] | dep_nodes[0], new[1] | dep_nodes[1])
-        added = curr_len != (len(dep_nodes[0]) + len(dep_nodes[1]))
-        travelled += 1
+
+    dep_nodes, bad_dep_nodes = _extract_dependencies(
+        session=session, node=node, dialect=dialect, distance=distance,
+    )
 
     if CompoundBuildException().errors and raise_:
         raise DJException(
@@ -534,8 +637,4 @@ def extract_dependencies(
             errors=CompoundBuildException().errors,
         )
 
-    for err in CompoundBuildException().errors:
-        if err.code in (ErrorCode.UNKNOWN_NODE, ErrorCode.NODE_TYPE_ERROR):
-            dep_nodes[1].add(err.context)
-
-    return dep_nodes
+    return dep_nodes, bad_dep_nodes
