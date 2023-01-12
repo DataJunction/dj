@@ -70,6 +70,34 @@ class NodeType(str, enum.Enum):
     DIMENSION = "dimension"
 
 
+class NodeMode(str, enum.Enum):
+    """
+    Node mode.
+
+    A node can be in one of the following modes:
+
+    1. PUBLISHED - Must be valid and not cause any child nodes to be invalid
+    2. DRAFT - Can be invalid, have invalid parents, and include dangling references
+    """
+
+    PUBLISHED = "published"
+    DRAFT = "draft"
+
+
+class NodeStatus(str, enum.Enum):
+    """
+    Node status.
+
+    A node can have one of the following statuses:
+
+    1. VALID - All references to other nodes and node columns are valid
+    2. INVALID - One or more parent nodes are incompatible or do not exist
+    """
+
+    VALID = "valid"
+    INVALID = "invalid"
+
+
 class NodeYAML(TypedDict, total=False):
     """
     Schema of a node in the YAML file.
@@ -82,15 +110,25 @@ class NodeYAML(TypedDict, total=False):
     tables: Dict[str, List[TableYAML]]
 
 
-class Node(SQLModel, table=True):  # type: ignore
+class NodeBase(SQLModel):
+    """
+    A base node.
+    """
+
+    name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
+    description: str = ""
+    type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
+    query: Optional[str] = None
+    mode: NodeMode = NodeMode.PUBLISHED
+
+
+class Node(NodeBase, table=True):  # type: ignore
     """
     A node.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
-    description: str = ""
-
+    status: NodeStatus = NodeStatus.INVALID
     created_at: datetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
@@ -99,9 +137,6 @@ class Node(SQLModel, table=True):  # type: ignore
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )
-
-    type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
-    query: Optional[str] = None
 
     tables: List[Table] = Relationship(
         back_populates="node",
