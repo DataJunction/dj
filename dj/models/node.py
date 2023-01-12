@@ -76,8 +76,8 @@ class NodeMode(str, enum.Enum):
 
     A node can be in one of the following modes:
 
-    1. PUBLISHED nodes must be valid and not cause any child nodes to be invalid
-    2. DRAFT nodes can be invalid, have invalid parents, and include dangling references
+    1. PUBLISHED - Must be valid and not cause any child nodes to be invalid
+    2. DRAFT - Can be invalid, have invalid parents, and include dangling references
     """
 
     PUBLISHED = "published"
@@ -90,8 +90,8 @@ class NodeStatus(str, enum.Enum):
 
     A node can have one of the following statuses:
 
-    1. VALID nodes - All references to other nodes and node columns are valid
-    2. INVALID nodes - One or more parent nodes that are incompatible or do not exist
+    1. VALID - All references to other nodes and node columns are valid
+    2. INVALID - One or more parent nodes are incompatible or do not exist
     """
 
     VALID = "valid"
