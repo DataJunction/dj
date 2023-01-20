@@ -1,0 +1,16 @@
+baseURL = ''
+languageCode = 'en-us'
+title = 'DataJunction'
+theme = 'hugo-book'
+
+[markup.goldmark.renderer]
+  unsafe = true
+
+[params]
+BookLogo = 'dj-logo.png'
+BookTheme = 'auto'
+
+[security]
+  enableInlineShortcodes = false
+  [security.exec]
+    allow = ['rst2html.py', 'rst2html']
