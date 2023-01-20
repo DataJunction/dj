@@ -17,6 +17,24 @@ from dj.sql.parsing.backends.sqloxide import parse, parse_op, parse_value
 from tests.sql.utils import TPCDS_QUERY_SET, read_query
 
 
+def test_cte_suquery_sql_parse_error():
+    """
+    test parsing a subquery with ctes fail
+    """
+    query = """
+    select * from
+    (WITH
+  eid AS
+  (
+    SELECT EmployeeID
+    FROM Employees
+  )
+SELECT * from eid)
+    """
+    with pytest.raises(DJParseException):
+        parse(query)
+
+
 def test_case_when_null_sql_parse(case_when_null):
     """
     test parsing a case_when_null query

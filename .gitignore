@@ -108,6 +108,8 @@ ENV/
 
 # VS Code
 .vscode
+
+# Idea
 .idea
 
 # MacOS

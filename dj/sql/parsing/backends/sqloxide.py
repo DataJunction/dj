@@ -1,7 +1,7 @@
 """
 parsing backend turning sqloxide output into DJ AST
 """
-from typing import List, Set, Union
+from typing import List, Optional, Set, Union
 
 from sqloxide import parse_sql
 
@@ -27,6 +27,7 @@ from dj.sql.parsing.ast import (
     Select,
     String,
     Table,
+    TableExpression,
     UnaryOp,
     UnaryOpKind,
     Value,
@@ -54,8 +55,8 @@ def parse_op(parse_tree: dict) -> Operation:
             binop_kind = exp.name
             if subtree["op"] == binop_kind:
                 return BinaryOp(
-                    parse_expression(subtree["left"]),
                     BinaryOpKind[binop_kind],
+                    parse_expression(subtree["left"]),
                     parse_expression(subtree["right"]),
                 )
         raise DJParseException(f"Unknown operator {subtree['op']}")  # pragma: no cover
@@ -185,7 +186,7 @@ def parse_column(parse_tree: dict):
     return parse_expression(parse_tree)
 
 
-def parse_table(parse_tree: dict) -> Union[Alias, Table]:
+def parse_table(parse_tree: dict) -> TableExpression:
     """parse a table"""
     if match_keys(parse_tree, {"Derived"}):
         subtree = parse_tree["Derived"]
@@ -193,23 +194,31 @@ def parse_table(parse_tree: dict) -> Union[Alias, Table]:
             raise DJParseException("Parsing does not support lateral subqueries")
 
         alias = subtree["alias"]
-        if alias["columns"]:
-            raise DJParseException(  # pragma: no cover
-                "Parsing does not support columns in derived from.",
+        subquery = parse_query(subtree["subquery"])
+        if subquery.ctes:
+            raise DJParseException("CTEs are not allowed in a subquery")
+        subselect = subquery.select
+        if alias:
+            if alias["columns"]:
+                raise DJParseException(  # pragma: no cover
+                    "Parsing does not support columns in derived from.",
+                )
+            aliased: Alias[Select] = Alias(
+                parse_name(alias["name"]),
+                child=subselect,
             )
-        return Alias(
-            parse_name(alias["name"]),
-            child=parse_query(subtree["subquery"]),
-        )
+            return aliased
+        return subselect
     if match_keys(parse_tree, {"Table"}):
         subtree = parse_tree["Table"]
 
         table = parse_namespace(subtree["name"]).to_named_type(Table)
         if subtree["alias"]:
-            return Alias(
+            aliased: Alias[Table] = Alias(  # type: ignore
                 parse_name(subtree["alias"]["name"]),
                 child=table,
             )
+            return aliased
         return table
 
     raise DJParseException("Failed to parse Table")  # pragma: no cover
@@ -339,12 +348,14 @@ def parse_oxide_tree(parse_tree: dict) -> Query:
     raise DJParseException("Failed to parse Query")  # pragma: no cover
 
 
-def parse(sql: str, dialect: str = "ansi") -> Query:
+def parse(sql: str, dialect: Optional[str] = None) -> Query:
     """Parse a string into a DJ ast using sqloxide backend.
 
     Parses only a single Select query (can include ctes)
 
     """
+    if dialect is None:
+        dialect = "ansi"
     oxide_parsed = parse_sql(sql, dialect)
     if len(oxide_parsed) != 1:
         raise DJParseException("Expected a single sql statement.")

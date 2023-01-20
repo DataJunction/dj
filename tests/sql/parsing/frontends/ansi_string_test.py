@@ -3,7 +3,16 @@ tests for DJ ast representation as sql string
 """
 import pytest
 
-from dj.sql.parsing.ast import Column, From, Name, Namespace, Query, Select, Table
+from dj.sql.parsing.ast import (
+    Alias,
+    Column,
+    From,
+    Name,
+    Namespace,
+    Query,
+    Select,
+    Table,
+)
 from dj.sql.parsing.frontends.string import sql
 from tests.sql.utils import TPCDS_QUERY_SET, compare_query_strings, read_query
 
@@ -24,6 +33,16 @@ def test_namespaced_table():
         str(Table("a").add_namespace(Namespace([Name("db"), Name("schema")])))
         == "db.schema.a"
     )
+
+
+def test_aliased_table_column():
+    """
+    test namespaced column to string
+    """
+    table = Table(Name("tbl"))
+    Alias(Name("a"), child=table)
+    col = Column(Name("x"), _table=table)
+    assert str(col) == "a.x"
 
 
 def test_case_when_null_sql_string(case_when_null):

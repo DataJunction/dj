@@ -37,6 +37,25 @@ def test_trivial_ne(trivial_query):
     )
 
 
+def test_trivial_diff(trivial_query):
+    """
+    test find_all on a trivial query
+    """
+    assert trivial_query.diff(
+        Query(
+            ctes=[],
+            select=Select(
+                distinct=False,
+                from_=From(tables=[Table(Name(name="b"))]),
+                projection=[Column(Name("a"))],
+            ),
+        ),
+    ) == [
+        (Name(name="a", quote_style=""), Name(name="b", quote_style="")),
+        (Wildcard(), Column(name=Name(name="a", quote_style=""), namespace=None)),
+    ]
+
+
 def test_findall_trivial(trivial_query):
     """
     test find_all on a trivial query
@@ -204,13 +223,18 @@ def test_flatten():
     ) == [1, 1, 2, 3, range(0, 5), 8, 18, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 10]
 
 
-def test_remove_parents():
+def test_get_nearest_parent():
     """
-    test removing parents
+    test getting the nearest parent of a node of a certain type
     """
-    col = Column(Name("x"))
-    col.name.remove_parents(col)
-    assert col.name.parents == set()
+
+    name_a = Name("a")
+    name_b = Name("b")
+
+    assert name_a.get_nearest_parent_of_type(Table) is None
+    table = Table(name_a, Namespace([name_b]))
+    assert name_a.get_nearest_parent_of_type(Table) is table
+    assert name_b.get_nearest_parent_of_type(Table) is table
 
 
 def test_empty_namespace_conversion_raises():
