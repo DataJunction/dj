@@ -273,7 +273,7 @@ def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) ->
             message="The query is invalid",
             errors=[
                 DJError(
-                    code=ErrorCode.UNKWNON_ERROR,
+                    code=ErrorCode.UNKNOWN_ERROR,
                     message="An unknown error occurred",
                     debug={"context": {"query": "SELECT A FROM metrics"}},
                 ),
@@ -305,6 +305,7 @@ def test_submit_query_native_error(mocker: MockerFixture, client: TestClient) ->
         "errors": [
             {
                 "code": 0,
+                "context": "",
                 "message": "An unknown error occurred",
                 "debug": {"context": {"query": "SELECT A FROM metrics"}},
             },
