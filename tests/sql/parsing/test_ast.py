@@ -2,12 +2,18 @@
 testing ast Nodes and their methods
 """
 import pytest
+from sqlalchemy import select
 
+from dj.models.column import ColumnType
+from dj.models.node import Node, NodeType
 from dj.sql.parsing.ast import (
     Alias,
+    BinaryOp,
+    BinaryOpKind,
     Boolean,
     Column,
     From,
+    IsNull,
     Name,
     Namespace,
     Number,
@@ -19,6 +25,8 @@ from dj.sql.parsing.ast import (
     flatten,
 )
 from dj.sql.parsing.backends.exceptions import DJParseException
+from dj.sql.parsing.backends.sqloxide import parse
+from tests.sql.utils import compare_query_strings
 
 
 def test_trivial_ne(trivial_query):
@@ -134,7 +142,7 @@ def test_named_alias_or_name_not_aliased():
     test a named node for returning its name when not a child of an alias
     """
     named = Table(Name(name="a"))
-    _ = From(named)
+    _ = From([named])
     assert named.alias_or_name() == Name("a")
 
 
@@ -188,11 +196,39 @@ def test_boolean_hash(value1, value2):
 
 def test_column_table():
     """
-    test column hash
+    test column add table
     """
     column = Column(Name("x"))
     column.add_table(Table(Name("a")))
     assert column.table == Table(Name("a"))
+
+
+def test_column_type():
+    """
+    test column add type
+    """
+    column = Column(Name("x"))
+    column.add_type(ColumnType.STR)
+    assert column.type == ColumnType.STR
+
+
+def test_column_expression_property():
+    """
+    test column get expression
+    """
+    column = Column(Name("x"))
+    exp = Column(Name("exp"))
+    column.add_expression(exp)
+    assert column.expression.compare(exp)
+
+
+def test_alias_alias_fails():
+    """
+    test having an alias of an alias fails
+    """
+    with pytest.raises(DJParseException) as exc:
+        Alias(Name("bad"), child=Alias(Name("alias"), child=Column(Name("child"))))
+    assert "An alias cannot descend from another Alias." in str(exc)
 
 
 def test_table_columns():
@@ -201,7 +237,7 @@ def test_table_columns():
     """
     table = Table(Name("a"))
     table.add_columns(Column(Name("x")))
-    assert table.columns == [Column(Name("x"))]
+    assert table.columns == {Column(Name("x"))}
 
 
 def test_wildcard_table_reference():
@@ -253,3 +289,176 @@ def test_double_add_namespace():
     col.add_namespace(Namespace([Name("a")]))
     col.add_namespace(Namespace([Name("b")]))
     assert str(col) == "a.x"
+
+
+def test_adding_bad_node_to_table(construction_session):
+    """
+    test adding a node to a table
+    """
+    table = Table(Name("a"))
+    node = next(
+        construction_session.exec(select(Node).filter(Node.type == NodeType.METRIC)),
+    )[0]
+    with pytest.raises(DJParseException) as exc:
+        table.add_dj_node(node)
+    assert "Expected dj node of TRANSFORM, SOURCE, or DIMENSION" in str(exc)
+
+
+def test_column_string_table_subquery():
+    """test a column string when it references an unaliased subquery as a table"""
+    ast = parse("SELECT a FROM (SELECT * FROM t)", "ansi")
+    subquery = ast.select.from_.tables[0]
+    col = ast.select.projection[0]
+    col.add_table(subquery)
+    assert str(col) == "a"
+
+
+def test_replace():
+    """
+    test replacing nodes
+    """
+    select_statement = Select(
+        from_=From(
+            tables=[Table(Name(name="a")), Table(Name(name="b"))],
+        ),
+        projection=[Wildcard()],
+    )
+
+    select_statement.replace(Name("a"), Name("A"))
+    select_statement.replace("b", "B")
+    assert compare_query_strings("select * from A, B", str(select_statement))
+
+
+def test_query_to_select(cte_query):
+    """test converting a query to a select"""
+    assert cte_query.to_select().compare(
+        Select(
+            from_=From(
+                tables=[
+                    Alias(
+                        name=Name(name="cteReports", quote_style=""),
+                        namespace=None,
+                        child=Select(
+                            from_=From(
+                                tables=[
+                                    Table(
+                                        name=Name(name="Employees", quote_style=""),
+                                        namespace=None,
+                                    ),
+                                ],
+                                joins=[],
+                            ),
+                            group_by=[],
+                            having=None,
+                            projection=[
+                                Column(
+                                    name=Name(name="EmployeeID", quote_style=""),
+                                    namespace=None,
+                                ),
+                                Column(
+                                    name=Name(name="FirstName", quote_style=""),
+                                    namespace=None,
+                                ),
+                                Column(
+                                    name=Name(name="LastName", quote_style=""),
+                                    namespace=None,
+                                ),
+                                Column(
+                                    name=Name(name="ManagerID", quote_style=""),
+                                    namespace=None,
+                                ),
+                            ],
+                            where=IsNull(
+                                expr=Column(
+                                    name=Name(name="ManagerID", quote_style=""),
+                                    namespace=None,
+                                ),
+                            ),
+                            limit=None,
+                            distinct=False,
+                        ),
+                    ),
+                ],
+                joins=[],
+            ),
+            group_by=[],
+            having=None,
+            projection=[
+                Alias(
+                    name=Name(name="FullName", quote_style=""),
+                    namespace=None,
+                    child=BinaryOp(
+                        op=BinaryOpKind.Plus,
+                        left=BinaryOp(
+                            op=BinaryOpKind.Plus,
+                            left=Column(
+                                name=Name(name="FirstName", quote_style=""),
+                                namespace=None,
+                            ),
+                            right=String(value=" "),
+                        ),
+                        right=Column(
+                            name=Name(name="LastName", quote_style=""),
+                            namespace=None,
+                        ),
+                    ),
+                ),
+                Column(name=Name(name="EmpLevel", quote_style=""), namespace=None),
+                Alias(
+                    name=Name(name="Manager", quote_style=""),
+                    namespace=None,
+                    child=Query(
+                        select=Select(
+                            from_=From(
+                                tables=[
+                                    Table(
+                                        name=Name(name="Employees", quote_style=""),
+                                        namespace=None,
+                                    ),
+                                ],
+                                joins=[],
+                            ),
+                            group_by=[],
+                            having=None,
+                            projection=[
+                                BinaryOp(
+                                    op=BinaryOpKind.Plus,
+                                    left=BinaryOp(
+                                        op=BinaryOpKind.Plus,
+                                        left=Column(
+                                            name=Name(name="FirstName", quote_style=""),
+                                            namespace=None,
+                                        ),
+                                        right=String(value=" "),
+                                    ),
+                                    right=Column(
+                                        name=Name(name="LastName", quote_style=""),
+                                        namespace=None,
+                                    ),
+                                ),
+                            ],
+                            where=BinaryOp(
+                                op=BinaryOpKind.Eq,
+                                left=Column(
+                                    name=Name(name="EmployeeID", quote_style=""),
+                                    namespace=None,
+                                ),
+                                right=Column(
+                                    name=Name(name="MgrID", quote_style=""),
+                                    namespace=Namespace(
+                                        names=[Name(name="cteReports", quote_style="")],
+                                    ),
+                                ),
+                            ),
+                            limit=None,
+                            distinct=False,
+                        ),
+                        ctes=[],
+                    ),
+                ),
+            ],
+            where=None,
+            limit=None,
+            distinct=False,
+        ),
+    )

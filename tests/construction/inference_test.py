@@ -1,0 +1,180 @@
+"""test inferring types"""
+
+
+import pytest
+from sqlalchemy import select
+from sqlmodel import Session
+
+from dj.construction.compile import compile_query
+from dj.construction.inference import get_type_of_expression
+from dj.models import Node
+from dj.sql.parsing import ast
+from dj.sql.parsing.ast import BinaryOpKind
+from dj.sql.parsing.backends.exceptions import DJParseException
+from dj.sql.parsing.backends.sqloxide import parse
+from dj.typing import ColumnType
+
+
+def test_infer_column_with_table(construction_session: Session):
+    """
+    Test getting the type of a column that has a table
+    """
+    node = next(
+        construction_session.exec(
+            select(Node).filter(Node.name == "dbt.source.jaffle_shop.orders"),
+        ),
+    )[0]
+    table = ast.Table(ast.Name("orders"), _dj_node=node)
+    assert (
+        get_type_of_expression(ast.Column(ast.Name("id"), _table=table))
+        == ColumnType.INT
+    )
+    assert (
+        get_type_of_expression(ast.Column(ast.Name("user_id"), _table=table))
+        == ColumnType.INT
+    )
+    assert (
+        get_type_of_expression(ast.Column(ast.Name("order_date"), _table=table))
+        == ColumnType.DATE
+    )
+    assert (
+        get_type_of_expression(ast.Column(ast.Name("status"), _table=table))
+        == ColumnType.STR
+    )
+
+
+def test_infer_values():
+    """
+    Test inferring types from values directly
+    """
+    assert get_type_of_expression(ast.String("foo")) == ColumnType.STR
+    assert get_type_of_expression(ast.Number(value=1.1)) == ColumnType.FLOAT
+
+
+def test_raise_on_invalid_infer_binary_op():
+    """
+    Test raising when trying to infer types from an invalid binary op
+    """
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(
+            ast.BinaryOp(
+                op=BinaryOpKind.Modulo,
+                left=ast.String(value="foo"),
+                right=ast.String(value="bar"),
+            ),
+        )
+
+    assert (
+        "Incompatible types in binary operation 'foo' % 'bar'. "
+        "Got left STR, right STR."
+    ) in str(exc_info.value)
+
+
+def test_infer_column_with_an_aliased_table(construction_session: Session):
+    """
+    Test getting the type of a column that has an aliased table
+    """
+    node = next(
+        construction_session.exec(
+            select(Node).filter(Node.name == "dbt.source.jaffle_shop.orders"),
+        ),
+    )[0]
+    table = ast.Table(ast.Name("orders"), _dj_node=node)
+    alias = ast.Alias(
+        ast.Name("foo"),
+        ast.Namespace([ast.Name("a"), ast.Name("b"), ast.Name("c")]),
+        child=table,
+    )
+    col = ast.Column(ast.Name("status"), _table=alias)
+    assert get_type_of_expression(col) == ColumnType.STR
+
+
+def test_raising_when_table_has_no_dj_node():
+    """
+    Test raising when getting the type of a column that has a table with no DJ node
+    """
+    table = ast.Table(ast.Name("orders"))
+    col = ast.Column(ast.Name("status"), _table=table)
+
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(col)
+
+    assert (
+        "Cannot resolve type of column orders.status. "
+        "column's table does not have a DJ Node."
+    ) in str(exc_info.value)
+
+
+def test_raising_when_expression_parent_not_a_table():
+    """
+    Test raising when getting the type of a column thats parent is not a table
+    """
+    query = parse("select 1")
+    col = ast.Column(
+        ast.Name("status"),
+        _table=query.select,
+    )  # intentionally adding a non-table AST node
+
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(col)
+
+    assert (
+        "DJ does not currently traverse subqueries for type information. Consider extraction first."
+    ) in str(exc_info.value)
+
+
+def test_raising_when_expression_has_no_parent():
+    """
+    Test raising when getting the type of a column that has no parent
+    """
+    col = ast.Column(ast.Name("status"), _table=None)
+
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(col)
+
+    assert "Cannot resolve type of column status." in str(exc_info.value)
+
+
+def test_infer_types_complicated(construction_session: Session):
+    """
+    Test inferring complicated types
+    """
+    query = parse(
+        """
+      SELECT id+1-2/3*5%6&10|8^5,
+      id>5,
+      id<5,
+      id>=5,
+      id<=5,
+      id is null,
+      (id=5)=TRUE,
+      'hello world',
+         first_name as fn,
+         last_name<>'yoyo' and last_name='yoyo' or last_name='yoyo',
+         last_name,
+         bizarre
+      FROM (
+      SELECT id,
+         first_name,
+         last_name<>'yoyo' and last_name='yoyo' or last_name='yoyo' as bizarre,
+         last_name
+      FROM dbt.source.jaffle_shop.customers
+        )
+    """,
+    )
+    compiled = compile_query(construction_session, query)
+    types = [
+        ColumnType.INT,
+        ColumnType.BOOL,
+        ColumnType.BOOL,
+        ColumnType.BOOL,
+        ColumnType.BOOL,
+        ColumnType.BOOL,
+        ColumnType.BOOL,
+        ColumnType.STR,
+        ColumnType.STR,
+        ColumnType.BOOL,
+        ColumnType.STR,
+        ColumnType.BOOL,
+    ]
+    assert types == [get_type_of_expression(exp) for exp in compiled.select.projection]

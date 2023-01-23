@@ -110,6 +110,8 @@ def parse_expression(  # pylint: disable=R0911,R0912
     else:
         if match_keys(parse_tree, {"Value"}):
             return parse_value(parse_tree["Value"])
+        if match_keys(parse_tree, {"Wildcard"}):
+            return parse_expression("Wildcard")
         if match_keys(parse_tree, {"Nested"}):
             return parse_expression(parse_tree["Nested"])
         if match_keys(parse_tree, {"UnaryOp"}, {"BinaryOp"}, {"Between"}):
