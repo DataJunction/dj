@@ -122,6 +122,36 @@ class NodeBase(SQLModel):
     mode: NodeMode = NodeMode.PUBLISHED
 
 
+class MissingParent(SQLModel, table=True):  # type: ignore
+    """
+    A missing parent node
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(sa_column=SqlaColumn("name", String))
+    created_at: datetime = Field(
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default_factory=partial(datetime.now, timezone.utc),
+    )
+
+
+class NodeMissingParents(SQLModel, table=True):  # type: ignore
+    """
+    Join table for missing parents
+    """
+
+    missing_parent_id: Optional[int] = Field(
+        default=None,
+        foreign_key="missingparent.id",
+        primary_key=True,
+    )
+    referencing_node_id: Optional[int] = Field(
+        default=None,
+        foreign_key="node.id",
+        primary_key=True,
+    )
+
+
 class Node(NodeBase, table=True):  # type: ignore
     """
     A node.
@@ -149,6 +179,15 @@ class Node(NodeBase, table=True):  # type: ignore
         sa_relationship_kwargs={
             "primaryjoin": "Node.id==NodeRelationship.child_id",
             "secondaryjoin": "Node.id==NodeRelationship.parent_id",
+        },
+    )
+
+    missing_parents: List[MissingParent] = Relationship(
+        link_model=NodeMissingParents,
+        sa_relationship_kwargs={
+            "primaryjoin": "Node.id==NodeMissingParents.referencing_node_id",
+            "secondaryjoin": "MissingParent.id==NodeMissingParents.missing_parent_id",
+            "cascade": "all, delete",
         },
     )
 
