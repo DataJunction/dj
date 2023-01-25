@@ -23,6 +23,14 @@ from dj.models.node import Node as DJNode
 from dj.models.node import NodeType as DJNodeType
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.typing import ColumnType
+from typing import List, Optional, Set, Tuple
+
+
+from dj.construction.build_planning import BuildPlan
+from sqlmodel import Session
+
+
+from dj.models.database import Database
 
 PRIMITIVES = {int, float, str, bool, type(None)}
 
@@ -817,8 +825,9 @@ class Query(Expression):
     select: "Select"
     ctes: List[Alias["Select"]] = field(default_factory=list)
 
-    def to_select(self) -> Select:
-        """compile ctes into the select and return the select
+    def _to_select(self) -> Select:
+        """
+        Compile ctes into the select and return the select
 
         Note: This destroys the structure of the query which cannot be undone
         you may want to deepcopy it first
@@ -827,6 +836,19 @@ class Query(Expression):
             table = Table(cte.name, cte.namespace)
             self.select.replace(table, cte)
         return self.select
+
+    def build(
+        self,
+        session: Session,
+        build_plan: BuildPlan,
+        build_plan_depth: int,
+        database: Database,
+        dialect: Optional[str] = None):
+        """
+        Transforms a query ast by replacing dj node references with their asts
+        """
+        from dj.construction.build import _build_query
+        _build_query(session, self, build_plan, build_plan_depth, database, dialect)
 
     def __str__(self) -> str:
         subquery = bool(self.parent)
