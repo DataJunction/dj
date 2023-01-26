@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from dj.construction.extract import (
     extract_dependencies_from_node,
-    extract_dependencies_from_query,
+    extract_dependencies_from_query_ast,
 )
 from dj.models.database import Database
 from dj.models.node import Node, NodeType
@@ -48,7 +48,7 @@ def generate_build_plan_from_query(
         replace nodes with the desired ast
     """
 
-    tree, deps, _ = extract_dependencies_from_query(session, query)
+    tree, deps, _ = extract_dependencies_from_query_ast(session, query)
     databases = {}
     for node, tables in deps.items():
         columns = {col.name.name for table in tables for col in table.columns}

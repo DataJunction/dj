@@ -5,7 +5,7 @@ import pytest
 from sqlalchemy import select
 from sqlmodel import Session
 
-from dj.construction.compile import compile_query
+from dj.construction.compile import compile_query_ast
 from dj.construction.inference import get_type_of_expression
 from dj.models import Node
 from dj.sql.parsing import ast
@@ -162,7 +162,7 @@ def test_infer_types_complicated(construction_session: Session):
         )
     """,
     )
-    compiled = compile_query(construction_session, query)
+    compile_query_ast(construction_session, query)
     types = [
         ColumnType.INT,
         ColumnType.BOOL,
@@ -177,4 +177,4 @@ def test_infer_types_complicated(construction_session: Session):
         ColumnType.STR,
         ColumnType.BOOL,
     ]
-    assert types == [get_type_of_expression(exp) for exp in compiled.select.projection]
+    assert types == [get_type_of_expression(exp) for exp in query.select.projection]

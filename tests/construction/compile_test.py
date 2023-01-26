@@ -6,11 +6,11 @@ Tests for compiling nodes
 import pytest
 from sqlmodel import Session
 
-from dj.construction.compile import compile_node, compile_query
+from dj.construction.compile import compile_node, compile_query_ast
 from dj.construction.exceptions import CompoundBuildException
 from dj.construction.extract import (
     extract_dependencies_from_node,
-    extract_dependencies_from_query,
+    extract_dependencies_from_query_ast,
 )
 from dj.construction.utils import make_name
 from dj.errors import DJException
@@ -30,7 +30,7 @@ def test_get_table_node_is_none(construction_session: Session):
     )
     CompoundBuildException().reset()
     CompoundBuildException().set_raise(False)
-    compile_query(construction_session, query)
+    compile_query_ast(construction_session, query)
     assert "No node `purchases`" in str(CompoundBuildException().errors)
     CompoundBuildException().reset()
 
@@ -82,7 +82,7 @@ def test_raise_on_dangling_refs_in_extract_dependencies(construction_session: Se
     """
     query = parse("select a, b, c from does_not_exist")
     with pytest.raises(DJException) as exc_info:
-        extract_dependencies_from_query(session=construction_session, query=query)
+        extract_dependencies_from_query_ast(session=construction_session, query=query)
 
     assert "Cannot extract dependencies from query" in str(exc_info.value)
 
@@ -92,7 +92,7 @@ def test_catching_dangling_refs_in_extract_dependencies(construction_session: Se
     Test getting dependencies from a query that has dangling references when set not to raise
     """
     query = parse("select a, b, c from does_not_exist")
-    _, _, danglers = extract_dependencies_from_query(
+    _, _, danglers = extract_dependencies_from_query_ast(
         session=construction_session,
         query=query,
         raise_=False,
@@ -131,7 +131,7 @@ def test_raise_on_unnamed_subquery_in_implicit_join(construction_session: Sessio
         "(SELECT country FROM basic.transform.country_agg)",
     )
     with pytest.raises(DJException) as exc_info:
-        compile_query(
+        compile_query_ast(
             session=construction_session,
             query=query,
         )
@@ -147,7 +147,7 @@ def test_raise_on_ambiguous_column(construction_session: Session):
         "LEFT JOIN basic.dimension.countries b on a.country = b.country",
     )
     with pytest.raises(DJException) as exc_info:
-        compile_query(
+        compile_query_ast(
             session=construction_session,
             query=query,
         )

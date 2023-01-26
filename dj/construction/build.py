@@ -28,7 +28,7 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
     build_plan_depth: int,
     database: Database,
     dialect: Optional[str] = None,
-) -> ast.Select:
+):
     """
     Transforms a select ast by replacing dj node references with their asts
     """
@@ -174,7 +174,6 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
         for tbl in tbls:
             select.replace(tbl, node_ast)
 
-    return select
 
 
 def _build_query_ast(  # pylint: disable=too-many-arguments
@@ -184,7 +183,7 @@ def _build_query_ast(  # pylint: disable=too-many-arguments
     build_plan_depth: int,
     database: Database,
     dialect: Optional[str] = None,
-) -> ast.Query:
+) :
     """
     Transforms a query ast by replacing dj node references with their asts
     """
@@ -204,7 +203,7 @@ def add_filters_and_aggs_to_query_ast(
     dialect: Optional[str] = None,
     filters: Optional[List[str]] = None,
     aggs: Optional[List[str]] = None,
-) -> ast.Query:
+):
     """
     Add filters and aggs to a query ast
     """
@@ -233,7 +232,6 @@ def add_filters_and_aggs_to_query_ast(
                 dialect,
             ).select.group_by  # type:ignore
 
-    return query
 
 
 async def build_node_for_database(  # pylint: disable=too-many-arguments
@@ -254,7 +252,7 @@ async def build_node_for_database(  # pylint: disable=too-many-arguments
     query = parse(node.query, dialect)
     top_dbs: Set[Database] = set()
     if filters or aggs:
-        query = add_filters_and_aggs_to_query_ast(query, dialect, filters, aggs)
+        add_filters_and_aggs_to_query_ast(query, dialect, filters, aggs)
     else:
         top_dbs = {table.database for table in node.tables}
     build_plan = generate_build_plan_from_query(session, query, dialect)
