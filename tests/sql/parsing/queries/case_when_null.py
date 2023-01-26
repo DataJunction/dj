@@ -5,20 +5,7 @@ fixtures for derived_subquery.sql
 
 import pytest
 
-from dj.sql.parsing.ast import (
-    Alias,
-    Case,
-    Column,
-    From,
-    IsNull,
-    Name,
-    Namespace,
-    Query,
-    Select,
-    Table,
-    UnaryOp,
-    UnaryOpKind,
-)
+from dj.sql.parsing import ast
 
 
 @pytest.fixture
@@ -26,15 +13,15 @@ def case_when_null():
     """
     dj ast for case when null
     """
-    return Query(
-        select=Select(
-            from_=From(
+    return ast.Query(
+        select=ast.Select(
+            from_=ast.From(
                 tables=[
-                    Alias(
-                        name=Name(name="web", quote_style=""),
+                    ast.Alias(
+                        name=ast.Name(name="web", quote_style=""),
                         namespace=None,
-                        child=Table(
-                            name=Name(name="web_v1", quote_style=""),
+                        child=ast.Table(
+                            name=ast.Name(name="web_v1", quote_style=""),
                             namespace=None,
                         ),
                     ),
@@ -44,85 +31,91 @@ def case_when_null():
             group_by=[],
             having=None,
             projection=[
-                Alias(
-                    name=Name(name="item_sk", quote_style=""),
+                ast.Alias(
+                    name=ast.Name(name="item_sk", quote_style=""),
                     namespace=None,
-                    child=Case(
+                    child=ast.Case(
                         conditions=[
-                            IsNull(
-                                expr=Column(
-                                    name=Name(name="item_sk", quote_style=""),
-                                    namespace=Namespace(
-                                        names=[Name(name="web", quote_style="")],
+                            ast.IsNull(
+                                expr=ast.Column(
+                                    name=ast.Name(name="item_sk", quote_style=""),
+                                    namespace=ast.Namespace(
+                                        names=[ast.Name(name="web", quote_style="")],
                                     ),
                                 ),
                             ),
                         ],
-                        else_result=Column(
-                            name=Name(name="item_sk", quote_style=""),
-                            namespace=Namespace(
-                                names=[Name(name="store", quote_style="")],
+                        else_result=ast.Column(
+                            name=ast.Name(name="item_sk", quote_style=""),
+                            namespace=ast.Namespace(
+                                names=[ast.Name(name="store", quote_style="")],
                             ),
                         ),
                         operand=None,
                         results=[
-                            Column(
-                                name=Name(name="item_sk", quote_style=""),
-                                namespace=Namespace(
-                                    names=[Name(name="web", quote_style="")],
+                            ast.Column(
+                                name=ast.Name(name="item_sk", quote_style=""),
+                                namespace=ast.Namespace(
+                                    names=[ast.Name(name="web", quote_style="")],
                                 ),
                             ),
                         ],
                     ),
                 ),
-                Alias(
-                    name=Name(name="d_date", quote_style=""),
+                ast.Alias(
+                    name=ast.Name(name="d_date", quote_style=""),
                     namespace=None,
-                    child=Case(
+                    child=ast.Case(
                         conditions=[
-                            UnaryOp(
-                                op=UnaryOpKind.Not,
-                                expr=IsNull(
-                                    expr=Column(
-                                        name=Name(name="d_date", quote_style=""),
-                                        namespace=Namespace(
-                                            names=[Name(name="web", quote_style="")],
+                            ast.UnaryOp(
+                                op=ast.UnaryOpKind.Not,
+                                expr=ast.IsNull(
+                                    expr=ast.Column(
+                                        name=ast.Name(name="d_date", quote_style=""),
+                                        namespace=ast.Namespace(
+                                            names=[
+                                                ast.Name(name="web", quote_style=""),
+                                            ],
                                         ),
                                     ),
                                 ),
                             ),
                         ],
-                        else_result=Column(
-                            name=Name(name="d_date", quote_style=""),
-                            namespace=Namespace(
-                                names=[Name(name="store", quote_style="")],
+                        else_result=ast.Column(
+                            name=ast.Name(name="d_date", quote_style=""),
+                            namespace=ast.Namespace(
+                                names=[ast.Name(name="store", quote_style="")],
                             ),
                         ),
                         operand=None,
                         results=[
-                            Column(
-                                name=Name(name="d_date", quote_style=""),
-                                namespace=Namespace(
-                                    names=[Name(name="web", quote_style="")],
+                            ast.Column(
+                                name=ast.Name(name="d_date", quote_style=""),
+                                namespace=ast.Namespace(
+                                    names=[ast.Name(name="web", quote_style="")],
                                 ),
                             ),
                         ],
                     ),
                 ),
-                Alias(
-                    name=Name(name="web_sales", quote_style=""),
+                ast.Alias(
+                    name=ast.Name(name="web_sales", quote_style=""),
                     namespace=None,
-                    child=Column(
-                        name=Name(name="cume_sales", quote_style=""),
-                        namespace=Namespace(names=[Name(name="web", quote_style="")]),
+                    child=ast.Column(
+                        name=ast.Name(name="cume_sales", quote_style=""),
+                        namespace=ast.Namespace(
+                            names=[ast.Name(name="web", quote_style="")],
+                        ),
                     ),
                 ),
-                Alias(
-                    name=Name(name="store_sales", quote_style=""),
+                ast.Alias(
+                    name=ast.Name(name="store_sales", quote_style=""),
                     namespace=None,
-                    child=Column(
-                        name=Name(name="cume_sales", quote_style=""),
-                        namespace=Namespace(names=[Name(name="store", quote_style="")]),
+                    child=ast.Column(
+                        name=ast.Name(name="cume_sales", quote_style=""),
+                        namespace=ast.Namespace(
+                            names=[ast.Name(name="store", quote_style="")],
+                        ),
                     ),
                 ),
             ],

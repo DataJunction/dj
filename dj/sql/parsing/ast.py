@@ -6,6 +6,7 @@ from dataclasses import dataclass, field, fields
 from enum import Enum
 from itertools import chain, zip_longest
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Generic,
@@ -21,12 +22,14 @@ from typing import (
 
 from sqlmodel import Session
 
-from dj.construction.build_planning import BuildPlan
 from dj.models.database import Database
 from dj.models.node import Node as DJNode
 from dj.models.node import NodeType as DJNodeType
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.typing import ColumnType
+
+if TYPE_CHECKING:
+    from dj.construction.build_planning import BuildPlan  # type:ignore
 
 PRIMITIVES = {int, float, str, bool, type(None)}
 
