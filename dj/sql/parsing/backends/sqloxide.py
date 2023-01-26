@@ -5,7 +5,7 @@ from typing import List, Optional, Set, Union
 
 from sqloxide import parse_sql
 
-import dj.sql.parsing.ast 
+from dj.sql.parsing import ast
 from dj.sql.parsing.backends.exceptions import DJParseException
 
 

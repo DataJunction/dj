@@ -13,7 +13,7 @@ from dj.construction.extract import (
 from dj.models.database import Database
 from dj.models.node import Node, NodeType
 from dj.sql.dag import get_cheapest_online_database
-import dj.sql.parsing.ast
+from dj.sql.parsing import ast
 
 BuildPlan = Tuple[ast.Query, Dict[Node, Tuple[Set[Database], "BuildPlan"]]]  # type: ignore
 

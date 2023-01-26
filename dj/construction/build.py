@@ -16,7 +16,7 @@ from dj.errors import DJException
 from dj.models.column import Column
 from dj.models.database import Database
 from dj.models.node import Node, NodeType
-import dj.sql.parsing.ast
+from dj.sql.parsing import ast
 from dj.sql.parsing.backends.sqloxide import parse
 
 
