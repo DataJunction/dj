@@ -1,24 +1,36 @@
 """
 Types to represent the DJ AST used as an intermediate representation for DJ operations
 """
+# pylint: disable=R0401
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from itertools import chain, zip_longest
 from typing import (
+    TYPE_CHECKING,
     Any,
     Callable,
     Generic,
     Iterator,
     List,
     Optional,
+    Set,
     Tuple,
     Type,
     TypeVar,
     Union,
 )
 
+from sqlmodel import Session
+
+from dj.models.database import Database
+from dj.models.node import Node as DJNode
+from dj.models.node import NodeType as DJNodeType
 from dj.sql.parsing.backends.exceptions import DJParseException
+from dj.typing import ColumnType
+
+if TYPE_CHECKING:
+    from dj.construction.build_planning import BuildPlan  # type:ignore
 
 PRIMITIVES = {int, float, str, bool, type(None)}
 
@@ -193,10 +205,77 @@ class Node(ABC):
             named=False,
         )
 
+    def replace(  # pylint: disable=invalid-name
+        self: TNode,
+        from_: Any,
+        to: Any,
+        compare: Optional[Callable[[Any, Any], bool]] = None,
+    ) -> TNode:
+        """Replace a node `from_` with a node `to` in the subtree
+        ensures that parents and children are appropriately resolved
+        accounts for possible cycles
+        """
+        _compare: Callable[[Any, Any], bool] = compare or (
+            lambda a, b: a.compare(b) if isinstance(a, Node) else a == b
+        )
+
+        seen: Set[
+            int
+        ] = (
+            set()
+        )  # to avoid infinite recursion from cycles ex. column->table->column...
+
+        def _replace(  # pylint: disable=too-many-branches,invalid-name
+            self: Node,
+            from_: Any,
+            to: Any,
+        ):
+            if id(self) in seen:
+                return
+            seen.add(id(self))
+            for name, child in self.fields(
+                flat=False,
+                nodes_only=False,
+                obfuscated=True,
+                nones=False,
+                named=True,
+            ):
+                iterable = False
+                for iterable_type in (list, tuple, set):
+                    if isinstance(child, iterable_type):
+                        iterable = True
+                        new = []
+                        for element in child:
+                            if not _compare(
+                                element,
+                                from_,
+                            ):  # if the node is not a match, keep the old
+                                new.append(element)
+                            else:
+                                new.append(to)
+                            # recurse to other nodes in the iterable
+                            if isinstance(element, Node):  # pragma: no cover
+                                _replace(element, from_, to)
+                        new = iterable_type(new)  # type: ignore
+                        setattr(self, name, new)
+                if not iterable:
+                    if isinstance(child, Node):
+                        if _compare(child, from_):
+                            setattr(self, name, to)
+                    else:
+                        if _compare(child, from_):
+                            setattr(self, name, to)
+                if isinstance(child, Node):
+                    _replace(child, from_, to)
+
+        _replace(self, from_, to)
+        return self
+
     def filter(self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
         """find all nodes that `func` returns `True` for"""
         if func(self):
             yield self
+
         for node in chain(*[child.filter(func) for child in self.children]):
             yield node
 
@@ -212,10 +291,16 @@ class Node(ABC):
         for child in self.children:
             child.apply(func)
 
-    def compare(self, other: "Node") -> bool:
+    def compare(
+        self,
+        other: "Node",
+    ) -> bool:
         """a compare two ASTs"""
-
-        return id(self) == id(other) or hash(self) == hash(other)
+        if type(self) != type(other):  # pylint: disable=unidiomatic-typecheck
+            return False
+        if id(self) == id(other):
+            return True
+        return hash(self) == hash(other)
 
     def diff(self, other: "Node") -> List[Tuple["Node", "Node"]]:
         """compare two ASTs for differences and return the pairs of differences"""
@@ -252,12 +337,15 @@ class Node(ABC):
         """hash a node"""
         return hash(
             tuple(
-                self.fields(
-                    flat=True,
-                    nodes_only=False,
-                    obfuscated=True,
-                    nones=True,
-                    named=False,
+                chain(
+                    (type(self),),
+                    self.fields(
+                        flat=True,
+                        nodes_only=False,
+                        obfuscated=False,
+                        nones=True,
+                        named=False,
+                    ),
                 ),
             ),
         )
@@ -273,10 +361,12 @@ TExpression = TypeVar("TExpression", bound="Expression")  # pylint: disable=C010
 class Expression(Node):
     """an expression type simply for type checking"""
 
-    def alias_or_self(self: TExpression) -> TExpression:
+    def alias_or_self(
+        self: TExpression,
+    ) -> Union[TExpression, "Alias[TExpression]"]:
         """get the alias name of an expression if it is the descendant of an alias otherwise get its own name"""  # pylint: disable=C0301
         if isinstance(self.parent, Alias):
-            return self.parent  # type: ignore
+            return self.parent
         return self
 
 
@@ -342,10 +432,10 @@ class Named(Expression):
     namespace: Optional[Namespace] = None
 
     def add_namespace(self: TNamed, namespace: Optional[Namespace]) -> TNamed:
-        """add a namespace to the Table if one does not exist"""
+        """add a namespace to the Named if one does not exist"""
         if self.namespace is None:
             self.namespace = namespace
-        return self.add_self_as_parent()
+        return self
 
     def alias_or_name(self) -> Name:
         """get the alias name of a node if it is the descendant of an alias otherwise get its own name"""  # pylint: disable=C0301
@@ -508,14 +598,19 @@ class Boolean(Value):
     value: bool
 
 
-NodeType = TypeVar("NodeType", bound=Node)  # pylint: disable=C0103
+AliasedType = TypeVar("AliasedType", bound=Node)  # pylint: disable=C0103
 
 
 @dataclass(eq=False)
-class Alias(Named, Generic[NodeType]):
+class Alias(Named, Generic[AliasedType]):
     """wraps node types with an alias"""
 
-    child: Node = field(default_factory=Node)
+    child: AliasedType = field(default_factory=Node)  # type: ignore
+
+    def __post_init__(self):
+        super().__post_init__()
+        if isinstance(self.child, Alias):
+            raise DJParseException("An alias cannot descend from another Alias.")
 
     def __str__(self) -> str:
         return f"{self.child} AS {self.name}"
@@ -525,27 +620,57 @@ class Alias(Named, Generic[NodeType]):
 class Column(Named):
     """column used in statements"""
 
-    _table: Optional["Table"] = field(repr=False, default=None)
+    _table: Optional["TableExpression"] = field(repr=False, default=None)
+    _type: Optional["ColumnType"] = field(repr=False, default=None)
+    _expression: Optional[Expression] = field(repr=False, default=None)
 
     @property
-    def table(self) -> Optional["Table"]:
+    def type(self) -> Optional[ColumnType]:
+        """return the type of the column"""
+        return self._type
+
+    def add_type(self, type_: ColumnType) -> "Column":
+        """add a referenced type"""
+        self._type = type_
+        return self
+
+    @property
+    def expression(self) -> Optional[Expression]:
+        """return the dj_node referenced by this table"""
+        return self._expression
+
+    def add_expression(self, expression: "Expression") -> "Column":
+        """add a referenced expression"""
+        self._expression = expression
+        return self
+
+    @property
+    def table(self) -> Optional["TableExpression"]:
         """return the table the column was referenced from"""
         return self._table
 
-    def add_table(self, table: "Table") -> "Column":
+    def add_table(self, table: "TableExpression") -> "Column":
         """add a referenced table"""
-        if self._table is None:
-            self._table = table
+        self._table = table.alias_or_self()  # type: ignore
+        # add column to table if it's a Table or Alias[Table]
+        if isinstance(self._table, Alias):
+            table_ = self._table.child  # type: ignore
+        else:
+            table_ = self._table  # type: ignore
+        if isinstance(table_, Table):
+            table_.add_columns(self)
         return self
 
     def __str__(self) -> str:
-        prefix = "" if self.namespace is None else str(self.namespace)
+        prefix = ""
         if self.table is not None:
             prefix += "" if not prefix else "."
-            if isinstance(self.table.parent, Alias):
-                prefix += str(self.table.parent.name)
-            else:
+            if isinstance(self.table, Alias):
+                prefix += str(self.table.name)
+            elif isinstance(self.table, Table):
                 prefix += str(self.table)
+        else:
+            prefix += "" if self.namespace is None else str(self.namespace)
         prefix += "." if prefix else ""
         return prefix + str(self.name)
 
@@ -575,25 +700,46 @@ class Wildcard(Expression):
 class Table(Named):
     """a type for tables"""
 
-    _columns: List[Column] = field(repr=False, default_factory=list)
+    _columns: Set[Column] = field(repr=False, default_factory=set)
+    _dj_node: Optional[DJNode] = field(repr=False, default=None)
 
     @property
-    def columns(self) -> List[Column]:
+    def dj_node(self) -> Optional[DJNode]:
+        """return the dj_node referenced by this table"""
+        return self._dj_node
+
+    def add_dj_node(self, dj_node: DJNode) -> "Table":
+        """add dj_node referenced by this table"""
+        if dj_node.type not in (
+            DJNodeType.TRANSFORM,
+            DJNodeType.SOURCE,
+            DJNodeType.DIMENSION,
+        ):
+            raise DJParseException(
+                f"Expected dj node of TRANSFORM, SOURCE, or DIMENSION but got {dj_node.type}.",
+            )
+        self._dj_node = dj_node
+        return self
+
+    @property
+    def columns(self) -> Set[Column]:
         """return the columns referenced from this table"""
         return self._columns
 
     def add_columns(self, *columns: Column) -> "Table":
         """add columns referenced from this table"""
         for column in columns:
-            self._columns.append(column)
-            column.add_table(self)
+            if column not in self._columns:
+                self._columns.add(column)
+                column.add_table(self)
         return self
 
     def __str__(self) -> str:
-        namespace_str = ""
-        if self.namespace:
-            namespace_str = str(self.namespace) + "."
-        return namespace_str + str(self.name)
+        prefix = str(self.namespace) if self.namespace else ""
+        if prefix:
+            prefix += "."
+
+        return prefix + str(self.name)
 
 
 # pylint: disable=C0103
@@ -652,7 +798,7 @@ class Select(Expression):
     distinct: bool = False
 
     def __str__(self) -> str:
-        subselect = not isinstance(self.parent, Query)
+        subselect = not (isinstance(self.parent, Query) or self.parent is None)
         parts = ["SELECT "]
         if self.distinct:
             parts.append("DISTINCT ")
@@ -678,6 +824,33 @@ class Query(Expression):
 
     select: "Select"
     ctes: List[Alias["Select"]] = field(default_factory=list)
+
+    def _to_select(self) -> Select:
+        """
+        Compile ctes into the select and return the select
+
+        Note: This destroys the structure of the query which cannot be undone
+        you may want to deepcopy it first
+        """
+        for cte in self.ctes:
+            table = Table(cte.name, cte.namespace)
+            self.select.replace(table, cte)
+        return self.select
+
+    def build(  # pylint: disable=R0913,C0415
+        self,
+        session: Session,
+        build_plan: "BuildPlan",
+        build_plan_depth: int,
+        database: Database,
+        dialect: Optional[str] = None,
+    ):
+        """
+        Transforms a query ast by replacing dj node references with their asts
+        """
+        from dj.construction.build import _build_query_ast
+
+        _build_query_ast(session, self, build_plan, build_plan_depth, database, dialect)
 
     def __str__(self) -> str:
         subquery = bool(self.parent)

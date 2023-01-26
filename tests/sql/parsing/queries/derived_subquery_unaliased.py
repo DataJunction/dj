@@ -1,0 +1,93 @@
+"""
+fixtures for derived_subquery.sql
+"""
+
+
+import pytest
+
+from dj.sql.parsing.ast import (
+    BinaryOp,
+    BinaryOpKind,
+    Column,
+    From,
+    Join,
+    JoinKind,
+    Name,
+    Namespace,
+    Query,
+    Select,
+    Table,
+    Wildcard,
+)
+
+
+@pytest.fixture
+def derived_subquery_unaliased():
+    """
+    dj ast for derived_subquery
+    """
+    return Query(
+        select=Select(
+            from_=From(
+                tables=[
+                    Select(
+                        from_=From(
+                            tables=[
+                                Table(
+                                    name=Name(name="t", quote_style=""),
+                                    namespace=None,
+                                ),
+                            ],
+                            joins=[],
+                        ),
+                        group_by=[],
+                        having=None,
+                        projection=[Wildcard()],
+                        where=None,
+                        limit=None,
+                        distinct=False,
+                    ),
+                ],
+                joins=[
+                    Join(
+                        kind=JoinKind.Inner,
+                        table=Table(
+                            name=Name(name="t2", quote_style=""),
+                            namespace=None,
+                        ),
+                        on=BinaryOp(
+                            op=BinaryOpKind.Eq,
+                            left=Column(
+                                name=Name(name="c", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="t1", quote_style="")],
+                                ),
+                            ),
+                            right=Column(
+                                name=Name(name="c", quote_style=""),
+                                namespace=Namespace(
+                                    names=[Name(name="t2", quote_style="")],
+                                ),
+                            ),
+                        ),
+                    ),
+                ],
+            ),
+            group_by=[],
+            having=None,
+            projection=[
+                Column(
+                    name=Name(name="a", quote_style=""),
+                    namespace=Namespace(names=[Name(name="t1", quote_style="")]),
+                ),
+                Column(
+                    name=Name(name="b", quote_style=""),
+                    namespace=Namespace(names=[Name(name="t2", quote_style="")]),
+                ),
+            ],
+            where=None,
+            limit=None,
+            distinct=False,
+        ),
+        ctes=[],
+    )

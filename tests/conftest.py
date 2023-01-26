@@ -1,7 +1,7 @@
 """
 Fixtures for testing.
 """
-# pylint: disable=redefined-outer-name, invalid-name
+# pylint: disable=redefined-outer-name, invalid-name, W0611
 
 from pathlib import Path
 from typing import Iterator
@@ -18,9 +18,12 @@ from dj.api.main import app
 from dj.config import Settings
 from dj.utils import get_project_repository, get_session, get_settings
 
-from .sql.parsing.queries import (  # pylint: disable=W0611
+from .construction.fixtures import build_expectation, construction_session
+from .sql.parsing.queries import (
     case_when_null,
+    cte_query,
     derived_subquery,
+    derived_subquery_unaliased,
     tpcds_q01,
     tpcds_q99,
     trivial_query,

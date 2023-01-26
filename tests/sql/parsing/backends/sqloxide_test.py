@@ -12,8 +12,14 @@ from dj.sql.parsing.ast import (
     UnaryOp,
     UnaryOpKind,
 )
+from dj.sql.parsing.ast import Wildcard as ASTWildcard
 from dj.sql.parsing.backends.exceptions import DJParseException
-from dj.sql.parsing.backends.sqloxide import parse, parse_op, parse_value
+from dj.sql.parsing.backends.sqloxide import (
+    parse,
+    parse_expression,
+    parse_op,
+    parse_value,
+)
 from tests.sql.utils import TPCDS_QUERY_SET, read_query
 
 
@@ -132,3 +138,10 @@ def test_join_must_specify_on():
     """
     with pytest.raises(DJParseException):
         parse("select * from a inner join b")
+
+
+def test_wildcard_parsetree():
+    """
+    tests parsing the very particular case of a wilcard as a key
+    """
+    parse_expression({"Wildcard": {}}).compare(ASTWildcard())
