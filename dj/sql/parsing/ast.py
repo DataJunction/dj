@@ -17,6 +17,7 @@ from typing import (
     Type,
     TypeVar,
     Union,
+    TYPE_CHECKING,
 )
 
 from dj.models.node import Node as DJNode
@@ -26,11 +27,13 @@ from dj.typing import ColumnType
 from typing import List, Optional, Set, Tuple
 
 
-from dj.construction.build_planning import BuildPlan
 from sqlmodel import Session
 
 
 from dj.models.database import Database
+
+if TYPE_CHECKING:
+    from dj.construction.build_planning import BuildPlan
 
 PRIMITIVES = {int, float, str, bool, type(None)}
 
@@ -840,7 +843,7 @@ class Query(Expression):
     def build(
         self,
         session: Session,
-        build_plan: BuildPlan,
+        build_plan: "BuildPlan",
         build_plan_depth: int,
         database: Database,
         dialect: Optional[str] = None):

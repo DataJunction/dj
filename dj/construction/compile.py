@@ -11,7 +11,7 @@ from dj.construction.exceptions import CompoundBuildException
 from dj.construction.utils import get_dj_node, make_name
 from dj.errors import DJError, DJException, ErrorCode
 from dj.models.node import Node, NodeType
-import dj.sql.parsing.ast 
+from dj.sql.parsing import ast
 from dj.sql.parsing.backends.sqloxide import parse
 
 
@@ -183,7 +183,7 @@ def _tables_to_namespaces(
 # pylint: disable=R0914, R0913, R0912, W0621
 def _validate_groupby_filters_ons_columns(
     session: Session,
-    select: Select,
+    select: ast.Select,
     table_nodes: Dict[str, ast.TableExpression],
     multiple_refs: Set[str],
     namespaces: Dict[str, Dict[str, Union[ast.Expression, ast.Column]]],
