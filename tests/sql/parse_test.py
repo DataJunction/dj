@@ -1,7 +1,7 @@
 """
 Tests for ``dj.sql.parse``.
 """
-
+#pylint: disable=R0401
 from dj.sql.parse import is_metric
 
 
