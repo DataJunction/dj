@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session, SQLModel, select
 
 from dj.models.column import ColumnType
-from dj.models.node import Node, NodeType
+from dj.models.node import AvailabilityState, Node, NodeType
 from dj.utils import get_session
 
 _logger = logging.getLogger(__name__)
@@ -40,7 +40,7 @@ class NodeMetadata(SQLModel):
 
     type: NodeType
     query: Optional[str] = None
-
+    availability: Optional[AvailabilityState] = None
     columns: List[SimpleColumn]
 
 

@@ -152,6 +152,44 @@ class NodeMissingParents(SQLModel, table=True):  # type: ignore
     )
 
 
+class AvailabilityStateBase(SQLModel):
+    """
+    An availability state base
+    """
+
+    catalog: Optional[str] = None
+    schema_: Optional[str] = Field(default=None)
+    table: str
+    valid_through_ts: int
+    max_partition: str
+    min_partition: str
+
+
+class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
+    """
+    The availability of materialized data for a node
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
+class NodeAvailabilityState(SQLModel, table=True):  # type: ignore
+    """
+    Join table for availability state
+    """
+
+    availability_id: Optional[int] = Field(
+        default=None,
+        foreign_key="availabilitystate.id",
+        primary_key=True,
+    )
+    node_id: Optional[int] = Field(
+        default=None,
+        foreign_key="node.id",
+        primary_key=True,
+    )
+
+
 class Node(NodeBase, table=True):  # type: ignore
     """
     A node.
@@ -206,6 +244,16 @@ class Node(NodeBase, table=True):  # type: ignore
             "primaryjoin": "Node.id==NodeColumns.node_id",
             "secondaryjoin": "Column.id==NodeColumns.column_id",
             "cascade": "all, delete",
+        },
+    )
+
+    availability: Optional[AvailabilityState] = Relationship(
+        link_model=NodeAvailabilityState,
+        sa_relationship_kwargs={
+            "primaryjoin": "Node.id==NodeAvailabilityState.node_id",
+            "secondaryjoin": "AvailabilityState.id==NodeAvailabilityState.availability_id",
+            "cascade": "all, delete",
+            "uselist": False,
         },
     )
 

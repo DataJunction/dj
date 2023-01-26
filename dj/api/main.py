@@ -13,7 +13,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from dj import __version__
-from dj.api import databases, metrics, nodes, queries
+from dj.api import data, databases, metrics, nodes, queries
 from dj.api.graphql.main import graphql_app
 from dj.errors import DJException
 from dj.models.column import Column
@@ -40,6 +40,7 @@ app.include_router(databases.router)
 app.include_router(queries.router)
 app.include_router(metrics.router)
 app.include_router(nodes.router)
+app.include_router(data.router)
 app.include_router(graphql_app, prefix="/graphql")
 
 
