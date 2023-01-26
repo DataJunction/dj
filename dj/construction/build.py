@@ -1,5 +1,6 @@
 """Functions to add to an ast DJ node queries"""
 
+# pylint: disable=R0401
 from functools import reduce
 from typing import Dict, List, Optional, Set, Tuple
 

@@ -1,6 +1,7 @@
 """
 Types to represent the DJ AST used as an intermediate representation for DJ operations
 """
+# pylint: disable=R0401
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 from enum import Enum
