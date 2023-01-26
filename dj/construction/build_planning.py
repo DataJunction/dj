@@ -1,5 +1,5 @@
 """
-tools for planning the steps a node will need to take to be built to run
+Functions for generating build plans for nodes
 """
 from functools import reduce
 from typing import Dict, List, Optional, Set, Tuple
