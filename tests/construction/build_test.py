@@ -6,7 +6,7 @@ import pytest
 from sqlalchemy import select
 from sqlmodel import Session
 
-from dj.construction.build import amenable_name, build_query_ast_for_database
+from dj.construction.build import amenable_name, build_node_for_database
 from dj.errors import DJException
 from dj.models import Column, Database, Node, Table
 from dj.models.node import NodeType
@@ -18,7 +18,7 @@ from .fixtures import BUILD_EXPECTATION_PARAMETERS
 
 @pytest.mark.parametrize("node_name,db_id", BUILD_EXPECTATION_PARAMETERS)
 @pytest.mark.asyncio
-async def test_build_query_ast_for_database(node_name: str, db_id: int, mocker, request):
+async def test_build_node_for_database(node_name: str, db_id: int, mocker, request):
     """
     Test building a node
     """
@@ -34,11 +34,11 @@ async def test_build_query_ast_for_database(node_name: str, db_id: int, mocker, 
     ]
 
     if succeeds:
-        ast, _ = await build_query_ast_for_database(construction_session, node, database_id=db_id)
+        ast, _ = await build_node_for_database(construction_session, node, database_id=db_id)
         assert compare_query_strings(str(ast), expected)
     else:
         with pytest.raises(Exception) as exc:
-            await build_query_ast_for_database(construction_session, node, database_id=db_id)
+            await build_node_for_database(construction_session, node, database_id=db_id)
             assert expected in str(exc)
 
 
@@ -55,7 +55,7 @@ async def test_build_metric_with_dimensions_aggs(mocker, request):
             select(Node).filter(Node.name == "basic.num_comments"),
         ),
     )[0]
-    query, _ = await build_query_ast_for_database(
+    query, _ = await build_node_for_database(
         construction_session,
         num_comments_mtc,
         aggs=["basic.dimension.users.country", "basic.dimension.users.gender"],
@@ -113,7 +113,7 @@ async def test_raise_on_build_without_required_dimension_column(mocker, request)
         ],
     )
     with pytest.raises(DJException) as exc_info:
-        await build_query_ast_for_database(
+        await build_node_for_database(
             construction_session,
             node_bar,
         )
@@ -138,7 +138,7 @@ async def test_build_metric_with_dimensions_filters(mocker, request):
             select(Node).filter(Node.name == "basic.num_comments"),
         ),
     )[0]
-    query, _ = await build_query_ast_for_database(
+    query, _ = await build_node_for_database(
         construction_session,
         num_comments_mtc,
         filters=["basic.dimension.users.age>=25", "basic.dimension.users.age<50"],
@@ -204,15 +204,15 @@ async def test_build_metric_with_database_id_specified(mocker, request):
             ),
         ],
     )
-    await build_query_ast_for_database(construction_session, node_foo, database_id=1)
-    await build_query_ast_for_database(  # Also test when no database_id is set
+    await build_node_for_database(construction_session, node_foo, database_id=1)
+    await build_node_for_database(  # Also test when no database_id is set
         construction_session,
         node_foo,
     )
 
 
 @pytest.mark.asyncio
-async def test_build_query_ast_for_database_with_unnamed_column(mocker, request):
+async def test_build_node_for_database_with_unnamed_column(mocker, request):
     """
     Test building a node that has an unnamed column (so defaults to _col<n>)
     """
@@ -227,7 +227,7 @@ async def test_build_query_ast_for_database_with_unnamed_column(mocker, request)
             Column(name="_col1", type=ColumnType.INT),
         ],
     )
-    await build_query_ast_for_database(
+    await build_node_for_database(
         construction_session,
         node_foo,
     )

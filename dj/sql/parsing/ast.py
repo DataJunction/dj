@@ -850,8 +850,8 @@ class Query(Expression):
         """
         Transforms a query ast by replacing dj node references with their asts
         """
-        from dj.construction.build import _build_query
-        _build_query(session, self, build_plan, build_plan_depth, database, dialect)
+        from dj.construction.build import _build_query_ast
+        _build_query_ast(session, self, build_plan, build_plan_depth, database, dialect)
 
     def __str__(self) -> str:
         subquery = bool(self.parent)
