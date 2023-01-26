@@ -73,7 +73,9 @@ def _check_col(
         for nmpsc, nmspc_cols in namespaces.items():  # pragma: no cover
 
             if col.name.name in nmspc_cols:
-                col.add_table(cast(ast.TableExpression, table_nodes[nmpsc].alias_or_self()))
+                col.add_table(
+                    cast(ast.TableExpression, table_nodes[nmpsc].alias_or_self()),
+                )
 
                 col_exp = namespaces[nmpsc][col.name.name]
                 if isinstance(col_exp, ast.Expression):
@@ -135,7 +137,7 @@ def _tables_to_namespaces(
     namespaces[namespace] = {}
 
     if isinstance(table, ast.Alias):
-        table: Union[Table, Select] = table.child  # type: ignore
+        table: Union[ast.Table, ast.Select] = table.child  # type: ignore
 
     # subquery handling
     # we track subqueries separately and extract at the end
@@ -398,19 +400,22 @@ def compile_select_ast(
         compile_select_ast(session, subquery)
 
 
-
 def compile_query_ast(
     session: Session,
     query: ast.Query,
-) :
+):
     """
     Get all dj node dependencies from a sql query while validating
     """
-    select = query._to_select()
+    select = query._to_select()  # pylint: disable=W0212
     compile_select_ast(session, select)
 
 
-def compile_node(session: Session, node: Node, dialect: Optional[str] = None) -> ast.Query:
+def compile_node(
+    session: Session,
+    node: Node,
+    dialect: Optional[str] = None,
+) -> ast.Query:
     """
     Get all dj node dependencies from a sql query while validating
     """

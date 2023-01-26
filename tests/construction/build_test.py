@@ -34,7 +34,11 @@ async def test_build_node_for_database(node_name: str, db_id: int, mocker, reque
     ]
 
     if succeeds:
-        ast, _ = await build_node_for_database(construction_session, node, database_id=db_id)
+        ast, _ = await build_node_for_database(
+            construction_session,
+            node,
+            database_id=db_id,
+        )
         assert compare_query_strings(str(ast), expected)
     else:
         with pytest.raises(Exception) as exc:

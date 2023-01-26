@@ -331,7 +331,7 @@ def test_replace():
 
 def test_query_to_select(cte_query):
     """test converting a query to a select"""
-    assert cte_query._to_select().compare(
+    assert cte_query._to_select().compare(  # pylint: disable=W0212
         Select(
             from_=From(
                 tables=[

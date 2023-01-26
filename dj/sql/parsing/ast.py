@@ -17,23 +17,16 @@ from typing import (
     Type,
     TypeVar,
     Union,
-    TYPE_CHECKING,
 )
 
+from sqlmodel import Session
+
+from dj.construction.build_planning import BuildPlan
+from dj.models.database import Database
 from dj.models.node import Node as DJNode
 from dj.models.node import NodeType as DJNodeType
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.typing import ColumnType
-from typing import List, Optional, Set, Tuple
-
-
-from sqlmodel import Session
-
-
-from dj.models.database import Database
-
-if TYPE_CHECKING:
-    from dj.construction.build_planning import BuildPlan
 
 PRIMITIVES = {int, float, str, bool, type(None)}
 
@@ -840,17 +833,19 @@ class Query(Expression):
             self.select.replace(table, cte)
         return self.select
 
-    def build(
+    def build(  # pylint: disable=R0913,C0415
         self,
         session: Session,
         build_plan: "BuildPlan",
         build_plan_depth: int,
         database: Database,
-        dialect: Optional[str] = None):
+        dialect: Optional[str] = None,
+    ):
         """
         Transforms a query ast by replacing dj node references with their asts
         """
         from dj.construction.build import _build_query_ast
+
         _build_query_ast(session, self, build_plan, build_plan_depth, database, dialect)
 
     def __str__(self) -> str:

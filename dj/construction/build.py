@@ -175,7 +175,6 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
             select.replace(tbl, node_ast)
 
 
-
 def _build_query_ast(  # pylint: disable=too-many-arguments
     session: Session,
     query: ast.Query,
@@ -183,11 +182,11 @@ def _build_query_ast(  # pylint: disable=too-many-arguments
     build_plan_depth: int,
     database: Database,
     dialect: Optional[str] = None,
-) :
+):
     """
     Transforms a query ast by replacing dj node references with their asts
     """
-    select = query._to_select()
+    select = query._to_select()  # pylint: disable=W0212
     _build_select_ast(session, select, build_plan, build_plan_depth, database, dialect)
     for i, exp in enumerate(select.projection):
         if not isinstance(exp, ast.Named):
@@ -231,7 +230,6 @@ def add_filters_and_aggs_to_query_ast(
                 f"select * group by {agg}",
                 dialect,
             ).select.group_by  # type:ignore
-
 
 
 async def build_node_for_database(  # pylint: disable=too-many-arguments

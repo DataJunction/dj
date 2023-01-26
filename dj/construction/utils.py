@@ -3,7 +3,7 @@ Utilities used around construction
 """
 
 from string import ascii_letters, digits
-from typing import List, Optional, Set
+from typing import TYPE_CHECKING, List, Optional, Set
 
 from sqlalchemy.orm.exc import NoResultFound
 from sqlmodel import Session, select
@@ -11,9 +11,10 @@ from sqlmodel import Session, select
 from dj.construction.exceptions import CompoundBuildException
 from dj.errors import DJError, ErrorCode
 from dj.models.node import Node, NodeType
-from typing import TYPE_CHECKING
+
 if TYPE_CHECKING:
     from dj.sql.parsing.ast import Namespace
+
 
 def make_name(namespace: Optional["Namespace"], name="") -> str:
     """utility taking a namespace and name to make a possible name of a DJ Node"""
