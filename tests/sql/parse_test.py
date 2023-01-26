@@ -1,7 +1,6 @@
 """
 Tests for ``dj.sql.parse``.
 """
-
 from dj.sql.parse import is_metric
 
 

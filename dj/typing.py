@@ -65,6 +65,7 @@ class ColumnType(str, Enum):
     TIMEDELTA = "TIMEDELTA"
     LIST = "LIST"
     DICT = "DICT"
+    WILDCARD = "*"
 
 
 class TypeEnum(str, Enum):

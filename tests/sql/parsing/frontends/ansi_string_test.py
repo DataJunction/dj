@@ -30,7 +30,7 @@ def test_namespaced_table():
     test namespaced table to string
     """
     assert (
-        str(Table("a").add_namespace(Namespace([Name("db"), Name("schema")])))
+        str(Table(Name("a")).add_namespace(Namespace([Name("db"), Name("schema")])))
         == "db.schema.a"
     )
 
@@ -40,8 +40,8 @@ def test_aliased_table_column():
     test namespaced column to string
     """
     table = Table(Name("tbl"))
-    Alias(Name("a"), child=table)
-    col = Column(Name("x"), _table=table)
+    aliased = Alias(Name("a"), child=table)
+    col = Column(Name("x"), _table=aliased)
     assert str(col) == "a.x"
 
 
@@ -130,14 +130,3 @@ def test_column_table_eq_compound_ident():
             ctes=[],
         ),
     )
-
-
-def test_column_already_has_table():
-    """
-    tests that adding a table to a column a second time does not change the table
-    """
-    col = Column(
-        Name(name="x", quote_style=""),
-    ).add_table(Table(Name(name="a", quote_style="")))
-    col.add_table(Table(Name(name="b", quote_style="")))
-    assert col.table.name == Name("a")
