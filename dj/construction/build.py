@@ -236,7 +236,7 @@ def add_filters_aggs(
     return query
 
 
-async def build_node(  # pylint: disable=too-many-arguments
+async def build_query_ast_for_database(  # pylint: disable=too-many-arguments
     session: Session,
     node: Node,
     dialect: Optional[str] = None,
