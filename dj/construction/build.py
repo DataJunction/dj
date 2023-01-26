@@ -245,8 +245,7 @@ async def build_node(  # pylint: disable=too-many-arguments
     aggs: Optional[List[str]] = None,
 ) -> Tuple[ast.Query, Database]:
     """
-    Transforms a query ast by replacing dj node references with their asts
-    Determines the optimal database to run a query in and builds the query appropriately
+    Determines the optimal database to run the query in and builds the query AST appropriately
     """
     if node.query is None:
         raise Exception(
