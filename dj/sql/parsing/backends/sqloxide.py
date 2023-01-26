@@ -22,8 +22,8 @@ def match_keys_subset(parse_tree: dict, *keys: Set[str]) -> bool:
 
 def parse_op(parse_tree: dict) -> ast.Operation:
     """parse an unary or binary operation"""
-    if match_keys(parse_tree, {"ast.BinaryOp"}):
-        subtree = parse_tree["ast.BinaryOp"]
+    if match_keys(parse_tree, {"BinaryOp"}):
+        subtree = parse_tree["BinaryOp"]
         for exp in ast.BinaryOpKind:
             binop_kind = exp.name
             if subtree["op"] == binop_kind:
@@ -33,8 +33,8 @@ def parse_op(parse_tree: dict) -> ast.Operation:
                     parse_expression(subtree["right"]),
                 )
         raise DJParseException(f"Unknown operator {subtree['op']}")  # pragma: no cover
-    if match_keys(parse_tree, {"ast.UnaryOp"}):
-        subtree = parse_tree["ast.UnaryOp"]
+    if match_keys(parse_tree, {"UnaryOp"}):
+        subtree = parse_tree["UnaryOp"]
         for exp in ast.UnaryOpKind:  # type: ignore
             uniop_kind = exp.name
             if subtree["op"] == uniop_kind:
@@ -43,8 +43,8 @@ def parse_op(parse_tree: dict) -> ast.Operation:
                     parse_expression(subtree["expr"]),
                 )
         raise DJParseException(f"Unknown operator {subtree['op']}")  # pragma: no cover
-    if match_keys(parse_tree, {"ast.Between"}):
-        subtree = parse_tree["ast.Between"]
+    if match_keys(parse_tree, {"Between"}):
+        subtree = parse_tree["Between"]
         between = ast.Between(
             parse_expression(subtree["expr"]),
             parse_expression(subtree["low"]),
@@ -78,16 +78,16 @@ def parse_expression(  # pylint: disable=R0911,R0912
 ) -> ast.Expression:
     """parse an expression"""
     if isinstance(parse_tree, str):
-        if parse_tree == "ast.Wildcard":
+        if parse_tree == "Wildcard":
             return ast.Wildcard()
     else:
-        if match_keys(parse_tree, {"ast.Value"}):
-            return parse_value(parse_tree["ast.Value"])
-        if match_keys(parse_tree, {"ast.Wildcard"}):
-            return parse_expression("ast.Wildcard")
+        if match_keys(parse_tree, {"Value"}):
+            return parse_value(parse_tree["Value"])
+        if match_keys(parse_tree, {"Wildcard"}):
+            return parse_expression("Wildcard")
         if match_keys(parse_tree, {"Nested"}):
             return parse_expression(parse_tree["Nested"])
-        if match_keys(parse_tree, {"ast.UnaryOp"}, {"ast.BinaryOp"}, {"ast.Between"}):
+        if match_keys(parse_tree, {"UnaryOp"}, {"BinaryOp"}, {"Between"}):
             return parse_op(parse_tree)
         if match_keys(parse_tree, {"Unnamed"}):
             return parse_expression(parse_tree["Unnamed"])
@@ -95,13 +95,13 @@ def parse_expression(  # pylint: disable=R0911,R0912
             return parse_expression(parse_tree["UnnamedExpr"])
         if match_keys(parse_tree, {"Expr"}):
             return parse_expression(parse_tree["Expr"])
-        if match_keys(parse_tree, {"ast.Case"}):
-            return parse_case(parse_tree["ast.Case"])
-        if match_keys(parse_tree, {"ast.Function"}):
-            return parse_function(parse_tree["ast.Function"])
-        if match_keys(parse_tree, {"ast.IsNull"}, {"IsNotNull"}):
-            if "ast.IsNull" in parse_tree:
-                return ast.IsNull(parse_expression(parse_tree["ast.IsNull"]))
+        if match_keys(parse_tree, {"Case"}):
+            return parse_case(parse_tree["Case"])
+        if match_keys(parse_tree, {"Function"}):
+            return parse_function(parse_tree["Function"])
+        if match_keys(parse_tree, {"IsNull"}, {"IsNotNull"}):
+            if "IsNull" in parse_tree:
+                return ast.IsNull(parse_expression(parse_tree["IsNull"]))
             return ast.UnaryOp(
                 ast.UnaryOpKind.Not,
                 ast.IsNull(
@@ -110,8 +110,8 @@ def parse_expression(  # pylint: disable=R0911,R0912
             )
         if match_keys(parse_tree, {"Identifier"}, {"CompoundIdentifier"}):
             return parse_column(parse_tree)
-        if match_keys(parse_tree, {"ExprWithast.Alias"}):
-            subtree = parse_tree["ExprWithast.Alias"]
+        if match_keys(parse_tree, {"ExprWithAlias"}):
+            subtree = parse_tree["ExprWithAlias"]
             return ast.Alias(
                 parse_name(subtree["alias"]),
                 child=parse_column(subtree["expr"]),
@@ -123,14 +123,14 @@ def parse_expression(  # pylint: disable=R0911,R0912
 
 def parse_value(parse_tree: dict) -> ast.Value:
     """parse a primitive value"""
-    if match_keys(parse_tree, {"ast.Value"}):
-        return parse_value(parse_tree["ast.Value"])
-    if match_keys(parse_tree, {"ast.Number"}):
-        return ast.Number(parse_tree["ast.Number"][0])
-    if match_keys(parse_tree, {"SingleQuotedast.String"}):
-        return ast.String(parse_tree["SingleQuotedast.String"])
-    if match_keys(parse_tree, {"ast.Boolean"}):
-        return ast.Boolean(parse_tree["ast.Boolean"])
+    if match_keys(parse_tree, {"Value"}):
+        return parse_value(parse_tree["Value"])
+    if match_keys(parse_tree, {"Number"}):
+        return ast.Number(parse_tree["Number"][0])
+    if match_keys(parse_tree, {"SingleQuotedString"}):
+        return ast.String(parse_tree["SingleQuotedString"])
+    if match_keys(parse_tree, {"Boolean"}):
+        return ast.Boolean(parse_tree["Boolean"])
     raise DJParseException("Not a primitive")  # pragma: no cover
 
 
@@ -184,8 +184,8 @@ def parse_table(parse_tree: dict) -> ast.TableExpression:
             )
             return aliased
         return subselect
-    if match_keys(parse_tree, {"ast.Table"}):
-        subtree = parse_tree["ast.Table"]
+    if match_keys(parse_tree, {"Table"}):
+        subtree = parse_tree["Table"]
 
         table = parse_namespace(subtree["name"]).to_named_type(ast.Table)
         if subtree["alias"]:
@@ -227,7 +227,7 @@ def parse_join(parse_tree: dict) -> ast.Join:
                 {join_kind},
             ):
                 if "On" not in join_operator[join_kind]:
-                    raise DJParseException("ast.Join must specify ON")
+                    raise DJParseException("Join must specify ON")
                 return ast.Join(
                     ast.JoinKind[join_kind],
                     parse_table(relation),
@@ -284,7 +284,7 @@ def parse_ctes(parse_tree: dict) -> List[ast.Alias[ast.Select]]:
             ctes.append(
                 ast.Alias(
                     parse_name(aliased_query["alias"]["name"]),
-                    child=parse_select(aliased_query["query"]["body"]["ast.Select"]),
+                    child=parse_select(aliased_query["query"]["body"]["Select"]),
                 ),
             )
         return ctes
@@ -295,8 +295,8 @@ def parse_query(parse_tree: dict) -> ast.Query:
     """parse a query (ctes+select) statement"""
     if match_keys_subset(parse_tree, {"with", "body", "limit"}):
         body = parse_tree["body"]
-        if match_keys(body, {"ast.Select"}):
-            select = parse_select(body["ast.Select"])
+        if match_keys(body, {"Select"}):
+            select = parse_select(body["Select"])
             select.limit = None
             if parse_tree["limit"] is not None:
                 limit_value = parse_value(parse_tree["limit"])
@@ -315,9 +315,9 @@ def parse_query(parse_tree: dict) -> ast.Query:
 
 def parse_oxide_tree(parse_tree: dict) -> ast.Query:
     """take a sqloxide parsed statement ast dict and transform it into a DJ ast"""
-    if match_keys(parse_tree, {"ast.Query"}):
+    if match_keys(parse_tree, {"Query"}):
         return parse_query(
-            parse_tree["ast.Query"],
+            parse_tree["Query"],
         )
 
     raise DJParseException("Failed to parse Query")  # pragma: no cover

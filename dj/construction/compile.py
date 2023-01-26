@@ -277,9 +277,9 @@ def _validate_groupby_filters_ons_columns(
                             message="Cannot extract dependencies from SELECT",
                         )
                     else:
-                        dim_table = ast.ast.Table(
+                        dim_table = ast.Table(
                             col.namespace.names[0],  # type: ignore
-                            Namespace(col.namespace.names[1:]),  # type: ignore
+                            ast.Namespace(col.namespace.names[1:]),  # type: ignore
                         )
                         dim_table.add_dj_node(dim)
                         col.namespace = None
@@ -350,7 +350,7 @@ def compile_select(
     )
 
     # check projection
-    for col in chain(*(exp.find_all(Column) for exp in select.projection)):  # type: ignore
+    for col in chain(*(exp.find_all(ast.Column) for exp in select.projection)):  # type: ignore
         _check_col(
             cast(ast.Column, col),
             table_nodes,

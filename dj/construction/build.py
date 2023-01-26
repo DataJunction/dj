@@ -73,7 +73,7 @@ def _build_select(  # pylint: disable=too-many-arguments,too-many-locals,too-man
 
                 _, dim_build_plan = build_plan_lookup[dim_node]
                 dim_ast = dim_build_plan[0]
-                dim_query: ast.Query = build_query(
+                dim_query: ast.Query = _build_query(
                     session,
                     dim_ast,
                     dim_build_plan,
@@ -143,7 +143,7 @@ def _build_select(  # pylint: disable=too-many-arguments,too-many-locals,too-man
         ):  # continue following build plan
             _, node_build_plan = build_plan_lookup[node]
             node_ast = node_build_plan[0]
-            node_query = build_query(
+            node_query = _build_query(
                 session,
                 node_ast,
                 node_build_plan,
