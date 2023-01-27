@@ -27,7 +27,7 @@ docker-run-with-cockroachdb:
 	docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up
 
 test: pyenv
-	pytest --cov=dj -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
+	pytest --cov=dj --cov-report=html -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
 
 integration: pyenv
 	pytest --cov=dj -vv tests/ --doctest-modules dj --with-integration --with-slow-integration
