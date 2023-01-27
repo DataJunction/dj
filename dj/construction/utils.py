@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from dj.construction.exceptions import CompoundBuildException
 from dj.errors import DJError, ErrorCode
-from dj.models.node import Node, NodeType
+from dj.models.node import Node, NodeRevision, NodeType
 
 if TYPE_CHECKING:
     from dj.sql.parsing.ast import Namespace
@@ -20,7 +20,7 @@ def make_name(namespace: Optional["Namespace"], name="") -> str:
     """utility taking a namespace and name to make a possible name of a DJ Node"""
     ret = ""
     if namespace:
-        ret += ".".join(name.name for name in namespace.names)
+        ret += ".".join(n.name for n in namespace.names)
     if name:
         ret += ("." if ret else "") + name
     return ret
@@ -30,7 +30,7 @@ def get_dj_node(
     session: Session,
     node_name: str,
     kinds: Optional[Set[NodeType]] = None,
-) -> Optional[Node]:
+) -> Optional[NodeRevision]:
     """Return the DJ Node with a given name from a set of node types"""
     query = select(Node).filter(Node.name == node_name)
     match = None
@@ -45,6 +45,8 @@ def get_dj_node(
             ),
             message=f"Cannot get DJ node {node_name}",
         )
+        return match
+
     # found a node but it's not the right kind
     if match and kinds and (match.type not in kinds):
         CompoundBuildException().append(  # pragma: no cover
@@ -58,7 +60,7 @@ def get_dj_node(
             message=f"Cannot get DJ node {node_name}",
         )
 
-    return match
+    return match.current
 
 
 ACCEPTABLE_CHARS = set(ascii_letters + digits + "_")

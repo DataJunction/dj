@@ -27,6 +27,7 @@ class Metric(SQLModel):
 
     id: int
     name: str
+    current_version: str
     description: str = ""
 
     created_at: UTCDatetime
@@ -35,6 +36,20 @@ class Metric(SQLModel):
     query: str
 
     dimensions: List[str]
+
+    @classmethod
+    def parse_reference_node(cls, ref_node: Node) -> "Metric":
+        """
+        Parses a reference node into a metric.
+        """
+
+        return cls(
+            **ref_node.dict(),
+            description=ref_node.current.description,
+            updated_at=ref_node.current.updated_at,
+            query=ref_node.current.query,
+            dimensions=get_dimensions(ref_node),
+        )
 
 
 class TranslatedSQL(SQLModel):
@@ -52,8 +67,8 @@ def get_metric(session: Session, name: str) -> Node:
     """
     statement = select(Node).where(Node.name == name)
     try:
-        node = session.exec(statement).one()
-        if node.type != NodeType.METRIC:
+        ref_node = session.exec(statement).one()
+        if ref_node.type != NodeType.METRIC:
             raise HTTPException(
                 status_code=HTTPStatus.BAD_REQUEST,
                 detail=f"Not a metric node: `{name}`",
@@ -63,7 +78,7 @@ def get_metric(session: Session, name: str) -> Node:
             status_code=HTTPStatus.NOT_FOUND,
             detail=f"Metric node not found: `{name}`",
         ) from exc
-    return node
+    return ref_node
 
 
 @router.get("/metrics/", response_model=List[Metric])
@@ -72,8 +87,12 @@ def read_metrics(*, session: Session = Depends(get_session)) -> List[Metric]:
     List all available metrics.
     """
     return [
-        Metric(**node.dict(), dimensions=get_dimensions(node))
-        for node in session.exec(select(Node).where(Node.type == NodeType.METRIC))
+        Metric.parse_reference_node(ref_node)
+        for ref_node in (
+            session.exec(
+                select(Node).where(Node.type == NodeType.METRIC),
+            )
+        )
     ]
 
 
@@ -82,8 +101,8 @@ def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric
     """
     Return a metric by name.
     """
-    node = get_metric(session, name)
-    return Metric(**node.dict(), dimensions=get_dimensions(node))
+    ref_node = get_metric(session, name)
+    return Metric.parse_reference_node(ref_node)
 
 
 @router.get("/metrics/{name}/data/", response_model=QueryWithResults)
@@ -101,8 +120,14 @@ async def read_metrics_data(
     """
     Return data for a metric.
     """
-    node = get_metric(session, name)
-    create_query = await get_query_for_node(session, node, d, f, database_name)
+    ref_node = get_metric(session, name)
+    create_query = await get_query_for_node(
+        session,
+        ref_node,
+        d,
+        f,
+        database_name,
+    )
 
     return save_query_and_run(
         create_query,

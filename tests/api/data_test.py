@@ -8,7 +8,7 @@ from sqlmodel import Session, select
 
 from dj.models import Table
 from dj.models.column import Column, ColumnType
-from dj.models.node import Node, NodeType
+from dj.models.node import Node, NodeRevision, NodeType
 
 
 class TestAvailabilityState:  # pylint: disable=too-many-public-methods
@@ -22,9 +22,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Add nodes to facilitate testing of availability state updates
         """
 
-        node1 = Node(
+        ref_node1 = Node(
             name="revenue_source",
             type=NodeType.SOURCE,
+            current_version=1,
+        )
+        node1 = NodeRevision(
+            reference_node=ref_node1,
+            version=1,
             columns=[
                 Column(name="payment_id", type=ColumnType.INT),
                 Column(name="payment_amount", type=ColumnType.FLOAT),
@@ -40,12 +45,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 ),
             ],
         )
-        node2 = Node(
+        ref_node2 = Node(
             name="large_revenue_payments_only",
-            query=(
-                "SELECT payment_id, payment_amount, customer_id, account_type "
-                "FROM revenue_source WHERE payment_amount > 1000000"
-            ),
+            type=NodeType.TRANSFORM,
+            current_version=1,
+        )
+        node2 = NodeRevision(
+            reference_node=ref_node2,
+            version=1,
             type=NodeType.TRANSFORM,
             columns=[
                 Column(name="payment_id", type=ColumnType.INT),
@@ -54,8 +61,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 Column(name="account_type", type=ColumnType.STR),
             ],
         )
-        node3 = Node(
+        ref_node3 = Node(
             name="large_revenue_payments_and_business_only",
+            type=NodeType.TRANSFORM,
+            current_version=1,
+        )
+        node3 = NodeRevision(
+            reference_node=ref_node3,
+            version=1,
             query=(
                 "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM revenue_source WHERE payment_amount > 1000000 "
@@ -103,7 +116,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_and_business_only",
         )
         large_revenue_payments_and_business_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_and_business_only.availability.dict()
+        node_dict = large_revenue_payments_and_business_only.current.availability.dict()
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20230125,
@@ -175,7 +188,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_and_business_only",
         )
         large_revenue_payments_and_business_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_and_business_only.availability.dict()
+        node_dict = large_revenue_payments_and_business_only.current.availability.dict()
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20230125,
@@ -211,9 +224,11 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_and_business_only",
         )
         large_revenue_payments_and_business_only = session.exec(statement).one()
-        updated_at_1 = large_revenue_payments_and_business_only.availability.dict()[
-            "updated_at"
-        ]
+        updated_at_1 = (
+            large_revenue_payments_and_business_only.current.availability.dict()[
+                "updated_at"
+            ]
+        )
 
         response = client.post(
             "/data/availability/large_revenue_payments_and_business_only/",
@@ -229,9 +244,11 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
 
         session.refresh(large_revenue_payments_and_business_only)
-        updated_at_2 = large_revenue_payments_and_business_only.availability.dict()[
-            "updated_at"
-        ]
+        updated_at_2 = (
+            large_revenue_payments_and_business_only.current.availability.dict()[
+                "updated_at"
+            ]
+        )
 
         assert updated_at_2 > updated_at_1
 
@@ -309,7 +326,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_only",
         )
         large_revenue_payments_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_only.availability.dict()
+        node_dict = large_revenue_payments_only.current.availability.dict()
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20230102,
@@ -368,7 +385,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_only",
         )
         large_revenue_payments_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_only.availability.dict()
+        node_dict = large_revenue_payments_only.current.availability.dict()
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20230101,
@@ -427,7 +444,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_only",
         )
         large_revenue_payments_only = session.exec(statement).one()
-        node_dict = large_revenue_payments_only.availability.dict()
+        node_dict = large_revenue_payments_only.current.availability.dict()
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20221231,
@@ -467,7 +484,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "revenue_source",
         )
         revenue_source = session.exec(statement).one()
-        node_dict = revenue_source.availability.dict()
+        node_dict = revenue_source.current.availability.dict()
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20230101,

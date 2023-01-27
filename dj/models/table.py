@@ -9,7 +9,7 @@ from sqlmodel import Field, Relationship, SQLModel
 if TYPE_CHECKING:
     from dj.models.column import Column
     from dj.models.database import Database
-    from dj.models.node import Node
+    from dj.models.node import NodeRevision
 
 
 class TableYAML(TypedDict, total=False):
@@ -40,7 +40,35 @@ class TableColumns(SQLModel, table=True):  # type: ignore
     )
 
 
-class Table(SQLModel, table=True):  # type: ignore
+class TableBase(SQLModel):
+    """
+    A base table.
+    """
+
+    catalog: Optional[str] = None
+    schema_: Optional[str] = Field(default=None, alias="schema")
+    table: str
+    cost: float = 1.0
+
+
+class TableNodeRevision(SQLModel, table=True):  # type: ignore
+    """
+    Link between a table and a node revision.
+    """
+
+    table_id: Optional[int] = Field(
+        default=None,
+        foreign_key="table.id",
+        primary_key=True,
+    )
+    node_revision_id: Optional[int] = Field(
+        default=None,
+        foreign_key="noderevision.id",
+        primary_key=True,
+    )
+
+
+class Table(TableBase, table=True):  # type: ignore
     """
     A table with data.
 
@@ -49,16 +77,17 @@ class Table(SQLModel, table=True):  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
 
-    node_id: int = Field(foreign_key="node.id")
-    node: "Node" = Relationship(back_populates="tables")
+    node: "NodeRevision" = Relationship(
+        back_populates="tables",
+        link_model=TableNodeRevision,
+        sa_relationship_kwargs={
+            "primaryjoin": "Table.id==TableNodeRevision.table_id",
+            "secondaryjoin": "NodeRevision.id==TableNodeRevision.node_revision_id",
+        },
+    )
 
     database_id: int = Field(foreign_key="database.id")
     database: "Database" = Relationship(back_populates="tables")
-    catalog: Optional[str] = None
-    schema_: Optional[str] = Field(default=None, alias="schema")
-    table: str
-
-    cost: float = 1.0
 
     columns: List["Column"] = Relationship(
         link_model=TableColumns,
@@ -82,3 +111,11 @@ class Table(SQLModel, table=True):  # type: ignore
 
     def __hash__(self):
         return hash(self.id)
+
+
+class CreateTable(TableBase):
+    """
+    Create table input
+    """
+
+    database_name: str

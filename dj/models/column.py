@@ -10,7 +10,7 @@ from sqlmodel import Field, Relationship, SQLModel
 from dj.typing import ColumnType, ColumnTypeDecorator
 
 if TYPE_CHECKING:
-    from dj.models.node import Node
+    from dj.models.node import Node, NodeRevision
 
 
 class ColumnYAML(TypedDict, total=False):

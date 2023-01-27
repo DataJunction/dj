@@ -12,7 +12,7 @@ from dj.models.column import Column as Column_
 from dj.typing import ColumnType as ColumnType_
 
 if TYPE_CHECKING:
-    from dj.models.node import Node
+    from dj.models.node import NodeRevision
 
 
 ColumnType = strawberry.scalar(

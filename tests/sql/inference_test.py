@@ -7,7 +7,7 @@ from sqloxide import parse_sql
 
 from dj.models.column import Column
 from dj.models.database import Database
-from dj.models.node import Node
+from dj.models.node import Node, NodeRevision
 from dj.models.table import Table
 from dj.sql.inference import (
     evaluate_expression,
@@ -44,8 +44,10 @@ def test_evaluate_expression() -> None:
     assert evaluate_expression([], get_expression("SELECT 1.1")) == 1.1
     assert evaluate_expression([], get_expression("SELECT 'test'")) == "test"
 
-    node_a = Node(
-        name="A",
+    node_a_ref = Node(name="A", current_version=1)
+    node_a = NodeRevision(
+        reference_node=node_a_ref,
+        version=1,
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -63,13 +65,14 @@ def test_evaluate_expression() -> None:
             Column(name="foo", type=ColumnType.FLOAT),
         ],
     )
+    node_a_ref.current = node_a
 
-    assert evaluate_expression([node_a], get_expression("SELECT ds")) == Column(
+    assert evaluate_expression([node_a_ref], get_expression("SELECT ds")) == Column(
         name="ds",
         type=ColumnType.DATETIME,
     )
     assert evaluate_expression(
-        [node_a],
+        [node_a_ref],
         get_expression("SELECT DATE_TRUNC('day', ds)"),
         "ds",
     ) == Column(
@@ -77,17 +80,17 @@ def test_evaluate_expression() -> None:
         type=ColumnType.DATETIME,
     )
     assert evaluate_expression(
-        [node_a],
+        [node_a_ref],
         get_expression("SELECT MAX(foo)"),
         "bar",
     ) == Column(name="bar", type=ColumnType.FLOAT)
     assert evaluate_expression(
-        [node_a],
+        [node_a_ref],
         get_expression("SELECT MAX(MAX(foo))"),
         "bar",
     ) == Column(name="bar", type=ColumnType.FLOAT)
     assert evaluate_expression(
-        [node_a],
+        [node_a_ref],
         get_expression("SELECT COUNT(MAX(foo))"),
         "bar",
     ) == Column(name="bar", type=ColumnType.INT)
@@ -100,8 +103,10 @@ def test_evaluate_expression_ambiguous() -> None:
     In this test we select a column without using the fully qualified notation, and it
     exists in multiple parents.
     """
-    node_a = Node(
-        name="A",
+    node_a_ref = Node(name="A", current_version=1)
+    node_a = NodeRevision(
+        reference_node=node_a_ref,
+        version=1,
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -119,9 +124,12 @@ def test_evaluate_expression_ambiguous() -> None:
             Column(name="foo", type=ColumnType.FLOAT),
         ],
     )
+    node_a_ref.current = node_a
 
-    node_b = Node(
-        name="B",
+    node_b_ref = Node(name="B", current_version=1)
+    node_b = NodeRevision(
+        reference_node=node_b_ref,
+        version=1,
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -135,25 +143,29 @@ def test_evaluate_expression_ambiguous() -> None:
             Column(name="ds", type=ColumnType.STR),
         ],
     )
+    node_b_ref.current = node_b
 
     with pytest.raises(Exception) as excinfo:
-        evaluate_expression([node_a, node_b], get_expression("SELECT ds"))
+        evaluate_expression([node_a_ref, node_b_ref], get_expression("SELECT ds"))
     assert str(excinfo.value) == 'Unable to determine origin of column "ds"'
 
     # using fully qualified notation
     assert evaluate_expression(
-        [node_a, node_b],
+        [node_a_ref, node_b_ref],
         get_expression("SELECT A.ds"),
     ) == Column(name="ds", type=ColumnType.STR)
 
     # invalid parent
     with pytest.raises(Exception) as excinfo:
-        evaluate_expression([node_a, node_b], get_expression("SELECT C.ds"))
+        evaluate_expression([node_a_ref, node_b_ref], get_expression("SELECT C.ds"))
     assert str(excinfo.value) == 'Unable to determine origin of column "C.ds"'
 
     # invalid column
     with pytest.raises(Exception) as excinfo:
-        evaluate_expression([node_a, node_b], get_expression("SELECT A.invalid"))
+        evaluate_expression(
+            [node_a_ref, node_b_ref],
+            get_expression("SELECT A.invalid"),
+        )
     assert str(excinfo.value) == 'Unable to find column "invalid" in node "A"'
 
 
@@ -163,8 +175,10 @@ def test_evaluate_expression_parent_no_columns() -> None:
 
     Test for when one of the parents has no columns. This should never happen.
     """
-    node_a = Node(
-        name="A",
+    node_a_ref = Node(name="A", current_version=1)
+    node_a = NodeRevision(
+        reference_node=node_a_ref,
+        version=1,
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -173,9 +187,12 @@ def test_evaluate_expression_parent_no_columns() -> None:
             ),
         ],
     )
+    node_a_ref.current = node_a
 
-    node_b = Node(
-        name="B",
+    node_b_ref = Node(name="B", current_version=1)
+    node_b = NodeRevision(
+        reference_node=node_b_ref,
+        version=1,
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -193,8 +210,12 @@ def test_evaluate_expression_parent_no_columns() -> None:
             Column(name="foo", type=ColumnType.FLOAT),
         ],
     )
+    node_b_ref.current = node_b
 
-    assert evaluate_expression([node_a, node_b], get_expression("SELECT ds")) == Column(
+    assert evaluate_expression(
+        [node_a_ref, node_b_ref],
+        get_expression("SELECT ds"),
+    ) == Column(
         name="ds",
         type=ColumnType.STR,
     )
@@ -226,8 +247,10 @@ def test_infer_columns() -> None:
     """
     Test ``infer_columns``.
     """
-    parent = Node(
-        name="A",
+    parent_ref = Node(name="A", current_version=1)
+    parent = NodeRevision(
+        reference_node=parent_ref,
+        version=1,
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -245,20 +268,21 @@ def test_infer_columns() -> None:
             Column(name="foo", type=ColumnType.FLOAT),
         ],
     )
+    parent_ref.current = parent
 
-    assert infer_columns("SELECT COUNT(*) AS cnt FROM A", [parent]) == [
+    assert infer_columns("SELECT COUNT(*) AS cnt FROM A", [parent_ref]) == [
         Column(
             name="cnt",
             type=ColumnType.INT,
         ),
     ]
 
-    assert infer_columns("SELECT * FROM A", [parent]) == [
+    assert infer_columns("SELECT * FROM A", [parent_ref]) == [
         Column(name="ds", type=ColumnType.STR),
         Column(name="user_id", type=ColumnType.INT),
         Column(name="foo", type=ColumnType.FLOAT),
     ]
 
     with pytest.raises(Exception) as excinfo:
-        infer_columns("SELECT * FROM A", [parent, parent])
+        infer_columns("SELECT * FROM A", [parent_ref, parent_ref])
     assert str(excinfo.value) == "Wildcard only works for nodes with a single parent"

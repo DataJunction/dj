@@ -31,7 +31,7 @@ from dj.cli.compile import (
 from dj.constants import DEFAULT_DIMENSION_COLUMN
 from dj.models.column import Column
 from dj.models.database import Database
-from dj.models.node import Node, NodeType
+from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.query import Query  # pylint: disable=unused-import
 from dj.models.table import Table
 from dj.sql.parse import get_dependencies
@@ -242,12 +242,18 @@ async def test_index_nodes(
         ),
     )
     session.add(Database(name="gsheets", URI="gsheets://"))
+    ref_node = Node(
+        name="core.old_num_comments",
+        type=NodeType.METRIC,
+        current_version="1",
+        created_at=datetime(2020, 1, 2, 0, 0),
+    )
+    session.add(ref_node)
     session.add(
-        Node(
-            name="core.old_num_comments",
+        NodeRevision(
+            reference_node=ref_node,
+            version="1",
             description="A Number of comments whose config was deleted",
-            type=NodeType.METRIC,
-            created_at=datetime(2020, 1, 2, 0, 0),
             updated_at=datetime(2020, 1, 2, 0, 0),
             query="SELECT COUNT(*) FROM core.comments",
         ),
@@ -261,13 +267,21 @@ async def test_index_nodes(
     with freeze_time("2021-01-02T00:00:00Z"):
         nodes = await index_nodes(repository, session)
 
-    configs = [node.dict(exclude={"id": True}) for node in nodes]
+    configs = [
+        {
+            **node.dict(exclude={"id": True}),
+            **node.current.dict(exclude={"id": True, "reference_node_id": True}),
+        }
+        for node in nodes
+    ]
     assert sorted(configs, key=itemgetter("name")) == [
         {
             "name": "core.comments",
             "description": "A fact table with comments",
             "mode": "published",
             "type": NodeType.SOURCE,
+            "current_version": "1",
+            "version": "1",
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
             "query": None,
@@ -278,6 +292,8 @@ async def test_index_nodes(
             "description": "User dimension",
             "mode": "published",
             "type": NodeType.DIMENSION,
+            "current_version": "1",
+            "version": "1",
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
             "query": "SELECT * FROM core.users",
@@ -288,6 +304,8 @@ async def test_index_nodes(
             "description": "Number of comments",
             "mode": "published",
             "type": NodeType.METRIC,
+            "current_version": "1",
+            "version": "1",
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
             "query": "SELECT COUNT(*) FROM core.comments",
@@ -298,6 +316,8 @@ async def test_index_nodes(
             "description": "A user table",
             "mode": "published",
             "type": NodeType.SOURCE,
+            "current_version": "1",
+            "version": "1",
             "created_at": datetime(2021, 1, 2, 0, 0),
             "updated_at": datetime(2021, 1, 2, 0, 0),
             "query": None,
@@ -311,7 +331,7 @@ async def test_index_nodes(
         nodes = await index_nodes(repository, session)
     nodes = sorted(nodes, key=lambda node: node.name)
 
-    assert [(node.name, node.updated_at) for node in nodes] == [
+    assert [(node.name, node.current.updated_at) for node in nodes] == [
         ("core.comments", datetime(2021, 1, 2, 0, 0)),
         ("core.dim_users", datetime(2021, 1, 3, 0, 0)),
         ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
@@ -319,12 +339,12 @@ async def test_index_nodes(
     ]
 
     # test that a missing timezone is treated as UTC
-    nodes[0].updated_at = nodes[0].updated_at.replace(tzinfo=None)  # type: ignore
+    nodes[0].current.updated_at = nodes[0].current.updated_at.replace(tzinfo=None)  # type: ignore
     with freeze_time("2021-01-03T00:00:00Z"):
         nodes = await index_nodes(repository, session)
     nodes = sorted(nodes, key=lambda node: node.name)
 
-    assert [(node.name, node.updated_at) for node in nodes] == [
+    assert [(node.name, node.current.updated_at) for node in nodes] == [
         ("core.comments", datetime(2021, 1, 2, 0, 0)),
         ("core.dim_users", datetime(2021, 1, 3, 0, 0)),
         ("core.num_comments", datetime(2021, 1, 3, 0, 0)),
@@ -342,7 +362,7 @@ async def test_add_node_force(
     """
     _logger = mocker.patch("dj.cli.compile._logger")
     session = mocker.MagicMock()
-    session.exec().one_or_none().updated_at = datetime(
+    session.exec().one_or_none().current.updated_at = datetime(
         2021,
         1,
         3,
@@ -466,14 +486,17 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
         columns=[Column(name="ds", type=ColumnType.DATETIME)],
     )
 
-    node = Node(
-        name="C",
+    ref_node = Node(name="C", type=NodeType.SOURCE, current_version=1)
+    node = NodeRevision(
+        name=ref_node.name,
+        type=ref_node.type,
+        reference_node=ref_node,
+        version=1,
         tables=[table_a, table_b],
         columns=[
             Column(name="ds", type=ColumnType.DATETIME),
             Column(name="user_id", type=ColumnType.INT),
         ],
-        type=NodeType.SOURCE,
     )
     path = Path("/path/to/repository/configs/nodes/C.yaml")
     fs.create_file(
@@ -536,8 +559,10 @@ async def test_update_node_config_user_attributes(
         columns=[Column(name="ds", type=ColumnType.DATETIME)],
     )
 
-    node = Node(
-        name="C",
+    ref_node = Node(name="C", type=NodeType.SOURCE, current_version=1)
+    node = NodeRevision(
+        reference_node=ref_node,
+        version=1,
         tables=[table_a, table_b],
         columns=[
             Column(name="ds", type=ColumnType.DATETIME),
@@ -600,14 +625,17 @@ async def test_update_node_config_sql_query(
     path = Path("/path/to/repository/configs/nodes/T.yaml")
     test_query = "SELECT foo FROM bar WHERE baz"
     fs.create_file(path, contents=yaml.safe_dump({"query": test_query}))
-    node = Node(
-        name="T",
+    ref_node = Node(name="T", type=NodeType.TRANSFORM, current_version=1)
+    node = NodeRevision(
+        name=ref_node.name,
+        type=ref_node.type,
+        reference_node=ref_node,
+        version=1,
         query=test_query,
         columns=[
             Column(name="ds", type=ColumnType.DATETIME),
             Column(name="user_id", type=ColumnType.INT),
         ],
-        type=NodeType.TRANSFORM,
     )
 
     await update_node_config(node, path)
@@ -655,16 +683,24 @@ def test_add_dimensions_to_columns(mocker: MockerFixture, repository: Path) -> N
     Test ``add_dimensions_to_columns``.
     """
     session = mocker.MagicMock()
-    dimension = Node(
+    dimension_ref = Node(
         name="users",
+        current_version=1,
         type=NodeType.DIMENSION,
+    )
+    dimension = NodeRevision(
+        name=dimension_ref.name,
+        type=dimension_ref.type,
+        reference_node=dimension_ref,
+        version=1,
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(name="uuid", type=ColumnType.INT),
             Column(name="city", type=ColumnType.STR),
         ],
     )
-    session.exec().one_or_none.return_value = dimension
+    dimension_ref.current = dimension
+    session.exec().one_or_none.return_value = dimension_ref
 
     with open(repository / "nodes/core/comments.yaml", encoding="utf-8") as input_:
         data = yaml.safe_load(input_)
@@ -676,17 +712,17 @@ def test_add_dimensions_to_columns(mocker: MockerFixture, repository: Path) -> N
 
     add_dimensions_to_columns(session, data, columns)
 
-    assert columns[1].dimension == dimension
+    assert columns[1].dimension.name == dimension.name  # pylint: disable=no-member
     assert columns[1].dimension_column == DEFAULT_DIMENSION_COLUMN
 
     # custom column
     data["columns"]["user_id"]["dimension"] = "users.uuid"
     session.exec().one_or_none.return_value = None
-    session.exec().one.return_value = dimension
+    session.exec().one.return_value = dimension_ref
 
     add_dimensions_to_columns(session, data, columns)
 
-    assert columns[1].dimension == dimension
+    assert columns[1].dimension.name == dimension.name  # pylint: disable=no-member
     assert columns[1].dimension_column == "uuid"
 
     # invalid column
