@@ -67,6 +67,8 @@ def add_availability(
         and existing_node.availability.schema_ == new_availability.schema_
         and existing_node.availability.table == new_availability.table
     ):
+        # Currently, we do not consider type information. We should eventually check the type of
+        # the partition values in order to cast them before sorting.
         new_availability.max_partition = max(
             (existing_node.availability.max_partition, new_availability.max_partition),
         )
