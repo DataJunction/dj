@@ -34,10 +34,12 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["missing_parent_id"],
             ["missingparent.id"],
+            name="fk_nodemissingparents_missing_parent_id",
         ),
         sa.ForeignKeyConstraint(
             ["referencing_node_id"],
             ["node.id"],
+            name="fk_nodemissingparents_referencing_node_id",
         ),
         sa.PrimaryKeyConstraint("missing_parent_id", "referencing_node_id"),
     )
