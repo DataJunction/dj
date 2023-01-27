@@ -102,6 +102,7 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["dimension_id"],
             ["node.id"],
+            name="fk_column_dimension_id",
         ),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -126,10 +127,12 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["child_id"],
             ["node.id"],
+            name="fk_noderelationship_child_id",
         ),
         sa.ForeignKeyConstraint(
             ["parent_id"],
             ["node.id"],
+            name="fk_noderelationship_parent_id",
         ),
         sa.PrimaryKeyConstraint("parent_id", "child_id"),
     )
@@ -165,6 +168,7 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["database_id"],
             ["database.id"],
+            name="fk_query_database_id",
         ),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -205,10 +209,12 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["database_id"],
             ["database.id"],
+            name="fk_table_database_id",
         ),
         sa.ForeignKeyConstraint(
             ["node_id"],
             ["node.id"],
+            name="fk_table_node_id",
         ),
         sa.PrimaryKeyConstraint("id"),
     )
@@ -231,10 +237,12 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["column_id"],
             ["column.id"],
+            name="fk_nodecolumns_column_id",
         ),
         sa.ForeignKeyConstraint(
             ["node_id"],
             ["node.id"],
+            name="fk_nodecolumns_node_id",
         ),
         sa.PrimaryKeyConstraint("node_id", "column_id"),
     )
@@ -257,10 +265,12 @@ def upgrade():
         sa.ForeignKeyConstraint(
             ["column_id"],
             ["column.id"],
+            name="fk_tablecolumns_column_id",
         ),
         sa.ForeignKeyConstraint(
             ["table_id"],
             ["table.id"],
+            name="fk_tablecolumns_table_id",
         ),
         sa.PrimaryKeyConstraint("table_id", "column_id"),
     )
