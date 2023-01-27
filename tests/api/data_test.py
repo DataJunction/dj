@@ -103,7 +103,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_and_business_only",
         )
         large_revenue_payments_and_business_only = session.exec(statement).one()
-        assert large_revenue_payments_and_business_only.availability.dict() == {
+        node_dict = large_revenue_payments_and_business_only.availability.dict()
+        node_dict.pop("updated_at")
+        assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "prod",
             "min_partition": ["2022", "01", "01"],
@@ -173,7 +175,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_and_business_only",
         )
         large_revenue_payments_and_business_only = session.exec(statement).one()
-        assert large_revenue_payments_and_business_only.availability.dict() == {
+        node_dict = large_revenue_payments_and_business_only.availability.dict()
+        node_dict.pop("updated_at")
+        assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "prod",
             "min_partition": ["2022", "01", "01"],
@@ -182,6 +186,54 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "schema_": "new_accounting",
             "id": 3,
         }
+
+    def test_that_update_at_timestamp_is_being_updated(
+        self,
+        session: Session,
+        client: TestClient,
+    ) -> None:
+        """
+        Test that the `updated_at` attribute is being updated
+        """
+        response = client.post(
+            "/data/availability/large_revenue_payments_and_business_only/",
+            json={
+                "catalog": "prod",
+                "schema_": "accounting",
+                "table": "pmts",
+                "valid_through_ts": 20230125,
+                "max_partition": ["2023", "01", "25"],
+                "min_partition": ["2022", "01", "01"],
+            },
+        )
+        assert response.status_code == 200
+        statement = select(Node).where(
+            Node.name == "large_revenue_payments_and_business_only",
+        )
+        large_revenue_payments_and_business_only = session.exec(statement).one()
+        updated_at_1 = large_revenue_payments_and_business_only.availability.dict()[
+            "updated_at"
+        ]
+
+        response = client.post(
+            "/data/availability/large_revenue_payments_and_business_only/",
+            json={
+                "catalog": "prod",
+                "schema_": "accounting",
+                "table": "pmts",
+                "valid_through_ts": 20230125,
+                "max_partition": ["2023", "01", "25"],
+                "min_partition": ["2022", "01", "01"],
+            },
+        )
+        assert response.status_code == 200
+
+        session.refresh(large_revenue_payments_and_business_only)
+        updated_at_2 = large_revenue_payments_and_business_only.availability.dict()[
+            "updated_at"
+        ]
+
+        assert updated_at_2 > updated_at_1
 
     def test_raising_when_node_does_not_exist(
         self,
@@ -257,7 +309,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_only",
         )
         large_revenue_payments_only = session.exec(statement).one()
-        assert large_revenue_payments_only.availability.dict() == {
+        node_dict = large_revenue_payments_only.availability.dict()
+        node_dict.pop("updated_at")
+        assert node_dict == {
             "valid_through_ts": 20230102,
             "catalog": "prod",
             "min_partition": ["2022", "01", "01"],
@@ -314,7 +368,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_only",
         )
         large_revenue_payments_only = session.exec(statement).one()
-        assert large_revenue_payments_only.availability.dict() == {
+        node_dict = large_revenue_payments_only.availability.dict()
+        node_dict.pop("updated_at")
+        assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "prod",
             "min_partition": ["2021", "12", "31"],
@@ -371,7 +427,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "large_revenue_payments_only",
         )
         large_revenue_payments_only = session.exec(statement).one()
-        assert large_revenue_payments_only.availability.dict() == {
+        node_dict = large_revenue_payments_only.availability.dict()
+        node_dict.pop("updated_at")
+        assert node_dict == {
             "valid_through_ts": 20221231,
             "catalog": "prod",
             "min_partition": ["2022", "01", "01"],
@@ -409,7 +467,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             Node.name == "revenue_source",
         )
         revenue_source = session.exec(statement).one()
-        assert revenue_source.availability.dict() == {
+        node_dict = revenue_source.availability.dict()
+        node_dict.pop("updated_at")
+        assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "test",
             "min_partition": ["2022", "01", "01"],
@@ -419,7 +479,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "id": 1,
         }
 
-    def test_raise_on_setting_invalid_availablity_state_on_a_source_node(
+    def test_raise_on_setting_invalid_availability_state_on_a_source_node(
         self,
         client: TestClient,
     ) -> None:

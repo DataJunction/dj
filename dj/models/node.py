@@ -171,6 +171,10 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
+    updated_at: datetime = Field(
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default_factory=partial(datetime.now, timezone.utc),
+    )
 
 
 class NodeAvailabilityState(SQLModel, table=True):  # type: ignore
