@@ -207,7 +207,9 @@ def upgrade():
         sa.Column("table", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("cost", sa.Float(), nullable=True),
         sa.ForeignKeyConstraint(
-            ["database_id"], ["database.id"], name="fk_table_database_id",
+            ["database_id"],
+            ["database.id"],
+            name="fk_table_database_id",
         ),
         sa.ForeignKeyConstraint(
             ["node_id"],
