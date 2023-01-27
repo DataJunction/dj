@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import Dict, List, Optional, TypedDict, cast
 
-from sqlalchemy import DateTime, String
+from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel
@@ -161,8 +161,8 @@ class AvailabilityStateBase(SQLModel):
     schema_: Optional[str] = Field(default=None)
     table: str
     valid_through_ts: int
-    max_partition: str
-    min_partition: str
+    max_partition: List[str] = Field(sa_column=SqlaColumn(JSON))
+    min_partition: List[str] = Field(sa_column=SqlaColumn(JSON))
 
 
 class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
