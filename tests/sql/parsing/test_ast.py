@@ -367,10 +367,12 @@ def test_adding_bad_node_to_table(construction_session):
     """
     table = Table(Name("a"))
     node = next(
-        construction_session.exec(select(Node).filter(Node.type == NodeType.METRIC)),
+        construction_session.exec(
+            select(Node).filter(Node.type == NodeType.METRIC),
+        ),
     )[0]
     with pytest.raises(DJParseException) as exc:
-        table.add_dj_node(node)
+        table.add_dj_node(node.current)
     assert "Expected dj node of TRANSFORM, SOURCE, or DIMENSION" in str(exc)
 
 

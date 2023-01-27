@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 @strawberry.experimental.pydantic.type(
     model=Table_,
-    fields=["id", "node_id", "database_id"],
+    fields=["id", "database_id"],
 )
 class Table:
     """

@@ -32,7 +32,7 @@ from dj.constants import (
 )
 from dj.models.column import Column
 from dj.models.database import Database
-from dj.models.node import Node, NodeType, NodeYAML
+from dj.models.node import Node, NodeRevision, NodeType, NodeYAML
 from dj.models.query import Query  # pylint: disable=unused-import
 from dj.models.table import Table
 from dj.sql.dag import render_dag
@@ -340,7 +340,11 @@ async def remove_node(session: Session, node: Node):
     """
     Remove a node.
     """
-    _logger.info("Removing %s node %s", node.type, node.name)
+    _logger.info(
+        "Removing %s node %s",
+        node.type,
+        node.name,
+    )
     session.delete(node)
 
 
@@ -360,11 +364,12 @@ async def add_node(  # pylint: disable=too-many-locals
 
     # check if the node was already indexed and if it's up-to-date
     query = select(Node).where(Node.name == name)
-    node = session.exec(query).one_or_none()
-    if node:
+    ref_node = session.exec(query).one_or_none()
+
+    if ref_node and ref_node.current:
         # compare file modification time with timestamp on DB
         mtime = path.stat().st_mtime
-        updated_at = node.updated_at
+        updated_at = ref_node.current.updated_at
 
         # SQLite will drop the timezone info; in that case we assume it's UTC
         if updated_at.tzinfo is None:
@@ -372,12 +377,17 @@ async def add_node(  # pylint: disable=too-many-locals
 
         if not force and updated_at > datetime.fromtimestamp(mtime, tz=timezone.utc):
             _logger.info("Node %s is up-do-date, skipping", name)
-            return node
+            return ref_node
+
+    ref_config = {
+        "name": name,
+        "created_at": ref_node.created_at if ref_node else datetime.now(timezone.utc),
+        "type": data["type"],
+    }
 
     config = {
         "name": name,
         "description": data["description"],
-        "created_at": node.created_at if node else datetime.now(timezone.utc),
         "updated_at": datetime.now(timezone.utc),
         "type": data["type"],
         "query": data.get("query"),
@@ -388,7 +398,7 @@ async def add_node(  # pylint: disable=too-many-locals
     # create tables and columns
     for database_name, tables_data in data.get("tables", {}).items():
         for table_data in tables_data:
-            config["tables"].append(
+            config["tables"].append(  # type: ignore
                 Table(
                     database=databases[database_name],
                     columns=get_table_columns(
@@ -404,36 +414,42 @@ async def add_node(  # pylint: disable=too-many-locals
     config["columns"] = (
         infer_columns(data["query"], parents)
         if data.get("query")
-        else get_columns_from_tables(config["tables"])
+        else get_columns_from_tables(config["tables"])  # type: ignore
     )
 
     # enrich columns with dimensions
-    add_dimensions_to_columns(session, data, config["columns"])
+    add_dimensions_to_columns(session, data, config["columns"])  # type: ignore
 
-    if node:
+    if ref_node:
         _logger.info("Updating node %s", name)
 
         # delete old tables, otherwise they're left behind without a node id
-        for table in node.tables:
+        for table in ref_node.current.tables:
             session.delete(table)
 
+        node = ref_node.current
         for attr, value in config.items():
             if attr not in {"name", "path"}:
                 setattr(node, attr, value)
     else:
         _logger.info("Creating node %s", name)
-        node = Node(**config)
+        node = NodeRevision(**config)
 
+    if not ref_node:
+        ref_node = Node(**ref_config)
+
+    node.reference_node = ref_node
     node.extra_validation()
 
     session.add(node)
     session.flush()
     session.refresh(node)
+    session.refresh(ref_node)
 
     # write node back to YAML, with column information
     await update_node_config(node, path)
 
-    return node
+    return ref_node
 
 
 def add_dimensions_to_columns(
@@ -498,7 +514,7 @@ def get_columns_from_tables(tables: List[Table]) -> List[Column]:
     return list(columns.values())
 
 
-async def update_node_config(node: Node, path: Path) -> None:
+async def update_node_config(node: NodeRevision, path: Path) -> None:
     """
     Update the node config with information about columns.
     """
@@ -520,10 +536,13 @@ async def update_node_config(node: Node, path: Path) -> None:
                     updated["columns"][name][key] = value  # type: ignore
 
     if updated == original:
-        _logger.info("Node %s is up-do-date, skipping", node.name)
+        _logger.info("Node %s is up-do-date, skipping", node.reference_node.name)
         return
 
-    _logger.info("Updating node %s config with column information", node.name)
+    _logger.info(
+        "Updating node %s config with column information",
+        node.reference_node.name,
+    )
     with open(path, "w", encoding="utf-8") as output:
         yaml.safe_dump(updated, output, sort_keys=False)
 

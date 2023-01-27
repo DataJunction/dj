@@ -14,7 +14,8 @@ from dj.construction.extract import (
 )
 from dj.construction.utils import make_name
 from dj.errors import DJException
-from dj.models import Column, Node
+from dj.models import Column, NodeRevision
+from dj.models.node import Node
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.sqloxide import parse
 from dj.typing import ColumnType
@@ -104,7 +105,7 @@ def test_raising_on_extract_from_node_with_no_query(construction_session: Sessio
     """
     Test getting dependencies from a query that has dangling references when set not to raise
     """
-    node_foo = Node(
+    node_foo = NodeRevision(
         name="foo",
         columns=[
             Column(name="ds", type=ColumnType.DATETIME),
@@ -158,7 +159,12 @@ def test_compile_node(construction_session: Session):
     """
     Test compiling a node
     """
-    node_a = Node(name="A", query="SELECT country FROM basic.transform.country_agg")
+    ref_node_a = Node(name="A", current_version=1)
+    node_a = NodeRevision(
+        reference_node=ref_node_a,
+        version=1,
+        query="SELECT country FROM basic.transform.country_agg",
+    )
     compile_node(session=construction_session, node=node_a)
 
 
@@ -166,7 +172,8 @@ def test_raise_on_compile_node_with_no_query(construction_session: Session):
     """
     Test raising when compiling a node that has no query
     """
-    node_a = Node(name="A")
+    ref_node_a = Node(name="A", current_version=1)
+    node_a = NodeRevision(reference_node=ref_node_a, version=1)
 
     with pytest.raises(DJException) as exc_info:
         compile_node(session=construction_session, node=node_a)
@@ -178,8 +185,10 @@ def test_raise_on_unjoinable_automatic_dimension_groupby(construction_session: S
     """
     Test raising where a dimension node is automatically detected but unjoinable
     """
-    node_a = Node(
-        name="A",
+    ref_node_a = Node(name="A", current_version=1)
+    node_a = NodeRevision(
+        reference_node=ref_node_a,
+        version=1,
         query=(
             "SELECT country FROM basic.transform.country_agg "
             "GROUP BY basic.dimension.countries.country"
@@ -198,8 +207,10 @@ def test_raise_on_having_without_a_groupby(construction_session: Session):
     """
     Test raising when using a having without a groupby
     """
-    node_a = Node(
-        name="A",
+    ref_node_a = Node(name="A", current_version=1)
+    node_a = NodeRevision(
+        reference_node=ref_node_a,
+        version=1,
         query=(
             "SELECT country FROM basic.transform.country_agg " "HAVING country='US'"
         ),
@@ -215,8 +226,10 @@ def test_having(construction_session: Session):
     """
     Test using having
     """
-    node_a = Node(
-        name="A",
+    ref_node_a = Node(name="A", current_version=1)
+    node_a = NodeRevision(
+        reference_node=ref_node_a,
+        version=1,
         query=(
             "SELECT order_date, status FROM dbt.source.jaffle_shop.orders "
             "GROUP BY dbt.dimension.customers.id "

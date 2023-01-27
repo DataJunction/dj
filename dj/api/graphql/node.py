@@ -14,6 +14,7 @@ from typing_extensions import Annotated
 from dj.models.node import Node as Node_
 from dj.models.node import NodeColumns as NodeColumns_
 from dj.models.node import NodeRelationship as Node_Relationship
+from dj.models.node import NodeRevision as NodeRevision_
 from dj.models.node import NodeType as NodeType_
 
 
@@ -39,8 +40,27 @@ if TYPE_CHECKING:
 
 
 @strawberry.experimental.pydantic.type(
+    model=NodeRevision_,
+    fields=["id", "description", "query", "version"],
+)
+class NodeRevision:  # type: ignore
+    """
+    A node.
+
+    Nodes can store data in multiple tables, in different databases.
+    """
+
+    type: NodeType  # type: ignore
+    tables: List[Annotated["Table", strawberry.lazy("dj.api.graphql.table")]]
+    parents: List[Annotated["Node", strawberry.lazy("dj.api.graphql.node")]]
+    children: List[Annotated["NodeRevision", strawberry.lazy("dj.api.graphql.node")]]
+    columns: List[Annotated["Column", strawberry.lazy("dj.api.graphql.column")]]
+    updated_at: datetime.datetime
+
+
+@strawberry.experimental.pydantic.type(
     model=Node_,
-    fields=["id", "name", "description", "query"],
+    fields=["id", "name", "current_version"],
 )
 class Node:  # type: ignore
     """
@@ -48,17 +68,13 @@ class Node:  # type: ignore
     """
 
     type: NodeType  # type: ignore
-    tables: List[Annotated["Table", strawberry.lazy("dj.api.graphql.table")]]
-    parents: List[Annotated["Node", strawberry.lazy("dj.api.graphql.node")]]
-    children: List[Annotated["Node", strawberry.lazy("dj.api.graphql.node")]]
-    columns: List[Annotated["Column", strawberry.lazy("dj.api.graphql.column")]]
+    current: Annotated["NodeRevision", strawberry.lazy("dj.api.graphql.node")]
     created_at: datetime.datetime
-    updated_at: datetime.datetime
 
 
 def get_nodes(info: Info) -> List[Node]:
     """
     List the available nodes.
     """
-    nodes = info.context["session"].exec(select(Node_)).all()
-    return [Node.from_pydantic(node) for node in nodes]  # type: ignore
+    ref_nodes = info.context["session"].exec(select(Node_)).all()
+    return [Node.from_pydantic(ref_node) for ref_node in ref_nodes]  # type: ignore

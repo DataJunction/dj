@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlmodel import Session
 
 from dj.construction.inference import get_type_of_expression
-from dj.models import Node
+from dj.models.node import Node
 from dj.sql.parsing import ast
 from dj.sql.parsing.ast import BinaryOpKind
 from dj.sql.parsing.backends.exceptions import DJParseException
@@ -18,12 +18,14 @@ def test_infer_column_with_table(construction_session: Session):
     """
     Test getting the type of a column that has a table
     """
-    node = next(
+    ref_node = next(
         construction_session.exec(
-            select(Node).filter(Node.name == "dbt.source.jaffle_shop.orders"),
+            select(Node).filter(
+                Node.name == "dbt.source.jaffle_shop.orders",
+            ),
         ),
     )[0]
-    table = ast.Table(ast.Name("orders"), _dj_node=node)
+    table = ast.Table(ast.Name("orders"), _dj_node=ref_node.current)
     assert (
         get_type_of_expression(ast.Column(ast.Name("id"), _table=table))
         == ColumnType.INT
@@ -73,12 +75,14 @@ def test_infer_column_with_an_aliased_table(construction_session: Session):
     """
     Test getting the type of a column that has an aliased table
     """
-    node = next(
+    ref_node = next(
         construction_session.exec(
-            select(Node).filter(Node.name == "dbt.source.jaffle_shop.orders"),
+            select(Node).filter(
+                Node.name == "dbt.source.jaffle_shop.orders",
+            ),
         ),
     )[0]
-    table = ast.Table(ast.Name("orders"), _dj_node=node)
+    table = ast.Table(ast.Name("orders"), _dj_node=ref_node.current)
     alias = ast.Alias(
         ast.Name("foo"),
         ast.Namespace([ast.Name("a"), ast.Name("b"), ast.Name("c")]),

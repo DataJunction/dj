@@ -10,7 +10,7 @@ from pytest_mock import MockerFixture
 from sqlmodel import Session
 
 from dj.models.column import Column
-from dj.models.node import Node, NodeType
+from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.query import Database, QueryCreate, QueryWithResults
 from dj.models.table import Table
 from dj.typing import ColumnType
@@ -20,12 +20,25 @@ def test_read_metrics(session: Session, client: TestClient) -> None:
     """
     Test ``GET /metrics/``.
     """
-    node1 = Node(name="not-a-metric")
-    node2 = Node(name="also-not-a-metric", query="SELECT 42")
-    node3 = Node(
-        name="a-metric",
+    ref_node1 = Node(
+        name="not-a-metric",
+        type=NodeType.TRANSFORM,
+        current_version=1,
+    )
+    node1 = NodeRevision(reference_node=ref_node1, version=ref_node1.current_version)
+
+    ref_node2 = Node(
+        name="also-not-a-metric",
+        type=NodeType.TRANSFORM,
+        current_version=1,
+    )
+    node2 = NodeRevision(reference_node=ref_node2, query="SELECT 42", version=1)
+
+    ref_node3 = Node(name="a-metric", type=NodeType.METRIC, current_version=1)
+    node3 = NodeRevision(
+        reference_node=ref_node3,
+        version=1,
         query="SELECT COUNT(*) FROM my_table",
-        type=NodeType.METRIC,
     )
     session.add(node1)
     session.add(node2)
@@ -45,8 +58,8 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     """
     Test ``GET /metric/{node_id}/``.
     """
-    parent = Node(
-        name="parent",
+    parent = NodeRevision(
+        version=1,
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -64,12 +77,23 @@ def test_read_metric(session: Session, client: TestClient) -> None:
             Column(name="foo", type=ColumnType.FLOAT),
         ],
     )
+    parent_ref_node = Node(
+        name="parent",
+        type=NodeType.SOURCE,
+        current_version=1,
+    )
+    parent.reference_node = parent_ref_node
 
-    child = Node(
+    child_ref_node = Node(
         name="child",
-        query="SELECT COUNT(*) FROM parent",
-        parents=[parent],
         type=NodeType.METRIC,
+        current_version=1,
+    )
+    child = NodeRevision(
+        reference_node=child_ref_node,
+        version=1,
+        query="SELECT COUNT(*) FROM parent",
+        parents=[parent_ref_node],
     )
 
     session.add(child)
@@ -89,7 +113,12 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
     Test errors on ``GET /metrics/{node_id}/``.
     """
     database = Database(name="test", URI="sqlite://")
-    node = Node(name="a-metric", query="SELECT 1 AS col")
+    ref_node = Node(
+        name="a-metric",
+        type=NodeType.TRANSFORM,
+        current_version=1,
+    )
+    node = NodeRevision(reference_node=ref_node, version=1, query="SELECT 1 AS col")
     session.add(database)
     session.add(node)
     session.execute("CREATE TABLE my_table (one TEXT)")
@@ -113,10 +142,11 @@ def test_read_metrics_data(
     Test ``GET /metrics/{node_id}/data/``.
     """
     database = Database(name="test", URI="sqlite://")
-    node = Node(
-        name="a-metric",
+    ref_node = Node(name="a-metric", type=NodeType.METRIC, current_version=1)
+    node = NodeRevision(
+        reference_node=ref_node,
+        version=1,
         query="SELECT COUNT(*) FROM my_table",
-        type=NodeType.METRIC,
     )
     session.add(database)
     session.add(node)
@@ -155,7 +185,8 @@ def test_read_metrics_data_errors(session: Session, client: TestClient) -> None:
     Test errors on ``GET /metrics/{node_id}/data/``.
     """
     database = Database(name="test", URI="sqlite://")
-    node = Node(name="a-metric", query="SELECT 1 AS col")
+    ref_node = Node(name="a-metric", current_version=1)
+    node = NodeRevision(reference_node=ref_node, version=1, query="SELECT 1 AS col")
     session.add(database)
     session.add(node)
     session.execute("CREATE TABLE my_table (one TEXT)")
@@ -179,8 +210,10 @@ def test_read_metrics_sql(
     Test ``GET /metrics/{node_id}/sql/``.
     """
     database = Database(name="test", URI="sqlite://")
-    node = Node(
-        name="a-metric",
+    ref_node = Node(name="a-metric", type=NodeType.METRIC, current_version=1)
+    node = NodeRevision(
+        reference_node=ref_node,
+        version=1,
         query="SELECT COUNT(*) FROM my_table",
         type=NodeType.METRIC,
     )
