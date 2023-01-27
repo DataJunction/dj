@@ -369,6 +369,13 @@ class Expression(Node):
             return self.parent
         return self
 
+    @property
+    def type(self) -> ColumnType:
+        """return the type of the expression"""
+        from dj.construction.inference import get_type_of_expression
+
+        return get_type_of_expression(self)
+
 
 @dataclass(eq=False)
 class Name(Node):
@@ -490,6 +497,7 @@ class BinaryOpKind(DJEnum):
     Plus = "+"
     Minus = "-"
     Modulo = "%"
+    Like = "LIKE"
 
 
 # pylint: enable=C0103
@@ -540,13 +548,68 @@ class Case(Expression):
 
 
 @dataclass(eq=False)
+class In(Expression):
+    """an in expression"""
+
+    expr: Expression
+    source: Union[List[Expression], "Select"]
+    negated: bool = False
+
+    def __post_init__(self):
+        super().__post_init__()
+        if isinstance(self.source, Select) and len(self.source.projection) > 1:
+            raise DJParseException("IN subquery cannot have more than a single column.")
+
+    def __str__(self) -> str:
+        not_ = "NOT " if self.negated else ""
+        return f"{self.expr} {not_}IN {self.source}"
+
+
+@dataclass(eq=False)
+class Over(Expression):
+    """represents a function used in a statement"""
+
+    partition_by: List[Expression] = field(default_factory=list)
+    order_by: List["Order"] = field(default_factory=list)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not (self.partition_by or self.order_by):
+            raise DJParseException(
+                "An OVER requires at least a PARTITION BY or ORDER BY",
+            )
+
+    def __str__(self) -> str:
+        partition_by = (
+            " PARTITION BY " + ", ".join(str(exp) for exp in self.partition_by)
+            if self.partition_by
+            else ""
+        )
+        order_by = (
+            " ORDER BY " + ", ".join(str(exp) for exp in self.order_by)
+            if self.order_by
+            else ""
+        )
+        consolidated_by = "\n".join(
+            po_by for po_by in (partition_by, order_by) if po_by
+        )
+        return f"OVER ({consolidated_by})"
+
+
+@dataclass(eq=False)
 class Function(Named, Operation):
     """represents a function used in a statement"""
 
     args: List[Expression] = field(default_factory=list)
+    distinct: bool = False
+    over: Optional[Over] = None
 
     def __str__(self) -> str:
-        return f"{self.name}({', '.join(str(arg) for arg in self.args)})"
+        distinct = "DISTINCT " if self.distinct else ""
+        over = f" {self.over}" if self.over else ""
+        return (
+            f"{self.name}({distinct}{', '.join(str(arg) for arg in self.args)}){over}"
+        )
 
 
 @dataclass(eq=False)
@@ -623,11 +686,6 @@ class Column(Named):
     _table: Optional["TableExpression"] = field(repr=False, default=None)
     _type: Optional["ColumnType"] = field(repr=False, default=None)
     _expression: Optional[Expression] = field(repr=False, default=None)
-
-    @property
-    def type(self) -> Optional[ColumnType]:
-        """return the type of the column"""
-        return self._type
 
     def add_type(self, type_: ColumnType) -> "Column":
         """add a referenced type"""
@@ -786,6 +844,18 @@ class From(Node):
 
 
 @dataclass(eq=False)
+class Order(Node):
+    """a column wrapper for ordering"""
+
+    expr: Expression
+    asc: bool = True
+
+    def __str__(self) -> str:
+        order = "ASC" if self.asc else "DESC"
+        return f"{self.expr} {order}"
+
+
+@dataclass(eq=False)
 class Select(Expression):
     """a single select statement type"""
 
@@ -796,6 +866,14 @@ class Select(Expression):
     where: Optional[Expression] = None
     limit: Optional[Number] = None
     distinct: bool = False
+    order_by: List[Order] = field(default_factory=list)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not isinstance(self.parent, Query) and self.order_by:
+            raise DJParseException("Cannot use ORDER BY on a subquerql .")
+        if self.limit and not isinstance(self.limit, Number):
+            raise DJParseException("Limit must be a number.")
 
     def __str__(self) -> str:
         subselect = not (isinstance(self.parent, Query) or self.parent is None)
@@ -812,6 +890,8 @@ class Select(Expression):
             parts.extend(("HAVING ", str(self.having), "\n"))
         if self.limit is not None:
             parts.extend(("LIMIT ", str(self.limit), "\n"))
+        if self.order_by:
+            parts.extend(("ORDER BY ", ", ".join(str(exp) for exp in self.order_by)))
         select = " ".join(parts)
         if subselect:
             return "(" + select + ")"
