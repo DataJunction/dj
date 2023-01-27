@@ -90,8 +90,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": "20230125",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "25"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -106,9 +106,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert large_revenue_payments_and_business_only.availability.dict() == {
             "valid_through_ts": 20230125,
             "catalog": "prod",
-            "min_partition": "20220101",
+            "min_partition": ["2022", "01", "01"],
             "table": "pmts",
-            "max_partition": "20230125",
+            "max_partition": ["2023", "01", "25"],
             "schema_": "accounting",
             "id": 1,
         }
@@ -128,8 +128,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": "20230125",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "25"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -144,8 +144,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": "20230125",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "25"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -160,8 +160,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "new_accounting",
                 "table": "new_payments_table",
                 "valid_through_ts": 20230125,
-                "max_partition": "20230125",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "25"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -176,9 +176,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert large_revenue_payments_and_business_only.availability.dict() == {
             "valid_through_ts": 20230125,
             "catalog": "prod",
-            "min_partition": "20220101",
+            "min_partition": ["2022", "01", "01"],
             "table": "new_payments_table",
-            "max_partition": "20230125",
+            "max_partition": ["2023", "01", "25"],
             "schema_": "new_accounting",
             "id": 3,
         }
@@ -197,8 +197,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": "20230125",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "25"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -225,8 +225,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": "20230101",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "01"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         response = client.post(
@@ -236,8 +236,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230102,
-                "max_partition": "20230102",  # should be used since it's a higher max_partition
-                "min_partition": "20230102",  # should be ignored since it's a higher min_partition
+                "max_partition": [
+                    "2023",
+                    "01",
+                    "02",
+                ],  # should be used since it's a higher max_partition
+                "min_partition": [
+                    "2023",
+                    "01",
+                    "02",
+                ],  # should be ignored since it's a higher min_partition
             },
         )
         data = response.json()
@@ -252,9 +260,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert large_revenue_payments_only.availability.dict() == {
             "valid_through_ts": 20230102,
             "catalog": "prod",
-            "min_partition": "20220101",
+            "min_partition": ["2022", "01", "01"],
             "table": "large_pmts",
-            "max_partition": "20230102",
+            "max_partition": ["2023", "01", "02"],
             "schema_": "accounting",
             "id": 2,
         }
@@ -274,8 +282,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": "20230101",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "01"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         response = client.post(
@@ -285,8 +293,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": "20211231",  # should be ignored since it's a lower max_partition
-                "min_partition": "20211231",  # should be used since it's a lower min_partition
+                "max_partition": [
+                    "2021",
+                    "12",
+                    "31",
+                ],  # should be ignored since it's a lower max_partition
+                "min_partition": [
+                    "2021",
+                    "12",
+                    "31",
+                ],  # should be used since it's a lower min_partition
             },
         )
         data = response.json()
@@ -301,9 +317,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert large_revenue_payments_only.availability.dict() == {
             "valid_through_ts": 20230101,
             "catalog": "prod",
-            "min_partition": "20211231",
+            "min_partition": ["2021", "12", "31"],
             "table": "large_pmts",
-            "max_partition": "20230101",
+            "max_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "id": 2,
         }
@@ -323,8 +339,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": "20230101",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "01"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         response = client.post(
@@ -334,8 +350,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20221231,
-                "max_partition": "20230101",  # should be ignored since it's a lower max_partition
-                "min_partition": "20220101",  # should be used since it's a lower min_partition
+                "max_partition": [
+                    "2023",
+                    "01",
+                    "01",
+                ],  # should be ignored since it's a lower max_partition
+                "min_partition": [
+                    "2022",
+                    "01",
+                    "01",
+                ],  # should be used since it's a lower min_partition
             },
         )
         data = response.json()
@@ -350,9 +374,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert large_revenue_payments_only.availability.dict() == {
             "valid_through_ts": 20221231,
             "catalog": "prod",
-            "min_partition": "20220101",
+            "min_partition": ["2022", "01", "01"],
             "table": "large_pmts",
-            "max_partition": "20230101",
+            "max_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "id": 2,
         }
@@ -372,8 +396,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "revenue",
                 "valid_through_ts": 20230101,
-                "max_partition": "20230101",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "01"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -388,9 +412,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert revenue_source.availability.dict() == {
             "valid_through_ts": 20230101,
             "catalog": "test",
-            "min_partition": "20220101",
+            "min_partition": ["2022", "01", "01"],
             "table": "revenue",
-            "max_partition": "20230101",
+            "max_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "id": 1,
         }
@@ -409,8 +433,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": "20230101",
-                "min_partition": "20220101",
+                "max_partition": ["2023", "01", "01"],
+                "min_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
