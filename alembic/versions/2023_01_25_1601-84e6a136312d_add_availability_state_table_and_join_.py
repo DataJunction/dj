@@ -41,7 +41,9 @@ def upgrade():
             name="fk_nodeavailability_availability_id",
         ),
         sa.ForeignKeyConstraint(
-            ["node_id"], ["node.id"], name="fk_nodeavailability_node_id",
+            ["node_id"],
+            ["node.id"],
+            name="fk_nodeavailability_node_id",
         ),
         sa.PrimaryKeyConstraint("availability_id", "node_id"),
     )
