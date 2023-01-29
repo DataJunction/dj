@@ -3,7 +3,7 @@ Functions for transforming an AST using DJ information
 """
 
 from itertools import chain
-from typing import Dict, List, Optional, Set, Tuple, Union, cast
+from typing import Dict, Iterator, List, Optional, Set, Tuple, Union, cast
 
 from sqlmodel import Session, select
 
@@ -90,20 +90,13 @@ def _tables_to_namespaces(
     session: Session,
     namespaces: Dict[str, Dict[str, Union[ast.Expression, ast.Column]]],
     table: ast.TableExpression,
-) -> Tuple[
-    List[ast.Select],
-    Dict[str, ast.TableExpression],
-    Tuple[Set[Node], Set[Node], Set[Node]],
-]:
+) -> Tuple[Dict[str, ast.TableExpression], Tuple[Set[Node], Set[Node], Set[Node]]]:
     """
     Get all usable namespaces and columns from tables
     """
 
     # namespace: ast node defining namespace
     table_nodes: Dict[str, ast.TableExpression] = {}
-
-    # track subqueries encountered to extract from them after
-    subqueries: List[ast.Select] = []
 
     # used to check need and capacity for merging in dimensions
     dimension_columns: Set[Node] = set()
@@ -143,7 +136,6 @@ def _tables_to_namespaces(
     # we track subqueries separately and extract at the end
     # but introspect the columns to make sure the parent query selection is valid
     if isinstance(table, ast.Select):
-        subqueries.append(table)
 
         for col in table.projection:
             if not isinstance(col, ast.Named):
@@ -176,7 +168,6 @@ def _tables_to_namespaces(
     table_nodes[namespace] = table
 
     return (
-        subqueries,
         table_nodes,
         (dimension_columns, sources_transforms, dimensions_tables),
     )
@@ -312,9 +303,6 @@ def compile_select_ast(
     # namespace: ast node defining namespace
     table_nodes: Dict[str, ast.TableExpression] = {}
 
-    # track subqueries encountered to extract from them after
-    subqueries: List[ast.Select] = []
-
     # used to check need and capacity for merging in dimensions
     dimension_columns: Set[Node] = set()
     sources_transforms: Set[Node] = set()
@@ -322,11 +310,9 @@ def compile_select_ast(
 
     for table in tables:
         (
-            _subqueries,
             _table_nodes,
             (_dimension_columns, _sources_transforms, _dimensions_tables),
         ) = _tables_to_namespaces(session, namespaces, table)
-        subqueries += _subqueries
         table_nodes.update(_table_nodes)
         dimension_columns |= _dimension_columns
         sources_transforms |= _sources_transforms
@@ -395,7 +381,13 @@ def compile_select_ast(
                 ),
                 message="Cannot extract dependencies from SELECT",
             )
-
+    subqueries = cast(
+        Iterator[ast.Select],
+        select.filter(
+            lambda node: isinstance(node, ast.Select)
+            and (id(node.get_nearest_parent_of_type(ast.Select)) == id(select)),
+        ),
+    )
     for subquery in subqueries:
         compile_select_ast(session, subquery)
 
@@ -422,4 +414,5 @@ def compile_node(
     if node.query is None:
         raise DJException(f"Cannot compile node `{node.name}` with no query.")
     query = parse(node.query, dialect)
-    return compile_query_ast(session, query)
+    compile_query_ast(session, query)
+    return query

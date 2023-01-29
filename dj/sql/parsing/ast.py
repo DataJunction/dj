@@ -372,7 +372,9 @@ class Expression(Node):
     @property
     def type(self) -> ColumnType:
         """return the type of the expression"""
-        from dj.construction.inference import get_type_of_expression
+        from dj.construction.inference import (  # pylint: disable=C0415
+            get_type_of_expression,
+        )
 
         return get_type_of_expression(self)
 
@@ -562,7 +564,12 @@ class In(Expression):
 
     def __str__(self) -> str:
         not_ = "NOT " if self.negated else ""
-        return f"{self.expr} {not_}IN {self.source}"
+        source = (
+            str(self.source)
+            if isinstance(self.source, Select)
+            else "(" + ", ".join(str(exp) for exp in self.source) + ")"
+        )
+        return f"{self.expr} {not_}IN {source}"
 
 
 @dataclass(eq=False)
@@ -580,7 +587,7 @@ class Over(Expression):
             )
 
     def __str__(self) -> str:
-        partition_by = (
+        partition_by = (  # pragma: no cover
             " PARTITION BY " + ", ".join(str(exp) for exp in self.partition_by)
             if self.partition_by
             else ""
@@ -626,12 +633,24 @@ class IsNull(Operation):
 class Value(Expression):
     """base class for all values number, string, boolean"""
 
-    value: Union[str, bool, float, int]
+    value: Union[str, bool, float, int, None]
 
     def __str__(self) -> str:
         if isinstance(self, String):
             return f"'{self.value}'"
         return str(self.value)
+
+
+@dataclass(eq=False)
+class Null(Value):
+    """number value"""
+
+    value = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.value is not None:
+            raise DJParseException("NULL does not take a value.")
 
 
 @dataclass(eq=False)
@@ -856,7 +875,7 @@ class Order(Node):
 
 
 @dataclass(eq=False)
-class Select(Expression):
+class Select(Expression):  # pylint: disable=R0902
     """a single select statement type"""
 
     from_: From
@@ -870,10 +889,10 @@ class Select(Expression):
 
     def __post_init__(self):
         super().__post_init__()
-        if not isinstance(self.parent, Query) and self.order_by:
-            raise DJParseException("Cannot use ORDER BY on a subquerql .")
-        if self.limit and not isinstance(self.limit, Number):
-            raise DJParseException("Limit must be a number.")
+        if not self.projection:
+            raise DJParseException(
+                "Expected at least a single item in projection at {self}.",
+            )
 
     def __str__(self) -> str:
         subselect = not (isinstance(self.parent, Query) or self.parent is None)

@@ -1,6 +1,6 @@
 """test inferring types"""
 
-
+# pylint: disable=W0621,C0325
 import pytest
 from sqlalchemy import select
 from sqlmodel import Session
@@ -123,6 +123,42 @@ def test_raising_when_expression_parent_not_a_table():
     ) in str(exc_info.value)
 
 
+def test_raising_when_select_has_multiple_expressions_in_projection():
+    """
+    Test raising when a select has more than one in projection
+    """
+    select = parse("select 1, 2").select
+
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(select)
+
+    assert ("single expression in its projection") in str(exc_info.value)
+
+
+def test_raising_when_between_different_types():
+    """
+    Test raising when a between has multiple types
+    """
+    select = parse("select 1 between 'hello' and TRUE").select
+
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(select)
+
+    assert ("BETWEEN expects all elements to have the same type") in str(exc_info.value)
+
+
+def test_raising_when_unop_bad_type():
+    """
+    Test raising when a unop gets a bad type
+    """
+    select = parse("select not 'hello'").select
+
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(select)
+
+    assert ("Incompatible type in unary operation") in str(exc_info.value)
+
+
 def test_raising_when_expression_has_no_parent():
     """
     Test raising when getting the type of a column that has no parent
@@ -142,6 +178,30 @@ def test_infer_types_complicated(construction_session: Session):
     query = parse(
         """
       SELECT id+1-2/3*5%6&10|8^5,
+      DATE_TRUNC('day', '2014-03-10'),
+      NOW(),
+      Coalesce(NULL, 5),
+      Coalesce(NULL),
+      NULL,
+      MAX(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      MAX(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      MIN(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      AVG(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      COUNT(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      SUM(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      NOT TRUE,
       10,
       id>5,
       id<5,
@@ -172,6 +232,18 @@ def test_infer_types_complicated(construction_session: Session):
     compile_query_ast(construction_session, query)
     types = [
         ColumnType.INT,
+        ColumnType.DATETIME,
+        ColumnType.DATETIME,
+        ColumnType.INT,
+        ColumnType.NULL,
+        ColumnType.NULL,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.BOOL,
         ColumnType.INT,
         ColumnType.BOOL,
         ColumnType.BOOL,

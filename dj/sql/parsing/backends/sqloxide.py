@@ -15,14 +15,16 @@ def match_keys(parse_tree: dict, *keys: Set[str]) -> Optional[Set[str]]:
     for key in keys:
         if key == tree_keys:
             return key
+    return None
 
 
 def match_keys_subset(parse_tree: dict, *keys: Set[str]) -> Optional[Set[str]]:
     """match a parse tree having a subset of keys"""
     tree_keys = set(parse_tree.keys())
     for key in keys:
-        if key <= tree_keys:
+        if key <= tree_keys:  # type: ignore #pragma: no cover
             return key
+    return None  # type: ignore #pragma: no cover
 
 
 def parse_op(parse_tree: dict) -> ast.Operation:
@@ -124,12 +126,16 @@ def parse_expression(  # pylint: disable=R0911,R0912
                 child=parse_column(subtree["expr"]),
             )
         if match_keys(parse_tree, {"Subquery"}):
-            return parse_query(parse_tree["Subquery"])._to_select()
+            return parse_query(  # pylint: disable=W0212
+                parse_tree["Subquery"],
+            )._to_select()
     raise DJParseException("Failed to parse Expression")  # pragma: no cover
 
 
 def parse_value(parse_tree: dict) -> ast.Value:
     """parse a primitive value"""
+    if parse_tree == "Null":
+        return ast.Null(None)
     if match_keys(parse_tree, {"Value"}):
         return parse_value(parse_tree["Value"])
     if match_keys(parse_tree, {"Number"}):
@@ -211,13 +217,17 @@ def parse_in(parse_tree: dict) -> ast.In:
     if match_keys(parse_tree, {"expr", "list", "negated"}):
         source = [parse_expression(expr) for expr in parse_tree["list"]]
         return ast.In(
-            parse_expression(parse_tree["expr"]), source, parse_tree["negated"],
+            parse_expression(parse_tree["expr"]),
+            source,
+            parse_tree["negated"],
         )
     if match_keys(parse_tree, {"expr", "subquery", "negated"}):
-        subquery = parse_tree["subquery"]
-        source = parse_query(subquery)._to_select()
+        subquery: dict = parse_tree["subquery"]
+        subquery_select = parse_query(subquery)._to_select()  # pylint: disable=W0212
         return ast.In(
-            parse_expression(parse_tree["expr"]), source, parse_tree["negated"],
+            parse_expression(parse_tree["expr"]),
+            subquery_select,
+            parse_tree["negated"],
         )
     raise DJParseException("Failed to parse IN")  # pragma: no cover
 
@@ -226,7 +236,9 @@ def parse_over(parse_tree: dict) -> ast.Over:
     """parse the over of a function"""
     if match_keys(parse_tree, {"partition_by", "order_by", "window_frame"}):
         if parse_tree["window_frame"] is not None:
-            raise DJParseException("window frames are not supported.")
+            raise DJParseException(
+                "window frames are not supported.",
+            )  # pragma: no cover
         partition_by = [parse_expression(exp) for exp in parse_tree["partition_by"]]
         order_by = [parse_order(exp) for exp in parse_tree["order_by"]]
         return ast.Over(partition_by, order_by)
@@ -237,10 +249,10 @@ def parse_order(parse_tree: dict) -> ast.Order:
     """parse the order parts of an order by or window function"""
     if match_keys(parse_tree, {"expr", "asc", "nulls_first"}):
         if parse_tree["nulls_first"] is not None:
-            raise DJParseException("nulls first is not supported.")
+            raise DJParseException("nulls first is not supported.")  # pragma: no cover
         return ast.Order(
             expr=parse_expression(parse_tree["expr"]),
-            asc=True if parse_tree["asc"] else False,
+            asc=bool(parse_tree["asc"]),
         )
     raise DJParseException("Failed to parse ORDER BY expression.")  # pragma: no cover
 
@@ -342,7 +354,7 @@ def parse_ctes(parse_tree: dict) -> List[ast.Alias[ast.Select]]:
 
 def parse_query(parse_tree: dict) -> ast.Query:
     """parse a query (ctes+select) statement"""
-    if match_keys_subset(parse_tree, {"with", "body", "limit"}):
+    if match_keys_subset(parse_tree, {"with", "body", "limit", "order_by"}):
         body = parse_tree["body"]
         if match_keys(body, {"Select"}):
             select = parse_select(body["Select"])
@@ -352,6 +364,9 @@ def parse_query(parse_tree: dict) -> ast.Query:
                 if not isinstance(limit_value, ast.Number):
                     raise DJParseException("limit must be a number")  # pragma: no cover
                 select.limit = limit_value
+            select.order_by = [
+                parse_order(order) for order in parse_tree.get("order_by", [])
+            ]
             return ast.Query(
                 ctes=parse_ctes(parse_tree["with"])
                 if parse_tree["with"] is not None

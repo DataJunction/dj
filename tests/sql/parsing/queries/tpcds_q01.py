@@ -154,7 +154,7 @@ def tpcds_q01():
                             ),
                         ),
                         op=BinaryOpKind.Gt,
-                        right=Query(
+                        right=Query(  # pylint: disable=W0212
                             select=Select(
                                 from_=From(
                                     tables=[

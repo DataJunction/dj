@@ -29,8 +29,8 @@ def _(expression: ast.Alias):
 @get_type_of_expression.register
 def _(expression: ast.Column):
     # column has already determined/stated its type
-    if expression._type:
-        return expression._type
+    if expression._type:  # pylint: disable=W0212
+        return expression._type  # pylint: disable=W0212
 
     # column was derived from some other expression we can get the type of
     if expression.expression:
@@ -68,6 +68,11 @@ def _(expression: ast.Column):
 
 
 @get_type_of_expression.register
+def _(expression: ast.Null):
+    return ColumnType.NULL
+
+
+@get_type_of_expression.register
 def _(expression: ast.String):
     return ColumnType.STR
 
@@ -93,7 +98,9 @@ def _(expression: ast.Wildcard):  # pragma: no cover
 def _(expression: ast.Function):  # pragma: no cover
     name = expression.name.name.upper()
     dj_func = function_registry[name]
-    return dj_func.infer_type(*(get_type_of_expression(exp) for exp in expression.args))
+    return dj_func.infer_type_from_types(
+        *(get_type_of_expression(exp) for exp in expression.args)
+    )
 
 
 @get_type_of_expression.register
@@ -124,14 +131,15 @@ def _(expression: ast.Between):
     if expr_type == low_type == high_type:
         return ColumnType.BOOL
     raise DJParseException(
-        f"BETWEEN expects all elements to have the same type got {expr_type} BETWEEN {low_type} AND {high_type} in {expression}.",
+        f"BETWEEN expects all elements to have the same type got "
+        f"{expr_type} BETWEEN {low_type} AND {high_type} in {expression}.",
     )
 
 
 @get_type_of_expression.register
 def _(expression: ast.UnaryOp):
     kind = expression.op
-    type = get_type_of_expression(expression.expr)
+    type_ = get_type_of_expression(expression.expr)
 
     def raise_unop_exception():
         raise DJParseException(
@@ -143,15 +151,17 @@ def _(expression: ast.UnaryOp):
         ast.UnaryOpKind,
         Callable[[ColumnType], ColumnType],
     ] = {
-        ast.UnaryOpKind.Not: lambda type: ColumnType.BOOL,
-        ast.UnaryOpKind.Minus: lambda type: type
+        ast.UnaryOpKind.Not: lambda type: ColumnType.BOOL
+        if type == ColumnType.BOOL
+        else raise_unop_exception(),
+        ast.UnaryOpKind.Minus: lambda type: type_
         if type in (ColumnType.INT, ColumnType.FLOAT)
         else raise_unop_exception(),
-        ast.UnaryOpKind.Plus: lambda type: type
-        if type in (ColumnType.INT, ColumnType.FLOAT)
+        ast.UnaryOpKind.Plus: lambda type: type_
+        if type_ in (ColumnType.INT, ColumnType.FLOAT)
         else raise_unop_exception(),
     }
-    return UNOP_TYPE_COMBO_LOOKUP[kind](type)
+    return UNOP_TYPE_COMBO_LOOKUP[kind](type_)
 
 
 @get_type_of_expression.register
