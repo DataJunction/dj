@@ -13,6 +13,8 @@ volumes:
 services:
   druid_postgres:
     container_name: druid_postgres
+    networks:
+      - core
     image: postgres:latest
     volumes:
       - metadata_data:/var/lib/postgresql/data
@@ -24,6 +26,8 @@ services:
   # Need 3.5 or later for container nodes
   druid_zookeeper:
     container_name: druid_zookeeper
+    networks:
+      - core
     image: zookeeper:3.5
     ports:
       - "2181:2181"
@@ -33,6 +37,8 @@ services:
   druid_coordinator:
     image: apache/druid:0.20.0
     container_name: druid_coordinator
+    networks:
+      - core
     volumes:
       - druid_shared:/opt/shared
       - coordinator_var:/opt/druid/var
@@ -49,6 +55,8 @@ services:
   druid_broker:
     image: apache/druid:0.20.0
     container_name: druid_broker
+    networks:
+      - core
     volumes:
       - broker_var:/opt/druid/var
     depends_on:
@@ -65,6 +73,8 @@ services:
   druid_historical:
     image: apache/druid:0.20.0
     container_name: druid_historical
+    networks:
+      - core
     volumes:
       - druid_shared:/opt/shared
       - historical_var:/opt/druid/var
@@ -82,6 +92,8 @@ services:
   druid_middlemanager:
     image: apache/druid:0.20.0
     container_name: druid_middlemanager
+    networks:
+      - core
     volumes:
       - druid_shared:/opt/shared
       - middle_var:/opt/druid/var
@@ -100,6 +112,8 @@ services:
   druid_router:
     image: apache/druid:0.20.0
     container_name: druid_router
+    networks:
+      - core
     volumes:
       - router_var:/opt/druid/var
     depends_on:
@@ -118,6 +132,8 @@ services:
     depends_on:
       - druid_router
     container_name: druid_ingest
+    networks:
+      - core
     volumes:
       - ./examples/docker/druid_init.sh:/druid_init.sh
       - ./examples/docker/druid_spec.json:/druid_spec.json
