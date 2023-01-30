@@ -1,11 +1,10 @@
 """test inferring types"""
 
-
+# pylint: disable=W0621,C0325
 import pytest
 from sqlalchemy import select
 from sqlmodel import Session
 
-from dj.construction.compile import compile_query_ast
 from dj.construction.inference import get_type_of_expression
 from dj.models import Node
 from dj.sql.parsing import ast
@@ -123,6 +122,42 @@ def test_raising_when_expression_parent_not_a_table():
     ) in str(exc_info.value)
 
 
+def test_raising_when_select_has_multiple_expressions_in_projection():
+    """
+    Test raising when a select has more than one in projection
+    """
+    select = parse("select 1, 2").select
+
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(select)
+
+    assert ("single expression in its projection") in str(exc_info.value)
+
+
+def test_raising_when_between_different_types():
+    """
+    Test raising when a between has multiple types
+    """
+    select = parse("select 1 between 'hello' and TRUE").select
+
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(select)
+
+    assert ("BETWEEN expects all elements to have the same type") in str(exc_info.value)
+
+
+def test_raising_when_unop_bad_type():
+    """
+    Test raising when a unop gets a bad type
+    """
+    select = parse("select not 'hello'").select
+
+    with pytest.raises(DJParseException) as exc_info:
+        get_type_of_expression(select)
+
+    assert ("Incompatible type in unary operation") in str(exc_info.value)
+
+
 def test_raising_when_expression_has_no_parent():
     """
     Test raising when getting the type of a column that has no parent
@@ -142,17 +177,48 @@ def test_infer_types_complicated(construction_session: Session):
     query = parse(
         """
       SELECT id+1-2/3*5%6&10|8^5,
+      DATE_TRUNC('day', '2014-03-10'),
+      NOW(),
+      Coalesce(NULL, 5),
+      Coalesce(NULL),
+      NULL,
+      MAX(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      MAX(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      MIN(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      AVG(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      COUNT(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      SUM(id) OVER
+        (PARTITION BY first_name ORDER BY last_name)
+        AS running_total,
+      NOT TRUE,
+      10,
       id>5,
       id<5,
       id>=5,
       id<=5,
+      id BETWEEN 4 AND 5,
+      id IN (5, 5),
+      id NOT IN (3, 4),
+      id NOT IN (SELECT -5),
+      first_name LIKE 'Ca%',
       id is null,
       (id=5)=TRUE,
       'hello world',
-         first_name as fn,
-         last_name<>'yoyo' and last_name='yoyo' or last_name='yoyo',
-         last_name,
-         bizarre
+      first_name as fn,
+      last_name<>'yoyo' and last_name='yoyo' or last_name='yoyo',
+      last_name,
+      bizarre,
+      (select 5.0)
       FROM (
       SELECT id,
          first_name,
@@ -162,8 +228,21 @@ def test_infer_types_complicated(construction_session: Session):
         )
     """,
     )
-    compile_query_ast(construction_session, query)
+    query.compile(construction_session)
     types = [
+        ColumnType.INT,
+        ColumnType.DATETIME,
+        ColumnType.DATETIME,
+        ColumnType.INT,
+        ColumnType.NULL,
+        ColumnType.NULL,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.BOOL,
         ColumnType.INT,
         ColumnType.BOOL,
         ColumnType.BOOL,
@@ -171,10 +250,16 @@ def test_infer_types_complicated(construction_session: Session):
         ColumnType.BOOL,
         ColumnType.BOOL,
         ColumnType.BOOL,
+        ColumnType.BOOL,
+        ColumnType.BOOL,
+        ColumnType.BOOL,
+        ColumnType.BOOL,
+        ColumnType.BOOL,
         ColumnType.STR,
         ColumnType.STR,
         ColumnType.BOOL,
         ColumnType.STR,
         ColumnType.BOOL,
+        ColumnType.FLOAT,
     ]
-    assert types == [get_type_of_expression(exp) for exp in query.select.projection]
+    assert types == [exp.type for exp in query.select.projection]

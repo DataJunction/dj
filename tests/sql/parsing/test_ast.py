@@ -16,7 +16,9 @@ from dj.sql.parsing.ast import (
     IsNull,
     Name,
     Namespace,
+    Null,
     Number,
+    Over,
     Query,
     Select,
     String,
@@ -311,6 +313,34 @@ def test_column_string_table_subquery():
     col = ast.select.projection[0]
     col.add_table(subquery)
     assert str(col) == "a"
+
+
+def test_in_subquery_more_than_one_column():
+    """test raises in select with more than 1 column"""
+    with pytest.raises(DJParseException) as exc:
+        parse("SELECT a in (SELECT 1, 2)", "ansi")
+    assert "IN subquery cannot have more than a single column" in str(exc)
+
+
+def test_select_some_column():
+    """test raises subquery without columns"""
+    with pytest.raises(DJParseException) as exc:
+        Select(From([]))
+    assert "Expected at least a single item in projection" in str(exc)
+
+
+def test_null_takes_no_value():
+    """test raises with a null with value"""
+    with pytest.raises(DJParseException) as exc:
+        Null(5)  # type: ignore
+    assert "NULL does not take a value" in str(exc)
+
+
+def test_over_with_nothing():
+    """test an over raises if given nothing"""
+    with pytest.raises(DJParseException) as exc:
+        Over()
+    assert "An OVER requires at least a PARTITION BY or ORDER BY" in str(exc)
 
 
 def test_replace():

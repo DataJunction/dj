@@ -100,6 +100,11 @@ class Function:  # pylint: disable=too-few-public-methods
 
     @staticmethod
     @abc.abstractmethod
+    def infer_type_from_types(*args: Any) -> ColumnType:
+        raise NotImplementedError("Subclass MUST implement infer_type_from_types")
+
+    @staticmethod
+    @abc.abstractmethod
     def get_sqla_function(*, dialect: Optional[str] = None) -> SqlaFunction:
         raise NotImplementedError("Subclass MUST implement get_sqla_function")
 
@@ -113,6 +118,10 @@ class Count(Function):
 
     @staticmethod
     def infer_type(argument: Union["Wildcard", Column, int]) -> ColumnType:  # type: ignore
+        return ColumnType.INT
+
+    @staticmethod
+    def infer_type_from_types(arg) -> ColumnType:  # type: ignore
         return ColumnType.INT
 
     @staticmethod
@@ -175,6 +184,10 @@ class DateTrunc(Function):
 
     @staticmethod
     def infer_type(resolution: str, column: Column) -> ColumnType:  # type: ignore
+        return ColumnType.DATETIME
+
+    @staticmethod
+    def infer_type_from_types(*args) -> ColumnType:  # type: ignore
         return ColumnType.DATETIME
 
     # pylint: disable=too-many-branches
@@ -283,6 +296,10 @@ class Min(Function):
         return column.type
 
     @staticmethod
+    def infer_type_from_types(type_: ColumnType) -> ColumnType:  # type: ignore
+        return type_
+
+    @staticmethod
     def get_sqla_function(  # type: ignore
         column: SqlaColumn,
         *,
@@ -303,6 +320,10 @@ class Max(Function):
         return column.type
 
     @staticmethod
+    def infer_type_from_types(type_: ColumnType) -> ColumnType:  # type: ignore
+        return type_
+
+    @staticmethod
     def get_sqla_function(  # type: ignore
         column: SqlaColumn,
         *,
@@ -320,6 +341,10 @@ class Now(Function):
 
     @staticmethod
     def infer_type() -> ColumnType:  # type: ignore
+        return ColumnType.DATETIME
+
+    @staticmethod
+    def infer_type_from_types() -> ColumnType:  # type: ignore
         return ColumnType.DATETIME
 
     @staticmethod
@@ -379,6 +404,28 @@ class Coalesce(Function):
         return types.pop()
 
     @staticmethod
+    def infer_type_from_types(*types) -> ColumnType:
+        """
+        Coalesce requires that all arguments have the same type.
+        """
+
+        if not types:  # pragma: no cover
+            raise DJInvalidInputException(
+                message="Wrong number of arguments to function",
+                errors=[
+                    DJError(
+                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                        message="You need to pass at least one argument to `COALESCE`.",
+                    ),
+                ],
+            )
+
+        for type_ in types:
+            if type_ != ColumnType.NULL:
+                return type_
+        return ColumnType.NULL
+
+    @staticmethod
     def get_sqla_function(  # type: ignore
         *args: Any,
         dialect: Optional[str] = None,
@@ -396,6 +443,10 @@ class Sum(Function):
     @staticmethod
     def infer_type(column: Column) -> ColumnType:  # type: ignore
         return column.type
+
+    @staticmethod
+    def infer_type_from_types(type_: ColumnType) -> ColumnType:  # type: ignore
+        return type_
 
     @staticmethod
     def get_sqla_function(  # type: ignore
@@ -416,6 +467,10 @@ class Avg(Function):
     @staticmethod
     def infer_type(argument: Column) -> ColumnType:  # type: ignore
         return ColumnType.FLOAT
+
+    @staticmethod
+    def infer_type_from_types(type_: ColumnType) -> ColumnType:  # type: ignore
+        return type_
 
     @staticmethod
     def get_sqla_function(  # type: ignore
@@ -472,5 +527,6 @@ function_registry = FunctionRegistry(
         "MIN": Min,
         "SUM": Sum,
         "AVG": Avg,
+        "NOW": Now,
     },
 )
