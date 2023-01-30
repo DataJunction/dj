@@ -29,6 +29,8 @@ services:
 
   postgres_metadata:
     container_name: postgres_metadata
+    networks:
+      - core
     image: postgres:latest
     volumes:
       - postgres_metadata:/var/lib/postgresql/data
