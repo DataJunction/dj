@@ -80,16 +80,15 @@ def _build_dimensions_on_select(
 
                 _, dim_build_plan = build_plan_lookup[dim_node]
                 dim_ast = dim_build_plan[0]
-                dim_query: ast.Query = _build_query_ast(
+                dim_ast.build(
                     session,
-                    dim_ast,
                     dim_build_plan,
                     build_plan_depth - 1,
                     database,
                     dialect,
                 )
 
-                dim_select = dim_query.select
+                dim_select = dim_ast.select
                 dim_ast = ast.Alias(ast.Name(alias), child=dim_select)  # type:ignore
             else:  # pragma: no cover
                 dim_table = [
@@ -163,16 +162,15 @@ def _build_tables_on_select(
         ):  # continue following build plan
             _, node_build_plan = build_plan_lookup[node]
             node_ast = node_build_plan[0]
-            node_query = _build_query_ast(
+            node_ast.build(
                 session,
-                node_ast,
                 node_build_plan,
                 build_plan_depth - 1,
                 database,
                 dialect,
             )
             alias = amenable_name(node.name)
-            node_select = node_query.select
+            node_select = node_ast.select
             node_ast = ast.Alias(ast.Name(alias), child=node_select)  # type: ignore
             for tbl in tbls:
                 select.replace(tbl, node_ast)
@@ -232,28 +230,6 @@ def _build_select_ast(
         database,
         dialect,
     )
-
-
-def _build_query_ast(  # pylint: disable=too-many-arguments
-    session: Session,
-    query: ast.Query,
-    build_plan: BuildPlan,
-    build_plan_depth: int,
-    database: Database,
-    dialect: Optional[str] = None,
-):
-    """
-    Transforms a query ast by replacing dj node references with their asts
-    """
-    select = query._to_select()  # pylint: disable=W0212
-    _build_select_ast(session, select, build_plan, build_plan_depth, database, dialect)
-    for i, exp in enumerate(select.projection):
-        if not isinstance(exp, ast.Named):
-            name = f"_col{i}"
-            aliased = ast.Alias(ast.Name(name), child=exp)
-            # only replace those that are identical in memory
-            select.replace(exp, aliased, lambda a, b: id(a) == id(b))
-    return query
 
 
 def add_filters_and_aggs_to_query_ast(

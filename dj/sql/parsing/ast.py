@@ -1,7 +1,7 @@
 """
 Types to represent the DJ AST used as an intermediate representation for DJ operations
 """
-# pylint: disable=R0401
+# pylint: disable=R0401,C0302
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 from enum import Enum
@@ -1023,6 +1023,17 @@ class Select(Expression):  # pylint: disable=R0902
                 "Expected at least a single item in projection at {self}.",
             )
 
+    def add_aliases_to_unnamed_columns(self) -> None:
+        """
+        Add an alias to any unnamed columns in the projection (`_col<n>`)
+        """
+        for i, expression in enumerate(self.projection):
+            if not isinstance(expression, Named):
+                name = f"_col{i}"
+                aliased = Alias(Name(name), child=expression)
+                # only replace those that are identical in memory
+                self.replace(expression, aliased, lambda a, b: id(a) == id(b))
+
     def __str__(self) -> str:
         subselect = not (isinstance(self.parent, Query) or self.parent is None)
         parts = ["SELECT "]
@@ -1067,6 +1078,18 @@ class Query(Expression):
             self.select.replace(table, cte)
         return self.select
 
+    def compile(  # pylint: disable=R0913,C0415
+        self,
+        session: Session,
+    ):
+        """
+        Validates Query using DJ metadata and adds the metadata into the Query
+        """
+        from dj.construction.compile import _compile_select_ast
+
+        select = self._to_select()  # pylint: disable=W0212
+        _compile_select_ast(session, select)
+
     def build(  # pylint: disable=R0913,C0415
         self,
         session: Session,
@@ -1078,9 +1101,17 @@ class Query(Expression):
         """
         Transforms a query ast by replacing dj node references with their asts
         """
-        from dj.construction.build import _build_query_ast
+        from dj.construction.build import _build_select_ast
 
-        _build_query_ast(session, self, build_plan, build_plan_depth, database, dialect)
+        select = self._to_select()  # pylint: disable=W0212
+        _build_select_ast(
+            session,
+            select,
+            build_plan,
+            build_plan_depth,
+            database,
+            dialect,
+        )
 
     def __str__(self) -> str:
         subquery = bool(self.parent)

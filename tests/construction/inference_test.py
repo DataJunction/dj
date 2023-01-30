@@ -5,7 +5,6 @@ import pytest
 from sqlalchemy import select
 from sqlmodel import Session
 
-from dj.construction.compile import compile_query_ast
 from dj.construction.inference import get_type_of_expression
 from dj.models import Node
 from dj.sql.parsing import ast
@@ -229,7 +228,7 @@ def test_infer_types_complicated(construction_session: Session):
         )
     """,
     )
-    compile_query_ast(construction_session, query)
+    query.compile(construction_session)
     types = [
         ColumnType.INT,
         ColumnType.DATETIME,

@@ -6,7 +6,7 @@ from typing import Dict, List, Optional, Tuple
 
 from sqlmodel import Session
 
-from dj.construction.compile import CompoundBuildException, compile_query_ast, make_name
+from dj.construction.compile import CompoundBuildException, make_name
 from dj.errors import DJException
 from dj.models.node import Node, NodeType
 from dj.sql.parsing import ast
@@ -22,7 +22,7 @@ def extract_dependencies_from_query_ast(
     CompoundBuildException().reset()
     CompoundBuildException().set_raise(False)
 
-    compile_query_ast(session, query)
+    query.compile(session)
     deps: Dict[Node, List[ast.Table]] = {}
     danglers: Dict[str, List[ast.Table]] = {}
     for table in query.find_all(ast.Table):

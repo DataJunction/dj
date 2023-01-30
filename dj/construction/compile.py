@@ -282,7 +282,7 @@ def _validate_groupby_filters_ons_columns(
 
 
 # flake8: noqa: C901
-def compile_select_ast(
+def _compile_select_ast(
     session: Session,
     select: ast.Select,  # pylint: disable= W0621
 ):
@@ -389,18 +389,7 @@ def compile_select_ast(
         ),
     )
     for subquery in subqueries:
-        compile_select_ast(session, subquery)
-
-
-def compile_query_ast(
-    session: Session,
-    query: ast.Query,
-):
-    """
-    Get all dj node dependencies from a sql query while validating
-    """
-    select = query._to_select()  # pylint: disable=W0212
-    compile_select_ast(session, select)
+        _compile_select_ast(session, subquery)
 
 
 def compile_node(
@@ -414,5 +403,5 @@ def compile_node(
     if node.query is None:
         raise DJException(f"Cannot compile node `{node.name}` with no query.")
     query = parse(node.query, dialect)
-    compile_query_ast(session, query)
+    query.compile(session)
     return query
