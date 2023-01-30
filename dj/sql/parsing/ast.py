@@ -1112,6 +1112,7 @@ class Query(Expression):
             database,
             dialect,
         )
+        select.add_aliases_to_unnamed_columns()
 
     def __str__(self) -> str:
         subquery = bool(self.parent)
