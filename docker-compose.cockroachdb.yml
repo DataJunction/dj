@@ -36,6 +36,8 @@ services:
 
   cockroachdb_metadata:
     container_name: cockroachdb_metadata
+    networks:
+      - core
     image: cockroachdb/cockroach
     command: start-single-node --insecure
     volumes:
@@ -47,6 +49,8 @@ services:
 
   cockroachdb_examples:
     container_name: cockroachdb_examples
+    networks:
+      - core
     image: cockroachdb/cockroach
     command: start-single-node --insecure --external-io-dir /import-data
     ports:
