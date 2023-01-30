@@ -1,7 +1,7 @@
 """
 Types to represent the DJ AST used as an intermediate representation for DJ operations
 """
-# pylint: disable=R0401
+# pylint: disable=R0401,C0302
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
 from enum import Enum
@@ -37,7 +37,7 @@ PRIMITIVES = {int, float, str, bool, type(None)}
 
 def flatten(maybe_iterables: Any) -> Iterator:
     """
-    flattens `maybe_iterables` by descending into items that are Iterable
+    Flattens `maybe_iterables` by descending into items that are Iterable
     """
 
     if not isinstance(maybe_iterables, (list, tuple, set, Iterator)):
@@ -81,18 +81,24 @@ class Node(ABC):
         self.add_self_as_parent()
 
     def clear_parent(self: TNode) -> TNode:
-        """remove parent from the node"""
+        """
+        Remove parent from the node
+        """
         self.parent = None
         return self
 
     def set_parent(self: TNode, parent: "Node", parent_key: str) -> TNode:
-        """add parent to the node"""
+        """
+        Add parent to the node
+        """
         self.parent = parent
         self.parent_key = parent_key
         return self
 
     def add_self_as_parent(self: TNode) -> TNode:
-        """adds self as a parent to all children"""
+        """
+        Adds self as a parent to all children
+        """
         for name, child in self.fields(
             flat=True,
             nodes_only=True,
@@ -104,7 +110,9 @@ class Node(ABC):
         return self
 
     def __setattr__(self, key: str, value: Any):
-        """Facilitates setting children using `.` syntax ensuring parent is attributed"""
+        """
+        Facilitates setting children using `.` syntax ensuring parent is attributed
+        """
         if key == "parent":
             object.__setattr__(self, key, value)
             return
@@ -118,7 +126,9 @@ class Node(ABC):
         self: "Node",
         node_type: Type[TNode],
     ) -> Optional[TNode]:
-        """traverse up the tree until you find a node of `node_type` or hit the root"""
+        """
+        Traverse up the tree until you find a node of `node_type` or hit the root
+        """
         if isinstance(self.parent, node_type):
             return self.parent
         if self.parent is None:
@@ -126,7 +136,9 @@ class Node(ABC):
         return self.parent.get_nearest_parent_of_type(node_type)
 
     def flatten(self) -> Iterator["Node"]:
-        """flatten the sub-ast of the node as an iterator"""
+        """
+        Flatten the sub-ast of the node as an iterator
+        """
         return self.filter(lambda _: True)
 
     # pylint: disable=R0913
@@ -138,7 +150,8 @@ class Node(ABC):
         nones: bool = False,
         named: bool = False,
     ) -> Iterator:
-        """Returns an iterator over fields of a node with particular filters
+        """
+        Returns an iterator over fields of a node with particular filters
 
         Args:
             flat: return a flattened iterator (if children are iterable)
@@ -154,7 +167,10 @@ class Node(ABC):
         """
 
         def make_child_generator():
-            """makes a generator enclosing self to return not obfuscated fields (fields without starting `_`)"""  # pylint: disable=C0301
+            """
+            Makes a generator enclosing self to return
+            not obfuscated fields (fields without starting `_`)
+            """
             for self_field in fields(self):
                 if (
                     not self_field.name.startswith("_") if not obfuscated else True
@@ -196,7 +212,10 @@ class Node(ABC):
 
     @property
     def children(self) -> Iterator["Node"]:
-        """returns an iterator of all nodes that are one step from the current node down including through iterables"""  # pylint: disable=C0301
+        """
+        Returns an iterator of all nodes that are one
+        step from the current node down including through iterables
+        """
         return self.fields(
             flat=True,
             nodes_only=True,
@@ -211,7 +230,8 @@ class Node(ABC):
         to: Any,
         compare: Optional[Callable[[Any, Any], bool]] = None,
     ) -> TNode:
-        """Replace a node `from_` with a node `to` in the subtree
+        """
+        Replace a node `from_` with a node `to` in the subtree
         ensures that parents and children are appropriately resolved
         accounts for possible cycles
         """
@@ -272,7 +292,9 @@ class Node(ABC):
         return self
 
     def filter(self, func: Callable[["Node"], bool]) -> Iterator["Node"]:
-        """find all nodes that `func` returns `True` for"""
+        """
+        Find all nodes that `func` returns `True` for
+        """
         if func(self):
             yield self
 
@@ -280,12 +302,14 @@ class Node(ABC):
             yield node
 
     def find_all(self, node_type: Type[TNode]) -> Iterator[TNode]:
-        """find all nodes of a particular type in the node's sub-ast"""
+        """
+        Find all nodes of a particular type in the node's sub-ast
+        """
         return self.filter(lambda n: isinstance(n, node_type))  # type: ignore
 
     def apply(self, func: Callable[["Node"], None]):
         """
-        traverse ast and apply func to each Node
+        Traverse ast and apply func to each Node
         """
         func(self)
         for child in self.children:
@@ -295,7 +319,9 @@ class Node(ABC):
         self,
         other: "Node",
     ) -> bool:
-        """a compare two ASTs"""
+        """
+        Compare two ASTs for deep equality
+        """
         if type(self) != type(other):  # pylint: disable=unidiomatic-typecheck
             return False
         if id(self) == id(other):
@@ -303,7 +329,9 @@ class Node(ABC):
         return hash(self) == hash(other)
 
     def diff(self, other: "Node") -> List[Tuple["Node", "Node"]]:
-        """compare two ASTs for differences and return the pairs of differences"""
+        """
+        Compare two ASTs for differences and return the pairs of differences
+        """
 
         def _diff(self, other: "Node"):
             if self != other:
@@ -317,7 +345,8 @@ class Node(ABC):
         return diffs
 
     def __eq__(self, other) -> bool:
-        """Compares two nodes for "top level" equality.
+        """
+        Compares two nodes for "top level" equality.
 
         Checks for type equality and primitive field types for full equality.
         Compares all others for type equality only. No recursing.
@@ -334,7 +363,9 @@ class Node(ABC):
         )
 
     def __hash__(self) -> int:
-        """hash a node"""
+        """
+        Hash a node
+        """
         return hash(
             tuple(
                 chain(
@@ -352,33 +383,55 @@ class Node(ABC):
 
     @abstractmethod
     def __str__(self) -> str:
-        """get the string of a node"""
+        """
+        Get the string of a node
+        """
 
 
 TExpression = TypeVar("TExpression", bound="Expression")  # pylint: disable=C0103
 
 
 class Expression(Node):
-    """an expression type simply for type checking"""
+    """
+    An expression type simply for type checking
+    """
 
     def alias_or_self(
         self: TExpression,
     ) -> Union[TExpression, "Alias[TExpression]"]:
-        """get the alias name of an expression if it is the descendant of an alias otherwise get its own name"""  # pylint: disable=C0301
+        """
+        Get the alias name of an expression if it is
+        the descendant of an alias otherwise get its own name
+        """
         if isinstance(self.parent, Alias):
             return self.parent
         return self
 
+    @property
+    def type(self) -> ColumnType:
+        """
+        Return the type of the expression
+        """
+        from dj.construction.inference import (  # pylint: disable=C0415
+            get_type_of_expression,
+        )
+
+        return get_type_of_expression(self)
+
 
 @dataclass(eq=False)
 class Name(Node):
-    """the string name specified in sql with quote style"""
+    """
+    The string name specified in sql with quote style
+    """
 
     name: str
     quote_style: str = ""
 
     def to_named_type(self, named_type: Type["Named"]) -> "Named":
-        """transform the name into a specific Named that only requires a name to create"""
+        """
+        Transform the name into a specific Named that only requires a name to create
+        """
         return named_type(self)
 
     def __str__(self) -> str:
@@ -392,12 +445,16 @@ TNamed = TypeVar("TNamed", bound="Named")  # pylint: disable=C0103
 
 @dataclass(eq=False)
 class Namespace(Node):
-    """Represents a sequence of names prececeding some Table or Column"""
+    """
+    Represents a sequence of names prececeding some Table or Column
+    """
 
     names: List[Name]
 
     def to_named_type(self, named_type: Type[TNamed]) -> TNamed:
-        """transform the namespace into a column whose name is the last name in the namespace
+        """
+        Transform the namespace into a column
+        whose name is the last name in the namespace
 
         if the namespace contains a single name,
             the created column will have no namespace
@@ -411,7 +468,9 @@ class Namespace(Node):
         return converted
 
     def pop_self(self) -> Tuple["Namespace", Name]:
-        """a utility function that returns the last name and the remaining namespace as a tuple
+        """
+        A utility function that returns the last name
+        and the remaining namespace as a tuple
 
         useful for parsing compound identifiers and revealing
         the last name for another attribute
@@ -425,30 +484,41 @@ class Namespace(Node):
 
 @dataclass(eq=False)  # type: ignore
 class Named(Expression):
-    """An Expression that has a name"""
+    """
+    An Expression that has a name
+    """
 
     name: Name
 
     namespace: Optional[Namespace] = None
 
     def add_namespace(self: TNamed, namespace: Optional[Namespace]) -> TNamed:
-        """add a namespace to the Named if one does not exist"""
+        """
+        Add a namespace to the Named if one does not exist
+        """
         if self.namespace is None:
             self.namespace = namespace
         return self
 
     def alias_or_name(self) -> Name:
-        """get the alias name of a node if it is the descendant of an alias otherwise get its own name"""  # pylint: disable=C0301
+        """
+        Get the alias name of a node if it is the
+        descendant of an alias otherwise get its own name
+        """
         return self.alias_or_self().name
 
 
 class Operation(Expression):
-    """a type to overarch types that operate on other expressions"""
+    """
+    A type to overarch types that operate on other expressions
+    """
 
 
 # pylint: disable=C0103
 class UnaryOpKind(DJEnum):
-    """the accepted unary operations"""
+    """
+    The accepted unary operations
+    """
 
     Plus = "+"
     Minus = "-"
@@ -460,7 +530,9 @@ class UnaryOpKind(DJEnum):
 
 @dataclass(eq=False)
 class UnaryOp(Operation):
-    """an operation that operates on a single expression"""
+    """
+    An operation that operates on a single expression
+    """
 
     op: UnaryOpKind  # pylint: disable=C0103
     expr: Expression
@@ -471,7 +543,9 @@ class UnaryOp(Operation):
 
 # pylint: disable=C0103
 class BinaryOpKind(DJEnum):
-    """the DJ AST accepted binary operations"""
+    """
+    The DJ AST accepted binary operations
+    """
 
     And = "AND"
     Or = "OR"
@@ -490,6 +564,7 @@ class BinaryOpKind(DJEnum):
     Plus = "+"
     Minus = "-"
     Modulo = "%"
+    Like = "LIKE"
 
 
 # pylint: enable=C0103
@@ -497,7 +572,9 @@ class BinaryOpKind(DJEnum):
 
 @dataclass(eq=False)
 class BinaryOp(Operation):
-    """represents an operation that operates on two expressions"""
+    """
+    Represents an operation that operates on two expressions
+    """
 
     op: BinaryOpKind  # pylint: disable=C0103
     left: Expression
@@ -509,7 +586,9 @@ class BinaryOp(Operation):
 
 @dataclass(eq=False)
 class Between(Operation):
-    """a between statement"""
+    """
+    A between statement
+    """
 
     expr: Expression
     low: Expression
@@ -521,7 +600,9 @@ class Between(Operation):
 
 @dataclass(eq=False)
 class Case(Expression):
-    """a case statement of branches"""
+    """
+    A case statement of branches
+    """
 
     conditions: List[Expression] = field(default_factory=list)
     else_result: Optional[Expression] = None
@@ -540,18 +621,86 @@ class Case(Expression):
 
 
 @dataclass(eq=False)
-class Function(Named, Operation):
-    """represents a function used in a statement"""
+class In(Expression):
+    """
+    An in expression
+    """
 
-    args: List[Expression] = field(default_factory=list)
+    expr: Expression
+    source: Union[List[Expression], "Select"]
+    negated: bool = False
+
+    def __post_init__(self):
+        super().__post_init__()
+        if isinstance(self.source, Select) and len(self.source.projection) > 1:
+            raise DJParseException("IN subquery cannot have more than a single column.")
 
     def __str__(self) -> str:
-        return f"{self.name}({', '.join(str(arg) for arg in self.args)})"
+        not_ = "NOT " if self.negated else ""
+        source = (
+            str(self.source)
+            if isinstance(self.source, Select)
+            else "(" + ", ".join(str(exp) for exp in self.source) + ")"
+        )
+        return f"{self.expr} {not_}IN {source}"
+
+
+@dataclass(eq=False)
+class Over(Expression):
+    """
+    Represents a function used in a statement
+    """
+
+    partition_by: List[Expression] = field(default_factory=list)
+    order_by: List["Order"] = field(default_factory=list)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not (self.partition_by or self.order_by):
+            raise DJParseException(
+                "An OVER requires at least a PARTITION BY or ORDER BY",
+            )
+
+    def __str__(self) -> str:
+        partition_by = (  # pragma: no cover
+            " PARTITION BY " + ", ".join(str(exp) for exp in self.partition_by)
+            if self.partition_by
+            else ""
+        )
+        order_by = (
+            " ORDER BY " + ", ".join(str(exp) for exp in self.order_by)
+            if self.order_by
+            else ""
+        )
+        consolidated_by = "\n".join(
+            po_by for po_by in (partition_by, order_by) if po_by
+        )
+        return f"OVER ({consolidated_by})"
+
+
+@dataclass(eq=False)
+class Function(Named, Operation):
+    """
+    Represents a function used in a statement
+    """
+
+    args: List[Expression] = field(default_factory=list)
+    distinct: bool = False
+    over: Optional[Over] = None
+
+    def __str__(self) -> str:
+        distinct = "DISTINCT " if self.distinct else ""
+        over = f" {self.over}" if self.over else ""
+        return (
+            f"{self.name}({distinct}{', '.join(str(arg) for arg in self.args)}){over}"
+        )
 
 
 @dataclass(eq=False)
 class IsNull(Operation):
-    """class representing IS NULL"""
+    """
+    Class representing IS NULL
+    """
 
     expr: Expression
 
@@ -561,9 +710,11 @@ class IsNull(Operation):
 
 @dataclass(eq=False)  # type: ignore
 class Value(Expression):
-    """base class for all values number, string, boolean"""
+    """
+    Base class for all values number, string, boolean
+    """
 
-    value: Union[str, bool, float, int]
+    value: Union[str, bool, float, int, None]
 
     def __str__(self) -> str:
         if isinstance(self, String):
@@ -572,8 +723,24 @@ class Value(Expression):
 
 
 @dataclass(eq=False)
+class Null(Value):
+    """
+    Null value
+    """
+
+    value = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.value is not None:
+            raise DJParseException("NULL does not take a value.")
+
+
+@dataclass(eq=False)
 class Number(Value):
-    """number value"""
+    """
+    Number value
+    """
 
     value: Union[float, int]
 
@@ -587,13 +754,17 @@ class Number(Value):
 
 
 class String(Value):
-    """string value"""
+    """
+    String value
+    """
 
     value: str
 
 
 class Boolean(Value):
-    """boolean True/False value"""
+    """
+    Boolean True/False value
+    """
 
     value: bool
 
@@ -603,7 +774,9 @@ AliasedType = TypeVar("AliasedType", bound=Node)  # pylint: disable=C0103
 
 @dataclass(eq=False)
 class Alias(Named, Generic[AliasedType]):
-    """wraps node types with an alias"""
+    """
+    Wraps node types with an alias
+    """
 
     child: AliasedType = field(default_factory=Node)  # type: ignore
 
@@ -618,39 +791,46 @@ class Alias(Named, Generic[AliasedType]):
 
 @dataclass(eq=False)
 class Column(Named):
-    """column used in statements"""
+    """
+    Column used in statements
+    """
 
     _table: Optional["TableExpression"] = field(repr=False, default=None)
     _type: Optional["ColumnType"] = field(repr=False, default=None)
     _expression: Optional[Expression] = field(repr=False, default=None)
 
-    @property
-    def type(self) -> Optional[ColumnType]:
-        """return the type of the column"""
-        return self._type
-
     def add_type(self, type_: ColumnType) -> "Column":
-        """add a referenced type"""
+        """
+        Add a referenced type
+        """
         self._type = type_
         return self
 
     @property
     def expression(self) -> Optional[Expression]:
-        """return the dj_node referenced by this table"""
+        """
+        Return the dj_node referenced by this table
+        """
         return self._expression
 
     def add_expression(self, expression: "Expression") -> "Column":
-        """add a referenced expression"""
+        """
+        Add a referenced expression
+        """
         self._expression = expression
         return self
 
     @property
     def table(self) -> Optional["TableExpression"]:
-        """return the table the column was referenced from"""
+        """
+        Return the table the column was referenced from
+        """
         return self._table
 
     def add_table(self, table: "TableExpression") -> "Column":
-        """add a referenced table"""
+        """
+        Add a referenced table
+        """
         self._table = table.alias_or_self()  # type: ignore
         # add column to table if it's a Table or Alias[Table]
         if isinstance(self._table, Alias):
@@ -677,17 +857,23 @@ class Column(Named):
 
 @dataclass(eq=False)
 class Wildcard(Expression):
-    """wildcard or '*' expression"""
+    """
+    Wildcard or '*' expression
+    """
 
     _table: Optional["Table"] = field(repr=False, default=None)
 
     @property
     def table(self) -> Optional["Table"]:
-        """return the table the column was referenced from if there's one"""
+        """
+        Return the table the column was referenced from if there's one
+        """
         return self._table
 
     def add_table(self, table: "Table") -> "Wildcard":
-        """add a referenced table"""
+        """
+        Add a referenced table
+        """
         if self._table is None:
             self._table = table
         return self
@@ -698,18 +884,24 @@ class Wildcard(Expression):
 
 @dataclass(eq=False)
 class Table(Named):
-    """a type for tables"""
+    """
+    A type for tables
+    """
 
     _columns: Set[Column] = field(repr=False, default_factory=set)
     _dj_node: Optional[DJNode] = field(repr=False, default=None)
 
     @property
     def dj_node(self) -> Optional[DJNode]:
-        """return the dj_node referenced by this table"""
+        """
+        Return the dj_node referenced by this table
+        """
         return self._dj_node
 
     def add_dj_node(self, dj_node: DJNode) -> "Table":
-        """add dj_node referenced by this table"""
+        """
+        Add dj_node referenced by this table
+        """
         if dj_node.type not in (
             DJNodeType.TRANSFORM,
             DJNodeType.SOURCE,
@@ -723,11 +915,15 @@ class Table(Named):
 
     @property
     def columns(self) -> Set[Column]:
-        """return the columns referenced from this table"""
+        """
+        Return the columns referenced from this table
+        """
         return self._columns
 
     def add_columns(self, *columns: Column) -> "Table":
-        """add columns referenced from this table"""
+        """
+        Add columns referenced from this table
+        """
         for column in columns:
             if column not in self._columns:
                 self._columns.add(column)
@@ -744,7 +940,9 @@ class Table(Named):
 
 # pylint: disable=C0103
 class JoinKind(DJEnum):
-    """the accepted kinds of joins"""
+    """
+    The accepted kinds of joins
+    """
 
     Inner = "INNER JOIN"
     LeftOuter = "LEFT JOIN"
@@ -759,7 +957,9 @@ TableExpression = Union[Table, Alias[Table], "Select", Alias["Select"]]
 
 @dataclass(eq=False)
 class Join(Node):
-    """a join between tables"""
+    """
+    A join between tables
+    """
 
     kind: JoinKind
     table: TableExpression
@@ -772,7 +972,9 @@ class Join(Node):
 
 @dataclass(eq=False)
 class From(Node):
-    """a from that belongs to a select"""
+    """
+    A from that belongs to a select
+    """
 
     tables: List[TableExpression]
     joins: List[Join] = field(default_factory=list)
@@ -786,8 +988,24 @@ class From(Node):
 
 
 @dataclass(eq=False)
-class Select(Expression):
-    """a single select statement type"""
+class Order(Node):
+    """
+    A column wrapper for ordering
+    """
+
+    expr: Expression
+    asc: bool = True
+
+    def __str__(self) -> str:
+        order = "ASC" if self.asc else "DESC"
+        return f"{self.expr} {order}"
+
+
+@dataclass(eq=False)
+class Select(Expression):  # pylint: disable=R0902
+    """
+    A single select statement type
+    """
 
     from_: From
     group_by: List[Expression] = field(default_factory=list)
@@ -796,6 +1014,25 @@ class Select(Expression):
     where: Optional[Expression] = None
     limit: Optional[Number] = None
     distinct: bool = False
+    order_by: List[Order] = field(default_factory=list)
+
+    def __post_init__(self):
+        super().__post_init__()
+        if not self.projection:
+            raise DJParseException(
+                "Expected at least a single item in projection at {self}.",
+            )
+
+    def add_aliases_to_unnamed_columns(self) -> None:
+        """
+        Add an alias to any unnamed columns in the projection (`_col<n>`)
+        """
+        for i, expression in enumerate(self.projection):
+            if not isinstance(expression, Named):
+                name = f"_col{i}"
+                aliased = Alias(Name(name), child=expression)
+                # only replace those that are identical in memory
+                self.replace(expression, aliased, lambda a, b: id(a) == id(b))
 
     def __str__(self) -> str:
         subselect = not (isinstance(self.parent, Query) or self.parent is None)
@@ -812,6 +1049,8 @@ class Select(Expression):
             parts.extend(("HAVING ", str(self.having), "\n"))
         if self.limit is not None:
             parts.extend(("LIMIT ", str(self.limit), "\n"))
+        if self.order_by:
+            parts.extend(("ORDER BY ", ", ".join(str(exp) for exp in self.order_by)))
         select = " ".join(parts)
         if subselect:
             return "(" + select + ")"
@@ -820,7 +1059,9 @@ class Select(Expression):
 
 @dataclass(eq=False)
 class Query(Expression):
-    """overarching query type"""
+    """
+    Overarching query type
+    """
 
     select: "Select"
     ctes: List[Alias["Select"]] = field(default_factory=list)
@@ -837,6 +1078,18 @@ class Query(Expression):
             self.select.replace(table, cte)
         return self.select
 
+    def compile(  # pylint: disable=R0913,C0415
+        self,
+        session: Session,
+    ):
+        """
+        Validates Query using DJ metadata and adds the metadata into the Query
+        """
+        from dj.construction.compile import _compile_select_ast
+
+        select = self._to_select()  # pylint: disable=W0212
+        _compile_select_ast(session, select)
+
     def build(  # pylint: disable=R0913,C0415
         self,
         session: Session,
@@ -848,9 +1101,18 @@ class Query(Expression):
         """
         Transforms a query ast by replacing dj node references with their asts
         """
-        from dj.construction.build import _build_query_ast
+        from dj.construction.build import _build_select_ast
 
-        _build_query_ast(session, self, build_plan, build_plan_depth, database, dialect)
+        select = self._to_select()  # pylint: disable=W0212
+        _build_select_ast(
+            session,
+            select,
+            build_plan,
+            build_plan_depth,
+            database,
+            dialect,
+        )
+        select.add_aliases_to_unnamed_columns()
 
     def __str__(self) -> str:
         subquery = bool(self.parent)

@@ -6,7 +6,7 @@ Tests for compiling nodes
 import pytest
 from sqlmodel import Session
 
-from dj.construction.compile import compile_node, compile_query_ast
+from dj.construction.compile import compile_node
 from dj.construction.exceptions import CompoundBuildException
 from dj.construction.extract import (
     extract_dependencies_from_node,
@@ -30,7 +30,7 @@ def test_get_table_node_is_none(construction_session: Session):
     )
     CompoundBuildException().reset()
     CompoundBuildException().set_raise(False)
-    compile_query_ast(construction_session, query)
+    query.compile(construction_session)
     assert "No node `purchases`" in str(CompoundBuildException().errors)
     CompoundBuildException().reset()
 
@@ -131,9 +131,8 @@ def test_raise_on_unnamed_subquery_in_implicit_join(construction_session: Sessio
         "(SELECT country FROM basic.transform.country_agg)",
     )
     with pytest.raises(DJException) as exc_info:
-        compile_query_ast(
+        query.compile(
             session=construction_session,
-            query=query,
         )
     assert "You may only use an unnamed subquery alone for" in str(exc_info.value)
 
@@ -147,9 +146,8 @@ def test_raise_on_ambiguous_column(construction_session: Session):
         "LEFT JOIN basic.dimension.countries b on a.country = b.country",
     )
     with pytest.raises(DJException) as exc_info:
-        compile_query_ast(
+        query.compile(
             session=construction_session,
-            query=query,
         )
     assert "`country` appears in multiple references and so must be namespaced" in str(
         exc_info.value,

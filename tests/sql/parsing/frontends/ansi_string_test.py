@@ -7,12 +7,15 @@ from dj.sql.parsing.ast import (
     Alias,
     Column,
     From,
+    In,
     Name,
     Namespace,
+    Number,
     Query,
     Select,
     Table,
 )
+from dj.sql.parsing.backends.sqloxide import parse
 from dj.sql.parsing.frontends.string import sql
 from tests.sql.utils import TPCDS_QUERY_SET, compare_query_strings, read_query
 
@@ -43,6 +46,42 @@ def test_aliased_table_column():
     aliased = Alias(Name("a"), child=table)
     col = Column(Name("x"), _table=aliased)
     assert str(col) == "a.x"
+
+
+def test_in_str():
+    """
+    test an IN to a string
+    """
+    in_ = In(Column(Name("x")), [Number(5)], True)
+    assert str(in_) == "x NOT IN (5)"
+
+
+def test_over_string():
+    """
+    test converting a window function
+    """
+    raw = """
+        SELECT duration_seconds,
+        SUM(duration_seconds) OVER (ORDER BY start_time) AS running_total
+    FROM tutorial.dc_bikeshare_q1_2012
+    """
+    ast = parse(raw)
+    assert compare_query_strings(sql(ast).strip(), raw)
+
+
+def test_select_with_orderby_string():
+    """
+    test converting a select with order by
+    """
+    raw = """
+    SELECT * FROM (
+        SELECT ID, GEOM, Name
+        FROM t
+        ORDER BY Name
+        ) as tbl
+    """
+    ast = parse(raw)
+    assert compare_query_strings(sql(ast).strip(), raw)
 
 
 def test_case_when_null_sql_string(case_when_null):

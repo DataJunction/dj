@@ -1,6 +1,5 @@
 """Functions to add to an ast DJ node queries"""
-
-# pylint: disable=R0401
+# pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
 from functools import reduce
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -21,21 +20,12 @@ from dj.sql.parsing import ast
 from dj.sql.parsing.backends.sqloxide import parse
 
 
-# flake8: noqa: C901
-def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches
-    session: Session,
+def _get_tables_and_dim_cols(
     select: ast.Select,
-    build_plan: BuildPlan,
-    build_plan_depth: int,
-    database: Database,
-    dialect: Optional[str] = None,
-):
+) -> Tuple[Dict[Node, List[ast.Column]], Dict[Node, List[ast.Table]]]:
     """
-    Transforms a select ast by replacing dj node references with their asts
+    Extract all tables (source, transform, dimensions) and dimension nodes referenced as columns
     """
-
-    _, build_plan_lookup = build_plan
-
     dimension_columns: Dict[Node, List[ast.Column]] = {}
     tables: Dict[Node, List[ast.Table]] = {}
 
@@ -50,6 +40,22 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
                 if node.type == NodeType.DIMENSION:
                     dimension_columns[node] = dimension_columns.get(node, [])
                     dimension_columns[node].append(col)
+    return dimension_columns, tables
+
+
+def _build_dimensions_on_select(
+    session: Session,
+    select: ast.Select,
+    dimension_columns: Dict[Node, List[ast.Column]],
+    tables: Dict[Node, List[ast.Table]],
+    build_plan_lookup: Dict[Node, Tuple[Set[Database], BuildPlan]],
+    build_plan_depth: int,
+    database: Database,
+    dialect: Optional[str] = None,
+):
+    """
+    Add all filter and agg dimensions to a select
+    """
 
     for dim_node, dim_cols in dimension_columns.items():
         if dim_node not in tables:  # need to join dimension
@@ -74,24 +80,23 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
 
                 _, dim_build_plan = build_plan_lookup[dim_node]
                 dim_ast = dim_build_plan[0]
-                dim_query: ast.Query = _build_query_ast(
+                dim_ast.build(
                     session,
-                    dim_ast,
                     dim_build_plan,
                     build_plan_depth - 1,
                     database,
                     dialect,
                 )
 
-                dim_select = dim_query.select
-                dim_ast = ast.Alias(ast.Name(alias), child=dim_select)
+                dim_select = dim_ast.select
+                dim_ast = ast.Alias(ast.Name(alias), child=dim_select)  # type:ignore
             else:  # pragma: no cover
                 dim_table = [
                     table
                     for table in dim_node.tables
                     if table.database.id == database.id
                 ][0]
-                dim_ast = ast.Table(
+                dim_ast = ast.Table(  # type: ignore
                     ast.Name(dim_table.table),
                     namespace=ast.Namespace(
                         [
@@ -105,7 +110,7 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
             for (
                 dim_col
             ) in dim_cols:  # replace column table references to this dimension
-                dim_col.add_table(dim_ast)
+                dim_col.add_table(dim_ast)  # type: ignore
 
             for table_node, cols in join_info.items():
                 ast_tables = tables[table_node]
@@ -118,14 +123,14 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
                                 ast.Column(ast.Name(col.name), _table=table),
                                 ast.Column(
                                     ast.Name(col.dimension_column or "id"),
-                                    _table=dim_ast,
+                                    _table=dim_ast,  # type: ignore
                                 ),
                             ),
                         )
                 select.from_.joins.append(  # pragma: no cover
                     ast.Join(
                         ast.JoinKind.LeftOuter,
-                        dim_ast,
+                        dim_ast,  # type: ignore
                         reduce(
                             lambda left, right: ast.BinaryOp(
                                 ast.BinaryOpKind.And,
@@ -137,6 +142,19 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
                     ),
                 )
 
+
+def _build_tables_on_select(
+    session: Session,
+    select: ast.Select,
+    tables: Dict[Node, List[ast.Table]],
+    build_plan_lookup: Dict[Node, Tuple[Set[Database], BuildPlan]],
+    build_plan_depth: int,
+    database: Database,
+    dialect: Optional[str] = None,
+):
+    """
+    Add all nodes not agg or filter dimensions to the select
+    """
     for node, tbls in tables.items():
 
         if (
@@ -144,24 +162,23 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
         ):  # continue following build plan
             _, node_build_plan = build_plan_lookup[node]
             node_ast = node_build_plan[0]
-            node_query = _build_query_ast(
+            node_ast.build(
                 session,
-                node_ast,
                 node_build_plan,
                 build_plan_depth - 1,
                 database,
                 dialect,
             )
             alias = amenable_name(node.name)
-            node_select = node_query.select
-            node_ast = ast.Alias(ast.Name(alias), child=node_select)
+            node_select = node_ast.select
+            node_ast = ast.Alias(ast.Name(alias), child=node_select)  # type: ignore
             for tbl in tbls:
                 select.replace(tbl, node_ast)
         else:
             node_table = [
                 table for table in node.tables if table.database.id == database.id
             ][0]
-            node_ast = ast.Table(
+            node_ast = ast.Table(  # type: ignore
                 ast.Name(node_table.table),
                 namespace=ast.Namespace(
                     [
@@ -176,26 +193,43 @@ def _build_select_ast(  # pylint: disable=too-many-arguments,too-many-locals,too
             select.replace(tbl, node_ast)
 
 
-def _build_query_ast(  # pylint: disable=too-many-arguments
+# flake8: noqa: C901
+def _build_select_ast(
     session: Session,
-    query: ast.Query,
+    select: ast.Select,
     build_plan: BuildPlan,
     build_plan_depth: int,
     database: Database,
     dialect: Optional[str] = None,
 ):
     """
-    Transforms a query ast by replacing dj node references with their asts
+    Transforms a select ast by replacing dj node references with their asts
     """
-    select = query._to_select()  # pylint: disable=W0212
-    _build_select_ast(session, select, build_plan, build_plan_depth, database, dialect)
-    for i, exp in enumerate(select.projection):
-        if not isinstance(exp, ast.Named):
-            name = f"_col{i}"
-            aliased = ast.Alias(ast.Name(name), child=exp)
-            # only replace those that are identical in memory
-            select.replace(exp, aliased, lambda a, b: id(a) == id(b))
-    return query
+
+    _, build_plan_lookup = build_plan
+
+    dimension_columns, tables = _get_tables_and_dim_cols(select)
+
+    _build_dimensions_on_select(
+        session,
+        select,
+        dimension_columns,
+        tables,
+        build_plan_lookup,
+        build_plan_depth,
+        database,
+        dialect,
+    )
+
+    _build_tables_on_select(
+        session,
+        select,
+        tables,
+        build_plan_lookup,
+        build_plan_depth,
+        database,
+        dialect,
+    )
 
 
 def add_filters_and_aggs_to_query_ast(

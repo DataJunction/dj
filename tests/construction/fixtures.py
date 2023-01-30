@@ -203,7 +203,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             None: (
                 True,
                 """SELECT  basic.comments.country,
-    COUNT(basic.comments.id) AS num_users
+    COUNT(DISTINCT basic.comments.id) AS num_users
  FROM basic.comments
 
  GROUP BY  basic.comments.country""",
@@ -211,7 +211,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             1: (
                 True,
                 """SELECT  basic.comments.country,
-    COUNT(basic.comments.id) AS num_users
+    COUNT(DISTINCT basic.comments.id) AS num_users
  FROM basic.comments
 
  GROUP BY  basic.comments.country""",
@@ -219,7 +219,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             2: (
                 True,
                 """SELECT  comments.country,
-    COUNT(comments.id) AS num_users
+    COUNT(DISTINCT comments.id) AS num_users
  FROM comments
 
  GROUP BY  comments.country""",
@@ -247,7 +247,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 True,
                 """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users)
  FROM (SELECT  basic.comments.country,
-    COUNT(basic.comments.id) AS num_users
+    COUNT(DISTINCT basic.comments.id) AS num_users
  FROM basic.comments
 
  GROUP BY  basic.comments.country) AS basic_DOT_transform_DOT_country_agg""",
@@ -256,7 +256,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 True,
                 """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users)
  FROM (SELECT  basic.comments.country,
-    COUNT(basic.comments.id) AS num_users
+    COUNT(DISTINCT basic.comments.id) AS num_users
  FROM basic.comments
 
  GROUP BY  basic.comments.country) AS basic_DOT_transform_DOT_country_agg""",
@@ -265,7 +265,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 True,
                 """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users)
  FROM (SELECT  comments.country,
-    COUNT(comments.id) AS num_users
+    COUNT(DISTINCT comments.id) AS num_users
  FROM comments
 
  GROUP BY  comments.country) AS basic_DOT_transform_DOT_country_agg""",
