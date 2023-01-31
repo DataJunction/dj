@@ -103,7 +103,7 @@ async def get_database_for_nodes(
     session: Session,
     nodes: List[Node],
     node_columns: Dict[str, Set[str]],
-    database_id: Optional[int] = None,
+    database_name: Optional[str] = None,
 ) -> Database:
     """
     Given a list of nodes, return the best database to compute metric.
@@ -123,11 +123,11 @@ async def get_database_for_nodes(
         raise Exception("No valid database was found")
 
     # if a specific database was requested, return it if it's online
-    if database_id is not None:
+    if database_name is not None:
         for database in databases:
-            if database.id == database_id and await database.do_ping():
+            if database.name == database_name and await database.do_ping():
                 return database
-        raise Exception(f"Database ID {database_id} is not valid")
+        raise Exception(f"Unknown database `{database_name}`")
 
     return await get_cheapest_online_database(databases)
 
