@@ -5,10 +5,9 @@ Models for columns.
 from typing import TYPE_CHECKING, Optional, TypedDict
 
 from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel
 
-from dj.typing import ColumnType
+from dj.typing import ColumnType, ColumnTypeDecorator
 
 if TYPE_CHECKING:
     from dj.models.node import Node
@@ -33,7 +32,7 @@ class Column(SQLModel, table=True):  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
-    type: ColumnType = Field(sa_column=SqlaColumn(Enum(ColumnType)))
+    type: ColumnType = Field(sa_column=SqlaColumn(ColumnTypeDecorator, nullable=False))
 
     dimension_id: Optional[int] = Field(default=None, foreign_key="node.id")
     dimension: "Node" = Relationship()
@@ -44,7 +43,7 @@ class Column(SQLModel, table=True):  # type: ignore
         Serialize the column for YAML.
         """
         return {
-            "type": self.type.value,  # pylint: disable=no-member
+            "type": str(self.type),  # pylint: disable=no-member
         }
 
     def __hash__(self) -> int:
