@@ -75,7 +75,7 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     session.add(child)
     session.commit()
 
-    response = client.get("/metrics/1/")
+    response = client.get("/metrics/child/")
     data = response.json()
 
     assert response.status_code == 200
@@ -95,13 +95,13 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
-    response = client.get("/metrics/2")
+    response = client.get("/metrics/foo")
     assert response.status_code == 404
-    assert response.json() == {"detail": "Metric node not found"}
+    assert response.json() == {"detail": "Metric node not found: `foo`"}
 
-    response = client.get("/metrics/1")
+    response = client.get("/metrics/a-metric")
     assert response.status_code == 400
-    assert response.json() == {"detail": "Not a metric node"}
+    assert response.json() == {"detail": "Not a metric node: `a-metric`"}
 
 
 def test_read_metrics_data(
@@ -144,7 +144,7 @@ def test_read_metrics_data(
     )
 
     with freeze_time("2021-01-01T00:00:00Z"):
-        client.get("/metrics/1/data/")
+        client.get("/metrics/a-metric/data/")
 
     save_query_and_run.assert_called()
     assert save_query_and_run.mock_calls[0].args[0] == create_query
@@ -163,11 +163,11 @@ def test_read_metrics_data_errors(session: Session, client: TestClient) -> None:
 
     response = client.get("/metrics/2/data/")
     assert response.status_code == 404
-    assert response.json() == {"detail": "Metric node not found"}
+    assert response.json() == {"detail": "Metric node not found: `2`"}
 
-    response = client.get("/metrics/1/data/")
+    response = client.get("/metrics/a-metric/data/")
     assert response.status_code == 400
-    assert response.json() == {"detail": "Not a metric node"}
+    assert response.json() == {"detail": "Not a metric node: `a-metric`"}
 
 
 def test_read_metrics_sql(
@@ -198,5 +198,5 @@ def test_read_metrics_sql(
         return_value=create_query,
     )
 
-    response = client.get("/metrics/1/sql/")
+    response = client.get("/metrics/a-metric/sql/")
     assert response.json() == {"database_id": 1, "sql": "SELECT COUNT(*) FROM my_table"}

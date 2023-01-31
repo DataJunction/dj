@@ -111,7 +111,7 @@ async def get_query_for_node(  # pylint: disable=too-many-locals
     node: Node,
     groupbys: List[str],
     filters: List[str],
-    database_id: Optional[int] = None,
+    database_name: Optional[str] = None,
 ) -> QueryCreate:
     """
     Return a DJ QueryCreate object from a given node.
@@ -146,7 +146,7 @@ async def get_query_for_node(  # pylint: disable=too-many-locals
         session,
         nodes,
         referenced_columns,
-        database_id,
+        database_name,
     )
 
     # base query
