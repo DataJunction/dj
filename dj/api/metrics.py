@@ -81,7 +81,7 @@ def read_metrics(*, session: Session = Depends(get_session)) -> List[Metric]:
 @router.get("/metrics/{name}/", response_model=Metric)
 def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric:
     """
-    Return a metric by ID.
+    Return a metric by name.
     """
     node = get_metric(session, name)
     return Metric(**node.dict(), dimensions=get_dimensions(node))
