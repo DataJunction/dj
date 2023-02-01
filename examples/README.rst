@@ -1,5 +1,5 @@
 Running
-=======
+-------
 
 Run ``docker-compose`` at the project root:
 
@@ -97,7 +97,7 @@ And you should see:
     }
 
 Alternative Docker Compose Setups
-=================================
+---------------------------------
 
 The default docker compose setup includes the minimally required services to run a DJ server and the metadata is persisted
 in Postgres. However, DJ leverages SQL Alchemy to enable flexibility when it comes to reading source databases as well as storing
@@ -125,7 +125,7 @@ docker compose files which add, remove, or modify services.
      - DJ server backed by CockroachDB
 
 Troubleshooting
-===============
+---------------
 
 1. If the Druid data doesn't load, you may need to fix these permissions:
 
