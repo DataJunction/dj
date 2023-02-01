@@ -4,14 +4,22 @@ Models for columns.
 
 # pylint: disable=too-few-public-methods
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NewType
 
 import strawberry
 
 from dj.models.column import Column as Column_
+from dj.typing import ColumnType as ColumnType_
 
 if TYPE_CHECKING:
     from dj.models.node import Node
+
+
+ColumnType = strawberry.scalar(
+    NewType("ColumnType", ColumnType_),
+    serialize=str,
+    parse_value=ColumnType_,
+)
 
 
 @strawberry.experimental.pydantic.type(
@@ -26,4 +34,4 @@ class Column:  # type: ignore
     with ``Node`` objects).
     """
 
-    type: str
+    type: ColumnType  # type: ignore

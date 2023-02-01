@@ -14,6 +14,8 @@ from typing import Any, Iterator, List, Literal, Optional, Tuple, TypedDict, Uni
 from sqlalchemy.types import Text, TypeDecorator
 from typing_extensions import Protocol
 
+from dj.errors import DJException
+
 
 class SQLADialect(Protocol):  # pylint: disable=too-few-public-methods
     """
@@ -68,7 +70,7 @@ COMPLEX_TYPES = {"LIST": 1, "DICT": 2}
 TYPE_PATTERN = re.compile(r"(?P<outer>[A-Z]+)\[(?P<inner>.*?)\]$")
 
 
-class ColumnTypeError(TypeError):
+class ColumnTypeError(DJException):
     "Exception for bad column type"
 
 
@@ -79,16 +81,14 @@ class ColumnTypeMeta(type):
         try:
 
             return ColumnType(attr)
-        except ColumnTypeError as ct_exc:
-            try:
-                return type.__getattribute__(cls, attr)
-            except AttributeError as att_exc:
-                raise ct_exc from att_exc
+        except ColumnTypeError:
+            return type.__getattribute__(cls, attr)
 
     def __getitem__(cls, key) -> "ColumnType":
         return ColumnType(key)
 
 
+# pylint: disable=C0301
 class ColumnType(str, metaclass=ColumnTypeMeta):
     """
     Types for columns.
@@ -96,8 +96,24 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
     These represent the values from the ``python_type`` attribute in SQLAlchemy columns.
 
     NOTE: `ColumnType` is just a special string type and can be used anywhere a string would be
+
+        >>> ColumnType('list[INT]')
+        'LIST[INT]'
+
+        >>> ColumnType['INT']
+        'INT'
+
+        >>> ColumnType.List[ColumnType.Int]
+        'LIST[INT]'
+
+        >>> ColumnType.List[ColumnType.Int].args[0]
+        'INT'
+
+        >>> ColumnType.dict[ColumnType.INT, ColumnType.list[ColumnType.dict[ColumnType.INT, ColumnType.list[ColumnType.STR]]]]
+        'DICT[INT, LIST[DICT[INT, LIST[STR]]]]'
     """
 
+    # pylint: enable=C0301
     args = None
 
     def __new__(cls, type_: str):
@@ -118,7 +134,7 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
             keys = (keys,)
         keys = tuple(keys)
         if self not in COMPLEX_TYPES:
-            raise ColumnTypeError(f"{self} is not a complex type.")
+            raise ColumnTypeError(f"The type {self} is not a complex type.")
         if len(keys) != COMPLEX_TYPES[self]:
             raise ColumnTypeError(
                 f"{self} expects {COMPLEX_TYPES[self]} inner type(s) but got {len(keys)}.",
@@ -138,7 +154,7 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
             outer = test.group("outer")
             inner = test.group("inner")
             if outer not in COMPLEX_TYPES:
-                raise ColumnTypeError(f"{outer} is not a complex type.")
+                raise ColumnTypeError(f"{outer} is not a KNOWN complex type.")
             inners = inner.split(",")
             return ColumnType(outer)[inners]
         if type_ not in PRIMITIVE_TYPES:
