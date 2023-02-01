@@ -4,6 +4,7 @@ GQL Database Models and related APIs.
 
 # pylint: disable=too-few-public-methods, no-member
 
+import datetime
 from typing import TYPE_CHECKING, List
 
 import strawberry
@@ -29,8 +30,6 @@ if TYPE_CHECKING:
         "read_only",
         "async_",
         "cost",
-        "created_at",
-        "updated_at",
     ],
 )
 class Database:  # pylint: disable=too-few-public-methods
@@ -41,6 +40,8 @@ class Database:  # pylint: disable=too-few-public-methods
     extra_params: JSON
     tables: List[Annotated["Table", strawberry.lazy("dj.api.graphql.table")]]
     queries: List[Annotated["Query", strawberry.lazy("dj.api.graphql.query")]]
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
 
 
 def get_databases(info: Info) -> List[Database]:

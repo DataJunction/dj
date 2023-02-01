@@ -132,7 +132,7 @@ async def test_index_databases(repository: Path, session: Session) -> None:
     ]
 
     # test that a missing timezone is treated as UTC
-    databases[0].updated_at = databases[0].updated_at.replace(tzinfo=None)
+    databases[0].updated_at = databases[0].updated_at.replace(tzinfo=None)  # type: ignore
     with freeze_time("2021-01-03T00:00:00Z"):
         databases = await index_databases(repository, session)
     databases = sorted(databases, key=lambda database: database.name)
@@ -319,7 +319,7 @@ async def test_index_nodes(
     ]
 
     # test that a missing timezone is treated as UTC
-    nodes[0].updated_at = nodes[0].updated_at.replace(tzinfo=None)
+    nodes[0].updated_at = nodes[0].updated_at.replace(tzinfo=None)  # type: ignore
     with freeze_time("2021-01-03T00:00:00Z"):
         nodes = await index_nodes(repository, session)
     nodes = sorted(nodes, key=lambda node: node.name)

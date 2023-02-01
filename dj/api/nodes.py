@@ -3,7 +3,6 @@ Node related APIs.
 """
 
 import logging
-from datetime import datetime
 from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends
@@ -21,7 +20,7 @@ from dj.models.node import (
     NodeStatus,
     NodeType,
 )
-from dj.utils import get_session
+from dj.utils import UTCDatetime, get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -45,8 +44,8 @@ class NodeMetadata(SQLModel):
     name: str
     description: str = ""
 
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     type: NodeType
     query: Optional[str] = None
