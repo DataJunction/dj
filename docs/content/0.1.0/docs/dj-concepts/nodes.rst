@@ -4,9 +4,9 @@ weight: 10
 
 .. _functions:
 
-=========
+---------
 Functions
-=========
+---------
 
 Currently, DJ supports only a small subset of SQL functions, limiting the definition of metrics. In order to add new functions to DJ we need to implement two things:
 
@@ -15,7 +15,7 @@ Currently, DJ supports only a small subset of SQL functions, limiting the defini
 2. Translation to SQLAlchemy. In order to run queries, DJ parses the metric definitions (written in ANSI SQL), and converts them to a SQLAlchemy query object, so it can be translated to different dialects (Hive, Trino, Postgres, etc.). Some functions are easier to translate, specially if they are already defined in ``sqlalchemy.sql.functions``. Others, like ``DATE_TRUNC``, are more complex because they are dialect specific.
 
 Supported functions
-===================
+-------------------
 
 ``AVG``
 -------
@@ -97,7 +97,7 @@ Return the sum of a given column:
     12345
 
 Adding new functions
-====================
+--------------------
 
 Let's look at the ``COUNT`` function in DJ:
 
