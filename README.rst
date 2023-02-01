@@ -1,6 +1,6 @@
-============
+------------
 DataJunction
-============
+------------
 
 
     A metrics repository
@@ -9,7 +9,7 @@ DataJunction
 DataJunction (DJ) is a repository of **metric definitions**. Metrics are defined using **ANSI SQL** and are **database agnostic**. Metrics can then be computed via a **REST API** or **SQL**.
 
 What does that mean?
-====================
+--------------------
 
 DJ allows users to define metrics once, and reuse them in different databases. This offers a couple benefits:
 
@@ -135,6 +135,6 @@ And if we omit the ``database_id`` DJ will compute the data using the fastest da
 The tables ``dim_users`` and ``dim_fast_users`` can have different columns. For example, ``dim_fast_users`` could have only a subset of the columns in ``dim_users``, the ones that can be quickly populated. DJ will use the fast table if the available columns can satisfy a given query, otherwise it will fallback to the slow table.
 
 Getting started
-===============
+---------------
 
 While all the functionality above currently works, DJ is still not ready for production use. Only a very small number of functions are supported, and we are still working towards a 0.1 release. If you are interested in helping take a look at the `issues marked with the "good first issue" label <https://github.com/DataJunction/dj/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22>`_.
