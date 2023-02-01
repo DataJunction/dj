@@ -37,7 +37,7 @@ class CompoundBuildException:
         """
         self._raise = raise_
 
-    def append(self, error: DJError, message: Optional[str]):
+    def append(self, error: DJError, message: Optional[str] = None):
         """
         Accumulate DJ exceptions
         """
