@@ -61,7 +61,7 @@ def test_read_metric(session: Session, client: TestClient):
 
     query = """
     {
-        readMetric(nodeId: 3){
+        readMetric(nodeName: "a-metric"){
             id,
             name
         }
@@ -84,7 +84,7 @@ def test_read_metric_errors(session: Session, client: TestClient) -> None:
 
     query = """
     {
-        readMetric(nodeId: 2){
+        readMetric(nodeName: "foo"){
             id
         }
     }
@@ -92,10 +92,11 @@ def test_read_metric_errors(session: Session, client: TestClient) -> None:
 
     response_json = client.post("/graphql", json={"query": query}).json()
     assert response_json["data"] is None
-    assert response_json["errors"][0]["message"] == "Metric node not found"
+    assert response_json["errors"][0]["message"] == "Metric node not found: `foo`"
+
     query = """
     {
-        readMetric(nodeId: 1){
+        readMetric(nodeName: "a-metric"){
             id
         }
     }
@@ -103,7 +104,7 @@ def test_read_metric_errors(session: Session, client: TestClient) -> None:
 
     response_json = client.post("/graphql", json={"query": query}).json()
     assert response_json["data"] is None
-    assert response_json["errors"][0]["message"] == "Not a metric node"
+    assert response_json["errors"][0]["message"] == "Not a metric node: `a-metric`"
 
 
 def test_read_metrics_data(
@@ -147,7 +148,7 @@ def test_read_metrics_data(
 
     query = """
     {
-        readMetricsData(nodeId: 1){
+        readMetricsData(nodeName: "a-metric"){
             id
             submittedQuery
         }
@@ -191,7 +192,7 @@ def test_read_metrics_sql(
 
     query = """
     {
-        readMetricsSql(nodeId: 1){
+        readMetricsSql(nodeName: "a-metric"){
             databaseId
             sql
         }
@@ -220,7 +221,7 @@ def test_read_metrics_sql_errors(session: Session, client: TestClient):
 
     query = """
     {
-        readMetricsSql(nodeId: 2){
+        readMetricsSql(nodeName: "a-metric"){
             sql
         }
     }
@@ -228,10 +229,10 @@ def test_read_metrics_sql_errors(session: Session, client: TestClient):
 
     response_json = client.post("/graphql", json={"query": query}).json()
     assert response_json["data"] is None
-    assert response_json["errors"][0]["message"] == "Metric node not found"
+    assert response_json["errors"][0]["message"] == "Not a metric node: `a-metric`"
     query = """
     {
-        readMetricsSql(nodeId: 1){
+        readMetricsSql(nodeName: "a-metric"){
             sql
         }
     }
@@ -239,7 +240,7 @@ def test_read_metrics_sql_errors(session: Session, client: TestClient):
 
     response_json = client.post("/graphql", json={"query": query}).json()
     assert response_json["data"] is None
-    assert response_json["errors"][0]["message"] == "Not a metric node"
+    assert response_json["errors"][0]["message"] == "Not a metric node: `a-metric`"
 
 
 def test_read_metrics_data_errors(session: Session, client: TestClient):
@@ -255,7 +256,7 @@ def test_read_metrics_data_errors(session: Session, client: TestClient):
 
     query = """
     {
-        readMetricsData(nodeId: 2){
+        readMetricsData(nodeName: "a-metric"){
             id
         }
     }
@@ -263,10 +264,10 @@ def test_read_metrics_data_errors(session: Session, client: TestClient):
 
     response_json = client.post("/graphql", json={"query": query}).json()
     assert response_json["data"] is None
-    assert response_json["errors"][0]["message"] == "Metric node not found"
+    assert response_json["errors"][0]["message"] == "Not a metric node: `a-metric`"
     query = """
     {
-        readMetricsData(nodeId: 1){
+        readMetricsData(nodeName: "a-metric"){
             id
         }
     }
@@ -274,4 +275,4 @@ def test_read_metrics_data_errors(session: Session, client: TestClient):
 
     response_json = client.post("/graphql", json={"query": query}).json()
     assert response_json["data"] is None
-    assert response_json["errors"][0]["message"] == "Not a metric node"
+    assert response_json["errors"][0]["message"] == "Not a metric node: `a-metric`"

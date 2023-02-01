@@ -10,71 +10,111 @@ Run ``docker-compose`` at the project root:
 
 This will run the DJ server with Redis for async queries, as well as a Druid cluster and a Postgres database. On startup the repository from ``examples/configs/`` will be compiled.
 
-You can then see the available databases with:
+You can then list the available databases.
 
 .. code-block:: bash
 
-    $ curl http://localhost:8000/databases/ | jq
-
-You should see:
+    curl http://localhost:8000/databases/ | jq
 
 .. code-block:: json
 
     [
       {
-        "id": 1,
-        "created_at": "2022-01-02T23:07:04.228888",
-        "updated_at": "2022-01-02T23:07:04.228895",
-        "description": "An Apache Druid database",
+        "id": -1,
+        "uuid": "3619eeba-d628-4ab1-9dd5-65738ab3c02f",
+        "description": "An in memory SQLite database for tableless queries",
+        "extra_params": {},
         "read_only": true,
         "async_": false,
+        "cost": 0,
+        "created_at": "2023-01-31T04:31:53.699835",
+        "updated_at": "2023-01-31T04:31:53.699863",
+        "name": "in-memory",
+        "URI": "sqlite://"
+      },
+      {
+        "id": 0,
+        "uuid": "594804bf-47cb-426c-83c4-94a348e95972",
+        "description": "The DJ meta database",
+        "extra_params": {},
+        "read_only": true,
+        "async_": false,
+        "cost": 1,
+        "created_at": "2023-01-31T04:31:53.690792",
+        "updated_at": "2023-01-31T04:31:53.690858",
+        "name": "dj",
+        "URI": "dj://localhost:8000/0"
+      },
+      {
+        "id": 1,
+        "uuid": "48765763-4c1d-48a1-bf6c-fab9e4fad9b6",
+        "description": "An Apache Druid database",
+        "extra_params": {},
+        "read_only": true,
+        "async_": false,
+        "cost": 1,
+        "created_at": "2023-01-31T04:31:53.793496",
+        "updated_at": "2023-01-31T04:31:53.795213",
         "name": "druid",
-        "URI": "druid://host.docker.internal:8082/druid/v2/sql/"
+        "URI": "druid://druid_broker:8082/druid/v2/sql/"
       },
       {
         "id": 2,
-        "created_at": "2022-01-02T23:07:04.270360",
-        "updated_at": "2022-01-02T23:07:04.270371",
+        "uuid": "136d16ba-b953-4a3b-9a3d-037a059c91db",
         "description": "A Google Sheets connector",
+        "extra_params": {
+          "catalog": {
+            "comments": "https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=1811447072",
+            "users": "https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0"
+          }
+        },
         "read_only": true,
         "async_": false,
+        "cost": 100,
+        "created_at": "2023-01-31T04:31:53.906079",
+        "updated_at": "2023-01-31T04:31:53.909173",
         "name": "gsheets",
         "URI": "gsheets://"
       },
       {
         "id": 3,
-        "created_at": "2022-01-02T23:07:04.281625",
-        "updated_at": "2022-01-02T23:07:04.281634",
+        "uuid": "b87e4ded-e6fc-496d-a171-70b396b129ff",
         "description": "A Postgres database",
+        "extra_params": {
+          "connect_args": {
+            "sslmode": "prefer"
+          }
+        },
         "read_only": false,
         "async_": false,
+        "cost": 10,
+        "created_at": "2023-01-31T04:31:53.967998",
+        "updated_at": "2023-01-31T04:31:53.969566",
         "name": "postgres",
-        "URI": "postgresql://username:FoolishPassword@host.docker.internal:5433/examples"
+        "URI": "postgresql://username:FoolishPassword@postgres_examples:5432/examples"
       }
     ]
 
-To run a query:
+You can also run queries.
 
 .. code-block:: bash
 
-    $ curl -H "Content-Type: application/json" \
-    > -d '{"database_id":2,"submitted_query":"SELECT 1 AS foo"}' \
-    > http://127.0.0.1:8000/queries/ | jq
-
-And you should see:
+    curl -H "Content-Type: application/json" \
+    -d '{"database_id": 2, "submitted_query": "SELECT 1 AS foo"}' \
+    http://localhost:8000/queries/ | jq
 
 .. code-block:: json
 
     {
-      "database_id": 3,
+      "database_id": 2,
       "catalog": null,
-      "schema_": null,
-      "id": "db6c5ef8-bb8c-4972-ad08-9052eaa0c288",
+      "schema": null,
+      "id": "3a6f013e-a2f2-47f1-9fd8-c3b6d7f2094e",
       "submitted_query": "SELECT 1 AS foo",
       "executed_query": "SELECT 1 AS foo",
-      "scheduled": "2022-01-03T01:09:15.164400",
-      "started": "2022-01-03T01:09:15.164467",
-      "finished": "2022-01-03T01:09:15.217595",
+      "scheduled": "2023-01-31T05:21:19.206699",
+      "started": "2023-01-31T05:21:19.206929",
+      "finished": "2023-01-31T05:21:21.576516",
       "state": "FINISHED",
       "progress": 1,
       "results": [
@@ -83,16 +123,19 @@ And you should see:
           "columns": [
             {
               "name": "foo",
-              "type": "NUMBER"
+              "type": "BYTES"
             }
           ],
           "rows": [
             [
               1
             ]
-          ]
+          ],
+          "row_count": 1
         }
       ],
+      "next": null,
+      "previous": null,
       "errors": []
     }
 
