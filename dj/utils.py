@@ -120,9 +120,9 @@ def get_more_specific_type(
     datetime.
 
         >>> get_more_specific_type(ColumnType.STR, ColumnType.DATETIME)
-        <ColumnType.DATETIME: 'DATETIME'>
+        'DATETIME'
         >>> get_more_specific_type(ColumnType.STR, ColumnType.INT)
-        <ColumnType.INT: 'INT'>
+        'INT'
 
     """
     if current_type is None:

@@ -1,5 +1,5 @@
 Running
-=======
+======
 
 Run ``docker-compose`` at the project root:
 

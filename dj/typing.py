@@ -6,10 +6,12 @@ Custom types for annotations.
 
 from __future__ import annotations
 
+import re
 from enum import Enum
 from types import ModuleType
 from typing import Any, Iterator, List, Literal, Optional, Tuple, TypedDict, Union
 
+from sqlalchemy.types import Text, TypeDecorator
 from typing_extensions import Protocol
 
 
@@ -46,27 +48,116 @@ Row = Tuple[Any, ...]
 Stream = Iterator[Row]
 
 
-class ColumnType(str, Enum):
+PRIMITIVE_TYPES = {
+    "BYTES",
+    "STR",
+    "FLOAT",
+    "INT",
+    "DECIMAL",
+    "BOOL",
+    "DATETIME",
+    "DATE",
+    "TIME",
+    "TIMEDELTA",
+    "NULL",
+    "WILDCARD",
+}
+
+COMPLEX_TYPES = {"LIST": 1, "DICT": 2}
+
+TYPE_PATTERN = re.compile(r"(?P<outer>[A-Z]+)\[(?P<inner>.*?)\]$")
+
+
+class ColumnTypeError(TypeError):
+    "Exception for bad column type"
+
+
+class ColumnTypeMeta(type):
+    """Metaclass for Columntype enabling `.` syntax for type access"""
+
+    def __getattr__(cls, attr: str) -> "ColumnType":
+        try:
+
+            return ColumnType(attr)
+        except ColumnTypeError as ct_exc:
+            try:
+                return type.__getattribute__(cls, attr)
+            except AttributeError as att_exc:
+                raise ct_exc from att_exc
+
+    def __getitem__(cls, key) -> "ColumnType":
+        return ColumnType(key)
+
+
+class ColumnType(str, metaclass=ColumnTypeMeta):
     """
     Types for columns.
 
     These represent the values from the ``python_type`` attribute in SQLAlchemy columns.
+
+    NOTE: `ColumnType` is just a special string type and can be used anywhere a string would be
     """
 
-    NULL = "NULL"
-    BYTES = "BYTES"
-    STR = "STR"
-    FLOAT = "FLOAT"
-    INT = "INT"
-    DECIMAL = "DECIMAL"
-    BOOL = "BOOL"
-    DATETIME = "DATETIME"
-    DATE = "DATE"
-    TIME = "TIME"
-    TIMEDELTA = "TIMEDELTA"
-    LIST = "LIST"
-    DICT = "DICT"
-    WILDCARD = "*"
+    args = None
+
+    def __new__(cls, type_: str):
+
+        if isinstance(type_, ColumnType):
+            return type_
+        type_ = type_.upper().strip()
+        if type_ in COMPLEX_TYPES or type_ in PRIMITIVE_TYPES:
+            validated = type_
+        else:
+            validated = cls._validate_type(type_)
+
+        obj = str.__new__(cls, validated)
+        return obj
+
+    def __getitem__(self, keys) -> "ColumnType":
+        if not isinstance(keys, (list, tuple)):
+            keys = (keys,)
+        keys = tuple(keys)
+        if self not in COMPLEX_TYPES:
+            raise ColumnTypeError(f"{self} is not a complex type.")
+        if len(keys) != COMPLEX_TYPES[self]:
+            raise ColumnTypeError(
+                f"{self} expects {COMPLEX_TYPES[self]} inner type(s) but got {len(keys)}.",
+            )
+        args = tuple(ColumnType(key) for key in keys)
+        obj = str.__new__(
+            self.__class__,
+            self + "[" + ", ".join(args) + "]",
+        )
+        obj.args = args
+        return obj
+
+    @classmethod
+    def _validate_type(cls, type_: str):
+        test = TYPE_PATTERN.match(type_)
+        if test is not None:
+            outer = test.group("outer")
+            inner = test.group("inner")
+            if outer not in COMPLEX_TYPES:
+                raise ColumnTypeError(f"{outer} is not a complex type.")
+            inners = inner.split(",")
+            return ColumnType(outer)[inners]
+        if type_ not in PRIMITIVE_TYPES:
+            raise ColumnTypeError(f"Expected a primitive type but got {type_}.")
+        return ColumnType(type_)
+
+
+# pylint: disable=W0223
+class ColumnTypeDecorator(TypeDecorator):
+    impl = Text
+
+    def process_bind_param(self, value, dialect):
+        return value
+
+    def process_result_value(self, value, dialect):
+        return ColumnType(value)
+
+
+# pylint: enable=W0223
 
 
 class TypeEnum(str, Enum):
