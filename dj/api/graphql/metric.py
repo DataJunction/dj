@@ -49,28 +49,24 @@ def read_metrics(info: Info) -> List[Metric]:
     ]
 
 
-def read_metric(node_id: int, info: Info) -> Metric:
+def read_metric(node_name: str, info: Info) -> Metric:
     """
-    Return a metric by ID.
+    Return a metric by name.
     """
-    node = info.context["session"].get(Node_, node_id)
-    if not node:
-        raise Exception(
-            "Metric node not found",
-        )
-    if node.type != Node_Type.METRIC:
-        raise Exception(
-            "Not a metric node",
-        )
+    try:
+        node = get_metric(info.context["session"], node_name)
+    except HTTPException as exc:
+        raise Exception(exc.detail) from exc
+
     return Metric.from_pydantic(  # type: ignore
         Metric_(**node.dict(), dimensions=get_dimensions(node)),
     )
 
 
 async def read_metrics_data(
-    node_id: int,
+    node_name: str,
     info: Info,
-    database_id: Optional[int] = None,
+    database_name: Optional[str] = None,
     d: Optional[List[str]] = None,  # pylint: disable=invalid-name
     f: Optional[List[str]] = None,  # pylint: disable=invalid-name
 ) -> QueryWithResults:
@@ -81,10 +77,10 @@ async def read_metrics_data(
     f = f or []
     session = info.context["session"]
     try:
-        node = get_metric(session, node_id)
+        node = get_metric(session, node_name)
     except HTTPException as ex:
         raise Exception(ex.detail) from ex
-    create_query = await get_query_for_node(session, node, d, f, database_id)
+    create_query = await get_query_for_node(session, node, d, f, database_name)
     query_with_results = save_query_and_run(
         create_query,
         session,
@@ -97,9 +93,9 @@ async def read_metrics_data(
 
 
 async def read_metrics_sql(
-    node_id: int,
+    node_name: str,
     info: Info,
-    database_id: Optional[int] = None,
+    database_name: Optional[str] = None,
     d: Optional[List[str]] = None,  # pylint: disable=invalid-name
     f: Optional[List[str]] = None,  # pylint: disable=invalid-name
 ) -> TranslatedSQL:
@@ -113,10 +109,10 @@ async def read_metrics_sql(
     f = f or []
     session = info.context["session"]
     try:
-        node = get_metric(session, node_id)
+        node = get_metric(session, node_name)
     except HTTPException as ex:
         raise Exception(ex.detail) from ex
-    create_query = await get_query_for_node(session, node, d, f, database_id)
+    create_query = await get_query_for_node(session, node, d, f, database_name)
 
     return TranslatedSQL.from_pydantic(  # type: ignore
         TranslatedSQL_(

@@ -6,7 +6,7 @@ DataJunction
     A metrics repository
 
 
-DataJunction (DJ) is a repository of **metric definitions**. Metrics are defined using **ANSI SQL** and are **database agnostic**. Metrics can then be computed via a **REST API** or **SQL**.
+DataJunction (DJ) is a **metrics platform** to store and manage metric definitions. Metrics are defined using **ANSI SQL**, are **database agnostic** and can be computed via a **REST API** or **SQL** interface.
 
 What does that mean?
 --------------------
@@ -76,29 +76,42 @@ Now, if we want to compute the metric in our Hive warehouse we can build a pipel
 
 .. code-block:: bash
 
-    % curl "http://localhost:8000/metrics/2/sql/?database_id=1"
+    curl "http://localhost:8000/metrics/basic.num_comments/sql/?database_name=postgres" | jq
+
+.. code-block:: bash
+
     {
-      "database_id": 1,
-      "sql": "SELECT count('*') AS count_1 \nFROM (SELECT default.fact_comments.id AS id, default.fact_comments.user_id AS user_id, default.fact_comments.timestamp AS timestamp, default.fact_comments.text AS text \nFROM default.fact_comments) AS \"comments\""
+      "database_id": 3,
+      "sql": "SELECT count(1) AS cnt \nFROM (SELECT basic.comments.id AS id, basic.comments.user_id AS user_id, basic.comments.timestamp AS timestamp, basic.comments.text AS text \nFROM basic.comments) AS \"basic.source.comments\""
     }
 
 We can also filter and group our metric by any of its dimensions:
 
 .. code-block:: bash
 
-    % curl http://localhost:8000/metrics/2/
+    curl "http://localhost:8000/metrics/basic.num_comments/" | jq
+
+.. code-block:: bash
+
     {
-      "id": 2,
-      "name": "num_comments",
-      "description": "A fact table with comments",
-      "created_at": "2022-01-17T19:06:09.215689",
-      "updated_at": "2022-04-04T16:27:53.374001",
-      "query": "SELECT COUNT(*) FROM comments",
+      "id": 12,
+      "name": "basic.num_comments",
+      "description": "Number of comments",
+      "created_at": "2023-01-31T04:32:01.091728",
+      "updated_at": "2023-01-31T04:32:01.091755",
+      "query": "SELECT COUNT(1) AS cnt\nFROM basic.source.comments",
       "dimensions": [
-        "comments.id",
-        "comments.user_id",
-        "comments.timestamp",
-        "comments.text"
+        "basic.dimension.users.age",
+        "basic.dimension.users.country",
+        "basic.dimension.users.full_name",
+        "basic.dimension.users.gender",
+        "basic.dimension.users.id",
+        "basic.dimension.users.preferred_language",
+        "basic.dimension.users.secret_number",
+        "basic.source.comments.id",
+        "basic.source.comments.text",
+        "basic.source.comments.timestamp",
+        "basic.source.comments.user_id"
       ]
     }
 
@@ -106,15 +119,15 @@ For example, if we want to group the metric by the user ID, to see how many comm
 
 .. code-block:: bash
 
-    % curl "http://localhost:8000/metrics/2/sql/?database_id=1&d=comments.user_id&f=comments.user_id>0"
+    curl "http://localhost:8000/metrics/basic.num_comments/sql/?database_name=postgres&d=basic.source.comments.user_id&f=basic.source.comments.user_id>0" | jq
 
 If instead we want the actual data, instead of the SQL:
 
 .. code-block:: bash
 
-    % curl "http://localhost:8000/metrics/2/data/?database_id=1&d=comments.user_id&f=comments.user_id>0"
+    curl "http://localhost:8000/metrics/basic.num_comments/data/?database_name=postgres&d=basic.source.comments.user_id&f=basic.source.comments.user_id>0" | jq
 
-And if we omit the ``database_id`` DJ will compute the data using the fastest database (ie, the one with lowest ``cost``). It's also possible to specify tables with different costs:
+And if we omit the ``database_name`` DJ will compute the data using the fastest database (ie, the one with lowest ``cost``). It's also possible to specify tables with different costs:
 
 .. code-block:: YAML
 
