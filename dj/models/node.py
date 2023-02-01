@@ -16,6 +16,7 @@ from sqlmodel import Field, Relationship, SQLModel
 from dj.models.column import Column, ColumnYAML
 from dj.models.table import Table, TableYAML
 from dj.sql.parse import is_metric
+from dj.utils import UTCDatetime
 
 
 class NodeRelationship(SQLModel, table=True):  # type: ignore
@@ -129,7 +130,7 @@ class MissingParent(SQLModel, table=True):  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str = Field(sa_column=SqlaColumn("name", String))
-    created_at: datetime = Field(
+    created_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )
@@ -171,7 +172,7 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    updated_at: datetime = Field(
+    updated_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )
@@ -201,11 +202,11 @@ class Node(NodeBase, table=True):  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
     status: NodeStatus = NodeStatus.INVALID
-    created_at: datetime = Field(
+    created_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )
-    updated_at: datetime = Field(
+    updated_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )

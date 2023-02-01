@@ -2,7 +2,6 @@
 Metric related APIs.
 """
 
-from datetime import datetime
 from http import HTTPStatus
 from typing import List, Optional
 
@@ -15,7 +14,7 @@ from dj.models.node import Node, NodeType
 from dj.models.query import QueryWithResults
 from dj.sql.build import get_query_for_node
 from dj.sql.dag import get_dimensions
-from dj.utils import get_session, get_settings
+from dj.utils import UTCDatetime, get_session, get_settings
 
 router = APIRouter()
 
@@ -29,8 +28,8 @@ class Metric(SQLModel):
     name: str
     description: str = ""
 
-    created_at: datetime
-    updated_at: datetime
+    created_at: UTCDatetime
+    updated_at: UTCDatetime
 
     query: str
 

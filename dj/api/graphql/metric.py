@@ -4,6 +4,7 @@ GQL Metric models and related APIs.
 
 # pylint: disable=too-few-public-methods, no-member
 
+import datetime
 from typing import List, Optional
 
 import strawberry
@@ -22,11 +23,23 @@ from dj.sql.build import get_query_for_node
 from dj.sql.dag import get_dimensions
 
 
-@strawberry.experimental.pydantic.type(model=Metric_, all_fields=True)
+@strawberry.experimental.pydantic.type(
+    model=Metric_,
+    fields=[
+        "id",
+        "name",
+        "description",
+        "query",
+        "dimensions",
+    ],
+)
 class Metric:
     """
     Class for a metric.
     """
+
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
 
 
 @strawberry.experimental.pydantic.type(model=TranslatedSQL_, all_fields=True)
