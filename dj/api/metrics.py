@@ -49,7 +49,7 @@ class TranslatedSQL(SQLModel):
 
 def get_metric(session: Session, name: str) -> Node:
     """
-    Return a metric node given a node ID.
+    Return a metric node given a node name.
     """
     statement = select(Node).where(Node.name == name)
     try:
