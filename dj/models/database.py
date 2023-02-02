@@ -13,6 +13,8 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
 from sqlmodel import JSON, Field, Relationship, SQLModel, create_engine
 
+from dj.utils import UTCDatetime
+
 if TYPE_CHECKING:
     from dj.models.query import Query
     from dj.models.table import Table
@@ -52,11 +54,11 @@ class Database(SQLModel, table=True):  # type: ignore
     async_: bool = Field(default=False, sa_column_kwargs={"name": "async"})
     cost: float = 1.0
 
-    created_at: datetime = Field(
+    created_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )
-    updated_at: datetime = Field(
+    updated_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )

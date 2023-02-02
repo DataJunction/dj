@@ -1,0 +1,8 @@
+description: Average user engagement
+type: metric
+query: |-
+  SELECT AVG(amount)
+  FROM kaggle.source.playtime
+columns:
+  _col0:
+    type: FLOAT

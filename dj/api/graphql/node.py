@@ -1,9 +1,9 @@
 """
 GQL Node models and related APIs.
 """
-
 # pylint: disable=too-few-public-methods, no-member
 
+import datetime
 from typing import TYPE_CHECKING, List
 
 import strawberry
@@ -40,7 +40,7 @@ if TYPE_CHECKING:
 
 @strawberry.experimental.pydantic.type(
     model=Node_,
-    fields=["id", "name", "description", "created_at", "updated_at", "query"],
+    fields=["id", "name", "description", "query"],
 )
 class Node:  # type: ignore
     """
@@ -52,6 +52,8 @@ class Node:  # type: ignore
     parents: List[Annotated["Node", strawberry.lazy("dj.api.graphql.node")]]
     children: List[Annotated["Node", strawberry.lazy("dj.api.graphql.node")]]
     columns: List[Annotated["Column", strawberry.lazy("dj.api.graphql.column")]]
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
 
 
 def get_nodes(info: Info) -> List[Node]:

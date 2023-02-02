@@ -1,6 +1,7 @@
 """
 Utility functions.
 """
+import datetime
 import logging
 import os
 from functools import lru_cache
@@ -12,6 +13,7 @@ from typing import Iterator, List, Optional
 import sqlparse
 import yaml
 from dotenv import load_dotenv
+from pydantic.datetime_parse import parse_datetime
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine
@@ -183,3 +185,27 @@ def sql_format(sql: str) -> str:
     Let's pick one way to format SQL strings.
     """
     return sqlparse.format(sql, reindent=True, keyword_case="upper")
+
+
+class UTCDatetime(datetime.datetime):
+    """
+    A UTC extension of pydantic's normal datetime handling
+    """
+
+    @classmethod
+    def __get_validators__(cls):
+        """
+        Extend the builtin pydantic datetime parser with a custom validate method
+        """
+        yield parse_datetime
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value) -> str:
+        """
+        Convert to UTC
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=datetime.timezone.utc)
+
+        return value.astimezone(datetime.timezone.utc)
