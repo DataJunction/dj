@@ -139,8 +139,8 @@ def get_more_specific_type(
         ColumnType.DATE,
         ColumnType.TIME,
         ColumnType.TIMEDELTA,
-        ColumnType.LIST,
-        ColumnType.DICT,
+        ColumnType.ARRAY,
+        ColumnType.MAP,
     ]
 
     return sorted([current_type, new_type], key=hierarchy.index)[1]

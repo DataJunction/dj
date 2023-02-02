@@ -10,15 +10,15 @@ from dj.typing import ColumnType, ColumnTypeError
 def test_columntype_bad_primitive():
     """tests that a nonexistent primitive raises"""
     with pytest.raises(ColumnTypeError) as exc:
-        ColumnType("LIST[string]")
-    assert "Expected a primitive type but got STRING" in str(exc)
+        ColumnType("array[string]")
+    assert "STRING is not an acceptable type" in str(exc)
 
 
 def test_columntype_bad_complex():
     """tests that an unknown complex type raises"""
     with pytest.raises(ColumnTypeError) as exc:
-        ColumnType("array[string]")
-    assert "ARRAY is not a KNOWN complex type" in str(exc)
+        ColumnType("list[string]")
+    assert "LIST is not a KNOWN complex type" in str(exc)
 
 
 def test_columntype_not_complex():
@@ -31,8 +31,8 @@ def test_columntype_not_complex():
 def test_columntype_wrong_number_generic():
     """tests that complex require specific number of args"""
     with pytest.raises(ColumnTypeError) as exc:
-        ColumnType("dict[string]")
-    assert "DICT expects 2 inner type(s) but got 1" in str(exc)
+        ColumnType("Map[string]")
+    assert "MAP expects 2 inner type(s) but got 1" in str(exc)
 
 
 def test_validate_columntype_returns_primitive():

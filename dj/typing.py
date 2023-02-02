@@ -65,7 +65,7 @@ PRIMITIVE_TYPES = {
     "WILDCARD",
 }
 
-COMPLEX_TYPES = {"LIST": 1, "DICT": 2}
+COMPLEX_TYPES = {"ARRAY": 1, "MAP": 2}
 
 TYPE_PATTERN = re.compile(r"(?P<outer>[A-Z]+)\[(?P<inner>.*?)\]$")
 
@@ -97,22 +97,22 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
 
     NOTE: `ColumnType` is just a special string type and can be used anywhere a string would be
 
-        >>> ColumnType('list[INT]')
-        'LIST[INT]'
+        >>> ColumnType('Array[INT]')
+        'ARRAY[INT]'
 
         >>> ColumnType['INT']
         'INT'
 
-        >>> ColumnType.List[ColumnType.Int]
-        'LIST[INT]'
+        >>> ColumnType.Array[ColumnType.Int]
+        'ARRAY[INT]'
 
-        >>> ColumnType.List[ColumnType.Int].args[0]
+        >>> ColumnType.ARRAY[ColumnType.Int].args[0]
         'INT'
 
-        >>> ColumnType.dict[ColumnType.INT, ColumnType.list[ColumnType.dict[ColumnType.INT, ColumnType.list[ColumnType.STR]]]]
-        'DICT[INT, LIST[DICT[INT, LIST[STR]]]]'
+        >>> ColumnType.Map[ColumnType.INT, ColumnType.array[ColumnType.map[ColumnType.INT, ColumnType.array[ColumnType.STR]]]]
+        'MAP[INT, ARRAY[MAP[INT, ARRAY[STR]]]]'
 
-        >>> ColumnType.Dict[ColumnType.str, ColumnType.list[ColumnType.int]].args[1].args[0]
+        >>> ColumnType.Map[ColumnType.str, ColumnType.Array[ColumnType.int]].args[1].args[0]
         'INT'
     """
 
@@ -143,6 +143,7 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
                 f"{self} expects {COMPLEX_TYPES[self]} inner type(s) but got {len(keys)}.",
             )
         args = tuple(ColumnType(key) for key in keys)
+        # need to add check if args are acceptable types for the generic
         obj = str.__new__(
             self.__class__,
             self + "[" + ", ".join(args) + "]",
@@ -161,7 +162,7 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
             inners = inner.split(",")
             return ColumnType(outer)[inners]
         if type_ not in PRIMITIVE_TYPES:
-            raise ColumnTypeError(f"Expected a primitive type but got {type_}.")
+            raise ColumnTypeError(f"{type_} is not an acceptable type.")
         return ColumnType(type_)
 
 
