@@ -136,13 +136,23 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
         return obj
 
     def is_complex(self):
+        """
+        Method to check if the type is complex
+        """
         return any(self.startswith(cmplx) for cmplx in COMPLEX_TYPES)
 
-    @property 
-    def value(self)->str:
+    @property
+    def value(self) -> str:
+        """
+        Get the serialized value of the column type
+
+        Validates the type can be serialized
+        """
         if self.is_complex() and not self.args:
-            raise ColumnTypeError(f"{self} cannot be serialized as it"
-                                   " is a complex type not fully defined.")
+            raise ColumnTypeError(
+                f"{self} cannot be serialized as it"
+                " is a complex type not fully defined.",
+            )
 
         return self
 
@@ -153,7 +163,7 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
         if self not in COMPLEX_TYPES:
             raise ColumnTypeError(f"The type {self} is not a complex type.")
 
-        if COMPLEX_TYPES[self]>=0 and len(keys) != COMPLEX_TYPES[self]:
+        if COMPLEX_TYPES[self] >= 0 and len(keys) != COMPLEX_TYPES[self]:
             raise ColumnTypeError(
                 f"{self} expects {COMPLEX_TYPES[self]} inner type(s) but got {len(keys)}.",
             )
