@@ -122,9 +122,9 @@ def get_more_specific_type(
     datetime.
 
         >>> get_more_specific_type(ColumnType.STR, ColumnType.DATETIME)
-        <ColumnType.DATETIME: 'DATETIME'>
+        'DATETIME'
         >>> get_more_specific_type(ColumnType.STR, ColumnType.INT)
-        <ColumnType.INT: 'INT'>
+        'INT'
 
     """
     if current_type is None:
@@ -141,8 +141,8 @@ def get_more_specific_type(
         ColumnType.DATE,
         ColumnType.TIME,
         ColumnType.TIMEDELTA,
-        ColumnType.LIST,
-        ColumnType.DICT,
+        ColumnType.ARRAY,
+        ColumnType.MAP,
     ]
 
     return sorted([current_type, new_type], key=hierarchy.index)[1]
