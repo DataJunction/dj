@@ -104,6 +104,11 @@ def _(expression: ast.Function):  # pragma: no cover
 
 
 @get_type_of_expression.register
+def _(expression: ast.Raw):
+    return expression.type_
+
+
+@get_type_of_expression.register
 def _(expression: ast.IsNull):
     return ColumnType.BOOL
 
