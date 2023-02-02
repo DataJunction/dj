@@ -139,13 +139,13 @@ async def test_get_query_for_node_specify_database(mocker: MockerFixture) -> Non
     session = mocker.MagicMock()
     session.exec().one.return_value = database
 
-    create_query = await get_query_for_node(session, child, [], [], 1)
+    create_query = await get_query_for_node(session, child, [], [], "slow")
     assert create_query.database_id == 1
     assert create_query.submitted_query == 'SELECT "B".cnt \nFROM "B"'
 
     with pytest.raises(Exception) as excinfo:
-        await get_query_for_node(session, child, [], [], 2)
-    assert str(excinfo.value) == "Database ID 2 is not valid"
+        await get_query_for_node(session, child, [], [], "foo")
+    assert str(excinfo.value) == "Unknown database `foo`"
 
 
 @pytest.mark.asyncio
