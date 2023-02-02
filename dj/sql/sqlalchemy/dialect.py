@@ -48,8 +48,8 @@ def get_sqla_type(type_: ColumnType) -> VisitableType:
         ColumnType.TIME: sqlalchemy.types.TIME,
         # imperfect matches
         ColumnType.TIMEDELTA: sqlalchemy.types.TEXT,
-        ColumnType.LIST: sqlalchemy.types.ARRAY,
-        ColumnType.DICT: sqlalchemy.types.JSON,
+        ColumnType.ARRAY: sqlalchemy.types.ARRAY,
+        ColumnType.MAP: sqlalchemy.types.JSON,
     }
     return type_map[type_]()
 

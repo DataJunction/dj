@@ -15,7 +15,7 @@ from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship, SQLModel
 
 from dj.models.database import Database
-from dj.typing import ColumnType, QueryState, Row
+from dj.typing import QueryState, Row
 
 
 class BaseQuery(SQLModel):
@@ -67,7 +67,7 @@ class ColumnMetadata(SQLModel):
     """
 
     name: str
-    type: ColumnType
+    type: str
 
 
 class StatementResults(SQLModel):
