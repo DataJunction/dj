@@ -38,3 +38,11 @@ def test_columntype_wrong_number_generic():
 def test_validate_columntype_returns_primitive():
     """tests that direct primitive validation returns"""
     assert ColumnType._validate_type("INT") == "INT"  # pylint: disable=W0212
+
+def test_serialize_not_fully_defined_complex():
+    """tests that getting a string from a complex type
+       without specified inner types raises
+    """
+    with pytest.raises(ColumnTypeError) as exc:
+        _ = ColumnType.Array.value
+    assert "cannot be serialized as it is a complex type not fully defined" in str(exc)  # pylint: disable=W0212

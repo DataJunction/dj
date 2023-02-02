@@ -65,7 +65,7 @@ PRIMITIVE_TYPES = {
     "WILDCARD",
 }
 
-COMPLEX_TYPES = {"ARRAY": 1, "MAP": 2}
+COMPLEX_TYPES = {"ARRAY": 1, "MAP": 2, "ROW": -1}
 
 TYPE_PATTERN = re.compile(r"(?P<outer>[A-Z]+)\[(?P<inner>.*?)\]$")
 
@@ -112,8 +112,11 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
         >>> ColumnType.Map[ColumnType.INT, ColumnType.array[ColumnType.map[ColumnType.INT, ColumnType.array[ColumnType.STR]]]]
         'MAP[INT, ARRAY[MAP[INT, ARRAY[STR]]]]'
 
-        >>> ColumnType.Map[ColumnType.str, ColumnType.Array[ColumnType.int]].args[1].args[0]
+        >>> ColumnType.Map['str', ColumnType.Array[ColumnType.int]].args[1].args[0]
         'INT'
+
+        >>> ColumnType.Row[ColumnType.STR, ColumnType.INT, ColumnType.ARRAY[ColumnType.bytes]]
+        'ROW[STR, INT, ARRAY[BYTES]]'
     """
 
     # pylint: enable=C0301
@@ -132,13 +135,25 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
         obj = str.__new__(cls, validated)
         return obj
 
+    def is_complex(self):
+        return any(self.startswith(cmplx) for cmplx in COMPLEX_TYPES)
+
+    @property 
+    def value(self)->str:
+        if self.is_complex() and not self.args:
+            raise ColumnTypeError(f"{self} cannot be serialized as it"
+                                   " is a complex type not fully defined.")
+
+        return self
+
     def __getitem__(self, keys) -> "ColumnType":
         if not isinstance(keys, (list, tuple)):
             keys = (keys,)
         keys = tuple(keys)
         if self not in COMPLEX_TYPES:
             raise ColumnTypeError(f"The type {self} is not a complex type.")
-        if len(keys) != COMPLEX_TYPES[self]:
+
+        if COMPLEX_TYPES[self]>=0 and len(keys) != COMPLEX_TYPES[self]:
             raise ColumnTypeError(
                 f"{self} expects {COMPLEX_TYPES[self]} inner type(s) but got {len(keys)}.",
             )
@@ -170,8 +185,8 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
 class ColumnTypeDecorator(TypeDecorator):
     impl = Text
 
-    def process_bind_param(self, value, dialect):
-        return value
+    def process_bind_param(self, value: ColumnType, dialect):
+        return value.value
 
     def process_result_value(self, value, dialect):
         return ColumnType(value)
