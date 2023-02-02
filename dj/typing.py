@@ -111,6 +111,9 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
 
         >>> ColumnType.dict[ColumnType.INT, ColumnType.list[ColumnType.dict[ColumnType.INT, ColumnType.list[ColumnType.STR]]]]
         'DICT[INT, LIST[DICT[INT, LIST[STR]]]]'
+
+        >>> ColumnType.Dict[ColumnType.str, ColumnType.list[ColumnType.int]].args[1].args[0]
+        'INT'
     """
 
     # pylint: enable=C0301

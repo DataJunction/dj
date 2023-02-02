@@ -19,6 +19,7 @@ ColumnType = strawberry.scalar(
     NewType("ColumnType", ColumnType_),
     serialize=str,
     parse_value=ColumnType_,
+    description="The type of a column represented as `String`.",
 )
 
 
