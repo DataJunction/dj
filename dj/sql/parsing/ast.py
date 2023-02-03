@@ -748,7 +748,7 @@ class Function(Named, Operation):
                 f"ColumnType not {self.args[1]} in {self}.",
             ) from exc
 
-        query = (#pragma: no cover
+        query = (  # pragma: no cover
             str(self.args[0]).strip(
                 "".join(name.quote_style for name in self.args[0].find_all(Name)),
             )
