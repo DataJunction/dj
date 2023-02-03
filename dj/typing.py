@@ -95,10 +95,7 @@ def process_row_args(*args: str) -> Tuple["ColumnType", ...]:
     """
     Validate the args of a ROW
     """
-    if len(args) < 1:
-        raise ColumnTypeError(
-            "ROW must have at least one inner type.",
-        )
+
     ret = []
     for arg in args:
         type_, name, *_ = (*arg.split(), None)
