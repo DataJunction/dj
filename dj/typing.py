@@ -65,35 +65,52 @@ PRIMITIVE_TYPES = {
     "WILDCARD",
 }
 
-def process_array_args(*args: str)->Tuple["ColumnType"]:
-    if len(args)!=1:
+
+def process_array_args(*args: str) -> Tuple["ColumnType"]:
+    """
+    Validate the args of an ARRAY
+    """
+    if len(args) != 1:
         raise ColumnTypeError(
-                f"ARRAY expects 1 inner type but got {len(args)}.",
-            )
+            f"ARRAY expects 1 inner type but got {len(args)}.",
+        )
     return (ColumnType(args[0]),)
-        
 
-def process_map_args(*args: str)->Tuple["ColumnType", "ColumnType"]:
-    if len(args)!=2:
-        raise ColumnTypeError(
-                f"MAP expects 2 inner types but got {len(args)}.",
-            )
-    return ColumnType(args[0], 'key'), ColumnType(args[1], 'value')
 
-def process_row_args(*args: str)->Tuple["ColumnType", ...]:
-    if len(args)<1:
+def process_map_args(*args: str) -> Tuple["ColumnType", "ColumnType"]:
+    """
+    Validate the args of an MAP
+    """
+    if len(args) != 2:
         raise ColumnTypeError(
-                f"ROW must have at least one inner type.",
-            )
+            f"MAP expects 2 inner types but got {len(args)}.",
+        )
+    arg1, arg2 = ColumnType(args[0], "key"), ColumnType(args[1], "value")
+    if arg1 not in PRIMITIVE_TYPES - {"WILDCARD", "NULL"}:
+        raise ColumnTypeError(f"MAP key is not an acceptable type {arg1}.")
+    return arg1, arg2
+
+
+def process_row_args(*args: str) -> Tuple["ColumnType", ...]:
+    """
+    Validate the args of a ROW
+    """
+    if len(args) < 1:
+        raise ColumnTypeError(
+            "ROW must have at least one inner type.",
+        )
     ret = []
     for arg in args:
         type_, name, *_ = (*arg.split(), None)
         ret.append(ColumnType(type_, name and name.strip("\"' ")))
     return tuple(ret)
 
-COMPLEX_TYPES = {"ARRAY": process_array_args, 
-                 "MAP": process_map_args, 
-                 "ROW": process_row_args}
+
+COMPLEX_TYPES = {
+    "ARRAY": process_array_args,
+    "MAP": process_map_args,
+    "ROW": process_row_args,
+}
 
 TYPE_PATTERN = re.compile(r"(?P<outer>[A-Z]+)\[(?P<inner>.*?)\]$")
 
@@ -145,15 +162,15 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
 
         >>> ColumnType.Row[ColumnType.STR, ColumnType.INT, ColumnType.ARRAY[ColumnType.bytes]]
         'ROW[STR, INT, ARRAY[BYTES]]'
-        
+
         >>> ColumnType.Row['int "number"'].args[0].name
         'number'
     """
 
     # pylint: enable=C0301
-    args: Optional[Tuple[ColumnTypeArg, ...]] = None
+    args: Optional[Tuple[ColumnType, ...]] = None
     name: Optional[str] = None
-        
+
     def __new__(cls, type_: str, name: Optional[str] = None):
 
         if isinstance(type_, ColumnType):
