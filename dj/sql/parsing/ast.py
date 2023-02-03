@@ -749,7 +749,7 @@ class Function(Named, Operation):
             ) from exc
 
         query = (
-            str(self.args[0])
+            str(self.args[0]).strip("".join(name.quote_style for name in self.args[0].find_all(Name)))
             if not isinstance(self.args[0], String)
             else self.args[0].value
         )
