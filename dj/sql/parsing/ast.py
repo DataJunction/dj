@@ -748,8 +748,10 @@ class Function(Named, Operation):
                 f"ColumnType not {self.args[1]} in {self}.",
             ) from exc
 
-        query = (
-            str(self.args[0]).strip("".join(name.quote_style for name in self.args[0].find_all(Name)))
+        query = (#pragma: no cover
+            str(self.args[0]).strip(
+                "".join(name.quote_style for name in self.args[0].find_all(Name)),
+            )
             if not isinstance(self.args[0], String)
             else self.args[0].value
         )
@@ -771,10 +773,14 @@ class Function(Named, Operation):
                 + query[end + last_start :]
             )
             last_start += start + len(expression_replace_pattern)
-        expressions = col_expression_strs[:] and parser(
-            f"SELECT {', '.join(col_expression_strs)}",
-            dialect,
-        ).select.projection
+        expressions = (
+            parser(
+                f"SELECT {', '.join(col_expression_strs)}",
+                dialect,
+            ).select.projection
+            if col_expression_strs
+            else []
+        )
         return Raw(query, type_, expressions, expression_replace_names, self.over)
 
 
