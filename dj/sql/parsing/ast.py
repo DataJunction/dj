@@ -771,7 +771,7 @@ class Function(Named, Operation):
                 + query[end + last_start :]
             )
             last_start += start + len(expression_replace_pattern)
-        expressions = parser(
+        expressions = col_expression_strs[:] and parser(
             f"SELECT {', '.join(col_expression_strs)}",
             dialect,
         ).select.projection
