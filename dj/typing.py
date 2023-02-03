@@ -65,7 +65,35 @@ PRIMITIVE_TYPES = {
     "WILDCARD",
 }
 
-COMPLEX_TYPES = {"ARRAY": 1, "MAP": 2, "ROW": -1}
+def process_array_args(*args: str)->Tuple["ColumnType"]:
+    if len(args)!=1:
+        raise ColumnTypeError(
+                f"ARRAY expects 1 inner type but got {len(args)}.",
+            )
+    return (ColumnType(args[0]),)
+        
+
+def process_map_args(*args: str)->Tuple["ColumnType", "ColumnType"]:
+    if len(args)!=2:
+        raise ColumnTypeError(
+                f"MAP expects 2 inner types but got {len(args)}.",
+            )
+    return ColumnType(args[0], 'key'), ColumnType(args[1], 'value')
+
+def process_row_args(*args: str)->Tuple["ColumnType", ...]:
+    if len(args)<1:
+        raise ColumnTypeError(
+                f"ROW must have at least one inner type.",
+            )
+    ret = []
+    for arg in args:
+        type_, name, *_ = (*arg.split(), None)
+        ret.append(ColumnType(type_, name and name.strip("\"' ")))
+    return tuple(ret)
+
+COMPLEX_TYPES = {"ARRAY": process_array_args, 
+                 "MAP": process_map_args, 
+                 "ROW": process_row_args}
 
 TYPE_PATTERN = re.compile(r"(?P<outer>[A-Z]+)\[(?P<inner>.*?)\]$")
 
@@ -117,22 +145,25 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
 
         >>> ColumnType.Row[ColumnType.STR, ColumnType.INT, ColumnType.ARRAY[ColumnType.bytes]]
         'ROW[STR, INT, ARRAY[BYTES]]'
+        
+        >>> ColumnType.Row['int "number"'].args[0].name
+        'number'
     """
 
     # pylint: enable=C0301
-    args = None
-
-    def __new__(cls, type_: str):
+    args: Optional[Tuple[ColumnTypeArg, ...]] = None
+    name: Optional[str] = None
+        
+    def __new__(cls, type_: str, name: Optional[str] = None):
 
         if isinstance(type_, ColumnType):
             return type_
         type_ = type_.upper().strip()
         if type_ in COMPLEX_TYPES or type_ in PRIMITIVE_TYPES:
-            validated = type_
+            obj = str.__new__(cls, type_)
         else:
-            validated = cls._validate_type(type_)
-
-        obj = str.__new__(cls, validated)
+            obj = cls._validate_type(type_)
+        obj.name = name
         return obj
 
     def is_complex(self):
@@ -163,15 +194,11 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
         if self not in COMPLEX_TYPES:
             raise ColumnTypeError(f"The type {self} is not a complex type.")
 
-        if COMPLEX_TYPES[self] >= 0 and len(keys) != COMPLEX_TYPES[self]:
-            raise ColumnTypeError(
-                f"{self} expects {COMPLEX_TYPES[self]} inner type(s) but got {len(keys)}.",
-            )
-        args = tuple(ColumnType(key) for key in keys)
+        args = COMPLEX_TYPES[self](*keys)
         # need to add check if args are acceptable types for the generic
         obj = str.__new__(
             self.__class__,
-            self + "[" + ", ".join(args) + "]",
+            self + "[" + ", ".join(str(arg) for arg in args) + "]",
         )
         obj.args = args
         return obj

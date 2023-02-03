@@ -32,7 +32,7 @@ def test_columntype_wrong_number_generic():
     """tests that complex require specific number of args"""
     with pytest.raises(ColumnTypeError) as exc:
         ColumnType("Map[string]")
-    assert "MAP expects 2 inner type(s) but got 1" in str(exc)
+    assert "MAP expects 2 inner types but got 1" in str(exc)
 
 
 def test_validate_columntype_returns_primitive():
