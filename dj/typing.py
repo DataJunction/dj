@@ -157,11 +157,12 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
         >>> ColumnType.Map['str', ColumnType.Array[ColumnType.int]].args[1].args[0]
         'INT'
 
-        >>> ColumnType.Row[ColumnType.STR, ColumnType.INT, ColumnType.ARRAY[ColumnType.bytes]]
+        >>> ColumnType.Row[ColumnType.STR, "INT id", ColumnType.ARRAY[ColumnType.bytes]]
         'ROW[STR, INT, ARRAY[BYTES]]'
 
         >>> ColumnType.Row['int "number"'].args[0].name
         'number'
+
     """
 
     # pylint: enable=C0301
@@ -212,7 +213,7 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
         # need to add check if args are acceptable types for the generic
         obj = str.__new__(
             self.__class__,
-            self + "[" + ", ".join(str(arg) for arg in args) + "]",
+            self + "[" + ", ".join(arg for arg in args) + "]",
         )
         obj.args = args
         return obj
