@@ -20,6 +20,7 @@ from dj.sql.parsing.ast import (
     Number,
     Over,
     Query,
+    Raw,
     Select,
     String,
     Table,
@@ -240,6 +241,73 @@ def test_table_columns():
     table = Table(Name("a"))
     table.add_columns(Column(Name("x")))
     assert table.columns == {Column(Name("x"))}
+
+
+def test_raw_distinct_error():
+    """
+    test Raw distinct exception
+    """
+    with pytest.raises(DJParseException) as exc:
+        parse("SELECT Raw(distinct '{id}', 'int')")
+    assert "Raw cannot include DISTINCT in" in str(exc)
+
+
+def test_raw_type_error():
+    """
+    test Raw columntype exception
+    """
+    with pytest.raises(DJParseException) as exc:
+        parse("SELECT Raw('{id}', '5')")
+    assert "Raw expects the second argument to be a ColumnType not" in str(exc)
+
+
+def test_raw_type_arg_error():
+    """
+    test Raw columntype exception
+    """
+    with pytest.raises(DJParseException) as exc:
+        parse("SELECT Raw('{id}', int)")
+    assert "Raw expects the second argument to be parseable as a String not" in str(exc)
+
+
+def test_raw_str():
+    """
+    test Raw string
+    """
+    assert compare_query_strings(
+        str(parse("SELECT Raw('{id}', 'ARRAY[INT]')")),
+        "SELECT id",
+    )
+
+
+def test_raw_init_no_args_error():
+    """
+    test Raw columntype exception
+    """
+    with pytest.raises(DJParseException) as exc:
+        Raw()
+    assert "Raw requires a name, string and type" in str(exc)
+
+
+def test_raw_not_2_args():
+    """
+    test Raw not 2 args
+    """
+    with pytest.raises(DJParseException) as exc:
+        parse("SELECT Raw('{id}', int, int)")
+    assert "Raw expects two arguments, a string and a type in" in str(exc)
+
+
+def test_convert_function_to_raw_bad_name():
+    """
+    test Raw from function not named RAW
+    """
+    with pytest.raises(DJParseException) as exc:
+        parse("SELECT my_func('{id}', int)").select.projection[0].to_raw(  # type: ignore
+            parse,
+            "ansi",
+        )
+    assert "Can only convert a function named `RAW` to a Raw node" in str(exc)
 
 
 def test_wildcard_table_reference():

@@ -257,7 +257,7 @@ def parse_order(parse_tree: dict) -> ast.Order:
     raise DJParseException("Failed to parse ORDER BY expression.")  # pragma: no cover
 
 
-def parse_function(parse_tree: dict) -> ast.Function:
+def parse_function(parse_tree: dict) -> Union[ast.Function, ast.Raw]:
     """parse a function operating on an expression"""
     if match_keys_subset(parse_tree, {"name", "args", "over", "distinct"}):
         args = parse_tree["args"]
@@ -387,7 +387,11 @@ def parse_oxide_tree(parse_tree: dict) -> ast.Query:
     raise DJParseException("Failed to parse Query")  # pragma: no cover
 
 
-def parse(sql: str, dialect: Optional[str] = None) -> ast.Query:
+def parse(
+    sql: str,
+    dialect: Optional[str] = None,
+    process_raw: bool = True,
+) -> ast.Query:
     """Parse a string into a DJ ast using sqloxide backend.
 
     Parses only a single ast.Select query (can include ctes)
@@ -398,4 +402,12 @@ def parse(sql: str, dialect: Optional[str] = None) -> ast.Query:
     oxide_parsed = parse_sql(sql, dialect)
     if len(oxide_parsed) != 1:
         raise DJParseException("Expected a single sql statement.")
-    return parse_oxide_tree(oxide_parsed[0])
+    query_ast = parse_oxide_tree(oxide_parsed[0])
+    if process_raw:
+        for func in query_ast.find_all(ast.Function):
+            if str(func.name).upper() == "RAW":
+                query_ast.replace(
+                    func,
+                    func.to_raw(lambda sub_sql, _: parse(sub_sql, dialect, False)),
+                )
+    return query_ast

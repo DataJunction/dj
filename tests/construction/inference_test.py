@@ -177,6 +177,8 @@ def test_infer_types_complicated(construction_session: Session):
     query = parse(
         """
       SELECT id+1-2/3*5%6&10|8^5,
+      Raw('aggregate(array(1, 2, {id}), 0, (acc, x) -> acc + x, acc -> acc * 10)', 'INT'),
+      Raw('NOW()', 'datetime'),
       DATE_TRUNC('day', '2014-03-10'),
       NOW(),
       Coalesce(NULL, 5),
@@ -231,6 +233,8 @@ def test_infer_types_complicated(construction_session: Session):
     query.compile(construction_session)
     types = [
         ColumnType.INT,
+        ColumnType.INT,
+        ColumnType.DATETIME,
         ColumnType.DATETIME,
         ColumnType.DATETIME,
         ColumnType.INT,
