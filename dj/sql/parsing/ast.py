@@ -1,6 +1,8 @@
 """
 Types to represent the DJ AST used as an intermediate representation for DJ operations
 """
+import re
+
 # pylint: disable=R0401,C0302
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field, fields
@@ -27,7 +29,7 @@ from dj.models.database import Database
 from dj.models.node import Node as DJNode
 from dj.models.node import NodeType as DJNodeType
 from dj.sql.parsing.backends.exceptions import DJParseException
-from dj.typing import ColumnType
+from dj.typing import ColumnType, ColumnTypeError
 
 if TYPE_CHECKING:
     from dj.construction.build_planning import BuildPlan  # type:ignore
@@ -45,6 +47,23 @@ def flatten(maybe_iterables: Any) -> Iterator:
     return chain.from_iterable(
         (flatten(maybe_iterable) for maybe_iterable in maybe_iterables)
     )
+
+
+def _raw_clean_hash(obj) -> str:
+    """
+    Used to generate clean and unique replacement
+     hash strings for Raw
+
+    >>> _raw_clean_hash(-2)
+    'N2'
+
+    >>> _raw_clean_hash(1)
+    '1'
+    """
+    dirty = hash(obj)
+    if dirty < 0:
+        return f"N{abs(dirty)}"
+    return str(dirty)
 
 
 class DJEnum(Enum):
@@ -678,6 +697,9 @@ class Over(Expression):
         return f"OVER ({consolidated_by})"
 
 
+RAW_COL_PAT = re.compile(r"{\s*?(?P<expr>.*?)\s*?}")
+
+
 @dataclass(eq=False)
 class Function(Named, Operation):
     """
@@ -694,6 +716,101 @@ class Function(Named, Operation):
         return (
             f"{self.name}({distinct}{', '.join(str(arg) for arg in self.args)}){over}"
         )
+
+    def to_raw(  # pylint: disable=R0914
+        self,
+        parser: Callable[[str, Optional[str]], "Query"],
+        dialect: Optional[str] = None,
+    ) -> "Raw":
+        """
+        Attempt to convert a function to a Raw
+        """
+        if str(self.name).upper() != "RAW":
+            raise DJParseException(
+                f"Can only convert a function named `RAW` to a Raw node but got {self.name}.",
+            )
+        if self.distinct:
+            raise DJParseException(f"Raw cannot include DISTINCT in {self}.")
+        if len(self.args) != 2:
+            raise DJParseException(
+                f"Raw expects two arguments, a string and a type in {self}.",
+            )
+        if not isinstance(self.args[1], String):
+            raise DJParseException(
+                "Raw expects the second argument to be parseable "
+                f"as a String not {type(self.args[1])}.",
+            )
+        try:
+            type_ = ColumnType(self.args[1].value)
+        except ColumnTypeError as exc:
+            raise DJParseException(
+                "Raw expects the second argument to be a "
+                f"ColumnType not {self.args[1]} in {self}.",
+            ) from exc
+
+        query = (  # pragma: no cover
+            str(self.args[0]).strip(
+                "".join(name.quote_style for name in self.args[0].find_all(Name)),
+            )
+            if not isinstance(self.args[0], String)
+            else self.args[0].value
+        )
+        last_start = 0
+        col_expression_strs = []
+        expression_replace_names = []
+        while col_exp := RAW_COL_PAT.search(query[last_start:]):
+            start, end = col_exp.span()
+            match = col_exp.group("expr")
+            col_expression_strs.append(match)
+            expression_replace_name = "EXP_" + _raw_clean_hash(
+                (match, last_start, start, end),
+            )
+            expression_replace_names.append(expression_replace_name)
+            expression_replace_pattern = "{" + expression_replace_name + "}"
+            query = (
+                query[: start + last_start]
+                + expression_replace_pattern
+                + query[end + last_start :]
+            )
+            last_start += start + len(expression_replace_pattern)
+        expressions = (
+            parser(
+                f"SELECT {', '.join(col_expression_strs)}",
+                dialect,
+            ).select.projection
+            if col_expression_strs
+            else []
+        )
+        return Raw(query, type_, expressions, expression_replace_names, self.over)
+
+
+@dataclass(eq=False)
+class Raw(Expression):
+    """
+    Raw expression
+    """
+
+    expr_string: Optional[str] = None
+    type_: Optional[ColumnType] = None
+    expressions: List[Expression] = field(default_factory=list)
+    expression_replace_names: List[str] = field(default_factory=list)
+    over: Optional[Over] = None
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.expr_string is None or self.type is None:
+            raise DJParseException("Raw requires a name, string and type")
+
+    def __str__(self) -> str:
+        return self.expr_string.format_map(  # type:ignore
+            {
+                expr_replace: str(expr)
+                for expr_replace, expr in zip(
+                    self.expression_replace_names,
+                    self.expressions,
+                )
+            },
+        )  # type:ignore
 
 
 @dataclass(eq=False)
@@ -980,11 +1097,13 @@ class From(Node):
     joins: List[Join] = field(default_factory=list)
 
     def __str__(self) -> str:
-        return (
-            f"FROM {', '.join(str(table) for table in self.tables)}"
-            + "\n"
-            + "\n".join(str(join) for join in self.joins)
-        )
+        if self.tables or self.joins:
+            return (
+                f"FROM {', '.join(str(table) for table in self.tables)}"
+                + "\n"
+                + "\n".join(str(join) for join in self.joins)
+            )
+        return ""
 
 
 @dataclass(eq=False)
