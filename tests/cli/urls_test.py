@@ -14,6 +14,7 @@ def test_run(capsys: CaptureFixture) -> None:
     run("http://localhost:8000")
 
     captured = capsys.readouterr()
+    print(captured.out)
     assert (
         captured.out
         == """http://localhost:8000/docs: Documentation.
@@ -25,7 +26,8 @@ http://localhost:8000/metrics/{name}/: Return a metric by name.
 http://localhost:8000/metrics/{name}/data/: Return data for a metric.
 http://localhost:8000/metrics/{name}/sql/: Return SQL for a metric.
 http://localhost:8000/nodes/validate/: Validate a node.
-http://localhost:8000/nodes/: List the available nodes.
+http://localhost:8000/nodes/: List the available reference nodes.
+http://localhost:8000/nodes/{name}/: List the specified reference node and include all revisions
 http://localhost:8000/data/availability/{node_name}/: Add an availability state to a node
 http://localhost:8000/graphql: GraphQL endpoint.
 """

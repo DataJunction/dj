@@ -72,7 +72,7 @@ def get_select_for_node(
     """
     # if no columns are specified, require all
     if columns is None:
-        columns = {column.name for column in node.columns}
+        columns = {column.name for column in node.current.columns}
 
     engine = database.engine
 
@@ -80,7 +80,7 @@ def get_select_for_node(
     # has all the requested columns (see #104)
     tables = [
         table
-        for table in node.tables
+        for table in node.current.tables
         if table.database == database
         and columns <= {column.name for column in table.columns}
     ]
@@ -94,8 +94,14 @@ def get_select_for_node(
         )
         return select(materialized_table)
 
-    tree = parse_sql(node.query, dialect="ansi")
-    return get_query(node.query, node.parents, tree, database, engine.dialect.name)
+    tree = parse_sql(node.current.query, dialect="ansi")
+    return get_query(
+        node.current.query,
+        node.current.parents,
+        tree,
+        database,
+        engine.dialect.name,
+    )
 
 
 def get_query(
@@ -458,7 +464,10 @@ def get_value(
     raise NotImplementedError(f"Unable to handle value: {value}")
 
 
-def get_node_from_relation(relation: Relation, parent_map: Dict[str, Node]) -> Node:
+def get_node_from_relation(
+    relation: Relation,
+    parent_map: Dict[str, Node],
+) -> Node:
     """
     Return a node from a relation.
     """

@@ -11,15 +11,15 @@ from dj.construction.extract import (
     extract_dependencies_from_query_ast,
 )
 from dj.models.database import Database
-from dj.models.node import Node, NodeType
+from dj.models.node import NodeRevision, NodeType
 from dj.sql.dag import get_cheapest_online_database
 from dj.sql.parsing import ast
 
-BuildPlan = Tuple[ast.Query, Dict[Node, Tuple[Set[Database], "BuildPlan"]]]  # type: ignore
+BuildPlan = Tuple[ast.Query, Dict[NodeRevision, Tuple[Set[Database], "BuildPlan"]]]  # type: ignore
 
 
 def get_materialized_databases_for_node(
-    node: Node,
+    node: NodeRevision,
     columns: Set[str],
 ) -> Set[Database]:
     """
@@ -55,7 +55,7 @@ def generate_build_plan_from_query(
 
         node_mat_dbs = get_materialized_databases_for_node(node, columns)
         build_plan = None
-        if node.type != NodeType.SOURCE:
+        if node.reference_node.type != NodeType.SOURCE:
             build_plan = generate_build_plan_from_node(session, node, dialect)
         databases[node] = (node_mat_dbs, build_plan)
 
@@ -64,7 +64,7 @@ def generate_build_plan_from_query(
 
 def generate_build_plan_from_node(
     session: Session,
-    node: Node,
+    node: NodeRevision,
     dialect: Optional[str] = None,
 ) -> BuildPlan:
     """
@@ -117,7 +117,7 @@ def _level_database(
     levels[level].append(dbi)
 
     for node, (sub_build_dbs, sub_sub_build_plan) in sub_build_plan.items():
-        if node.type == NodeType.SOURCE:
+        if node.reference_node.type == NodeType.SOURCE:
             source_dbs.update(sub_build_dbs)
         if sub_sub_build_plan:
             _level_database(sub_sub_build_plan, levels, level + 1)

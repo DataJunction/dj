@@ -15,19 +15,19 @@ from dj.construction.utils import amenable_name
 from dj.errors import DJException
 from dj.models.column import Column
 from dj.models.database import Database
-from dj.models.node import Node, NodeType
+from dj.models.node import NodeRevision, NodeType
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.sqloxide import parse
 
 
 def _get_tables_and_dim_cols(
     select: ast.Select,
-) -> Tuple[Dict[Node, List[ast.Column]], Dict[Node, List[ast.Table]]]:
+) -> Tuple[Dict[NodeRevision, List[ast.Column]], Dict[NodeRevision, List[ast.Table]]]:
     """
     Extract all tables (source, transform, dimensions) and dimension nodes referenced as columns
     """
-    dimension_columns: Dict[Node, List[ast.Column]] = {}
-    tables: Dict[Node, List[ast.Table]] = {}
+    dimension_columns: Dict[NodeRevision, List[ast.Column]] = {}
+    tables: Dict[NodeRevision, List[ast.Table]] = {}
 
     for table in select.find_all(ast.Table):
         if node := table.dj_node:  # pragma: no cover
@@ -46,9 +46,9 @@ def _get_tables_and_dim_cols(
 def _build_dimensions_on_select(
     session: Session,
     select: ast.Select,
-    dimension_columns: Dict[Node, List[ast.Column]],
-    tables: Dict[Node, List[ast.Table]],
-    build_plan_lookup: Dict[Node, Tuple[Set[Database], BuildPlan]],
+    dimension_columns: Dict[NodeRevision, List[ast.Column]],
+    tables: Dict[NodeRevision, List[ast.Table]],
+    build_plan_lookup: Dict[NodeRevision, Tuple[Set[Database], BuildPlan]],
     build_plan_depth: int,
     database: Database,
     dialect: Optional[str] = None,
@@ -59,24 +59,25 @@ def _build_dimensions_on_select(
 
     for dim_node, dim_cols in dimension_columns.items():
         if dim_node not in tables:  # need to join dimension
-            join_info: Dict[Node, List[Column]] = {}
+            join_info: Dict[NodeRevision, List[Column]] = {}
             for table_node in tables:
                 join_dim_cols = []
                 for col in table_node.columns:
-                    if col.dimension == dim_node:
+                    if col.dimension and col.dimension.current == dim_node:
                         if col.dimension_column is None and not any(
                             dim_col.name == "id" for dim_col in dim_node.columns
                         ):
                             raise DJException(
-                                f"Node {table_node.name} specifiying dimension {dim_node.name}"
-                                f" on column {col.name} does not specify a dimension column, "
-                                f"but {dim_node.name} does not have the default key `id`.",
+                                f"Node {table_node.reference_node.name} specifiying dimension "
+                                f"{dim_node.reference_node.name} on column {col.name} does not"
+                                f" specify a dimension column, but {dim_node.reference_node.name} "
+                                f"does not have the default key `id`.",
                             )
                         join_dim_cols.append(col)
 
                 join_info[table_node] = join_dim_cols
             if build_plan_depth > 0:  # continue following build plan
-                alias = amenable_name(dim_node.name)
+                alias = amenable_name(dim_node.reference_node.name)
 
                 _, dim_build_plan = build_plan_lookup[dim_node]
                 dim_ast = dim_build_plan[0]
@@ -146,8 +147,8 @@ def _build_dimensions_on_select(
 def _build_tables_on_select(
     session: Session,
     select: ast.Select,
-    tables: Dict[Node, List[ast.Table]],
-    build_plan_lookup: Dict[Node, Tuple[Set[Database], BuildPlan]],
+    tables: Dict[NodeRevision, List[ast.Table]],
+    build_plan_lookup: Dict[NodeRevision, Tuple[Set[Database], BuildPlan]],
     build_plan_depth: int,
     database: Database,
     dialect: Optional[str] = None,
@@ -158,7 +159,7 @@ def _build_tables_on_select(
     for node, tbls in tables.items():
 
         if (
-            node.type != NodeType.SOURCE and build_plan_depth > 0
+            node.reference_node.type != NodeType.SOURCE and build_plan_depth > 0
         ):  # continue following build plan
             _, node_build_plan = build_plan_lookup[node]
             node_ast = node_build_plan[0]
@@ -169,7 +170,7 @@ def _build_tables_on_select(
                 database,
                 dialect,
             )
-            alias = amenable_name(node.name)
+            alias = amenable_name(node.reference_node.name)
             node_select = node_ast.select
             node_ast = ast.Alias(ast.Name(alias), child=node_select)  # type: ignore
             for tbl in tbls:
@@ -269,7 +270,7 @@ def add_filters_and_aggs_to_query_ast(
 
 async def build_node_for_database(  # pylint: disable=too-many-arguments
     session: Session,
-    node: Node,
+    node: NodeRevision,
     dialect: Optional[str] = None,
     database_id: Optional[int] = None,
     filters: Optional[List[str]] = None,

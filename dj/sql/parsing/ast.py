@@ -26,7 +26,7 @@ from typing import (
 from sqlmodel import Session
 
 from dj.models.database import Database
-from dj.models.node import Node as DJNode
+from dj.models.node import NodeRevision as DJNode
 from dj.models.node import NodeType as DJNodeType
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.typing import ColumnType, ColumnTypeError
@@ -1025,7 +1025,8 @@ class Table(Named):
             DJNodeType.DIMENSION,
         ):
             raise DJParseException(
-                f"Expected dj node of TRANSFORM, SOURCE, or DIMENSION but got {dj_node.type}.",
+                f"Expected dj node of TRANSFORM, SOURCE, or DIMENSION "
+                f"but got {dj_node.type}.",
             )
         self._dj_node = dj_node
         return self

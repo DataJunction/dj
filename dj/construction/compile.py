@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 from dj.construction.exceptions import CompoundBuildException
 from dj.construction.utils import get_dj_node, make_name
 from dj.errors import DJError, DJException, ErrorCode
-from dj.models.node import Node, NodeType
+from dj.models.node import Node, NodeRevision, NodeType
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.sqloxide import parse
 
@@ -90,7 +90,10 @@ def _tables_to_namespaces(
     session: Session,
     namespaces: Dict[str, Dict[str, Union[ast.Expression, ast.Column]]],
     table: ast.TableExpression,
-) -> Tuple[Dict[str, ast.TableExpression], Tuple[Set[Node], Set[Node], Set[Node]]]:
+) -> Tuple[
+    Dict[str, ast.TableExpression],
+    Tuple[Set[NodeRevision], Set[Node], Set[Node]],
+]:
     """
     Get all usable namespaces and columns from tables
     """
@@ -99,9 +102,9 @@ def _tables_to_namespaces(
     table_nodes: Dict[str, ast.TableExpression] = {}
 
     # used to check need and capacity for merging in dimensions
-    dimension_columns: Set[Node] = set()
-    sources_transforms: Set[Node] = set()
-    dimensions_tables: Set[Node] = set()
+    dimension_columns: Set[NodeRevision] = set()
+    sources_transforms: Set[NodeRevision] = set()
+    dimensions_tables: Set[NodeRevision] = set()
 
     # get all usable namespaces and columns from the tables
     namespace = ""
@@ -180,13 +183,13 @@ def _validate_groupby_filters_ons_columns(
     table_nodes: Dict[str, ast.TableExpression],
     multiple_refs: Set[str],
     namespaces: Dict[str, Dict[str, Union[ast.Expression, ast.Column]]],
-) -> Set[Node]:
+) -> Set[NodeRevision]:
     """
     Check groupby, filters, and join ons columns for existence
     """
 
     # used to check need and capacity for merging in dimensions
-    dimension_columns: Set[Node] = set()
+    dimension_columns: Set[NodeRevision] = set()
 
     gbfo: List[Tuple[ast.Column, bool]] = []
 
@@ -304,9 +307,9 @@ def _compile_select_ast(
     table_nodes: Dict[str, ast.TableExpression] = {}
 
     # used to check need and capacity for merging in dimensions
-    dimension_columns: Set[Node] = set()
-    sources_transforms: Set[Node] = set()
-    dimensions_tables: Set[Node] = set()
+    dimension_columns: Set[NodeRevision] = set()
+    sources_transforms: Set[NodeRevision] = set()
+    dimensions_tables: Set[NodeRevision] = set()
 
     for table in tables:
         (
@@ -363,7 +366,7 @@ def _compile_select_ast(
         # somewhere without some from tables
         for src_fm in sources_transforms | dimensions_tables:  # pragma: no cover
             for col in src_fm.columns:  # pragma: no cover
-                if col.dimension == dim:  # pragma: no cover
+                if col.dimension and col.dimension.current == dim:  # pragma: no cover
                     joinable = True
                     break
             if joinable:
@@ -394,14 +397,16 @@ def _compile_select_ast(
 
 def compile_node(
     session: Session,
-    node: Node,
+    node: NodeRevision,
     dialect: Optional[str] = None,
 ) -> ast.Query:
     """
     Get all dj node dependencies from a sql query while validating
     """
     if node.query is None:
-        raise DJException(f"Cannot compile node `{node.name}` with no query.")
+        raise DJException(
+            f"Cannot compile node `{node.reference_node.name}` with no query.",
+        )
     query = parse(node.query, dialect)
     query.compile(session)
     return query

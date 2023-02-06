@@ -6,9 +6,9 @@ from typing import Dict, List, Optional, Tuple
 import pytest
 from sqlmodel import Session
 
-from dj.models import Column, Database, Node, Table
+from dj.models import Column, Database, NodeRevision, Table
 from dj.models.column import ColumnType
-from dj.models.node import NodeType
+from dj.models.node import Node, NodeType
 
 BUILD_NODE_NAMES: List[str] = [
     "basic.source.users",
@@ -300,7 +300,9 @@ INNER JOIN jaffle_shop.customers AS c
 
 
 @pytest.fixture
-def construction_session(session: Session) -> Session:
+def construction_session(  # pylint: disable=too-many-locals
+    session: Session,
+) -> Session:
     """
     Add some source nodes and transform nodes to facilitate testing of extracting dependencies
     """
@@ -309,9 +311,16 @@ def construction_session(session: Session) -> Session:
 
     gsheets = Database(name="gsheets", URI="", cost=100, id=2)
 
-    countries_dim = Node(
+    countries_dim_ref = Node(
         name="basic.dimension.countries",
         type=NodeType.DIMENSION,
+        current_version=1,
+    )
+    countries_dim = NodeRevision(
+        name=countries_dim_ref.name,
+        type=countries_dim_ref.type,
+        reference_node=countries_dim_ref,
+        version=1,
         query="""
           SELECT country,
                  COUNT(1) AS user_cnt
@@ -323,9 +332,17 @@ def construction_session(session: Session) -> Session:
             Column(name="user_cnt", type=ColumnType.INT),
         ],
     )
-    user_dim = Node(
+
+    user_dim_ref = Node(
         name="basic.dimension.users",
         type=NodeType.DIMENSION,
+        current_version=1,
+    )
+    user_dim = NodeRevision(
+        name=user_dim_ref.name,
+        type=user_dim_ref.type,
+        reference_node=user_dim_ref,
+        version=1,
         query="""
           SELECT id,
                  full_name,
@@ -347,9 +364,16 @@ def construction_session(session: Session) -> Session:
         ],
     )
 
-    country_agg_tfm = Node(
+    country_agg_tfm_ref = Node(
         name="basic.transform.country_agg",
         type=NodeType.TRANSFORM,
+        current_version=1,
+    )
+    country_agg_tfm = NodeRevision(
+        name=country_agg_tfm_ref.name,
+        type=country_agg_tfm_ref.type,
+        reference_node=country_agg_tfm_ref,
+        version=1,
         query="""
         SELECT country,
                 COUNT(DISTINCT id) AS num_users
@@ -362,9 +386,16 @@ def construction_session(session: Session) -> Session:
         ],
     )
 
-    users_src = Node(
+    users_src_ref = Node(
         name="basic.source.users",
         type=NodeType.SOURCE,
+        current_version=1,
+    )
+    users_src = NodeRevision(
+        name=users_src_ref.name,
+        type=users_src_ref.type,
+        reference_node=users_src_ref,
+        version=1,
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(name="full_name", type=ColumnType.STR),
@@ -411,15 +442,22 @@ def construction_session(session: Session) -> Session:
         ],
     )
 
-    comments_src = Node(
+    comments_src_ref = Node(
         name="basic.source.comments",
         type=NodeType.SOURCE,
+        current_version=1,
+    )
+    comments_src = NodeRevision(
+        name=comments_src_ref.name,
+        type=comments_src_ref.type,
+        reference_node=comments_src_ref,
+        version=1,
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(
                 name="user_id",
                 type=ColumnType.INT,
-                dimension=user_dim,
+                dimension=user_dim_ref,
             ),
             Column(name="timestamp", type=ColumnType.DATETIME),
             Column(name="text", type=ColumnType.STR),
@@ -455,9 +493,16 @@ def construction_session(session: Session) -> Session:
         ],
     )
 
-    num_comments_mtc = Node(
+    num_comments_mtc_ref = Node(
         name="basic.num_comments",
         type=NodeType.METRIC,
+        current_version=1,
+    )
+    num_comments_mtc = NodeRevision(
+        name=num_comments_mtc_ref.name,
+        type=num_comments_mtc_ref.type,
+        reference_node=num_comments_mtc_ref,
+        version=1,
         query="""
         SELECT COUNT(1) AS cnt
         FROM basic.source.comments
@@ -467,9 +512,16 @@ def construction_session(session: Session) -> Session:
         ],
     )
 
-    num_users_mtc = Node(
+    num_users_mtc_ref = Node(
         name="basic.num_users",
         type=NodeType.METRIC,
+        current_version=1,
+    )
+    num_users_mtc = NodeRevision(
+        name=num_users_mtc_ref.name,
+        type=num_users_mtc_ref.type,
+        reference_node=num_users_mtc_ref,
+        version=1,
         query="""
         SELECT SUM(num_users)
         FROM basic.transform.country_agg
@@ -479,9 +531,16 @@ def construction_session(session: Session) -> Session:
         ],
     )
 
-    customers_dim = Node(
+    customers_dim_ref = Node(
         name="dbt.dimension.customers",
         type=NodeType.DIMENSION,
+        current_version=1,
+    )
+    customers_dim = NodeRevision(
+        name=customers_dim_ref.name,
+        type=customers_dim_ref.type,
+        reference_node=customers_dim_ref,
+        version=1,
         query="""
           SELECT id,
              first_name,
@@ -495,9 +554,16 @@ def construction_session(session: Session) -> Session:
         ],
     )
 
-    customers_agg_tfm = Node(
+    customers_agg_tfm_ref = Node(
         name="dbt.transform.customer_agg",
         type=NodeType.TRANSFORM,
+        current_version=1,
+    )
+    customers_agg_tfm = NodeRevision(
+        name=customers_agg_tfm_ref.name,
+        type=customers_agg_tfm_ref.type,
+        reference_node=customers_agg_tfm_ref,
+        version=1,
         query="""
           SELECT c.id,
                  c.first_name,
@@ -517,15 +583,22 @@ def construction_session(session: Session) -> Session:
         ],
     )
 
-    orders_src = Node(
+    orders_src_ref = Node(
         name="dbt.source.jaffle_shop.orders",
         type=NodeType.SOURCE,
+        current_version=1,
+    )
+    orders_src = NodeRevision(
+        name=orders_src_ref.name,
+        type=orders_src_ref.type,
+        reference_node=orders_src_ref,
+        version=1,
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(
                 name="user_id",
                 type=ColumnType.INT,
-                dimension=customers_dim,
+                dimension=customers_dim_ref,
                 dimension_column="event_id",
             ),
             Column(name="order_date", type=ColumnType.DATE),
@@ -551,9 +624,16 @@ def construction_session(session: Session) -> Session:
         ],
     )
 
-    customers_src = Node(
+    customers_src_ref = Node(
         name="dbt.source.jaffle_shop.customers",
         type=NodeType.SOURCE,
+        current_version=1,
+    )
+    customers_src = NodeRevision(
+        name=customers_src_ref.name,
+        type=customers_src_ref.type,
+        reference_node=customers_src_ref,
+        version=1,
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(name="first_name", type=ColumnType.STR),
