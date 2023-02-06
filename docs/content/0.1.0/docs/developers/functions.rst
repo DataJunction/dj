@@ -12,7 +12,7 @@ Currently, DJ supports only a small subset of SQL functions, limiting the defini
 
 1. Type inference for the function. This is easier in some functions and harder in others. For example, the ``COUNT`` function always return an integer, so its return type is the same regardless of the input arguments. The ``MAX`` function, on the other hands, return a value with the same type as the input argument.
 
-2. Translation to SQLAlchemy. In order to run queries, DJ parses the metric definitions (written in ANSI SQL), and converts them to a SQLAlchemy query object, so it can be translated to different dialects (Hive, Trino, Postgres, etc.). Some functions are easier to translate, specially if they are already defined in ``sqlalchemy.sql.functions``. Others, like ``DATE_TRUNC``, are more complex because they are dialect specific.
+2. Translation to SQLAlchemy. In order to run queries, DJ parses the metric definitions (written in ANSI SQL), and converts them to a SQLAlchemy query object, so it can be translated to different dialects (Hive, Trino, Postgres, etc.). Some functions are easier to translate, especially if they are already defined in ``sqlalchemy.sql.functions``. Others, like ``DATE_TRUNC``, are more complex because they are dialect specific.
 
 Supported functions
 -------------------
