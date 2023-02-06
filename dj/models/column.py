@@ -5,12 +5,13 @@ Models for columns.
 from typing import TYPE_CHECKING, Optional, TypedDict
 
 from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship
 
+from dj.models.base import BaseSQLModel
 from dj.typing import ColumnType, ColumnTypeDecorator
 
 if TYPE_CHECKING:
-    from dj.models.node import Node, NodeRevision
+    from dj.models.node import Node
 
 
 class ColumnYAML(TypedDict, total=False):
@@ -22,7 +23,7 @@ class ColumnYAML(TypedDict, total=False):
     dimension: str
 
 
-class Column(SQLModel, table=True):  # type: ignore
+class Column(BaseSQLModel, table=True):  # type: ignore
     """
     A column.
 

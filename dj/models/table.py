@@ -4,7 +4,9 @@ Models for tables.
 
 from typing import TYPE_CHECKING, List, Optional, TypedDict
 
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship
+
+from dj.models.base import BaseSQLModel
 
 if TYPE_CHECKING:
     from dj.models.column import Column
@@ -23,7 +25,7 @@ class TableYAML(TypedDict, total=False):
     cost: float
 
 
-class TableColumns(SQLModel, table=True):  # type: ignore
+class TableColumns(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for table columns.
     """
@@ -40,7 +42,7 @@ class TableColumns(SQLModel, table=True):  # type: ignore
     )
 
 
-class TableBase(SQLModel):
+class TableBase(BaseSQLModel):
     """
     A base table.
     """
@@ -51,7 +53,7 @@ class TableBase(SQLModel):
     cost: float = 1.0
 
 
-class TableNodeRevision(SQLModel, table=True):  # type: ignore
+class TableNodeRevision(BaseSQLModel, table=True):  # type: ignore
     """
     Link between a table and a node revision.
     """

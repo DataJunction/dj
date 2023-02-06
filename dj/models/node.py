@@ -12,9 +12,10 @@ from pydantic import Extra
 from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship
 from typing_extensions import TypedDict
 
+from dj.models.base import BaseSQLModel
 from dj.models.column import Column, ColumnYAML
 from dj.models.table import CreateTable, Table, TableNodeRevision, TableYAML
 from dj.sql.parse import is_metric
@@ -22,7 +23,7 @@ from dj.typing import ColumnType
 from dj.utils import UTCDatetime
 
 
-class NodeRelationship(SQLModel, table=True):  # type: ignore
+class NodeRelationship(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for self-referential many-to-many relationships between nodes.
     """
@@ -46,7 +47,7 @@ class NodeRelationship(SQLModel, table=True):  # type: ignore
     )
 
 
-class NodeColumns(SQLModel, table=True):  # type: ignore
+class NodeColumns(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for node columns.
     """
@@ -121,7 +122,7 @@ class NodeYAML(TypedDict, total=False):
     tables: Dict[str, List[TableYAML]]
 
 
-class ReferenceNodeBase(SQLModel):
+class ReferenceNodeBase(BaseSQLModel):
     """
     A base reference node.
     """
@@ -130,7 +131,7 @@ class ReferenceNodeBase(SQLModel):
     type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
 
 
-class NodeBase(SQLModel):
+class NodeBase(BaseSQLModel):
     """
     A base node.
     """
@@ -145,7 +146,7 @@ class NodeBase(SQLModel):
     mode: NodeMode = NodeMode.PUBLISHED
 
 
-class MissingParent(SQLModel, table=True):  # type: ignore
+class MissingParent(BaseSQLModel, table=True):  # type: ignore
     """
     A missing parent node
     """
@@ -158,7 +159,7 @@ class MissingParent(SQLModel, table=True):  # type: ignore
     )
 
 
-class NodeMissingParents(SQLModel, table=True):  # type: ignore
+class NodeMissingParents(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for missing parents
     """
@@ -175,7 +176,7 @@ class NodeMissingParents(SQLModel, table=True):  # type: ignore
     )
 
 
-class AvailabilityStateBase(SQLModel):
+class AvailabilityStateBase(BaseSQLModel):
     """
     An availability state base
     """
@@ -200,7 +201,7 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
     )
 
 
-class NodeAvailabilityState(SQLModel, table=True):  # type: ignore
+class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for availability state
     """
@@ -376,7 +377,7 @@ class NodeRevision(NodeBase, table=True):  # type: ignore
                 )
 
 
-class ImmutableNodeFields(SQLModel):
+class ImmutableNodeFields(BaseSQLModel):
     """
     Node fields that cannot be changed
     """
@@ -385,7 +386,7 @@ class ImmutableNodeFields(SQLModel):
     type: NodeType
 
 
-class MutableNodeFields(SQLModel):
+class MutableNodeFields(BaseSQLModel):
     """
     Node fields that can be changed.
     """
@@ -404,7 +405,7 @@ class SourceNodeColumnType(TypedDict, total=False):
     dimension: Optional[str]
 
 
-class SourceNodeFields(SQLModel):
+class SourceNodeFields(BaseSQLModel):
     """
     Source node fields that can be changed.
     """
