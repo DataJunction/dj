@@ -13,11 +13,13 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from dj import __version__
-from dj.api import data, databases, metrics, nodes, queries
+from dj.api import catalogs, data, databases, engines, metrics, nodes, queries
 from dj.api.graphql.main import graphql_app
 from dj.errors import DJException
+from dj.models.catalog import Catalog
 from dj.models.column import Column
 from dj.models.database import Database
+from dj.models.engine import Engine
 from dj.models.node import NodeRevision
 from dj.models.query import Query
 from dj.models.table import Table
@@ -36,7 +38,9 @@ app = FastAPI(
         "url": "https://mit-license.org/",
     },
 )
+app.include_router(catalogs.router)
 app.include_router(databases.router)
+app.include_router(engines.router)
 app.include_router(queries.router)
 app.include_router(metrics.router)
 app.include_router(nodes.router)
