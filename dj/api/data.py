@@ -32,14 +32,15 @@ def add_availability(
     try:
         statement = select(Node).where(Node.name == node_name)
         results = session.exec(statement)
-        existing_node = results.one()
+        existing_ref_node = results.one()
     except NoResultFound as exc:
         raise DJException(
             message=f"Cannot add availability state, node `{node_name}` does not exist",
         ) from exc
 
     # Source nodes require that any availability states set are for one of the defined tables
-    if existing_node.type == NodeType.SOURCE:
+    existing_node = existing_ref_node.current
+    if existing_ref_node.type == NodeType.SOURCE:
         matches = False
         for table in existing_node.tables:
             if (

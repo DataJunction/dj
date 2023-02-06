@@ -20,7 +20,6 @@ from dj.api.queries import save_query_and_run
 from dj.models.node import Node as Node_
 from dj.models.node import NodeType as Node_Type
 from dj.sql.build import get_query_for_node
-from dj.sql.dag import get_dimensions
 
 
 @strawberry.experimental.pydantic.type(
@@ -56,9 +55,11 @@ def read_metrics(info: Info) -> List[Metric]:
     session = info.context["session"]
     return [
         Metric.from_pydantic(  # type: ignore
-            Metric_(**node.dict(), dimensions=get_dimensions(node)),
+            Metric_.parse_reference_node(ref_node),
         )
-        for node in session.exec(select(Node_).where(Node_.type == Node_Type.METRIC))
+        for ref_node in session.exec(
+            select(Node_).where(Node_.type == Node_Type.METRIC),
+        )
     ]
 
 
@@ -67,12 +68,12 @@ def read_metric(node_name: str, info: Info) -> Metric:
     Return a metric by name.
     """
     try:
-        node = get_metric(info.context["session"], node_name)
+        ref_node = get_metric(info.context["session"], node_name)
     except HTTPException as exc:
         raise Exception(exc.detail) from exc
 
     return Metric.from_pydantic(  # type: ignore
-        Metric_(**node.dict(), dimensions=get_dimensions(node)),
+        Metric_.parse_reference_node(ref_node),
     )
 
 

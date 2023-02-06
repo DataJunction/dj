@@ -15,7 +15,7 @@ from sqloxide import parse_sql
 
 from dj.constants import DJ_DATABASE_ID
 from dj.models.database import Database
-from dj.models.node import Node
+from dj.models.node import Node, NodeRevision
 from dj.sql.parse import find_nodes_by_key
 from dj.typing import ParseTree
 from dj.utils import get_settings
@@ -67,7 +67,7 @@ def build_asciidag(
 
 
 def get_computable_databases(
-    node: Node,
+    node: NodeRevision,
     columns: Optional[Set[str]] = None,
 ) -> Set[Database]:
     """
@@ -91,7 +91,7 @@ def get_computable_databases(
     parent_columns = get_referenced_columns_from_sql(node.query, node.parents)
     if node.parents:
         parent_databases = [
-            get_computable_databases(parent, parent_columns[parent.name])
+            get_computable_databases(parent.current, parent_columns[parent.name])
             for parent in node.parents
         ]
         databases |= set.intersection(*parent_databases)
@@ -112,7 +112,10 @@ async def get_database_for_nodes(
     """
     if nodes:
         databases = set.intersection(
-            *[get_computable_databases(node, node_columns[node.name]) for node in nodes]
+            *[
+                get_computable_databases(node.current, node_columns[node.name])
+                for node in nodes
+            ]
         )
     else:
         databases = session.exec(
@@ -206,7 +209,8 @@ def get_referenced_columns_from_tree(
     referenced_columns: DefaultDict[str, Set[str]] = defaultdict(set)
 
     parent_columns = {
-        parent.name: {column.name for column in parent.columns} for parent in parents
+        parent.name: {column.name for column in parent.current.columns}
+        for parent in parents
     }
 
     # compound identifiers are fully qualified
@@ -236,12 +240,12 @@ def get_dimensions(node: Node) -> List[str]:
     Return the available dimensions in a given node.
     """
     dimensions = []
-    for parent in node.parents:
-        for column in parent.columns:
+    for parent in node.current.parents:
+        for column in parent.current.columns:
             dimensions.append(f"{parent.name}.{column.name}")
 
             if column.dimension:
-                for dimension_column in column.dimension.columns:
+                for dimension_column in column.dimension.current.columns:
                     dimensions.append(
                         f"{column.dimension.name}.{dimension_column.name}",
                     )

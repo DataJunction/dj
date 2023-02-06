@@ -126,17 +126,23 @@ async def get_query_for_node(  # pylint: disable=too-many-locals
 
     # which columns are needed from the parents; this is used to determine the database
     # where the query will run
-    referenced_columns = get_referenced_columns_from_sql(node.query, node.parents)
+    referenced_columns = get_referenced_columns_from_sql(
+        node.current.query,
+        node.current.parents,
+    )
 
     # extract all referenced dimensions so we can join the node with them
     dimensions: Dict[str, Node] = {}
     for dimension in requested_dimensions:
         name, column = dimension.rsplit(".", 1)
         if (
-            name not in {parent.name for parent in node.parents}
+            name not in {parent.name for parent in node.current.parents}
             and name not in dimensions
         ):
-            dimensions[name] = session.exec(select(Node).where(Node.name == name)).one()
+            ref_node = session.exec(
+                select(Node).where(Node.name == name),
+            ).one()
+            dimensions[name] = ref_node
             referenced_columns[name].add(column)
 
     # find database
@@ -198,8 +204,8 @@ def find_on_clause(
     """
     Return the on clause for a node/dimension selects.
     """
-    for parent in node.parents:
-        for column in parent.columns:
+    for parent in node.current.parents:
+        for column in parent.current.columns:
             if column.dimension == dimension:
                 dimension_column = column.dimension_column or DEFAULT_DIMENSION_COLUMN
                 return (
@@ -207,7 +213,9 @@ def find_on_clause(
                     == subquery.columns[dimension_column]  # type: ignore
                 )
 
-    raise Exception(f"Node {node.name} has no columns with dimension {dimension.name}")
+    raise Exception(
+        f"Node {node.name} has no columns with " f"dimension {dimension.name}",
+    )
 
 
 # pylint: disable=too-many-branches, too-many-locals, too-many-statements
@@ -236,7 +244,6 @@ async def get_query_for_sql(query: str) -> QueryCreate:
 
     # fetch all metric and dimension nodes
     nodes = {node.name: node for node in session.exec(select(Node))}
-
     # extract metrics and dimensions from the query
     identifiers = {
         identifier["value"]
@@ -263,7 +270,7 @@ async def get_query_for_sql(query: str) -> QueryCreate:
         if node.type != NodeType.DIMENSION:
             continue
 
-        column_names = {column.name for column in node.columns}
+        column_names = {column.name for column in node.current.columns}
         if column not in column_names:
             raise Exception(f"Invalid dimension: {identifier}")
 
@@ -299,7 +306,7 @@ async def get_query_for_sql(query: str) -> QueryCreate:
                 raise Exception(f"Invalid identifier: {name}")
 
             node = nodes[name]
-            metric_tree = parse_sql(node.query, dialect="ansi")
+            metric_tree = parse_sql(node.current.query, dialect="ansi")
             parent.pop("Identifier")
             parent.update(
                 get_expression_from_projection(
@@ -367,7 +374,12 @@ def process_metrics(
                     "Table": {
                         "alias": None,
                         "args": [],
-                        "name": [{"quote_style": '"', "value": dimension.name}],
+                        "name": [
+                            {
+                                "quote_style": '"',
+                                "value": dimension.name,
+                            },
+                        ],
                         "with_hints": [],
                     },
                 },
@@ -378,18 +390,19 @@ def process_metrics(
     # check that there is a metric with the superset of parents from all metrics
     main_metric = sorted(
         requested_metrics,
-        key=lambda metric: (len(metric.parents), metric.name),
+        key=lambda metric: (len(metric.current.parents), metric.name),
         reverse=True,
     )[0]
     for metric in requested_metrics:
-        if not set(metric.parents) <= set(main_metric.parents):
+        if not set(metric.current.parents) <= set(main_metric.current.parents):
             raise Exception(
-                f"Metrics {metric.name} and {main_metric.name} have non-shared parents",
+                f"Metrics {metric.name} and "
+                f"{main_metric.name} have non-shared parents",
             )
 
     # replace the ``from`` part of the parse tree with the ``from`` from the metric that
     # has all the necessary parents
-    metric_tree = parse_sql(main_metric.query, dialect="ansi")
+    metric_tree = parse_sql(main_metric.current.query, dialect="ansi")
     query_select["from"] = metric_tree[0]["Query"]["body"]["Select"]["from"]
 
     # join to any dimensions
@@ -398,7 +411,7 @@ def process_metrics(
             get_dimension_join(main_metric, dimension),
         )
 
-    return main_metric.parents
+    return main_metric.current.parents
 
 
 def replace_metric_identifier(
@@ -430,7 +443,7 @@ def replace_metric_identifier(
     parent.pop("UnnamedExpr", None)
 
     node = nodes[name]
-    metric_tree = parse_sql(node.query, dialect="ansi")
+    metric_tree = parse_sql(node.current.query, dialect="ansi")
     parent["ExprWithAlias"] = {
         "alias": alias or {"quote_style": '"', "value": node.name},
         "expr": get_expression_from_projection(
@@ -439,12 +452,15 @@ def replace_metric_identifier(
     }
 
 
-def get_join_columns(node: Node, dimension: Node) -> Tuple[str, str, str]:
+def get_join_columns(
+    node: Node,
+    dimension: Node,
+) -> Tuple[str, str, str]:
     """
     Return the columns to perform a join between a node and a dimension.
     """
-    for parent in node.parents:
-        for column in parent.columns:
+    for parent in node.current.parents:
+        for column in parent.current.columns:
             if column.dimension == dimension:
                 return (
                     parent.name,
@@ -452,7 +468,9 @@ def get_join_columns(node: Node, dimension: Node) -> Tuple[str, str, str]:
                     column.dimension_column or DEFAULT_DIMENSION_COLUMN,
                 )
 
-    raise Exception(f"Node {node.name} has no columns with dimension {dimension.name}")
+    raise Exception(
+        f"Node {node.name} has no columns " f"with dimension {dimension.name}",
+    )
 
 
 def get_dimension_join(node: Node, dimension: Node) -> Join:
@@ -483,7 +501,10 @@ def get_dimension_join(node: Node, dimension: Node) -> Join:
                         "op": "Eq",
                         "right": {
                             "CompoundIdentifier": [
-                                {"quote_style": None, "value": dimension.name},
+                                {
+                                    "quote_style": None,
+                                    "value": dimension.name,
+                                },
                                 {"quote_style": None, "value": dimension_column},
                             ],
                         },

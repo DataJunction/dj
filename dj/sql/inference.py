@@ -14,7 +14,7 @@ from dj.sql.parse import find_nodes_by_key
 from dj.typing import ColumnType, Expression, Function, Identifier, Value
 
 if TYPE_CHECKING:
-    from dj.models.node import Node
+    from dj.models.node import Node, NodeRevision
 
 
 class Wildcard:  # pylint: disable=too-few-public-methods
@@ -46,7 +46,7 @@ def infer_columns(query: str, parents: List["Node"]) -> List[Column]:
         elif expression == "Wildcard":
             if len(parents) > 1:
                 raise Exception("Wildcard only works for nodes with a single parent")
-            columns.extend(parents[0].columns[:])
+            columns.extend(parents[0].current.columns[:])
         else:
             raise NotImplementedError(f"Unable to handle expression: {expression}")
 
@@ -60,14 +60,17 @@ def infer_columns(query: str, parents: List["Node"]) -> List[Column]:
     return columns
 
 
-def evaluate_identifier(parents: List["Node"], identifier: Identifier) -> Column:
+def evaluate_identifier(
+    parents: List["Node"],
+    identifier: Identifier,
+) -> Column:
     """
     Evaluate an "Identifier" node.
     """
     value = identifier["value"]
     candidates = []
     for parent in parents:
-        for column in parent.columns:
+        for column in parent.current.columns:
             if column.name == value:
                 candidates.append(column)
                 break
@@ -99,11 +102,13 @@ def evaluate_compound_identifier(
             f'Unable to determine origin of column "{parent_name}.{name}"',
         )
 
-    for column in parent.columns:
+    for column in parent.current.columns:
         if column.name == name:
             return column
 
-    raise Exception(f'Unable to find column "{name}" in node "{parent.name}"')
+    raise Exception(
+        f'Unable to find column "{name}" in node "{parent.name}"',
+    )
 
 
 def evaluate_function(

@@ -65,7 +65,7 @@ def upgrade():
         sa.Column("description", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("expression", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.PrimaryKeyConstraint("id"),
-        sa.UniqueConstraint("name"),
+        sa.UniqueConstraint("name", name="uniq_node_name"),
     )
     op.create_index(op.f("ix_node_description"), "node", ["description"], unique=False)
     op.create_index(op.f("ix_node_expression"), "node", ["expression"], unique=False)

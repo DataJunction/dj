@@ -10,7 +10,7 @@ from pytest_mock import MockerFixture
 
 from dj.models.column import Column
 from dj.models.database import Database
-from dj.models.node import Node, NodeType
+from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.table import Table
 from dj.sql.dag import (
     get_cheapest_online_database,
@@ -30,24 +30,33 @@ def test_get_computable_databases() -> None:
     database_2 = Database(id=2, name="not shared", URI="sqlite://", cost=2.0)
     database_3 = Database(id=3, name="fast", URI="sqlite://", cost=0.1)
 
-    parent_a = Node(
-        name="A",
+    parent_a_ref = Node(name="A", current_version=1)
+    parent_a = NodeRevision(
+        reference_node=parent_a_ref,
+        version=1,
         tables=[
             Table(database=database_1, table="A"),
             Table(database=database_2, table="A"),
         ],
     )
+    parent_a_ref.current = parent_a
 
-    parent_b = Node(
-        name="B",
+    parent_b_ref = Node(name="B", current_version=1)
+    parent_b = NodeRevision(
+        reference_node=parent_b_ref,
+        version=1,
         tables=[Table(database=database_1, table="B")],
     )
+    parent_b_ref.current = parent_b
 
-    child = Node(
-        name="C",
+    child_ref = Node(name="C", current_version=1)
+    child = NodeRevision(
+        reference_node=child_ref,
+        version=1,
         tables=[Table(database=database_3, table="C")],
-        parents=[parent_a, parent_b],
+        parents=[parent_a_ref, parent_b_ref],
     )
+    child_ref.current = child
 
     assert {database.name for database in get_computable_databases(child)} == {
         "fast",
@@ -69,8 +78,10 @@ def test_get_computable_databases_heterogeneous_columns() -> None:
     database_1 = Database(id=1, name="one", URI="sqlite://", cost=1.0)
     database_2 = Database(id=2, name="two", URI="sqlite://", cost=2.0)
 
-    parent = Node(
-        name="core.A",
+    parent_ref = Node(name="core.A", current_version=1)
+    parent = NodeRevision(
+        reference_node=parent_ref,
+        version=1,
         tables=[
             Table(
                 database=database_1,
@@ -93,22 +104,28 @@ def test_get_computable_databases_heterogeneous_columns() -> None:
             Column(name="user_id", type=ColumnType.INT),
         ],
     )
+    parent_ref.current = parent
 
-    child_1 = Node(
-        name="core.B",
+    child_1_ref = Node(name="core.B", current_version=1)
+    child_1 = NodeRevision(
+        reference_node=child_1_ref,
+        version=1,
         query="SELECT COUNT(core.A.user_id) FROM core.A",
-        parents=[parent],
+        parents=[parent_ref],
     )
+    child_1_ref.current = child_1
 
     assert {database.name for database in get_computable_databases(child_1)} == {
         "one",
     }
-
-    child_2 = Node(
-        name="core.C",
+    child_2_ref = Node(name="core.C", current_version=1)
+    child_2 = NodeRevision(
+        reference_node=child_2_ref,
+        version=1,
         query="SELECT COUNT(user_id) FROM core.A",
-        parents=[parent],
+        parents=[parent_ref],
     )
+    child_2_ref.current = child_2
 
     assert {database.name for database in get_computable_databases(child_2)} == {
         "one",
@@ -120,9 +137,10 @@ def test_get_referenced_columns_from_sql() -> None:
     Test ``get_referenced_columns_from_sql``.
     """
     database = Database(id=1, name="one", URI="sqlite://", cost=1.0)
-
-    parent_1 = Node(
-        name="core.A",
+    parent_1_ref = Node(name="core.A", current_version=1)
+    parent_1 = NodeRevision(
+        reference_node=parent_1_ref,
+        version=1,
         tables=[
             Table(
                 database=database,
@@ -138,8 +156,11 @@ def test_get_referenced_columns_from_sql() -> None:
             Column(name="user_id", type=ColumnType.INT),
         ],
     )
-    parent_2 = Node(
-        name="core.B",
+    parent_1_ref.current = parent_1
+    parent_2_ref = Node(name="core.B", current_version=1)
+    parent_2 = NodeRevision(
+        reference_node=parent_2_ref,
+        version=1,
         tables=[
             Table(
                 database=database,
@@ -155,33 +176,34 @@ def test_get_referenced_columns_from_sql() -> None:
             Column(name="event_id", type=ColumnType.INT),
         ],
     )
+    parent_2_ref.current = parent_2
 
     assert get_referenced_columns_from_sql(
         "SELECT core.A.ds FROM core.A",
-        [parent_1],
+        [parent_1_ref],
     ) == {
         "core.A": {"ds"},
     }
-    assert get_referenced_columns_from_sql("SELECT ds FROM core.A", [parent_1]) == {
+    assert get_referenced_columns_from_sql("SELECT ds FROM core.A", [parent_1_ref]) == {
         "core.A": {"ds"},
     }
     assert get_referenced_columns_from_sql(
         "SELECT ds FROM core.A WHERE user_id > 0",
-        [parent_1],
+        [parent_1_ref],
     ) == {"core.A": {"ds", "user_id"}}
     assert get_referenced_columns_from_sql(
         (
             "SELECT core.A.ds, core.A.user_id, core.B.event_id "
             "FROM core.A JOIN core.B ON core.A.ds = core.B.ds"
         ),
-        [parent_1, parent_2],
+        [parent_1_ref, parent_2_ref],
     ) == {"core.A": {"ds", "user_id"}, "core.B": {"ds", "event_id"}}
     assert get_referenced_columns_from_sql(
         (
             "SELECT user_id, event_id "
             "FROM core.A JOIN core.B ON core.A.ds = core.B.ds"
         ),
-        [parent_1, parent_2],
+        [parent_1_ref, parent_2_ref],
     ) == {"core.A": {"ds", "user_id"}, "core.B": {"ds", "event_id"}}
     with pytest.raises(Exception) as excinfo:
         get_referenced_columns_from_sql(
@@ -189,11 +211,11 @@ def test_get_referenced_columns_from_sql() -> None:
                 "SELECT ds, user_id, event_id "
                 "FROM core.A JOIN core.B ON core.A.ds = core.B.ds"
             ),
-            [parent_1, parent_2],
+            [parent_1_ref, parent_2_ref],
         )
     assert str(excinfo.value) == "Column ds is ambiguous"
     with pytest.raises(Exception) as excinfo:
-        get_referenced_columns_from_sql("SELECT invalid FROM core.A", [parent_1])
+        get_referenced_columns_from_sql("SELECT invalid FROM core.A", [parent_1_ref])
     assert str(excinfo.value) == "Column invalid not found in any parent"
 
 
@@ -203,9 +225,10 @@ def test_get_dimensions() -> None:
     """
     database = Database(id=1, name="one", URI="sqlite://")
 
-    dimension = Node(
-        name="B",
-        type=NodeType.DIMENSION,
+    dimension_ref = Node(name="B", type=NodeType.DIMENSION, current_version=1)
+    dimension = NodeRevision(
+        reference_node=dimension_ref,
+        version=1,
         tables=[
             Table(
                 database=database,
@@ -221,32 +244,39 @@ def test_get_dimensions() -> None:
             Column(name="attribute", type=ColumnType.STR),
         ],
     )
+    dimension_ref.current = dimension
 
-    parent = Node(
-        name="A",
+    parent_ref = Node(name="A", current_version=1)
+    parent = NodeRevision(
+        reference_node=parent_ref,
+        version=1,
         tables=[
             Table(
                 database=database,
                 table="A",
                 columns=[
                     Column(name="ds", type=ColumnType.STR),
-                    Column(name="b_id", type=ColumnType.INT, dimension=dimension),
+                    Column(name="b_id", type=ColumnType.INT, dimension=dimension_ref),
                 ],
             ),
         ],
         columns=[
             Column(name="ds", type=ColumnType.STR),
-            Column(name="b_id", type=ColumnType.INT, dimension=dimension),
+            Column(name="b_id", type=ColumnType.INT, dimension=dimension_ref),
         ],
     )
+    parent_ref.current = parent
 
-    child = Node(
-        name="C",
+    child_ref = Node(name="C", current_version=1)
+    child = NodeRevision(
+        reference_node=child_ref,
+        version=1,
         query="SELECT COUNT(*) FROM A",
-        parents=[parent],
+        parents=[parent_ref],
     )
+    child_ref.current = child
 
-    assert get_dimensions(child) == ["A.b_id", "A.ds", "B.attribute", "B.id"]
+    assert get_dimensions(child_ref) == ["A.b_id", "A.ds", "B.attribute", "B.id"]
 
 
 @pytest.mark.asyncio
@@ -261,8 +291,10 @@ async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     session = next(get_session())
     session.exec().all.return_value = [database_1, database_2]
 
-    parent = Node(
-        name="parent",
+    parent_ref = Node(name="parent", current_version=1)
+    parent = NodeRevision(
+        reference_node=parent_ref,
+        version=1,
         tables=[
             Table(
                 database=database_2,
@@ -274,10 +306,11 @@ async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
             ),
         ],
     )
+    parent_ref.current = parent
 
     referenced_columns: Dict[str, Set[str]] = defaultdict(set)
     assert (
-        await get_database_for_nodes(session, [parent], referenced_columns)
+        await get_database_for_nodes(session, [parent_ref], referenced_columns)
         == database_2
     )
 

@@ -8,7 +8,7 @@ from sqlmodel import Session
 
 from dj.construction.compile import CompoundBuildException, make_name
 from dj.errors import DJException
-from dj.models.node import Node, NodeType
+from dj.models.node import NodeRevision, NodeType
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.sqloxide import parse
 
@@ -17,13 +17,13 @@ def extract_dependencies_from_query_ast(
     session: Session,
     query: ast.Query,
     raise_: bool = True,
-) -> Tuple[ast.Query, Dict[Node, List[ast.Table]], Dict[str, List[ast.Table]]]:
+) -> Tuple[ast.Query, Dict[NodeRevision, List[ast.Table]], Dict[str, List[ast.Table]]]:
     """Find all dependencies in a compiled query"""
     CompoundBuildException().reset()
     CompoundBuildException().set_raise(False)
 
     query.compile(session)
-    deps: Dict[Node, List[ast.Table]] = {}
+    deps: Dict[NodeRevision, List[ast.Table]] = {}
     danglers: Dict[str, List[ast.Table]] = {}
     for table in query.find_all(ast.Table):
         if node := table.dj_node:
@@ -56,17 +56,17 @@ def extract_dependencies_from_str_query(
     query: str,
     dialect: Optional[str] = None,
     raise_: bool = True,
-) -> Tuple[ast.Query, Dict[Node, List[ast.Table]], Dict[str, List[ast.Table]]]:
+) -> Tuple[ast.Query, Dict[NodeRevision, List[ast.Table]], Dict[str, List[ast.Table]]]:
     """Find all dependencies in the a string query"""
     return extract_dependencies_from_query_ast(session, parse(query, dialect), raise_)
 
 
 def extract_dependencies_from_node(
     session: Session,
-    node: Node,
+    node: NodeRevision,
     dialect: Optional[str] = None,
     raise_: bool = True,
-) -> Tuple[ast.Query, Dict[Node, List[ast.Table]], Dict[str, List[ast.Table]]]:
+) -> Tuple[ast.Query, Dict[NodeRevision, List[ast.Table]], Dict[str, List[ast.Table]]]:
     """Find all immediate dependencies of a Node"""
     if node.query is None:
         raise DJException("Node has no query to extract from.")
