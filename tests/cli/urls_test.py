@@ -18,7 +18,12 @@ def test_run(capsys: CaptureFixture) -> None:
     assert (
         captured.out
         == """http://localhost:8000/docs: Documentation.
+http://localhost:8000/catalogs/: List all available catalogs
+http://localhost:8000/catalogs/{name}/: Return a catalog by name
+http://localhost:8000/catalogs/{name}/engines/: Attach one or more engines to a catalog
 http://localhost:8000/databases/: List the available databases.
+http://localhost:8000/engines/: List all available engines
+http://localhost:8000/engines/{name}/{version}/: Return an engine by name and version
 http://localhost:8000/queries/: Run or schedule a query.
 http://localhost:8000/queries/{query_id}/: Fetch information about a query.
 http://localhost:8000/metrics/: List all available metrics.
