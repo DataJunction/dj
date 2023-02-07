@@ -251,6 +251,7 @@ async def test_index_nodes(
     session.add(node)
     session.add(
         NodeRevision(
+            name=node.name,
             node=node,
             version="1",
             description="A Number of comments whose config was deleted",
@@ -277,6 +278,7 @@ async def test_index_nodes(
     assert sorted(configs, key=itemgetter("name")) == [
         {
             "name": "core.comments",
+            "display_name": "Core: Comments",
             "description": "A fact table with comments",
             "mode": "published",
             "type": NodeType.SOURCE,
@@ -289,6 +291,7 @@ async def test_index_nodes(
         },
         {
             "name": "core.dim_users",
+            "display_name": "Core: Dim Users",
             "description": "User dimension",
             "mode": "published",
             "type": NodeType.DIMENSION,
@@ -301,6 +304,7 @@ async def test_index_nodes(
         },
         {
             "name": "core.num_comments",
+            "display_name": "Core: Num Comments",
             "description": "Number of comments",
             "mode": "published",
             "type": NodeType.METRIC,
@@ -313,6 +317,7 @@ async def test_index_nodes(
         },
         {
             "name": "core.users",
+            "display_name": "Core: Users",
             "description": "A user table",
             "mode": "published",
             "type": NodeType.SOURCE,
@@ -561,6 +566,7 @@ async def test_update_node_config_user_attributes(
 
     node = Node(name="C", type=NodeType.SOURCE, current_version="1")
     node_revision = NodeRevision(
+        name=node.name,
         node=node,
         version="1",
         tables=[table_a, table_b],

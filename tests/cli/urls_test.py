@@ -32,7 +32,8 @@ http://localhost:8000/metrics/{name}/data/: Return data for a metric.
 http://localhost:8000/metrics/{name}/sql/: Return SQL for a metric.
 http://localhost:8000/nodes/validate/: Validate a node.
 http://localhost:8000/nodes/: List the available nodes.
-http://localhost:8000/nodes/{name}/: List the specified node and include all revisions.
+http://localhost:8000/nodes/{name}/: Show the active version of the specified node.
+http://localhost:8000/nodes/{name}/revisions/: List all revisions for the node.
 http://localhost:8000/data/availability/{node_name}/: Add an availability state to a node
 http://localhost:8000/graphql: GraphQL endpoint.
 """

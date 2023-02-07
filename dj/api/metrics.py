@@ -27,6 +27,7 @@ class Metric(SQLModel):
 
     id: int
     name: str
+    display_name: str
     current_version: str
     description: str = ""
 
