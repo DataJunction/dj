@@ -1,7 +1,7 @@
 """Create node histories table
 
 Revision ID: 06b0bef0a7e3
-Revises: 1780b415e2c5
+Revises: e6430f249401
 Create Date: 2023-02-05 17:58:43.317077+00:00
 
 """
@@ -14,7 +14,7 @@ from alembic import op
 
 # revision identifiers, used by Alembic.
 revision = "06b0bef0a7e3"
-down_revision = "1780b415e2c5"
+down_revision = "e6430f249401"
 branch_labels = None
 depends_on = None
 
