@@ -242,16 +242,16 @@ async def test_index_nodes(
         ),
     )
     session.add(Database(name="gsheets", URI="gsheets://"))
-    ref_node = Node(
+    node = Node(
         name="core.old_num_comments",
         type=NodeType.METRIC,
         current_version="1",
         created_at=datetime(2020, 1, 2, 0, 0),
     )
-    session.add(ref_node)
+    session.add(node)
     session.add(
         NodeRevision(
-            reference_node=ref_node,
+            node=node,
             version="1",
             description="A Number of comments whose config was deleted",
             updated_at=datetime(2020, 1, 2, 0, 0),
@@ -270,7 +270,7 @@ async def test_index_nodes(
     configs = [
         {
             **node.dict(exclude={"id": True}),
-            **node.current.dict(exclude={"id": True, "reference_node_id": True}),
+            **node.current.dict(exclude={"id": True, "node_id": True}),
         }
         for node in nodes
     ]
@@ -486,12 +486,12 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
         columns=[Column(name="ds", type=ColumnType.DATETIME)],
     )
 
-    ref_node = Node(name="C", type=NodeType.SOURCE, current_version=1)
-    node = NodeRevision(
-        name=ref_node.name,
-        type=ref_node.type,
-        reference_node=ref_node,
-        version=1,
+    node = Node(name="C", type=NodeType.SOURCE, current_version="1")
+    node_revision = NodeRevision(
+        name=node.name,
+        type=node.type,
+        node=node,
+        version="1",
         tables=[table_a, table_b],
         columns=[
             Column(name="ds", type=ColumnType.DATETIME),
@@ -504,7 +504,7 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
         contents=yaml.safe_dump({}),
     )
 
-    await update_node_config(node, path)
+    await update_node_config(node_revision, path)
 
     with open(path, encoding="utf-8") as input_:
         assert yaml.safe_load(input_) == {
@@ -525,7 +525,7 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
         "C",
     )
 
-    await update_node_config(node, path)
+    await update_node_config(node_revision, path)
     _logger.info.assert_called_with(
         "Node %s is up-do-date, skipping",
         "C",
@@ -559,10 +559,10 @@ async def test_update_node_config_user_attributes(
         columns=[Column(name="ds", type=ColumnType.DATETIME)],
     )
 
-    ref_node = Node(name="C", type=NodeType.SOURCE, current_version=1)
-    node = NodeRevision(
-        reference_node=ref_node,
-        version=1,
+    node = Node(name="C", type=NodeType.SOURCE, current_version="1")
+    node_revision = NodeRevision(
+        node=node,
+        version="1",
         tables=[table_a, table_b],
         columns=[
             Column(name="ds", type=ColumnType.DATETIME),
@@ -583,7 +583,7 @@ async def test_update_node_config_user_attributes(
         ),
     )
 
-    await update_node_config(node, path)
+    await update_node_config(node_revision, path)
 
     with open(path, encoding="utf-8") as input_:
         assert yaml.safe_load(input_) == {
@@ -604,7 +604,7 @@ async def test_update_node_config_user_attributes(
         "C",
     )
 
-    await update_node_config(node, path)
+    await update_node_config(node_revision, path)
     _logger.info.assert_called_with(
         "Node %s is up-do-date, skipping",
         "C",
@@ -625,12 +625,12 @@ async def test_update_node_config_sql_query(
     path = Path("/path/to/repository/configs/nodes/T.yaml")
     test_query = "SELECT foo FROM bar WHERE baz"
     fs.create_file(path, contents=yaml.safe_dump({"query": test_query}))
-    ref_node = Node(name="T", type=NodeType.TRANSFORM, current_version=1)
-    node = NodeRevision(
-        name=ref_node.name,
-        type=ref_node.type,
-        reference_node=ref_node,
-        version=1,
+    node = Node(name="T", type=NodeType.TRANSFORM, current_version="1")
+    node_revision = NodeRevision(
+        name=node.name,
+        type=node.type,
+        node=node,
+        version="1",
         query=test_query,
         columns=[
             Column(name="ds", type=ColumnType.DATETIME),
@@ -638,7 +638,7 @@ async def test_update_node_config_sql_query(
         ],
     )
 
-    await update_node_config(node, path)
+    await update_node_config(node_revision, path)
 
     with open(path, encoding="utf-8") as input_:
         assert yaml.safe_load(input_) == {
@@ -685,14 +685,14 @@ def test_add_dimensions_to_columns(mocker: MockerFixture, repository: Path) -> N
     session = mocker.MagicMock()
     dimension_ref = Node(
         name="users",
-        current_version=1,
+        current_version="1",
         type=NodeType.DIMENSION,
     )
     dimension = NodeRevision(
         name=dimension_ref.name,
         type=dimension_ref.type,
-        reference_node=dimension_ref,
-        version=1,
+        node=dimension_ref,
+        version="1",
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(name="uuid", type=ColumnType.INT),

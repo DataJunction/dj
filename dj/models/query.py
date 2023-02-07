@@ -12,13 +12,14 @@ import msgpack
 from pydantic import AnyHttpUrl
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship
 
+from dj.models.base import BaseSQLModel
 from dj.models.database import Database
 from dj.typing import QueryState, Row
 
 
-class BaseQuery(SQLModel):
+class BaseQuery(BaseSQLModel):
     """
     Base class for query models.
     """
@@ -61,7 +62,7 @@ class QueryCreate(BaseQuery):
     submitted_query: str
 
 
-class ColumnMetadata(SQLModel):
+class ColumnMetadata(BaseSQLModel):
     """
     A simple model for column metadata.
     """
@@ -70,7 +71,7 @@ class ColumnMetadata(SQLModel):
     type: str
 
 
-class StatementResults(SQLModel):
+class StatementResults(BaseSQLModel):
     """
     Results for a given statement.
 
@@ -85,7 +86,7 @@ class StatementResults(SQLModel):
     row_count: int = 0
 
 
-class QueryResults(SQLModel):
+class QueryResults(BaseSQLModel):
     """
     Results for a given query.
     """

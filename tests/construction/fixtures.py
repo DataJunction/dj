@@ -314,13 +314,13 @@ def construction_session(  # pylint: disable=too-many-locals
     countries_dim_ref = Node(
         name="basic.dimension.countries",
         type=NodeType.DIMENSION,
-        current_version=1,
+        current_version="1",
     )
     countries_dim = NodeRevision(
         name=countries_dim_ref.name,
         type=countries_dim_ref.type,
-        reference_node=countries_dim_ref,
-        version=1,
+        node=countries_dim_ref,
+        version="1",
         query="""
           SELECT country,
                  COUNT(1) AS user_cnt
@@ -336,13 +336,13 @@ def construction_session(  # pylint: disable=too-many-locals
     user_dim_ref = Node(
         name="basic.dimension.users",
         type=NodeType.DIMENSION,
-        current_version=1,
+        current_version="1",
     )
     user_dim = NodeRevision(
         name=user_dim_ref.name,
         type=user_dim_ref.type,
-        reference_node=user_dim_ref,
-        version=1,
+        node=user_dim_ref,
+        version="1",
         query="""
           SELECT id,
                  full_name,
@@ -367,13 +367,13 @@ def construction_session(  # pylint: disable=too-many-locals
     country_agg_tfm_ref = Node(
         name="basic.transform.country_agg",
         type=NodeType.TRANSFORM,
-        current_version=1,
+        current_version="1",
     )
     country_agg_tfm = NodeRevision(
         name=country_agg_tfm_ref.name,
         type=country_agg_tfm_ref.type,
-        reference_node=country_agg_tfm_ref,
-        version=1,
+        node=country_agg_tfm_ref,
+        version="1",
         query="""
         SELECT country,
                 COUNT(DISTINCT id) AS num_users
@@ -389,13 +389,13 @@ def construction_session(  # pylint: disable=too-many-locals
     users_src_ref = Node(
         name="basic.source.users",
         type=NodeType.SOURCE,
-        current_version=1,
+        current_version="1",
     )
     users_src = NodeRevision(
         name=users_src_ref.name,
         type=users_src_ref.type,
-        reference_node=users_src_ref,
-        version=1,
+        node=users_src_ref,
+        version="1",
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(name="full_name", type=ColumnType.STR),
@@ -445,13 +445,13 @@ def construction_session(  # pylint: disable=too-many-locals
     comments_src_ref = Node(
         name="basic.source.comments",
         type=NodeType.SOURCE,
-        current_version=1,
+        current_version="1",
     )
     comments_src = NodeRevision(
         name=comments_src_ref.name,
         type=comments_src_ref.type,
-        reference_node=comments_src_ref,
-        version=1,
+        node=comments_src_ref,
+        version="1",
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(
@@ -496,13 +496,13 @@ def construction_session(  # pylint: disable=too-many-locals
     num_comments_mtc_ref = Node(
         name="basic.num_comments",
         type=NodeType.METRIC,
-        current_version=1,
+        current_version="1",
     )
     num_comments_mtc = NodeRevision(
         name=num_comments_mtc_ref.name,
         type=num_comments_mtc_ref.type,
-        reference_node=num_comments_mtc_ref,
-        version=1,
+        node=num_comments_mtc_ref,
+        version="1",
         query="""
         SELECT COUNT(1) AS cnt
         FROM basic.source.comments
@@ -515,13 +515,13 @@ def construction_session(  # pylint: disable=too-many-locals
     num_users_mtc_ref = Node(
         name="basic.num_users",
         type=NodeType.METRIC,
-        current_version=1,
+        current_version="1",
     )
     num_users_mtc = NodeRevision(
         name=num_users_mtc_ref.name,
         type=num_users_mtc_ref.type,
-        reference_node=num_users_mtc_ref,
-        version=1,
+        node=num_users_mtc_ref,
+        version="1",
         query="""
         SELECT SUM(num_users)
         FROM basic.transform.country_agg
@@ -534,13 +534,13 @@ def construction_session(  # pylint: disable=too-many-locals
     customers_dim_ref = Node(
         name="dbt.dimension.customers",
         type=NodeType.DIMENSION,
-        current_version=1,
+        current_version="1",
     )
     customers_dim = NodeRevision(
         name=customers_dim_ref.name,
         type=customers_dim_ref.type,
-        reference_node=customers_dim_ref,
-        version=1,
+        node=customers_dim_ref,
+        version="1",
         query="""
           SELECT id,
              first_name,
@@ -557,13 +557,13 @@ def construction_session(  # pylint: disable=too-many-locals
     customers_agg_tfm_ref = Node(
         name="dbt.transform.customer_agg",
         type=NodeType.TRANSFORM,
-        current_version=1,
+        current_version="1",
     )
     customers_agg_tfm = NodeRevision(
         name=customers_agg_tfm_ref.name,
         type=customers_agg_tfm_ref.type,
-        reference_node=customers_agg_tfm_ref,
-        version=1,
+        node=customers_agg_tfm_ref,
+        version="1",
         query="""
           SELECT c.id,
                  c.first_name,
@@ -586,13 +586,13 @@ def construction_session(  # pylint: disable=too-many-locals
     orders_src_ref = Node(
         name="dbt.source.jaffle_shop.orders",
         type=NodeType.SOURCE,
-        current_version=1,
+        current_version="1",
     )
     orders_src = NodeRevision(
         name=orders_src_ref.name,
         type=orders_src_ref.type,
-        reference_node=orders_src_ref,
-        version=1,
+        node=orders_src_ref,
+        version="1",
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(
@@ -627,13 +627,13 @@ def construction_session(  # pylint: disable=too-many-locals
     customers_src_ref = Node(
         name="dbt.source.jaffle_shop.customers",
         type=NodeType.SOURCE,
-        current_version=1,
+        current_version="1",
     )
     customers_src = NodeRevision(
         name=customers_src_ref.name,
         type=customers_src_ref.type,
-        reference_node=customers_src_ref,
-        version=1,
+        node=customers_src_ref,
+        version="1",
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(name="first_name", type=ColumnType.STR),

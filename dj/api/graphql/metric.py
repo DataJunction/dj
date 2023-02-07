@@ -55,9 +55,9 @@ def read_metrics(info: Info) -> List[Metric]:
     session = info.context["session"]
     return [
         Metric.from_pydantic(  # type: ignore
-            Metric_.parse_reference_node(ref_node),
+            Metric_.parse_node(node),
         )
-        for ref_node in session.exec(
+        for node in session.exec(
             select(Node_).where(Node_.type == Node_Type.METRIC),
         )
     ]
@@ -68,12 +68,12 @@ def read_metric(node_name: str, info: Info) -> Metric:
     Return a metric by name.
     """
     try:
-        ref_node = get_metric(info.context["session"], node_name)
+        node = get_metric(info.context["session"], node_name)
     except HTTPException as exc:
         raise Exception(exc.detail) from exc
 
     return Metric.from_pydantic(  # type: ignore
-        Metric_.parse_reference_node(ref_node),
+        Metric_.parse_node(node),
     )
 
 

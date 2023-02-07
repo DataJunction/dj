@@ -76,5 +76,5 @@ def get_nodes(info: Info) -> List[Node]:
     """
     List the available nodes.
     """
-    ref_nodes = info.context["session"].exec(select(Node_)).all()
-    return [Node.from_pydantic(ref_node) for ref_node in ref_nodes]  # type: ignore
+    nodes = info.context["session"].exec(select(Node_)).all()
+    return [Node.from_pydantic(node) for node in nodes]  # type: ignore
