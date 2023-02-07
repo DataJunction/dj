@@ -79,7 +79,7 @@ def add_catalog(
 
     catalog = Catalog.from_orm(data)
     catalog.engines.extend(
-        filter_to_new_engines(
+        list_new_engines(
             session=session,
             catalog=catalog,
             create_engines=data.engines,
@@ -104,7 +104,7 @@ def add_engines_to_catalog(
     """
     catalog = get_catalog(session, name)
     catalog.engines.extend(
-        filter_to_new_engines(session=session, catalog=catalog, create_engines=data),
+        list_new_engines(session=session, catalog=catalog, create_engines=data),
     )
     session.add(catalog)
     session.commit()
@@ -112,7 +112,7 @@ def add_engines_to_catalog(
     return catalog
 
 
-def filter_to_new_engines(
+def list_new_engines(
     session: Session,
     catalog: Catalog,
     create_engines: List[EngineInfo],
