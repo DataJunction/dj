@@ -94,3 +94,12 @@ repos:
     language: system
     types: [python]
     exclude: ^templates/
+- repo: https://github.com/kynan/nbstripout
+  rev: 0.6.1
+  hooks:
+    - id: nbstripout
+- repo: https://github.com/tomcatling/black-nb
+  rev: "0.7"
+  hooks:
+    - id: black-nb
+      files: '\.ipynb$'
