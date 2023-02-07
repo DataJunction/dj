@@ -53,14 +53,14 @@ def test_evaluate_expression() -> None:
                 database=Database(name="test", URI="sqlite://"),
                 table="A",
                 columns=[
-                    Column(name="ds", type=ColumnType.DATETIME),
+                    Column(name="ds", type=ColumnType.TIMESTAMP),
                     Column(name="user_id", type=ColumnType.INT),
                     Column(name="foo", type=ColumnType.FLOAT),
                 ],
             ),
         ],
         columns=[
-            Column(name="ds", type=ColumnType.DATETIME),
+            Column(name="ds", type=ColumnType.TIMESTAMP),
             Column(name="user_id", type=ColumnType.INT),
             Column(name="foo", type=ColumnType.FLOAT),
         ],
@@ -69,7 +69,7 @@ def test_evaluate_expression() -> None:
 
     assert evaluate_expression([node_a_ref], get_expression("SELECT ds")) == Column(
         name="ds",
-        type=ColumnType.DATETIME,
+        type=ColumnType.TIMESTAMP,
     )
     assert evaluate_expression(
         [node_a_ref],
@@ -77,7 +77,7 @@ def test_evaluate_expression() -> None:
         "ds",
     ) == Column(
         name="ds",
-        type=ColumnType.DATETIME,
+        type=ColumnType.TIMESTAMP,
     )
     assert evaluate_expression(
         [node_a_ref],

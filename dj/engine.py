@@ -39,7 +39,7 @@ def get_columns_from_description(
         TypeEnum.STRING: ColumnType.STR,
         TypeEnum.BINARY: ColumnType.BYTES,
         TypeEnum.NUMBER: ColumnType.FLOAT,
-        TypeEnum.DATETIME: ColumnType.DATETIME,
+        TypeEnum.TIMESTAMP: ColumnType.TIMESTAMP,
     }
 
     columns = []

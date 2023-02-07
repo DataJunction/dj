@@ -126,4 +126,4 @@ def test_type_objects_and_constructors() -> None:
     assert dbapi.STRING
     assert dbapi.BINARY
     assert dbapi.NUMBER
-    assert dbapi.DATETIME
+    assert dbapi.TIMESTAMP

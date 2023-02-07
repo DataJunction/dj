@@ -24,13 +24,13 @@ def test_get_columns_from_description(mocker: MockerFixture) -> None:
     dialect.dbapi.STRING = "STRING"
     dialect.dbapi.BINARY = "BINARY"
     dialect.dbapi.NUMBER = "NUMBER"
-    dialect.dbapi.DATETIME = "DATETIME"
+    dialect.dbapi.TIMESTAMP = "TIMESTAMP"
 
     description: Description = [
         ("a", "STRING", "", "", "", "", False),
         ("b", "BINARY", "", "", "", "", False),
         ("c", "NUMBER", "", "", "", "", False),
-        ("d", "DATETIME", "", "", "", "", False),
+        ("d", "TIMESTAMP", "", "", "", "", False),
         ("e", "INVALID", "", "", "", "", False),
     ]
 
@@ -38,7 +38,7 @@ def test_get_columns_from_description(mocker: MockerFixture) -> None:
         ColumnMetadata(name="a", type=ColumnType.STR),
         ColumnMetadata(name="b", type=ColumnType.BYTES),
         ColumnMetadata(name="c", type=ColumnType.FLOAT),
-        ColumnMetadata(name="d", type=ColumnType.DATETIME),
+        ColumnMetadata(name="d", type=ColumnType.TIMESTAMP),
         ColumnMetadata(name="e", type=ColumnType.STR),
     ]
 

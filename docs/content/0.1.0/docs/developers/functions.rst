@@ -60,7 +60,7 @@ The humble ``COUNT()``.
 ``DATE_TRUNC``
 --------------
 
-Truncate a ``DATETIME`` column to a given resolution:
+Truncate a ``TIMESTAMP`` column to a given resolution:
 
 .. code-block:: sql
 
@@ -159,7 +159,7 @@ Let's take a look at the ``DATE_TRUNC`` function to understand this better. Some
 
         Eg:
 
-            > DATE_TRUNC('day', DATETIME '2022-01-01T12:34:56Z')
+            > DATE_TRUNC('day', TIMESTAMP '2022-01-01T12:34:56Z')
             2022-01-01T00:00:00Z
 
         """
@@ -198,7 +198,7 @@ To:
 
 .. code-block:: sql
 
-    DATETIME(STRFTIME("%Y-%m-%dT%H:%M:00", column))
+    TIMESTAMP(STRFTIME("%Y-%m-%dT%H:%M:00", column))
 
 
 The code above converts the column to a string, replacing the seconds with zeros, and then converts it back to a datetime, reproducing the behavior of ``DATE_TRUNC('minute', column)``.
