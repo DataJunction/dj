@@ -13,38 +13,38 @@ def test_get_nodes(session: Session, client: TestClient) -> None:
     """
     Test ``get_nodes``.
     """
-    ref_node1 = Node(
+    node1 = Node(
         name="not-a-metric",
         type=NodeType.SOURCE,
-        current_version=1,
+        current_version="1",
     )
-    node1 = NodeRevision(reference_node=ref_node1, version=1)
+    node_rev1 = NodeRevision(node=node1, version="1")
 
-    ref_node2 = Node(
+    node2 = Node(
         name="also-not-a-metric",
         type=NodeType.TRANSFORM,
-        current_version=1,
+        current_version="1",
     )
-    node2 = NodeRevision(
-        reference_node=ref_node2,
-        version=1,
+    node_rev2 = NodeRevision(
+        node=node2,
+        version="1",
         query="SELECT 42 AS answer",
         columns=[
             Column(name="answer", type=ColumnType.INT),
         ],
     )
-    ref_node3 = Node(name="a-metric", type=NodeType.METRIC, current_version=1)
-    node3 = NodeRevision(
-        reference_node=ref_node3,
-        version=1,
+    node3 = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
+    node_rev3 = NodeRevision(
+        node=node3,
+        version="1",
         query="SELECT COUNT(*) FROM my_table",
         columns=[
             Column(name="_col0", type=ColumnType.INT),
         ],
     )
-    session.add(node1)
-    session.add(node2)
-    session.add(node3)
+    session.add(node_rev1)
+    session.add(node_rev2)
+    session.add(node_rev3)
     session.commit()
 
     query = """

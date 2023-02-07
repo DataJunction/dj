@@ -11,8 +11,9 @@ from sqlalchemy import DateTime, String
 from sqlalchemy.engine import Engine
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
-from sqlmodel import JSON, Field, Relationship, SQLModel, create_engine
+from sqlmodel import JSON, Field, Relationship, create_engine
 
+from dj.models.base import BaseSQLModel
 from dj.utils import UTCDatetime
 
 if TYPE_CHECKING:
@@ -29,7 +30,7 @@ DatabaseYAML = TypedDict(
 )
 
 
-class Database(SQLModel, table=True):  # type: ignore
+class Database(BaseSQLModel, table=True):  # type: ignore
     """
     A database.
 

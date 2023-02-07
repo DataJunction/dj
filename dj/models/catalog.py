@@ -4,12 +4,13 @@ Models for columns.
 
 from typing import List, Optional
 
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship
 
+from dj.models.base import BaseSQLModel
 from dj.models.engine import Engine
 
 
-class CatalogEngines(SQLModel, table=True):  # type: ignore
+class CatalogEngines(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for catalogs and engines.
     """
@@ -26,7 +27,7 @@ class CatalogEngines(SQLModel, table=True):  # type: ignore
     )
 
 
-class Catalog(SQLModel, table=True):  # type: ignore
+class Catalog(BaseSQLModel, table=True):  # type: ignore
     """
     A catalog.
     """

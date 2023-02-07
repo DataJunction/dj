@@ -55,7 +55,7 @@ def generate_build_plan_from_query(
 
         node_mat_dbs = get_materialized_databases_for_node(node, columns)
         build_plan = None
-        if node.reference_node.type != NodeType.SOURCE:
+        if node.node.type != NodeType.SOURCE:
             build_plan = generate_build_plan_from_node(session, node, dialect)
         databases[node] = (node_mat_dbs, build_plan)
 
@@ -117,7 +117,7 @@ def _level_database(
     levels[level].append(dbi)
 
     for node, (sub_build_dbs, sub_sub_build_plan) in sub_build_plan.items():
-        if node.reference_node.type == NodeType.SOURCE:
+        if node.node.type == NodeType.SOURCE:
             source_dbs.update(sub_build_dbs)
         if sub_sub_build_plan:
             _level_database(sub_sub_build_plan, levels, level + 1)

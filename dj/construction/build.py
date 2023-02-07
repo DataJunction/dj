@@ -68,16 +68,16 @@ def _build_dimensions_on_select(
                             dim_col.name == "id" for dim_col in dim_node.columns
                         ):
                             raise DJException(
-                                f"Node {table_node.reference_node.name} specifiying dimension "
-                                f"{dim_node.reference_node.name} on column {col.name} does not"
-                                f" specify a dimension column, but {dim_node.reference_node.name} "
+                                f"Node {table_node.node.name} specifiying dimension "
+                                f"{dim_node.node.name} on column {col.name} does not"
+                                f" specify a dimension column, but {dim_node.node.name} "
                                 f"does not have the default key `id`.",
                             )
                         join_dim_cols.append(col)
 
                 join_info[table_node] = join_dim_cols
             if build_plan_depth > 0:  # continue following build plan
-                alias = amenable_name(dim_node.reference_node.name)
+                alias = amenable_name(dim_node.node.name)
 
                 _, dim_build_plan = build_plan_lookup[dim_node]
                 dim_ast = dim_build_plan[0]
@@ -159,7 +159,7 @@ def _build_tables_on_select(
     for node, tbls in tables.items():
 
         if (
-            node.reference_node.type != NodeType.SOURCE and build_plan_depth > 0
+            node.node.type != NodeType.SOURCE and build_plan_depth > 0
         ):  # continue following build plan
             _, node_build_plan = build_plan_lookup[node]
             node_ast = node_build_plan[0]
@@ -170,7 +170,7 @@ def _build_tables_on_select(
                 database,
                 dialect,
             )
-            alias = amenable_name(node.reference_node.name)
+            alias = amenable_name(node.node.name)
             node_select = node_ast.select
             node_ast = ast.Alias(ast.Name(alias), child=node_select)  # type: ignore
             for tbl in tbls:

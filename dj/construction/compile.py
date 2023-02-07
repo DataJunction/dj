@@ -405,7 +405,7 @@ def compile_node(
     """
     if node.query is None:
         raise DJException(
-            f"Cannot compile node `{node.reference_node.name}` with no query.",
+            f"Cannot compile node `{node.node.name}` with no query.",
         )
     query = parse(node.query, dialect)
     query.compile(session)
