@@ -16,6 +16,7 @@ from sqlmodel import JSON, Field, Relationship, SQLModel, create_engine
 from dj.utils import UTCDatetime
 
 if TYPE_CHECKING:
+    from dj.models.catalog import Catalog
     from dj.models.query import Query
     from dj.models.table import Table
 

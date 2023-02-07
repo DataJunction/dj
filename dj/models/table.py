@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, List, Optional, TypedDict
 from sqlmodel import Field, Relationship, SQLModel
 
 if TYPE_CHECKING:
+    from dj.models.catalog import Catalog
     from dj.models.column import Column
     from dj.models.database import Database
     from dj.models.node import NodeRevision
