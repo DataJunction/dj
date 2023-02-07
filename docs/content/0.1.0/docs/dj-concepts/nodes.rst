@@ -16,9 +16,9 @@ A summary of things that are true of all nodes:
 
 * All nodes have a name and a description
 * All nodes have a schema defined as named columns, each with a specific type
-* All nodes have a system defined state of either valid or invalid
+* All nodes have a system-defined state of either valid or invalid
 * All nodes have a user-defined mode of either draft or published
-* All nodes track the parent nodes they depend on and the children nodes that depend on them
+* All nodes track the parent nodes they depend on
 
 In addition to these universal statements about nodes, there are things that are common to a subset of node types.
 
@@ -36,7 +36,7 @@ Source Nodes
 Real tables in a database or data warehouse are represented in DJ as source nodes. Each source node has a name and that
 name can be used by transform and dimension nodes as a “virtual” reference to the real table. In fact, you can change
 the table name in a source node’s definition to use a different real table and as long as the table schema is the same,
-you can be certain that all valid nodes will remain valid.
+you can be certain that all valid downstream nodes will remain valid.
 
 If a DJ deployment uses a reflection service, the main responsibility of that reflection service is to keep the schema
 defined in the source node in sync with the schema of the real table. This ensures that breaking changes to real tables
@@ -139,8 +139,8 @@ Dimension Nodes
 ---------------
 
 One of the benefits of DJ is that it can easily find all of the available dimensions that you can use to group metrics
-as well as all of the metrics that can be grouped by a set of dimensions. Defining a dimension node includes a query to generate the dimension dataset as well as a label of the
-dimension’s primary key(s).
+as well as all of the metrics that can be grouped by a set of dimensions. Defining a dimension node includes a query to
+generate the dimension dataset as well as a label of the dimension’s primary key(s).
 
 If another node includes a foreign key for an existing dimension node, you can include a reference to the dimension
 node’s primary key in the other node’s definition. Furthermore, a dimension itself can include a foreign key that
