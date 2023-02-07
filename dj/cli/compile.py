@@ -364,12 +364,12 @@ async def add_node(  # pylint: disable=too-many-locals
 
     # check if the node was already indexed and if it's up-to-date
     query = select(Node).where(Node.name == name)
-    ref_node = session.exec(query).one_or_none()
+    node = session.exec(query).one_or_none()
 
-    if ref_node and ref_node.current:
+    if node and node.current:
         # compare file modification time with timestamp on DB
         mtime = path.stat().st_mtime
-        updated_at = ref_node.current.updated_at
+        updated_at = node.current.updated_at
 
         # SQLite will drop the timezone info; in that case we assume it's UTC
         if updated_at.tzinfo is None:
@@ -377,11 +377,11 @@ async def add_node(  # pylint: disable=too-many-locals
 
         if not force and updated_at > datetime.fromtimestamp(mtime, tz=timezone.utc):
             _logger.info("Node %s is up-do-date, skipping", name)
-            return ref_node
+            return node
 
     ref_config = {
         "name": name,
-        "created_at": ref_node.created_at if ref_node else datetime.now(timezone.utc),
+        "created_at": node.created_at if node else datetime.now(timezone.utc),
         "type": data["type"],
     }
 
@@ -420,36 +420,36 @@ async def add_node(  # pylint: disable=too-many-locals
     # enrich columns with dimensions
     add_dimensions_to_columns(session, data, config["columns"])  # type: ignore
 
-    if ref_node:
+    if node:
         _logger.info("Updating node %s", name)
 
         # delete old tables, otherwise they're left behind without a node id
-        for table in ref_node.current.tables:
+        for table in node.current.tables:
             session.delete(table)
 
-        node = ref_node.current
+        node_revision = node.current
         for attr, value in config.items():
             if attr not in {"name", "path"}:
-                setattr(node, attr, value)
+                setattr(node_revision, attr, value)
     else:
         _logger.info("Creating node %s", name)
-        node = NodeRevision(**config)
+        node_revision = NodeRevision(**config)
 
-    if not ref_node:
-        ref_node = Node(**ref_config)
+    if not node:
+        node = Node(**ref_config)
 
-    node.reference_node = ref_node
-    node.extra_validation()
+    node_revision.node = node
+    node_revision.extra_validation()
 
-    session.add(node)
+    session.add(node_revision)
     session.flush()
+    session.refresh(node_revision)
     session.refresh(node)
-    session.refresh(ref_node)
 
     # write node back to YAML, with column information
-    await update_node_config(node, path)
+    await update_node_config(node_revision, path)
 
-    return ref_node
+    return node
 
 
 def add_dimensions_to_columns(
@@ -536,12 +536,12 @@ async def update_node_config(node: NodeRevision, path: Path) -> None:
                     updated["columns"][name][key] = value  # type: ignore
 
     if updated == original:
-        _logger.info("Node %s is up-do-date, skipping", node.reference_node.name)
+        _logger.info("Node %s is up-do-date, skipping", node.node.name)
         return
 
     _logger.info(
         "Updating node %s config with column information",
-        node.reference_node.name,
+        node.node.name,
     )
     with open(path, "w", encoding="utf-8") as output:
         yaml.safe_dump(updated, output, sort_keys=False)

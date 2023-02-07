@@ -35,14 +35,14 @@ def test_get_select_for_node_materialized(mocker: MockerFixture) -> None:
     """
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
-    parent_ref = Node(name="A", current_version=1)
-    parent = NodeRevision(name="A", reference_node=parent_ref, version=1)
+    parent_ref = Node(name="A", current_version="1")
+    parent = NodeRevision(name="A", node=parent_ref, version="1")
     parent_ref.current = parent
 
-    child_ref = Node(name="B", current_version=1)
+    child_ref = Node(name="B", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -72,10 +72,10 @@ def test_get_select_for_node_not_materialized(mocker: MockerFixture) -> None:
     """
     database = Database(id=1, name="db", URI="sqlite://")
 
-    parent_ref = Node(name="A", current_version=1)
+    parent_ref = Node(name="A", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -102,10 +102,10 @@ def test_get_select_for_node_not_materialized(mocker: MockerFixture) -> None:
     connection.execute("CREATE TABLE A_fast (one TEXT)")
     mocker.patch("dj.models.database.create_engine", return_value=engine)
 
-    child_ref = Node(name="B", current_version=1)
+    child_ref = Node(name="B", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         query="SELECT COUNT(*) AS cnt FROM A",
         parents=[parent_ref],
     )
@@ -137,10 +137,10 @@ def test_get_select_for_node_choose_slow(mocker: MockerFixture) -> None:
     """
     database = Database(id=1, name="db", URI="sqlite://")
 
-    parent_ref = Node(name="A", current_version=1)
+    parent_ref = Node(name="A", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -171,10 +171,10 @@ def test_get_select_for_node_choose_slow(mocker: MockerFixture) -> None:
     connection.execute("CREATE TABLE A_fast (one TEXT)")
     mocker.patch("dj.models.database.create_engine", return_value=engine)
 
-    child_ref = Node(name="B", current_version=1)
+    child_ref = Node(name="B", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         query="SELECT COUNT(*) AS cnt FROM A WHERE two = 'test'",
         parents=[parent_ref],
     )
@@ -197,10 +197,10 @@ def test_get_select_for_node_projection(mocker: MockerFixture) -> None:
     """
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
-    parent_ref = Node(name="A", current_version=1)
+    parent_ref = Node(name="A", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -223,10 +223,10 @@ def test_get_select_for_node_projection(mocker: MockerFixture) -> None:
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
     mocker.patch("dj.models.database.create_engine", return_value=engine)
 
-    child_ref = Node(name="B", current_version=1)
+    child_ref = Node(name="B", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         query="SELECT one, MAX(two), 3, 4.0, 'five' FROM A",
         parents=[parent_ref],
     )
@@ -248,10 +248,10 @@ def test_get_select_for_node_where(mocker: MockerFixture) -> None:
     """
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
-    parent_ref = Node(name="A", current_version=1)
+    parent_ref = Node(name="A", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -274,10 +274,10 @@ def test_get_select_for_node_where(mocker: MockerFixture) -> None:
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
     mocker.patch("dj.models.database.create_engine", return_value=engine)
 
-    child_ref = Node(name="B", current_version=1)
+    child_ref = Node(name="B", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         query="SELECT one, MAX(two), 3, 4.0, 'five' FROM A WHERE one > 10",
         parents=[parent_ref],
     )
@@ -300,10 +300,10 @@ def test_get_select_for_node_groupby(mocker: MockerFixture) -> None:
     """
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
-    parent_ref = Node(name="A", current_version=1)
+    parent_ref = Node(name="A", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -326,10 +326,10 @@ def test_get_select_for_node_groupby(mocker: MockerFixture) -> None:
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
     mocker.patch("dj.models.database.create_engine", return_value=engine)
 
-    child_ref = Node(name="B", current_version=1)
+    child_ref = Node(name="B", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         query="SELECT one, MAX(two) FROM A GROUP BY one",
         parents=[parent_ref],
     )
@@ -351,10 +351,10 @@ def test_get_select_for_node_limit(mocker: MockerFixture) -> None:
     """
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
-    parent_ref = Node(name="A", current_version=1)
+    parent_ref = Node(name="A", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -377,10 +377,10 @@ def test_get_select_for_node_limit(mocker: MockerFixture) -> None:
     connection.execute("CREATE TABLE A (one TEXT, two TEXT)")
     mocker.patch("dj.models.database.create_engine", return_value=engine)
 
-    child_ref = Node(name="B", current_version=1)
+    child_ref = Node(name="B", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         query="SELECT one, MAX(two) FROM A LIMIT 10",
         parents=[parent_ref],
     )
@@ -442,10 +442,10 @@ def test_get_select_for_node_with_join(mocker: MockerFixture) -> None:
     Test ``get_select_for_node`` when the node query has a join.
     """
     database = Database(id=1, name="db", URI="sqlite://")
-    parent_1_ref = Node(name="A", current_version=1)
+    parent_1_ref = Node(name="A", current_version="1")
     parent_1 = NodeRevision(
-        reference_node=parent_1_ref,
-        version=1,
+        node=parent_1_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -462,10 +462,10 @@ def test_get_select_for_node_with_join(mocker: MockerFixture) -> None:
         ],
     )
     parent_1_ref.current = parent_1
-    parent_2_ref = Node(name="B", current_version=1)
+    parent_2_ref = Node(name="B", current_version="1")
     parent_2 = NodeRevision(
-        reference_node=parent_2_ref,
-        version=1,
+        node=parent_2_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -489,10 +489,10 @@ def test_get_select_for_node_with_join(mocker: MockerFixture) -> None:
     connection.execute("CREATE TABLE B (two TEXT, three TEXT)")
     mocker.patch("dj.models.database.create_engine", return_value=engine)
 
-    child_ref = Node(name="B", current_version=1)
+    child_ref = Node(name="B", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         query="SELECT COUNT(*) FROM A JOIN B ON A.two = B.two WHERE B.three > 1",
         parents=[parent_1_ref, parent_2_ref],
     )

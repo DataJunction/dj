@@ -20,29 +20,29 @@ def test_read_metrics(session: Session, client: TestClient) -> None:
     """
     Test ``GET /metrics/``.
     """
-    ref_node1 = Node(
+    node1 = Node(
         name="not-a-metric",
         type=NodeType.TRANSFORM,
-        current_version=1,
+        current_version="1",
     )
-    node1 = NodeRevision(reference_node=ref_node1, version=ref_node1.current_version)
+    node_rev1 = NodeRevision(node=node1, version=node1.current_version)
 
-    ref_node2 = Node(
+    node2 = Node(
         name="also-not-a-metric",
         type=NodeType.TRANSFORM,
-        current_version=1,
+        current_version="1",
     )
-    node2 = NodeRevision(reference_node=ref_node2, query="SELECT 42", version=1)
+    node_rev2 = NodeRevision(node=node2, query="SELECT 42", version="1")
 
-    ref_node3 = Node(name="a-metric", type=NodeType.METRIC, current_version=1)
-    node3 = NodeRevision(
-        reference_node=ref_node3,
-        version=1,
+    node3 = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
+    node_rev3 = NodeRevision(
+        node=node3,
+        version="1",
         query="SELECT COUNT(*) FROM my_table",
     )
-    session.add(node1)
-    session.add(node2)
-    session.add(node3)
+    session.add(node_rev1)
+    session.add(node_rev2)
+    session.add(node_rev3)
     session.commit()
 
     response = client.get("/metrics/")
@@ -58,8 +58,8 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     """
     Test ``GET /metric/{node_id}/``.
     """
-    parent = NodeRevision(
-        version=1,
+    parent_rev = NodeRevision(
+        version="1",
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -77,26 +77,26 @@ def test_read_metric(session: Session, client: TestClient) -> None:
             Column(name="foo", type=ColumnType.FLOAT),
         ],
     )
-    parent_ref_node = Node(
+    parent_node = Node(
         name="parent",
         type=NodeType.SOURCE,
-        current_version=1,
+        current_version="1",
     )
-    parent.reference_node = parent_ref_node
+    parent_rev.node = parent_node
 
-    child_ref_node = Node(
+    child_node = Node(
         name="child",
         type=NodeType.METRIC,
-        current_version=1,
+        current_version="1",
     )
-    child = NodeRevision(
-        reference_node=child_ref_node,
-        version=1,
+    child_rev = NodeRevision(
+        node=child_node,
+        version="1",
         query="SELECT COUNT(*) FROM parent",
-        parents=[parent_ref_node],
+        parents=[parent_node],
     )
 
-    session.add(child)
+    session.add(child_rev)
     session.commit()
 
     response = client.get("/metrics/child/")
@@ -113,14 +113,14 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
     Test errors on ``GET /metrics/{node_id}/``.
     """
     database = Database(name="test", URI="sqlite://")
-    ref_node = Node(
+    node = Node(
         name="a-metric",
         type=NodeType.TRANSFORM,
-        current_version=1,
+        current_version="1",
     )
-    node = NodeRevision(reference_node=ref_node, version=1, query="SELECT 1 AS col")
+    node_revision = NodeRevision(node=node, version="1", query="SELECT 1 AS col")
     session.add(database)
-    session.add(node)
+    session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
@@ -142,14 +142,14 @@ def test_read_metrics_data(
     Test ``GET /metrics/{node_id}/data/``.
     """
     database = Database(name="test", URI="sqlite://")
-    ref_node = Node(name="a-metric", type=NodeType.METRIC, current_version=1)
-    node = NodeRevision(
-        reference_node=ref_node,
-        version=1,
+    node = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
+    node_revision = NodeRevision(
+        node=node,
+        version="1",
         query="SELECT COUNT(*) FROM my_table",
     )
     session.add(database)
-    session.add(node)
+    session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
@@ -185,10 +185,10 @@ def test_read_metrics_data_errors(session: Session, client: TestClient) -> None:
     Test errors on ``GET /metrics/{node_id}/data/``.
     """
     database = Database(name="test", URI="sqlite://")
-    ref_node = Node(name="a-metric", current_version=1)
-    node = NodeRevision(reference_node=ref_node, version=1, query="SELECT 1 AS col")
+    node = Node(name="a-metric", current_version="1")
+    node_revision = NodeRevision(node=node, version="1", query="SELECT 1 AS col")
     session.add(database)
-    session.add(node)
+    session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
@@ -210,15 +210,15 @@ def test_read_metrics_sql(
     Test ``GET /metrics/{node_id}/sql/``.
     """
     database = Database(name="test", URI="sqlite://")
-    ref_node = Node(name="a-metric", type=NodeType.METRIC, current_version=1)
-    node = NodeRevision(
-        reference_node=ref_node,
-        version=1,
+    node = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
+    node_revision = NodeRevision(
+        node=node,
+        version="1",
         query="SELECT COUNT(*) FROM my_table",
         type=NodeType.METRIC,
     )
     session.add(database)
-    session.add(node)
+    session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 

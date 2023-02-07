@@ -108,12 +108,12 @@ async def test_raise_on_build_without_required_dimension_column(mocker, request)
             ),
         ),
     )[0]
-    node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version=1)
+    node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version="1")
     node_foo = NodeRevision(
         name=node_foo_ref.name,
         type=node_foo_ref.type,
-        reference_node=node_foo_ref,
-        version=1,
+        node=node_foo_ref,
+        version="1",
         query="""SELECT num_users FROM basic.transform.country_agg""",
         columns=[
             Column(
@@ -126,12 +126,12 @@ async def test_raise_on_build_without_required_dimension_column(mocker, request)
     construction_session.add(node_foo)
     construction_session.flush()
 
-    node_bar_ref = Node(name="bar", type=NodeType.TRANSFORM, current_version=1)
+    node_bar_ref = Node(name="bar", type=NodeType.TRANSFORM, current_version="1")
     node_bar = NodeRevision(
         name=node_bar_ref.name,
         type=node_bar_ref.type,
-        reference_node=node_bar_ref,
-        version=1,
+        node=node_bar_ref,
+        version="1",
         query="""SELECT num_users FROM foo GROUP BY basic.dimension.countries.country""",
         columns=[
             Column(name="num_users", type=ColumnType.STR),
@@ -197,10 +197,10 @@ async def test_build_metric_with_database_id_specified(mocker, request):
     mocker.patch("dj.models.database.Database.do_ping", return_value=True)
 
     construction_session: Session = request.getfixturevalue("construction_session")
-    node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version=1)
+    node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version="1")
     node_foo = NodeRevision(
-        reference_node=node_foo_ref,
-        version=1,
+        node=node_foo_ref,
+        version="1",
         query="""SELECT num_users FROM basic.transform.country_agg""",
         columns=[
             Column(name="num_users", type=ColumnType.STR),
@@ -245,10 +245,10 @@ async def test_build_node_for_database_with_unnamed_column(mocker, request):
     mocker.patch("dj.models.database.Database.do_ping", return_value=True)
 
     construction_session: Session = request.getfixturevalue("construction_session")
-    node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version=1)
+    node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version="1")
     node_foo = NodeRevision(
-        reference_node=node_foo_ref,
-        version=1,
+        node=node_foo_ref,
+        version="1",
         query="""SELECT 1 FROM basic.dimension.countries""",
         columns=[
             Column(name="_col1", type=ColumnType.INT),

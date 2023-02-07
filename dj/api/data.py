@@ -32,17 +32,17 @@ def add_availability(
     try:
         statement = select(Node).where(Node.name == node_name)
         results = session.exec(statement)
-        existing_ref_node = results.one()
+        existing_node = results.one()
     except NoResultFound as exc:
         raise DJException(
             message=f"Cannot add availability state, node `{node_name}` does not exist",
         ) from exc
 
     # Source nodes require that any availability states set are for one of the defined tables
-    existing_node = existing_ref_node.current
-    if existing_ref_node.type == NodeType.SOURCE:
+    existing_node_revision = existing_node.current
+    if existing_node.type == NodeType.SOURCE:
         matches = False
-        for table in existing_node.tables:
+        for table in existing_node_revision.tables:
             if (
                 table.catalog == new_availability.catalog
                 and table.schema_ == new_availability.schema_
@@ -63,23 +63,29 @@ def add_availability(
 
     # Merge the new availability state with the current availability state if one exists
     if (
-        existing_node.availability
-        and existing_node.availability.catalog == new_availability.catalog
-        and existing_node.availability.schema_ == new_availability.schema_
-        and existing_node.availability.table == new_availability.table
+        existing_node_revision.availability
+        and existing_node_revision.availability.catalog == new_availability.catalog
+        and existing_node_revision.availability.schema_ == new_availability.schema_
+        and existing_node_revision.availability.table == new_availability.table
     ):
         # Currently, we do not consider type information. We should eventually check the type of
         # the partition values in order to cast them before sorting.
         new_availability.max_partition = max(
-            (existing_node.availability.max_partition, new_availability.max_partition),
+            (
+                existing_node_revision.availability.max_partition,
+                new_availability.max_partition,
+            ),
         )
         new_availability.min_partition = min(
-            (existing_node.availability.min_partition, new_availability.min_partition),
+            (
+                existing_node_revision.availability.min_partition,
+                new_availability.min_partition,
+            ),
         )
 
     db_new_availability = AvailabilityState.from_orm(new_availability)
-    existing_node.availability = db_new_availability
-    session.add(existing_node)
+    existing_node_revision.availability = db_new_availability
+    session.add(existing_node_revision)
     session.commit()
     return JSONResponse(
         status_code=200,

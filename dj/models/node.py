@@ -12,9 +12,10 @@ from pydantic import Extra
 from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship
 from typing_extensions import TypedDict
 
+from dj.models.base import BaseSQLModel
 from dj.models.column import Column, ColumnYAML
 from dj.models.table import CreateTable, Table, TableNodeRevision, TableYAML
 from dj.sql.parse import is_metric
@@ -22,7 +23,7 @@ from dj.typing import ColumnType
 from dj.utils import UTCDatetime
 
 
-class NodeRelationship(SQLModel, table=True):  # type: ignore
+class NodeRelationship(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for self-referential many-to-many relationships between nodes.
     """
@@ -46,7 +47,7 @@ class NodeRelationship(SQLModel, table=True):  # type: ignore
     )
 
 
-class NodeColumns(SQLModel, table=True):  # type: ignore
+class NodeColumns(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for node columns.
     """
@@ -121,18 +122,18 @@ class NodeYAML(TypedDict, total=False):
     tables: Dict[str, List[TableYAML]]
 
 
-class ReferenceNodeBase(SQLModel):
+class NodeBase(BaseSQLModel):
     """
-    A base reference node.
+    A base node.
     """
 
     name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
     type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
 
 
-class NodeBase(SQLModel):
+class NodeRevisionBase(BaseSQLModel):
     """
-    A base node.
+    A base node revision.
     """
 
     name: str = Field(
@@ -145,7 +146,7 @@ class NodeBase(SQLModel):
     mode: NodeMode = NodeMode.PUBLISHED
 
 
-class MissingParent(SQLModel, table=True):  # type: ignore
+class MissingParent(BaseSQLModel, table=True):  # type: ignore
     """
     A missing parent node
     """
@@ -158,7 +159,7 @@ class MissingParent(SQLModel, table=True):  # type: ignore
     )
 
 
-class NodeMissingParents(SQLModel, table=True):  # type: ignore
+class NodeMissingParents(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for missing parents
     """
@@ -175,7 +176,7 @@ class NodeMissingParents(SQLModel, table=True):  # type: ignore
     )
 
 
-class AvailabilityStateBase(SQLModel):
+class AvailabilityStateBase(BaseSQLModel):
     """
     An availability state base
     """
@@ -200,7 +201,7 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
     )
 
 
-class NodeAvailabilityState(SQLModel, table=True):  # type: ignore
+class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for availability state
     """
@@ -217,9 +218,9 @@ class NodeAvailabilityState(SQLModel, table=True):  # type: ignore
     )
 
 
-class Node(ReferenceNodeBase, table=True):  # type: ignore
+class Node(NodeBase, table=True):  # type: ignore
     """
-    Reference node that acts as an umbrella for all node revisions
+    Node that acts as an umbrella for all node revisions
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -230,10 +231,10 @@ class Node(ReferenceNodeBase, table=True):  # type: ignore
         default_factory=partial(datetime.now, timezone.utc),
     )
 
-    revisions: List["NodeRevision"] = Relationship(back_populates="reference_node")
+    revisions: List["NodeRevision"] = Relationship(back_populates="node")
     current: "NodeRevision" = Relationship(
         sa_relationship_kwargs={
-            "primaryjoin": "and_(Node.id==NodeRevision.reference_node_id, "
+            "primaryjoin": "and_(Node.id==NodeRevision.node_id, "
             "Node.current_version == NodeRevision.version)",
             "viewonly": True,
             "uselist": False,
@@ -253,15 +254,15 @@ class Node(ReferenceNodeBase, table=True):  # type: ignore
         return hash(self.id)
 
 
-class NodeRevision(NodeBase, table=True):  # type: ignore
+class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     """
-    A node.
+    A node revision.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
     version: Optional[str] = Field(default="1")
-    reference_node_id: Optional[int] = Field(foreign_key="node.id")
-    reference_node: Node = Relationship(back_populates="revisions")
+    node_id: Optional[int] = Field(foreign_key="node.id")
+    node: Node = Relationship(back_populates="revisions")
 
     status: NodeStatus = NodeStatus.INVALID
     updated_at: UTCDatetime = Field(
@@ -376,7 +377,7 @@ class NodeRevision(NodeBase, table=True):  # type: ignore
                 )
 
 
-class ImmutableNodeFields(SQLModel):
+class ImmutableNodeFields(BaseSQLModel):
     """
     Node fields that cannot be changed
     """
@@ -385,7 +386,7 @@ class ImmutableNodeFields(SQLModel):
     type: NodeType
 
 
-class MutableNodeFields(SQLModel):
+class MutableNodeFields(BaseSQLModel):
     """
     Node fields that can be changed.
     """
@@ -404,7 +405,7 @@ class SourceNodeColumnType(TypedDict, total=False):
     dimension: Optional[str]
 
 
-class SourceNodeFields(SQLModel):
+class SourceNodeFields(BaseSQLModel):
     """
     Source node fields that can be changed.
     """

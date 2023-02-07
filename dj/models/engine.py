@@ -4,10 +4,12 @@ Models for columns.
 
 from typing import Optional
 
-from sqlmodel import Field, SQLModel
+from sqlmodel import Field
+
+from dj.models.base import BaseSQLModel
 
 
-class Engine(SQLModel, table=True):  # type: ignore
+class Engine(BaseSQLModel, table=True):  # type: ignore
     """
     A query engine.
     """

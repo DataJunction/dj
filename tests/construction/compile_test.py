@@ -159,24 +159,24 @@ def test_compile_node(construction_session: Session):
     """
     Test compiling a node
     """
-    ref_node_a = Node(name="A", current_version=1)
-    node_a = NodeRevision(
-        reference_node=ref_node_a,
-        version=1,
+    node_a = Node(name="A", current_version="1")
+    node_a_rev = NodeRevision(
+        node=node_a,
+        version="1",
         query="SELECT country FROM basic.transform.country_agg",
     )
-    compile_node(session=construction_session, node=node_a)
+    compile_node(session=construction_session, node=node_a_rev)
 
 
 def test_raise_on_compile_node_with_no_query(construction_session: Session):
     """
     Test raising when compiling a node that has no query
     """
-    ref_node_a = Node(name="A", current_version=1)
-    node_a = NodeRevision(reference_node=ref_node_a, version=1)
+    node_a = Node(name="A", current_version="1")
+    node_a_rev = NodeRevision(node=node_a, version="1")
 
     with pytest.raises(DJException) as exc_info:
-        compile_node(session=construction_session, node=node_a)
+        compile_node(session=construction_session, node=node_a_rev)
 
     assert "Cannot compile node `A` with no query" in str(exc_info.value)
 
@@ -185,10 +185,10 @@ def test_raise_on_unjoinable_automatic_dimension_groupby(construction_session: S
     """
     Test raising where a dimension node is automatically detected but unjoinable
     """
-    ref_node_a = Node(name="A", current_version=1)
-    node_a = NodeRevision(
-        reference_node=ref_node_a,
-        version=1,
+    node_a = Node(name="A", current_version="1")
+    node_a_rev = NodeRevision(
+        node=node_a,
+        version="1",
         query=(
             "SELECT country FROM basic.transform.country_agg "
             "GROUP BY basic.dimension.countries.country"
@@ -196,7 +196,7 @@ def test_raise_on_unjoinable_automatic_dimension_groupby(construction_session: S
     )
 
     with pytest.raises(DJException) as exc_info:
-        compile_node(session=construction_session, node=node_a)
+        compile_node(session=construction_session, node=node_a_rev)
 
     assert "Dimension `basic.dimension.countries` is not joinable" in str(
         exc_info.value,
@@ -207,17 +207,17 @@ def test_raise_on_having_without_a_groupby(construction_session: Session):
     """
     Test raising when using a having without a groupby
     """
-    ref_node_a = Node(name="A", current_version=1)
-    node_a = NodeRevision(
-        reference_node=ref_node_a,
-        version=1,
+    node_a = Node(name="A", current_version="1")
+    node_a_rev = NodeRevision(
+        node=node_a,
+        version="1",
         query=(
             "SELECT country FROM basic.transform.country_agg " "HAVING country='US'"
         ),
     )
 
     with pytest.raises(DJException) as exc_info:
-        compile_node(session=construction_session, node=node_a)
+        compile_node(session=construction_session, node=node_a_rev)
 
     assert "HAVING without a GROUP BY is not allowed" in str(exc_info.value)
 
@@ -226,14 +226,14 @@ def test_having(construction_session: Session):
     """
     Test using having
     """
-    ref_node_a = Node(name="A", current_version=1)
-    node_a = NodeRevision(
-        reference_node=ref_node_a,
-        version=1,
+    node_a = Node(name="A", current_version="1")
+    node_a_rev = NodeRevision(
+        node=node_a,
+        version="1",
         query=(
             "SELECT order_date, status FROM dbt.source.jaffle_shop.orders "
             "GROUP BY dbt.dimension.customers.id "
             "HAVING dbt.dimension.customers.id=1"
         ),
     )
-    compile_node(session=construction_session, node=node_a)
+    compile_node(session=construction_session, node=node_a_rev)

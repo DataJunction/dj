@@ -16,14 +16,14 @@ def test_read_node(session: Session, client: TestClient) -> None:
     """
     Test ``GET /nodes/{node_id}``.
     """
-    ref_node = Node(name="something", type=NodeType.SOURCE, current_version=1)
-    node = NodeRevision(
-        name=ref_node.name,
-        type=ref_node.type,
-        reference_node=ref_node,
-        version=1,
+    node = Node(name="something", type=NodeType.SOURCE, current_version="1")
+    node_revision = NodeRevision(
+        name=node.name,
+        type=node.type,
+        node=node,
+        version="1",
     )
-    session.add(node)
+    session.add(node_revision)
     session.commit()
 
     response = client.get("/nodes/something/")
@@ -46,46 +46,46 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     """
     Test ``GET /nodes/``.
     """
-    ref_node1 = Node(
+    node1 = Node(
         name="not-a-metric",
         type=NodeType.SOURCE,
-        current_version=1,
+        current_version="1",
     )
-    node1 = NodeRevision(
-        reference_node=ref_node1,
-        version=1,
-        name=ref_node1.name,
-        type=ref_node1.type,
+    node_rev1 = NodeRevision(
+        node=node1,
+        version="1",
+        name=node1.name,
+        type=node1.type,
     )
-    ref_node2 = Node(
+    node2 = Node(
         name="also-not-a-metric",
         type=NodeType.TRANSFORM,
-        current_version=1,
+        current_version="1",
     )
-    node2 = NodeRevision(
-        name=ref_node2.name,
-        reference_node=ref_node2,
-        version=1,
+    node_rev2 = NodeRevision(
+        name=node2.name,
+        node=node2,
+        version="1",
         query="SELECT 42 AS answer",
-        type=ref_node2.type,
+        type=node2.type,
         columns=[
             Column(name="answer", type=ColumnType.INT),
         ],
     )
-    ref_node3 = Node(name="a-metric", type=NodeType.METRIC, current_version=1)
-    node3 = NodeRevision(
-        name=ref_node3.name,
-        reference_node=ref_node3,
-        version=1,
+    node3 = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
+    node_rev3 = NodeRevision(
+        name=node3.name,
+        node=node3,
+        version="1",
         query="SELECT COUNT(*) FROM my_table",
         columns=[
             Column(name="_col0", type=ColumnType.INT),
         ],
-        type=ref_node3.type,
+        type=node3.type,
     )
-    session.add(node1)
-    session.add(node2)
-    session.add(node3)
+    session.add(node_rev1)
+    session.add(node_rev2)
+    session.add(node_rev3)
     session.commit()
 
     response = client.get("/nodes/")
@@ -224,16 +224,16 @@ class TestCreateOrUpdateNodes:
                 Column(name="user_id", type=ColumnType.INT),
             ],
         )
-        ref_node = Node(
+        node = Node(
             name="basic.source.users",
             type=NodeType.SOURCE,
-            current_version=1,
+            current_version="1",
         )
-        node = NodeRevision(
-            reference_node=ref_node,
-            name=ref_node.name,
-            type=ref_node.type,
-            version=1,
+        node_revision = NodeRevision(
+            node=node,
+            name=node.name,
+            type=node.type,
+            version="1",
             tables=[table],
             columns=[
                 Column(name="id", type=ColumnType.INT),
@@ -244,9 +244,9 @@ class TestCreateOrUpdateNodes:
                 Column(name="preferred_language", type=ColumnType.STR),
             ],
         )
-        session.add(node)
+        session.add(node_revision)
         session.commit()
-        return ref_node
+        return node
 
     def test_create_update_source_node(
         self,
@@ -269,7 +269,7 @@ class TestCreateOrUpdateNodes:
         assert data["current_version"] == "1"
         assert data["current"]["name"] == "comments"
         assert data["current"]["version"] == "1"
-        assert data["current"]["reference_node_id"] == 1
+        assert data["current"]["node_id"] == 1
         assert data["current"]["description"] == "A fact table with comments"
         assert data["current"]["query"] is None
         assert data["current"]["columns"] == [
@@ -302,7 +302,7 @@ class TestCreateOrUpdateNodes:
         assert data["current_version"] == "2"
         assert data["current"]["name"] == "comments"
         assert data["current"]["version"] == "2"
-        assert data["current"]["reference_node_id"] == 1
+        assert data["current"]["node_id"] == 1
         assert data["current"]["description"] == "New description"
 
         # Try to update node with no changes
@@ -572,16 +572,16 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Add nodes to facilitate testing of the validation route
         """
 
-        ref_node1 = Node(
+        node1 = Node(
             name="revenue_source",
             type=NodeType.SOURCE,
-            current_version=1,
+            current_version="1",
         )
-        node1 = NodeRevision(
-            name=ref_node1.name,
-            type=ref_node1.type,
-            reference_node=ref_node1,
-            version=1,
+        node_rev1 = NodeRevision(
+            name=node1.name,
+            type=node1.type,
+            node=node1,
+            version="1",
             columns=[
                 Column(name="payment_id", type=ColumnType.INT),
                 Column(name="payment_amount", type=ColumnType.FLOAT),
@@ -589,16 +589,16 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 Column(name="account_type", type=ColumnType.STR),
             ],
         )
-        ref_node2 = Node(
+        node2 = Node(
             name="large_revenue_payments_only",
             type=NodeType.TRANSFORM,
-            current_version=1,
+            current_version="1",
         )
-        node2 = NodeRevision(
-            reference_node=ref_node2,
-            name=ref_node2.name,
-            type=ref_node2.type,
-            version=1,
+        node_rev2 = NodeRevision(
+            node=node2,
+            name=node2.name,
+            type=node2.type,
+            version="1",
             query=(
                 "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM revenue_source WHERE payment_amount > 1000000"
@@ -611,16 +611,16 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             ],
         )
 
-        ref_node3 = Node(
+        node3 = Node(
             name="large_revenue_payments_and_business_only",
             type=NodeType.TRANSFORM,
-            current_version=1,
+            current_version="1",
         )
-        node3 = NodeRevision(
-            reference_node=ref_node3,
-            name=ref_node3.name,
-            type=ref_node3.type,
-            version=1,
+        node_rev3 = NodeRevision(
+            node=node3,
+            name=node3.name,
+            type=node3.type,
+            version="1",
             query=(
                 "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM revenue_source WHERE payment_amount > 1000000 "
@@ -633,9 +633,9 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 Column(name="account_type", type=ColumnType.STR),
             ],
         )
-        session.add(node1)
-        session.add(node2)
-        session.add(node3)
+        session.add(node_rev1)
+        session.add(node_rev2)
+        session.add(node_rev3)
         session.commit()
         return session
 
@@ -667,17 +667,17 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
         ]
         assert data["status"] == "valid"
-        assert data["node"]["status"] == "valid"
+        assert data["node_revision"]["status"] == "valid"
         assert data["dependencies"][0]["name"] == "large_revenue_payments_only"
         assert data["message"] == "Node `foo` is valid"
-        assert data["node"]["id"] is None
-        assert data["node"]["mode"] == "published"
-        assert data["node"]["name"] == "foo"
+        assert data["node_revision"]["id"] is None
+        assert data["node_revision"]["mode"] == "published"
+        assert data["node_revision"]["name"] == "foo"
         assert (
-            data["node"]["query"]
+            data["node_revision"]["query"]
             == "SELECT payment_id FROM large_revenue_payments_only"
         )
-        assert data["ref_node"]["type"] == "transform"
+        assert data["node"]["type"] == "transform"
 
     def test_validating_an_invalid_node(self, client: TestClient) -> None:
         """
@@ -776,9 +776,9 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data["message"] == "Node `foo` is valid"
         assert data["status"] == "valid"
-        assert data["ref_node"]["name"] == "foo"
-        assert data["node"]["mode"] == "draft"
-        assert data["node"]["status"] == "valid"
+        assert data["node"]["name"] == "foo"
+        assert data["node_revision"]["mode"] == "draft"
+        assert data["node_revision"]["status"] == "valid"
         assert data["columns"] == [
             {
                 "id": None,
