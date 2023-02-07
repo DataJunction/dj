@@ -2,7 +2,7 @@
 Models for columns.
 """
 
-from typing import TYPE_CHECKING, Optional, TypedDict
+from typing import TYPE_CHECKING, Optional, Tuple, TypedDict
 
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship
@@ -46,6 +46,12 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         return {
             "type": str(self.type),  # pylint: disable=no-member
         }
+
+    def identifier(self) -> Tuple[str, ColumnType]:
+        """
+        Unique identifier for this column.
+        """
+        return self.name, self.type
 
     def __hash__(self) -> int:
         return hash(self.id)

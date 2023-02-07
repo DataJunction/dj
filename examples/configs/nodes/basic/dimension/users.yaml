@@ -1,4 +1,5 @@
 description: User dimension
+display_name: 'Basic: Dimension: Users'
 type: dimension
 query: |-
   SELECT id,

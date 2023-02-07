@@ -1,4 +1,5 @@
 description: Number of comments
+display_name: 'Basic: Num Comments'
 type: metric
 query: |-
   SELECT COUNT(1) AS cnt

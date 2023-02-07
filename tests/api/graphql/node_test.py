@@ -18,7 +18,7 @@ def test_get_nodes(session: Session, client: TestClient) -> None:
         type=NodeType.SOURCE,
         current_version="1",
     )
-    node_rev1 = NodeRevision(node=node1, version="1")
+    node_rev1 = NodeRevision(name=node1.name, node=node1, version="1")
 
     node2 = Node(
         name="also-not-a-metric",
@@ -26,6 +26,7 @@ def test_get_nodes(session: Session, client: TestClient) -> None:
         current_version="1",
     )
     node_rev2 = NodeRevision(
+        name=node2.name,
         node=node2,
         version="1",
         query="SELECT 42 AS answer",
@@ -35,6 +36,7 @@ def test_get_nodes(session: Session, client: TestClient) -> None:
     )
     node3 = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
     node_rev3 = NodeRevision(
+        name=node3.name,
         node=node3,
         version="1",
         query="SELECT COUNT(*) FROM my_table",

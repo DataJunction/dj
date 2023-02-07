@@ -1,4 +1,5 @@
 description: A user table
+display_name: 'Basic: Source: Users'
 type: source
 columns:
   id:

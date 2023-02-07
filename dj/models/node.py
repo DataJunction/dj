@@ -10,6 +10,7 @@ from typing import Dict, List, Optional, cast
 
 from pydantic import Extra
 from sqlalchemy import JSON, DateTime, String
+from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship
@@ -116,10 +117,31 @@ class NodeYAML(TypedDict, total=False):
     """
 
     description: str
+    display_name: str
     type: NodeType
     query: str
     columns: Dict[str, ColumnYAML]
     tables: Dict[str, List[TableYAML]]
+
+
+def labelize(value: str) -> str:
+    """
+    Turn a system name into a human-readable name.
+    """
+
+    return value.replace(".", ": ").replace("_", " ").title()
+
+
+def generate_display_name(column_name: str):
+    """
+    SQLAlchemy helper to generate a human-readable version of the given system name.
+    """
+
+    def default_function(context: DefaultExecutionContext) -> str:
+        column_value = context.current_parameters.get(column_name)
+        return labelize(column_value)
+
+    return default_function
 
 
 class NodeBase(BaseSQLModel):
@@ -129,6 +151,15 @@ class NodeBase(BaseSQLModel):
 
     name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
     type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
+    display_name: Optional[str] = Field(
+        sa_column=SqlaColumn(
+            "display_name",
+            String,
+            unique=True,
+            default=generate_display_name("name"),
+        ),
+        max_length=100,
+    )
 
 
 class NodeRevisionBase(BaseSQLModel):
@@ -139,6 +170,15 @@ class NodeRevisionBase(BaseSQLModel):
     name: str = Field(
         sa_column=SqlaColumn("name", String, unique=False),
         foreign_key="node.name",
+    )
+    display_name: Optional[str] = Field(
+        sa_column=SqlaColumn(
+            "display_name",
+            String,
+            unique=False,
+            default=generate_display_name("name"),
+        ),
+        foreign_key="node.display_name",
     )
     type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
     description: str = ""
@@ -334,6 +374,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
 
         data = {
             "description": self.description,
+            "display_name": self.display_name,
             "type": self.type.value,  # pylint: disable=no-member
             "query": self.query,
             "columns": {
@@ -391,6 +432,7 @@ class MutableNodeFields(BaseSQLModel):
     Node fields that can be changed.
     """
 
+    display_name: Optional[str]
     description: str
     query: Optional[str]
     mode: NodeMode

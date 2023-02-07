@@ -1,4 +1,5 @@
 description: Country level agg table
+display_name: 'Dbt: Transform: Customer Agg'
 type: transform
 query: |-
   SELECT "dbt.source.jaffle_shop.customers".id,

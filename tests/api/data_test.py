@@ -28,6 +28,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             current_version="1",
         )
         node_rev1 = NodeRevision(
+            name=node1.name,
             node=node1,
             version="1",
             columns=[
@@ -51,6 +52,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             current_version="1",
         )
         node_rev2 = NodeRevision(
+            name=node2.name,
             node=node2,
             version="1",
             type=NodeType.TRANSFORM,
@@ -67,6 +69,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             current_version="1",
         )
         node_rev3 = NodeRevision(
+            name=node3.name,
             node=node3,
             version="1",
             query=(

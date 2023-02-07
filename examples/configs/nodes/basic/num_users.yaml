@@ -1,4 +1,5 @@
 description: Number of users.
+display_name: 'Basic: Num Users'
 type: metric
 query: |-
   SELECT SUM(num_users)

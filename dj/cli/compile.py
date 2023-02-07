@@ -32,7 +32,7 @@ from dj.constants import (
 )
 from dj.models.column import Column
 from dj.models.database import Database
-from dj.models.node import Node, NodeRevision, NodeType, NodeYAML
+from dj.models.node import Node, NodeRevision, NodeType, NodeYAML, labelize
 from dj.models.query import Query  # pylint: disable=unused-import
 from dj.models.table import Table
 from dj.sql.dag import render_dag
@@ -387,6 +387,9 @@ async def add_node(  # pylint: disable=too-many-locals
 
     config = {
         "name": name,
+        "display_name": data["display_name"]
+        if "display_name" in data
+        else labelize(name),
         "description": data["description"],
         "updated_at": datetime.now(timezone.utc),
         "type": data["type"],

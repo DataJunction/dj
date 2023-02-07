@@ -7,6 +7,8 @@ from http import HTTPStatus
 from typing import Dict, List, Optional, Tuple, Union
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy.orm import joinedload
 from sqlmodel import Session, SQLModel, select
 
 from dj.construction.extract import extract_dependencies_from_node
@@ -60,32 +62,50 @@ class NodeRevisionMetadata(SQLModel):
     A node with information about columns and if it is a metric.
     """
 
-    id: int
-    name: str
-    version: str
-    node_id: Optional[int]
-    description: str = ""
-
-    updated_at: UTCDatetime
-
+    id: int = Field(alias="node_revision_id")
+    node_id: int
     type: NodeType
+    name: str
+    display_name: str
+    version: str
+    description: str = ""
     query: Optional[str] = None
     availability: Optional[AvailabilityState] = None
     columns: List[SimpleColumn]
     tables: List[TableMetadata]
+    updated_at: UTCDatetime
+
+    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        allow_population_by_field_name = True
 
 
-class NodeMetadata(SQLModel):
+class OutputModel(BaseModel):
+    """
+    An output model with the ability to flatten fields. When fields are created with
+    `Field(flatten=True)`, the field's values will be automatically flattened into the
+    parent output model.
+    """
+
+    def _iter(self, *args, to_dict: bool = False, **kwargs):
+        for dict_key, value in super()._iter(to_dict, *args, **kwargs):
+            if to_dict and self.__fields__[dict_key].field_info.extra.get(
+                "flatten",
+                False,
+            ):
+                assert isinstance(value, dict)
+                for key, val in value.items():
+                    yield key, val
+            else:
+                yield dict_key, value
+
+
+class NodeMetadata(OutputModel):
     """
     A node that shows the current revision.
     """
 
-    id: int
-    name: str
-    type: NodeType
-    current_version: str
+    current: NodeRevisionMetadata = Field(flatten=True)
     created_at: UTCDatetime
-    current: NodeRevisionMetadata
 
 
 class NodeWithRevisions(NodeMetadata):
@@ -186,18 +206,16 @@ def read_nodes(*, session: Session = Depends(get_session)) -> List[NodeMetadata]
     """
     List the available nodes.
     """
-    nodes = session.exec(select(Node)).all()
+    nodes = session.exec(select(Node).options(joinedload(Node.current))).all()
     return nodes
 
 
-@router.get("/nodes/{name}/", response_model=NodeWithRevisions)
-def read_node(
-    name: str, *, session: Session = Depends(get_session)
-) -> NodeWithRevisions:
+@router.get("/nodes/{name}/", response_model=NodeMetadata)
+def read_node(name: str, *, session: Session = Depends(get_session)) -> NodeMetadata:
     """
-    List the specified node and include all revisions.
+    Show the active version of the specified node.
     """
-    statement = select(Node).where(Node.name == name)
+    statement = select(Node).where(Node.name == name).options(joinedload(Node.current))
     node = session.exec(statement).one_or_none()
     if not node:
         raise HTTPException(
@@ -205,6 +223,25 @@ def read_node(
             detail=f"Node not found: `{name}`",
         )
     return node  # type: ignore
+
+
+@router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionMetadata])
+def list_node_revisions(
+    name: str, *, session: Session = Depends(get_session)
+) -> List[NodeRevisionMetadata]:
+    """
+    List all revisions for the node.
+    """
+    statement = select(Node).where(
+        Node.name == name,
+    )
+    node = session.exec(statement).one_or_none()
+    if not node:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail=f"Node not found: `{name}`",
+        )
+    return node.revisions  # type: ignore
 
 
 def check_databases_registered(
@@ -325,7 +362,7 @@ def create_node(
 
     session.add(node)
     session.commit()
-    session.refresh(node)
+    session.refresh(node.current)
     return node  # type: ignore
 
 
@@ -357,6 +394,9 @@ def update_node(
     old_tables = old_revision.tables
     new_revision = NodeRevision(
         name=old_revision.name,
+        display_name=(
+            old_revision.display_name if not data.display_name else data.display_name
+        ),
         description=(
             old_revision.description if not data.description else data.description
         ),
@@ -420,15 +460,17 @@ def update_node(
         and old_revision.query == new_revision.query
         and old_revision.description == new_revision.description
         and old_revision.mode == new_revision.mode
+        and old_revision.display_name == new_revision.display_name
     )
     source_node_change_check = (
         old_revision.type == NodeType.SOURCE
-        and {table.id for table in old_tables}
-        == {table.id for table in new_revision.tables}
-        and {col.id for col in old_revision.columns}
-        == {col.id for col in new_revision.columns}
+        and {table.identifier() for table in old_tables}
+        == {table.identifier() for table in new_revision.tables}
+        and {col.identifier() for col in old_revision.columns}
+        == {col.identifier() for col in new_revision.columns}
         and old_revision.description == new_revision.description
         and old_revision.mode == new_revision.mode
+        and old_revision.display_name == new_revision.display_name
     )
     if node_change_check or source_node_change_check:
         return node  # type: ignore
@@ -442,5 +484,5 @@ def update_node(
 
     session.add(node)
     session.commit()
-    session.refresh(node)
+    session.refresh(node.current)
     return node  # type: ignore
