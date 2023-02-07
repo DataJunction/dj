@@ -30,10 +30,10 @@ def test_get_computable_databases() -> None:
     database_2 = Database(id=2, name="not shared", URI="sqlite://", cost=2.0)
     database_3 = Database(id=3, name="fast", URI="sqlite://", cost=0.1)
 
-    parent_a_ref = Node(name="A", current_version=1)
+    parent_a_ref = Node(name="A", current_version="1")
     parent_a = NodeRevision(
-        reference_node=parent_a_ref,
-        version=1,
+        node=parent_a_ref,
+        version="1",
         tables=[
             Table(database=database_1, table="A"),
             Table(database=database_2, table="A"),
@@ -41,18 +41,18 @@ def test_get_computable_databases() -> None:
     )
     parent_a_ref.current = parent_a
 
-    parent_b_ref = Node(name="B", current_version=1)
+    parent_b_ref = Node(name="B", current_version="1")
     parent_b = NodeRevision(
-        reference_node=parent_b_ref,
-        version=1,
+        node=parent_b_ref,
+        version="1",
         tables=[Table(database=database_1, table="B")],
     )
     parent_b_ref.current = parent_b
 
-    child_ref = Node(name="C", current_version=1)
+    child_ref = Node(name="C", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         tables=[Table(database=database_3, table="C")],
         parents=[parent_a_ref, parent_b_ref],
     )
@@ -78,10 +78,10 @@ def test_get_computable_databases_heterogeneous_columns() -> None:
     database_1 = Database(id=1, name="one", URI="sqlite://", cost=1.0)
     database_2 = Database(id=2, name="two", URI="sqlite://", cost=2.0)
 
-    parent_ref = Node(name="core.A", current_version=1)
+    parent_ref = Node(name="core.A", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=database_1,
@@ -106,10 +106,10 @@ def test_get_computable_databases_heterogeneous_columns() -> None:
     )
     parent_ref.current = parent
 
-    child_1_ref = Node(name="core.B", current_version=1)
+    child_1_ref = Node(name="core.B", current_version="1")
     child_1 = NodeRevision(
-        reference_node=child_1_ref,
-        version=1,
+        node=child_1_ref,
+        version="1",
         query="SELECT COUNT(core.A.user_id) FROM core.A",
         parents=[parent_ref],
     )
@@ -118,10 +118,10 @@ def test_get_computable_databases_heterogeneous_columns() -> None:
     assert {database.name for database in get_computable_databases(child_1)} == {
         "one",
     }
-    child_2_ref = Node(name="core.C", current_version=1)
+    child_2_ref = Node(name="core.C", current_version="1")
     child_2 = NodeRevision(
-        reference_node=child_2_ref,
-        version=1,
+        node=child_2_ref,
+        version="1",
         query="SELECT COUNT(user_id) FROM core.A",
         parents=[parent_ref],
     )
@@ -137,10 +137,10 @@ def test_get_referenced_columns_from_sql() -> None:
     Test ``get_referenced_columns_from_sql``.
     """
     database = Database(id=1, name="one", URI="sqlite://", cost=1.0)
-    parent_1_ref = Node(name="core.A", current_version=1)
+    parent_1_ref = Node(name="core.A", current_version="1")
     parent_1 = NodeRevision(
-        reference_node=parent_1_ref,
-        version=1,
+        node=parent_1_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -157,10 +157,10 @@ def test_get_referenced_columns_from_sql() -> None:
         ],
     )
     parent_1_ref.current = parent_1
-    parent_2_ref = Node(name="core.B", current_version=1)
+    parent_2_ref = Node(name="core.B", current_version="1")
     parent_2 = NodeRevision(
-        reference_node=parent_2_ref,
-        version=1,
+        node=parent_2_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -225,10 +225,10 @@ def test_get_dimensions() -> None:
     """
     database = Database(id=1, name="one", URI="sqlite://")
 
-    dimension_ref = Node(name="B", type=NodeType.DIMENSION, current_version=1)
+    dimension_ref = Node(name="B", type=NodeType.DIMENSION, current_version="1")
     dimension = NodeRevision(
-        reference_node=dimension_ref,
-        version=1,
+        node=dimension_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -246,10 +246,10 @@ def test_get_dimensions() -> None:
     )
     dimension_ref.current = dimension
 
-    parent_ref = Node(name="A", current_version=1)
+    parent_ref = Node(name="A", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=database,
@@ -267,10 +267,10 @@ def test_get_dimensions() -> None:
     )
     parent_ref.current = parent
 
-    child_ref = Node(name="C", current_version=1)
+    child_ref = Node(name="C", current_version="1")
     child = NodeRevision(
-        reference_node=child_ref,
-        version=1,
+        node=child_ref,
+        version="1",
         query="SELECT COUNT(*) FROM A",
         parents=[parent_ref],
     )
@@ -291,10 +291,10 @@ async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     session = next(get_session())
     session.exec().all.return_value = [database_1, database_2]
 
-    parent_ref = Node(name="parent", current_version=1)
+    parent_ref = Node(name="parent", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=database_2,

@@ -18,14 +18,14 @@ def test_infer_column_with_table(construction_session: Session):
     """
     Test getting the type of a column that has a table
     """
-    ref_node = next(
+    node = next(
         construction_session.exec(
             select(Node).filter(
                 Node.name == "dbt.source.jaffle_shop.orders",
             ),
         ),
     )[0]
-    table = ast.Table(ast.Name("orders"), _dj_node=ref_node.current)
+    table = ast.Table(ast.Name("orders"), _dj_node=node.current)
     assert (
         get_type_of_expression(ast.Column(ast.Name("id"), _table=table))
         == ColumnType.INT
@@ -75,14 +75,14 @@ def test_infer_column_with_an_aliased_table(construction_session: Session):
     """
     Test getting the type of a column that has an aliased table
     """
-    ref_node = next(
+    node = next(
         construction_session.exec(
             select(Node).filter(
                 Node.name == "dbt.source.jaffle_shop.orders",
             ),
         ),
     )[0]
-    table = ast.Table(ast.Name("orders"), _dj_node=ref_node.current)
+    table = ast.Table(ast.Name("orders"), _dj_node=node.current)
     alias = ast.Alias(
         ast.Name("foo"),
         ast.Namespace([ast.Name("a"), ast.Name("b"), ast.Name("c")]),

@@ -22,14 +22,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Add nodes to facilitate testing of availability state updates
         """
 
-        ref_node1 = Node(
+        node1 = Node(
             name="revenue_source",
             type=NodeType.SOURCE,
-            current_version=1,
+            current_version="1",
         )
-        node1 = NodeRevision(
-            reference_node=ref_node1,
-            version=1,
+        node_rev1 = NodeRevision(
+            node=node1,
+            version="1",
             columns=[
                 Column(name="payment_id", type=ColumnType.INT),
                 Column(name="payment_amount", type=ColumnType.FLOAT),
@@ -45,14 +45,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 ),
             ],
         )
-        ref_node2 = Node(
+        node2 = Node(
             name="large_revenue_payments_only",
             type=NodeType.TRANSFORM,
-            current_version=1,
+            current_version="1",
         )
-        node2 = NodeRevision(
-            reference_node=ref_node2,
-            version=1,
+        node_rev2 = NodeRevision(
+            node=node2,
+            version="1",
             type=NodeType.TRANSFORM,
             columns=[
                 Column(name="payment_id", type=ColumnType.INT),
@@ -61,14 +61,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 Column(name="account_type", type=ColumnType.STR),
             ],
         )
-        ref_node3 = Node(
+        node3 = Node(
             name="large_revenue_payments_and_business_only",
             type=NodeType.TRANSFORM,
-            current_version=1,
+            current_version="1",
         )
-        node3 = NodeRevision(
-            reference_node=ref_node3,
-            version=1,
+        node_rev3 = NodeRevision(
+            node=node3,
+            version="1",
             query=(
                 "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM revenue_source WHERE payment_amount > 1000000 "
@@ -82,9 +82,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 Column(name="account_type", type=ColumnType.STR),
             ],
         )
-        session.add(node1)
-        session.add(node2)
-        session.add(node3)
+        session.add(node_rev1)
+        session.add(node_rev2)
+        session.add(node_rev3)
         session.commit()
         return session
 

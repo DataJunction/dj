@@ -19,9 +19,9 @@ from dj.models.node import (
     CreateNode,
     CreateSourceNode,
     Node,
-    NodeBase,
     NodeMode,
     NodeRevision,
+    NodeRevisionBase,
     NodeStatus,
     NodeType,
     UpdateNode,
@@ -63,7 +63,7 @@ class NodeRevisionMetadata(SQLModel):
     id: int
     name: str
     version: str
-    reference_node_id: Optional[int]
+    node_id: Optional[int]
     description: str = ""
 
     updated_at: UTCDatetime
@@ -77,7 +77,7 @@ class NodeRevisionMetadata(SQLModel):
 
 class NodeMetadata(SQLModel):
     """
-    A reference node that shows the current revision.
+    A node that shows the current revision.
     """
 
     id: int
@@ -103,23 +103,23 @@ class NodeValidation(SQLModel):
 
     message: str
     status: NodeStatus
-    ref_node: Node
-    node: NodeRevision
+    node: Node
+    node_revision: NodeRevision
     dependencies: List[NodeRevisionMetadata]
     columns: List[Column]
 
 
 def validate(
-    data: Union[NodeBase, NodeRevision],
+    data: Union[NodeRevisionBase, NodeRevision],
     session: Session = Depends(get_session),
 ) -> Tuple[Node, NodeRevision, Dict[NodeRevision, List[ast.Table]]]:
     """
     Validate a node.
     """
 
-    ref_node = Node(name=data.name, type=data.type)
-    node = NodeRevision.parse_obj(data)
-    node.reference_node = ref_node
+    node = Node(name=data.name, type=data.type)
+    node_revision = NodeRevision.parse_obj(data)
+    node_revision.node = node
 
     # Try to parse the node's query and extract dependencies
     try:
@@ -129,14 +129,14 @@ def validate(
             missing_parents_map,
         ) = extract_dependencies_from_node(
             session=session,
-            node=node,
+            node=node_revision,
             raise_=False,
         )
     except ValueError as exc:
         raise DJException(message=str(exc)) from exc
 
     # Only raise on missing parents if the node mode is set to published
-    if missing_parents_map and node.mode == NodeMode.PUBLISHED:
+    if missing_parents_map and node_revision.mode == NodeMode.PUBLISHED:
         raise DJException(
             errors=[
                 DJError(
@@ -149,18 +149,18 @@ def validate(
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
-    node.columns = [
+    node_revision.columns = [
         Column(name=col.name.name, type=get_type_of_expression(col))  # type: ignore
         for col in query_ast.select.projection
     ]
 
-    node.status = NodeStatus.VALID
-    return ref_node, node, dependencies_map
+    node_revision.status = NodeStatus.VALID
+    return node, node_revision, dependencies_map
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
-    data: Union[NodeBase, NodeRevision],
+    data: Union[NodeRevisionBase, NodeRevision],
     session: Session = Depends(get_session),
 ) -> NodeValidation:
     """
@@ -170,24 +170,24 @@ def validate_node(
     if data.type == NodeType.SOURCE:
         raise DJException(message="Source nodes cannot be validated")
 
-    ref_node, node, dependencies_map = validate(data, session)
+    node, node_revision, dependencies_map = validate(data, session)
     return NodeValidation(
-        message=f"Node `{ref_node.name}` is valid",
+        message=f"Node `{node.name}` is valid",
         status=NodeStatus.VALID,
-        ref_node=ref_node,
         node=node,
+        node_revision=node_revision,
         dependencies=set(dependencies_map.keys()),
-        columns=node.columns,
+        columns=node_revision.columns,
     )
 
 
 @router.get("/nodes/", response_model=List[NodeMetadata])
 def read_nodes(*, session: Session = Depends(get_session)) -> List[NodeMetadata]:
     """
-    List the available reference nodes.
+    List the available nodes.
     """
-    ref_nodes = session.exec(select(Node)).all()
-    return ref_nodes
+    nodes = session.exec(select(Node)).all()
+    return nodes
 
 
 @router.get("/nodes/{name}/", response_model=NodeWithRevisions)
@@ -195,16 +195,16 @@ def read_node(
     name: str, *, session: Session = Depends(get_session)
 ) -> NodeWithRevisions:
     """
-    List the specified reference node and include all revisions
+    List the specified node and include all revisions.
     """
     statement = select(Node).where(Node.name == name)
-    ref_node = session.exec(statement).one_or_none()
-    if not ref_node:
+    node = session.exec(statement).one_or_none()
+    if not node:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
             detail=f"Node not found: `{name}`",
         )
-    return ref_node  # type: ignore
+    return node  # type: ignore
 
 
 def check_databases_registered(
@@ -305,28 +305,28 @@ def create_node(
     Create a node.
     """
     query = select(Node).where(Node.name == data.name)
-    ref_node = session.exec(query).one_or_none()
-    if ref_node:
+    node = session.exec(query).one_or_none()
+    if node:
         raise DJException(f"A node with name `{data.name}` already exists.")
 
-    ref_node = Node(name=data.name, type=data.type, current_version=0)
+    node = Node(name=data.name, type=data.type, current_version=0)
 
     if data.type == NodeType.SOURCE:
         node_revision = create_source_node_revision(data, session)
     else:
         node_revision = create_node_revision(data, session)
 
-    # Point the reference node to the new node revision.
-    node_revision.reference_node = ref_node
-    node_revision.version = str(int(ref_node.current_version) + 1)
-    ref_node.current_version = node_revision.version
+    # Point the node to the new node revision.
+    node_revision.node = node
+    node_revision.version = str(int(node.current_version) + 1)
+    node.current_version = node_revision.version
 
     node_revision.extra_validation()
 
-    session.add(ref_node)
+    session.add(node)
     session.commit()
-    session.refresh(ref_node)
-    return ref_node  # type: ignore
+    session.refresh(node)
+    return node  # type: ignore
 
 
 @router.patch("/nodes/{name}/", response_model=NodeMetadata)
@@ -346,14 +346,14 @@ def update_node(
         .with_for_update()
         .execution_options(populate_existing=True)
     )
-    ref_node = session.exec(query).one_or_none()
-    if not ref_node:
+    node = session.exec(query).one_or_none()
+    if not node:
         raise DJException(
             message=f"A node with name `{name}` does not exist.",
             http_status_code=404,
         )
 
-    old_revision = ref_node.current
+    old_revision = node.current
     old_tables = old_revision.tables
     new_revision = NodeRevision(
         name=old_revision.name,
@@ -394,7 +394,7 @@ def update_node(
 
     # Build the new version and link its parents
     if new_revision.type != NodeType.SOURCE:
-        _, node, dependencies_map = validate(new_revision, session)
+        _, validated_node, dependencies_map = validate(new_revision, session)
         new_parents = [n.name for n in dependencies_map]
         parent_refs = session.exec(
             select(Node).where(
@@ -412,7 +412,7 @@ def update_node(
             new_revision.version,
             [p.name for p in new_revision.parents],
         )
-        new_revision.columns = node.columns or []
+        new_revision.columns = validated_node.columns or []
 
     # If nothing has changed, do not create the new node revision
     node_change_check = (
@@ -431,16 +431,16 @@ def update_node(
         and old_revision.mode == new_revision.mode
     )
     if node_change_check or source_node_change_check:
-        return ref_node  # type: ignore
+        return node  # type: ignore
 
     # Point the reference node to the new node revision.
-    new_revision.reference_node = ref_node
-    new_revision.version = str(int(ref_node.current_version) + 1)
-    ref_node.current_version = new_revision.version
+    new_revision.node = node
+    new_revision.version = str(int(node.current_version) + 1)
+    node.current_version = new_revision.version
 
     new_revision.extra_validation()
 
-    session.add(ref_node)
+    session.add(node)
     session.commit()
-    session.refresh(ref_node)
-    return ref_node  # type: ignore
+    session.refresh(node)
+    return node  # type: ignore

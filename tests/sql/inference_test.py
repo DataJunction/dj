@@ -44,10 +44,10 @@ def test_evaluate_expression() -> None:
     assert evaluate_expression([], get_expression("SELECT 1.1")) == 1.1
     assert evaluate_expression([], get_expression("SELECT 'test'")) == "test"
 
-    node_a_ref = Node(name="A", current_version=1)
+    node_a_ref = Node(name="A", current_version="1")
     node_a = NodeRevision(
-        reference_node=node_a_ref,
-        version=1,
+        node=node_a_ref,
+        version="1",
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -103,10 +103,10 @@ def test_evaluate_expression_ambiguous() -> None:
     In this test we select a column without using the fully qualified notation, and it
     exists in multiple parents.
     """
-    node_a_ref = Node(name="A", current_version=1)
+    node_a_ref = Node(name="A", current_version="1")
     node_a = NodeRevision(
-        reference_node=node_a_ref,
-        version=1,
+        node=node_a_ref,
+        version="1",
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -126,10 +126,10 @@ def test_evaluate_expression_ambiguous() -> None:
     )
     node_a_ref.current = node_a
 
-    node_b_ref = Node(name="B", current_version=1)
+    node_b_ref = Node(name="B", current_version="1")
     node_b = NodeRevision(
-        reference_node=node_b_ref,
-        version=1,
+        node=node_b_ref,
+        version="1",
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -175,10 +175,10 @@ def test_evaluate_expression_parent_no_columns() -> None:
 
     Test for when one of the parents has no columns. This should never happen.
     """
-    node_a_ref = Node(name="A", current_version=1)
+    node_a_ref = Node(name="A", current_version="1")
     node_a = NodeRevision(
-        reference_node=node_a_ref,
-        version=1,
+        node=node_a_ref,
+        version="1",
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -189,10 +189,10 @@ def test_evaluate_expression_parent_no_columns() -> None:
     )
     node_a_ref.current = node_a
 
-    node_b_ref = Node(name="B", current_version=1)
+    node_b_ref = Node(name="B", current_version="1")
     node_b = NodeRevision(
-        reference_node=node_b_ref,
-        version=1,
+        node=node_b_ref,
+        version="1",
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),
@@ -247,10 +247,10 @@ def test_infer_columns() -> None:
     """
     Test ``infer_columns``.
     """
-    parent_ref = Node(name="A", current_version=1)
+    parent_ref = Node(name="A", current_version="1")
     parent = NodeRevision(
-        reference_node=parent_ref,
-        version=1,
+        node=parent_ref,
+        version="1",
         tables=[
             Table(
                 database=Database(name="test", URI="sqlite://"),

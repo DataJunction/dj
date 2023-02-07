@@ -17,23 +17,23 @@ def test_read_metrics(session: Session, client: TestClient):
     """
     Test ``read_metrics``.
     """
-    ref_node1 = Node(name="not-a-metric", current_version=1)
-    node1 = NodeRevision(reference_node=ref_node1, version=1)
+    node1 = Node(name="not-a-metric", current_version="1")
+    node_rev1 = NodeRevision(node=node1, version="1")
 
-    ref_node2 = Node(name="also-not-a-metric", current_version=1)
-    node2 = NodeRevision(reference_node=ref_node2, version=1, query="select 42 as foo")
+    node2 = Node(name="also-not-a-metric", current_version="1")
+    node_rev2 = NodeRevision(node=node2, version="1", query="select 42 as foo")
 
-    ref_node3 = Node(name="a-metric", current_version=1, type=NodeType.METRIC)
-    node3 = NodeRevision(
-        reference_node=ref_node3,
-        version=1,
+    node3 = Node(name="a-metric", current_version="1", type=NodeType.METRIC)
+    node_rev3 = NodeRevision(
+        node=node3,
+        version="1",
         query="select count(*) from a_table",
         type=NodeType.METRIC,
     )
 
-    session.add(node1)
-    session.add(node2)
-    session.add(node3)
+    session.add(node_rev1)
+    session.add(node_rev2)
+    session.add(node_rev3)
     session.commit()
 
     query = """
@@ -53,23 +53,23 @@ def test_read_metric(session: Session, client: TestClient):
     """
     Test ``read_metric``.
     """
-    ref_node1 = Node(name="not-a-metric", current_version=1)
-    node1 = NodeRevision(reference_node=ref_node1, version=1)
+    node1 = Node(name="not-a-metric", current_version="1")
+    node_rev1 = NodeRevision(node=node1, version="1")
 
-    ref_node2 = Node(name="also-not-a-metric", current_version=1)
-    node2 = NodeRevision(reference_node=ref_node2, version=1, query="select 42 as foo")
+    node2 = Node(name="also-not-a-metric", current_version="1")
+    node_rev2 = NodeRevision(node=node2, version="1", query="select 42 as foo")
 
-    ref_node3 = Node(name="a-metric", current_version=1, type=NodeType.METRIC)
-    node3 = NodeRevision(
-        reference_node=ref_node3,
-        version=1,
+    node3 = Node(name="a-metric", current_version="1", type=NodeType.METRIC)
+    node_rev3 = NodeRevision(
+        node=node3,
+        version="1",
         query="select count(*) from a_table",
         type=NodeType.METRIC,
     )
 
-    session.add(node1)
-    session.add(node2)
-    session.add(node3)
+    session.add(node_rev1)
+    session.add(node_rev2)
+    session.add(node_rev3)
     session.commit()
 
     query = """
@@ -89,10 +89,10 @@ def test_read_metric_errors(session: Session, client: TestClient) -> None:
     Test error response in ``read_metric``.
     """
     database = Database(name="test", URI="sqlite://")
-    ref_node = Node(name="a-metric", current_version=1)
-    node = NodeRevision(reference_node=ref_node, version=1, query="SELECT 1 AS col")
+    node = Node(name="a-metric", current_version="1")
+    node_revision = NodeRevision(node=node, version="1", query="SELECT 1 AS col")
     session.add(database)
-    session.add(node)
+    session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
@@ -130,14 +130,14 @@ def test_read_metrics_data(
     Test ``read_metrics_data``.
     """
     database = Database(name="test", URI="sqlite://")
-    ref_node = Node(name="a-metric", current_version=1, type=NodeType.METRIC)
-    node = NodeRevision(
-        reference_node=ref_node,
-        version=1,
+    node = Node(name="a-metric", current_version="1", type=NodeType.METRIC)
+    node_revision = NodeRevision(
+        node=node,
+        version="1",
         query="SELECT COUNT(*) FROM my_table",
     )
     session.add(database)
-    session.add(node)
+    session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
@@ -186,14 +186,14 @@ def test_read_metrics_sql(
     Test ``read_metrics_sql``.
     """
     database = Database(name="test", URI="sqlite://")
-    ref_node = Node(name="a-metric", current_version=1, type=NodeType.METRIC)
-    node = NodeRevision(
-        reference_node=ref_node,
-        version=1,
+    node = Node(name="a-metric", current_version="1", type=NodeType.METRIC)
+    node_revision = NodeRevision(
+        node=node,
+        version="1",
         query="SELECT COUNT(*) FROM my_table",
     )
     session.add(database)
-    session.add(node)
+    session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
@@ -229,10 +229,10 @@ def test_read_metrics_sql_errors(session: Session, client: TestClient):
     """
 
     database = Database(name="test", URI="sqlite://")
-    ref_node = Node(name="a-metric", current_version=1)
-    node = NodeRevision(reference_node=ref_node, version=1, query="SELECT 1 AS col")
+    node = Node(name="a-metric", current_version="1")
+    node_revision = NodeRevision(node=node, version="1", query="SELECT 1 AS col")
     session.add(database)
-    session.add(node)
+    session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
@@ -265,10 +265,10 @@ def test_read_metrics_data_errors(session: Session, client: TestClient):
     Test error response in ``read_metrics_data``.
     """
     database = Database(name="test", URI="sqlite://")
-    ref_node = Node(name="a-metric", current_version=1)
-    node = NodeRevision(reference_node=ref_node, version=1, query="SELECT 1 AS col")
+    node = Node(name="a-metric", current_version="1")
+    node_revision = NodeRevision(node=node, version="1", query="SELECT 1 AS col")
     session.add(database)
-    session.add(node)
+    session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
