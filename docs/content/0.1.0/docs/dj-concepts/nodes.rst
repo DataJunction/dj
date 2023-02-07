@@ -2,203 +2,170 @@
 weight: 10
 ---
 
-.. _functions:
+-----
+Nodes
+-----
 
----------
-Functions
----------
+In DJ, nodes play a central role. Understanding the relationships between nodes is key to understanding how DJ works.
+All node types are similar in many ways. Let’s start by covering their similarities.
 
-Currently, DJ supports only a small subset of SQL functions, limiting the definition of metrics. In order to add new functions to DJ we need to implement two things:
+Similarities Between Node Types
+-------------------------------
 
-1. Type inference for the function. This is easier in some functions and harder in others. For example, the ``COUNT`` function always return an integer, so its return type is the same regardless of the input arguments. The ``MAX`` function, on the other hands, return a value with the same type as the input argument.
+A summary of things that are true of all nodes:
 
-2. Translation to SQLAlchemy. In order to run queries, DJ parses the metric definitions (written in ANSI SQL), and converts them to a SQLAlchemy query object, so it can be translated to different dialects (Hive, Trino, Postgres, etc.). Some functions are easier to translate, specially if they are already defined in ``sqlalchemy.sql.functions``. Others, like ``DATE_TRUNC``, are more complex because they are dialect specific.
+* All nodes have a name and a description
+* All nodes have a schema defined as named columns, each with a specific type
+* All nodes have a system-defined state of either valid or invalid
+* All nodes have a user-defined mode of either draft or published
+* All nodes track the parent nodes they depend on
 
-Supported functions
--------------------
+In addition to these universal statements about nodes, there are things that are common to a subset of node types.
 
-``AVG``
--------
+* **Metrics**, **dimensions**, and **transforms** always have a query.
+* **Source** nodes do not have a query but have a reference to an external table.
+* Queries can reference any node by name, including **source** nodes
 
-Return the average of a given column:
+Some node types have unique attributes, behaviors, and restrictions. For example, a **metric** node’s query can only include
+a single field in the select statement and that field must be used in an aggregation expression. Also, **source** nodes
+never have a query at all and instead must include a reference to an external table.
 
-.. code-block:: sql
-
-    > SELECT AVG(column);
-    1.2
-
-``COALESCE``
+Source Nodes
 ------------
 
-Return the first non-null value:
+Real tables in a database or data warehouse are represented in DJ as source nodes. Each source node has a name and that
+name can be used by transform and dimension nodes as a “virtual” reference to the real table. In fact, you can change
+the table name in a source node’s definition to use a different real table and as long as the table schema is the same,
+you can be certain that all valid downstream nodes will remain valid.
+
+If a DJ deployment uses a reflection service, the main responsibility of that reflection service is to keep the schema
+defined in the source node in sync with the schema of the real table. This ensures that breaking changes to real tables
+are immediately identified and the impact to downstream nodes are communicated. When a source node’s schema is
+automatically updated to incorporate a change to the real table’s schema, this can break downstream nodes that relied on
+particular aspects of the table's schema that no longer exist. These breaking changes are communicated by labeling
+the impacted nodes as “invalid”.
+
+Transform Nodes
+---------------
+
+A lot of the heavy lifting in DJ is done by transform nodes. These nodes contain the queries that join, filter, and
+group data from various source nodes as well as other transform nodes. Although less common, transform nodes can even
+perform manipulations of dimension nodes.
+
+Since transform nodes can apply SQL manipulations of other transform nodes, they allow you to break up very complicated
+logic into smaller incremental processing steps. This is a very powerful feature and proper design of transform nodes
+can help optimize the speed and efficiency of a DJ server. Let’s take an example of two very similar queries that
+produce different tables.
+
+*Query #1 - Recent Transaction Amounts by Customers with Active Accounts*
 
 .. code-block:: sql
 
-    > SELECT column_a, column_b FROM some_table;
-    1, NULL
-    NULL, 10
-    NULL, NULL
-    > SELECT COALESCE(column_a, column_b, -1) FROM some_table;
-    1
-    10
-    -1
+    SELECT
+    t.amount
+    ,t.purchase_date
+    ,c.id as customer_id
+    ,c.first_name as customer_first_name
+    ,c.last_name as customer_last_name
+    FROM transaction AS t
+    LEFT JOIN customer AS c
+    ON t.customer_id = c.id
+    WHERE c.status = 'active'
+    AND t.purchase_date >= (3 months ago)
 
-``COUNT``
----------
-
-The humble ``COUNT()``.
-
-.. code-block:: sql
-
-    > SELECT COUNT(*) FROM some_table;
-    10
-    > SELECT COUNT(1) FROM some_table;
-    10
-    > SELECT COUNT(column) FROM some_table;  -- ignores NULLs
-    5
-
-``DATE_TRUNC``
---------------
-
-Truncate a ``DATETIME`` column to a given resolution:
+*Query #2 - Recent Transaction Amounts by Customers with Non-Trial Active Accounts*
 
 .. code-block:: sql
 
-    > SELECT DATE_TRUNC('minute', CAST('2022-01-01T12:34:56Z' AS TIMESTAMP);
-    2022-01-01T12:34:00Z
+    SELECT
+    t.amount
+    ,t.purchase_date
+    ,c.id as customer_id
+    ,c.first_name as customer_first_name
+    ,c.last_name as customer_last_name
+    FROM transaction AS t
+    LEFT JOIN customer AS c
+    ON t.customer_id = c.id
+    WHERE c.status = 'active'
+    AND t.purchase_date >= (3 months ago)
+    AND c.account_type <> 'trial'
 
-``MAX``
--------
+If you look closely, you can see similarities between both queries. Both queries are joining the transaction table to
+the customer table and filtering out transactions by customers who have since deleted their account as well as
+filtering to only include transactions that have happened in the past three months. However, they differ in that query
+#2 also filters out customers who are using a free trial account. If these queries are materialized daily, the join and
+two out of the three filters are performed twice a day.
 
-Return the maximum value from a column:
+A better design would be building query #2 as an additional transformation of query #1. Let’s say you created a DJ
+transform node for query #1.
 
-.. code-block:: sql
-
-    > SELECT MAX(column);
-
-``MIN``
--------
-
-Return the minimum value from a column:
-
-.. code-block:: sql
-
-    > SELECT MIN(column);
-    1
-
-``SUM``
--------
-
-Return the sum of a given column:
+*recent_transactions_active_customers*
 
 .. code-block:: sql
 
-    > SELECT SUM(sales)
-    12345
+    SELECT
+    t.amount
+    ,t.purchase_date
+    ,c.id as customer_id
+    ,c.first_name as customer_first_name
+    ,c.last_name as customer_last_name
+    FROM transaction AS t
+    LEFT JOIN customer AS c
+    ON t.customer_id = c.id
+    WHERE c.status = 'active'
+    AND t.purchase_date >= (3 months ago)
 
-Adding new functions
---------------------
+You can then create the equivalent of query #2 by defining a transform node that queries that transform node already
+defined.
 
-Let's look at the ``COUNT`` function in DJ:
-
-.. code-block:: python
-
-    from sqlalchemy.sql import func
-    from sqlalchemy.sql.schema import Column as SqlaColumn
-
-    from dj.models.column import Column
-    from dj.typing import ColumnType
-
-
-    class Count(Function):
-        """
-        The ``COUNT`` function.
-        """
-
-        is_aggregation = True
-
-        @staticmethod
-        def infer_type(argument: Union[Column, "Wildcard", int]) -> ColumnType:
-            return ColumnType.INT
-
-        @staticmethod
-        def get_sqla_function(
-            argument: Union[SqlaColumn, str, int],
-            *,
-            dialect: Optional[str] = None,
-        ) -> SqlaFunction:
-            return func.count(argument)
-
-
-The first method, ``infer_type``, is responsible for type inference. The function is usually called as ``COUNT(column)``, ``COUNT(1)`` or ``COUNT(*)``, so we define the input argument as either a column, a star, or a number. In retrospect we could have also added a default value, to make ``COUNT`` valid. We can see that the method always return an integer.
-
-Compare that to the same method in the ``MAX`` function
-
-.. code-block:: python
-
-    class Max(Function):
-
-        @staticmethod
-        def infer_type(column: Column) -> ColumnType:
-            return column.type
-
-``MAX`` takes a column, and returns a value with the same type as the column.
-
-Now let's look at the second method, ``get_sqla_function``, which is responsible for translating the function and its arguments to a SQLAlchemy function. For ``COUNT`` the method is very simple, because SQLAlchemy already has the `function defined <https://github.com/sqlalchemy/sqlalchemy/blob/13a8552053c21a9fa7ff6f992ed49ee92cca73e4/lib/sqlalchemy/sql/functions.py#L1278>`_.
-
-But what should we do when the function is not defined in SQLAlchemy? The ``func`` object in SQLAlchemy is a special function generator, and it accepts **any** attribute. If the function exists, like ``func.count``, SQLAlchemy will know how to translate that function to different dialects, and also its return type. If the function doesn't exist, on the other hand, SQLAlchemy will just translate it as-is. For example, the code ``func.my_function(1)`` will be translated to ``my_function(1)``, and will probably fail when ran in a database.
-
-Let's take a look at the ``DATE_TRUNC`` function to understand this better. Some databases (like Trino and Postgres) support ``DATE_TRUNC``, while others (like Druid and SQLite) don't. We can write our method like this, then:
-
-.. code-block:: python
-
-    class DateTrunc(Function):
-
-        """
-        Truncate a datetime column to a given resolution.
-
-        Eg:
-
-            > DATE_TRUNC('day', DATETIME '2022-01-01T12:34:56Z')
-            2022-01-01T00:00:00Z
-
-        """
-
-        @staticmethod
-        def get_sqla_function(
-            resolution: TextClause,
-            column: SqlaColumn,
-            *,
-            dialect: Optional[str] = None,
-        ) -> SqlaFunction:
-            if dialect is None:
-                raise Exception("A dialect is needed for `DATE_TRUNC`")
-
-            if dialect in DATE_TRUNC_DIALECTS:
-                return func.date_trunc(str(resolution), column, type_=DateTime)
-
-            if dialect in SQLITE_DIALECTS:
-                if str(resolution) == "minute":
-                    return func.datetime(
-                        func.strftime("%Y-%m-%dT%H:%M:00", column),
-                        type_=DateTime,
-                    )
-                ...
-            ...
-
-The first thing to notice is that ``DATE_TRUNC`` **requires** a dialect, since it's not a standard function. If the dialect is in the set of dialects that support ``DATE_TRUNC`` natively we can simply translate the function to that using ``func.date_trunc``. Note that when using a custom function we should inform SQLAlchemy of the return type, using the ``type_`` argument.
-
-If the dialect doesn't support ``DATE_TRUNC`` and is part of the SQLite family we can implement the function using other functions supported by the dialect. In the code above we're translating a call like this:
+*recent_transactions_non_trial_active_customers*
 
 .. code-block:: sql
 
-    DATE_TRUNC('minute', column)
+    SELECT
+    amount
+    ,purchase_date
+    ,customer_id
+    ,customer_first_name
+    ,customer_last_name
+    FROM recent_transactions_active_customers
+    WHERE account_type <> 'trial'
 
-To:
+With this design, materializing *recent_transactions_active_customers* is enough to no longer require performing a join
+to get the data for both nodes. If the filter to non-trial accounts is fast, you may choose not to materialize the
+second node at all!
 
-.. code-block:: sql
+Dimension Nodes
+---------------
 
-    DATETIME(STRFTIME("%Y-%m-%dT%H:%M:00", column))
+One of the benefits of DJ is that it can easily find all of the available dimensions that you can use to group metrics
+as well as all of the metrics that can be grouped by a set of dimensions. Defining a dimension node includes a query to
+generate the dimension dataset as well as a label of the dimension’s primary key(s).
 
+If another node includes a foreign key for an existing dimension node, you can include a reference to the dimension
+node’s primary key in the other node’s definition. Furthermore, a dimension itself can include a foreign key that
+includes a reference to another dimension node’s primary key, meaning that dimension is also available as a second-join
+dimension. This metadata is what allows DJ to understand the relationships between metrics and dimensions and allows
+abstracting away the :code:`JOIN` and :code:`GROUP BY` clauses required to bring metrics and dimensions together!
 
-The code above converts the column to a string, replacing the seconds with zeros, and then converts it back to a datetime, reproducing the behavior of ``DATE_TRUNC('minute', column)``.
+Metric Nodes
+------------
+
+The primary component of a request for SQL or data from a DJ server is always one or more metrics. A metric node is
+defined as a single column from another existing node as well as an aggregation expression. If the existing node has
+other columns that are connected to dimension nodes, those dimensions will be revealed by DJ as available dimensions
+with which the metric can be grouped by. Additional dimensions will also be available if first-join dimensions contain
+foreign key(s) to other dimensions.
+
+Cube Nodes
+----------
+
+In data analytics, a cube is a multi-dimensional dataset of one or more metrics. As more nodes are defined in DJ, a
+single metric can have a wide selection of dimension sets with which it can be grouped by. Also, many metrics will
+share common dimensions making it possible to create cubes of multiple metrics and multiple dimensions.
+Although materializing upstream transform nodes can serve as a huge performance optimization when creating these cubes,
+the final :code:`JOIN` and :code:`GROUP BY` operations happen at the moment a particular cube is requested.
+
+Since it’s not practical to schedule the materialization of all possible combinations of metrics and dimensions,
+cube nodes allow you to define specific sets of metrics and dimensions that should be materialized. This is useful
+when you want to to pre-compute a dataset that’s used by an analytics product such as a dashboard or report.
