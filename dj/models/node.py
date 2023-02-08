@@ -155,7 +155,6 @@ class NodeBase(BaseSQLModel):
         sa_column=SqlaColumn(
             "display_name",
             String,
-            unique=True,
             default=generate_display_name("name"),
         ),
         max_length=100,
@@ -175,7 +174,6 @@ class NodeRevisionBase(BaseSQLModel):
         sa_column=SqlaColumn(
             "display_name",
             String,
-            unique=False,
             default=generate_display_name("name"),
         ),
         foreign_key="node.display_name",

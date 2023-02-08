@@ -23,10 +23,6 @@ def upgrade():
     with op.batch_alter_table("node") as batch_op:
         batch_op.add_column(sa.Column("display_name", sa.String(), nullable=True))
         batch_op.drop_constraint("uniq_node_name", type_="unique")
-        batch_op.create_unique_constraint(
-            op.f("uq_node_display_name"),
-            ["display_name"],
-        )
         batch_op.create_unique_constraint(op.f("uq_node_name"), ["name"])
     with op.batch_alter_table("noderevision") as batch_op:
         batch_op.add_column(sa.Column("display_name", sa.String(), nullable=True))
@@ -44,6 +40,5 @@ def downgrade():
 
     with op.batch_alter_table("node") as batch_op:
         batch_op.drop_constraint(op.f("uq_node_name"), type_="unique")
-        batch_op.drop_constraint(op.f("uq_node_display_name"), type_="unique")
         batch_op.create_unique_constraint("uniq_node_name", ["name"])
         batch_op.drop_column("display_name")
