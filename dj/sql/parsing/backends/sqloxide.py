@@ -7,6 +7,7 @@ from sqloxide import parse_sql
 
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.exceptions import DJParseException
+from dj.typing import ColumnType
 
 
 def match_keys(parse_tree: dict, *keys: Set[str]) -> Optional[Set[str]]:
@@ -80,6 +81,23 @@ def parse_case(parse_tree: dict) -> ast.Case:
     raise DJParseException("Failed to parse Case")  # pragma: no cover
 
 
+def parse_cast(parse_tree: dict) -> ast.Cast:
+    """parse a cast statement"""
+    if match_keys(parse_tree, {"expr", "data_type"}):
+        expr = parse_expression(parse_tree["expr"])
+        data_type = parse_tree["data_type"]
+        type_ = None
+        if isinstance(data_type, str):
+            type_ = ColumnType(data_type)
+        elif match_keys(parse_tree["data_type"], {"Custom"}):
+            type_ = ColumnType(parse_tree["data_type"]["Custom"][0]["value"])
+        else:
+            raise DJParseException("Failed to parse CAST type.")  # pragma: no cover
+        return ast.Cast(expr, type_)
+    raise DJParseException("Failed to parse CAST.")  # pragma: no cover
+
+
+# flake8: noqa: C901
 def parse_expression(  # pylint: disable=R0911,R0912
     parse_tree: Union[dict, str],
 ) -> ast.Expression:
@@ -104,6 +122,8 @@ def parse_expression(  # pylint: disable=R0911,R0912
             return parse_expression(parse_tree["UnnamedExpr"])
         if match_keys(parse_tree, {"Expr"}):
             return parse_expression(parse_tree["Expr"])
+        if match_keys(parse_tree, {"Cast"}):
+            return parse_cast(parse_tree["Cast"])
         if match_keys(parse_tree, {"Case"}):
             return parse_case(parse_tree["Case"])
         if match_keys(parse_tree, {"Function"}):

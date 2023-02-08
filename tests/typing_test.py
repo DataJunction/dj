@@ -10,8 +10,8 @@ from dj.typing import ColumnType, ColumnTypeError
 def test_columntype_bad_primitive():
     """tests that a nonexistent primitive raises"""
     with pytest.raises(ColumnTypeError) as exc:
-        ColumnType("array[string]")
-    assert "STRING is not an acceptable type" in str(exc)
+        ColumnType("array[rand]")
+    assert "RAND is not an acceptable type" in str(exc)
 
 
 def test_columntype_bad_complex():

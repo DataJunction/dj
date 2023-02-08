@@ -172,7 +172,7 @@ def downgrade():
         )
 
     with op.batch_alter_table("node") as batch_op:
-        batch_op.add_column(sa.Column("updated_at", sa.DATETIME(), nullable=True))
+        batch_op.add_column(sa.Column("updated_at", sa.TIMESTAMP(), nullable=True))
         batch_op.add_column(sa.Column("description", sa.VARCHAR(), nullable=False))
         batch_op.add_column(sa.Column("status", sa.VARCHAR(), nullable=False))
         batch_op.add_column(sa.Column("query", sa.VARCHAR(), nullable=True))

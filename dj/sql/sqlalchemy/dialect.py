@@ -43,7 +43,7 @@ def get_sqla_type(type_: ColumnType) -> VisitableType:
         ColumnType.INT: sqlalchemy.types.INT,
         ColumnType.DECIMAL: sqlalchemy.types.DECIMAL,
         ColumnType.BOOL: sqlalchemy.types.BOOLEAN,
-        ColumnType.DATETIME: sqlalchemy.types.DATETIME,
+        ColumnType.TIMESTAMP: sqlalchemy.types.TIMESTAMP,
         ColumnType.DATE: sqlalchemy.types.DATE,
         ColumnType.TIME: sqlalchemy.types.TIME,
         # imperfect matches

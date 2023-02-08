@@ -199,7 +199,7 @@ def test_get_table_columns(mocker: MockerFixture) -> None:
     ]
 
     assert get_table_columns("sqlite://", {}, "schema", "table") == [
-        Column(id=None, name="ds", type=ColumnType.DATETIME),
+        Column(id=None, name="ds", type=ColumnType.TIMESTAMP),
         Column(id=None, name="cnt", type=ColumnType.FLOAT),
     ]
 
@@ -483,7 +483,7 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
     table_b = Table(
         database=database,
         table="B",
-        columns=[Column(name="ds", type=ColumnType.DATETIME)],
+        columns=[Column(name="ds", type=ColumnType.TIMESTAMP)],
     )
 
     node = Node(name="C", type=NodeType.SOURCE, current_version="1")
@@ -494,7 +494,7 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
         version="1",
         tables=[table_a, table_b],
         columns=[
-            Column(name="ds", type=ColumnType.DATETIME),
+            Column(name="ds", type=ColumnType.TIMESTAMP),
             Column(name="user_id", type=ColumnType.INT),
         ],
     )
@@ -509,7 +509,7 @@ async def test_update_node_config(mocker: MockerFixture, fs: FakeFilesystem) -> 
     with open(path, encoding="utf-8") as input_:
         assert yaml.safe_load(input_) == {
             "columns": {
-                "ds": {"type": "DATETIME"},
+                "ds": {"type": "TIMESTAMP"},
                 "user_id": {"type": "INT"},
             },
             "tables": {
@@ -556,7 +556,7 @@ async def test_update_node_config_user_attributes(
     table_b = Table(
         database=database,
         table="B",
-        columns=[Column(name="ds", type=ColumnType.DATETIME)],
+        columns=[Column(name="ds", type=ColumnType.TIMESTAMP)],
     )
 
     node = Node(name="C", type=NodeType.SOURCE, current_version="1")
@@ -565,7 +565,7 @@ async def test_update_node_config_user_attributes(
         version="1",
         tables=[table_a, table_b],
         columns=[
-            Column(name="ds", type=ColumnType.DATETIME),
+            Column(name="ds", type=ColumnType.TIMESTAMP),
             Column(name="user_id", type=ColumnType.INT),
         ],
         type=NodeType.SOURCE,
@@ -588,7 +588,7 @@ async def test_update_node_config_user_attributes(
     with open(path, encoding="utf-8") as input_:
         assert yaml.safe_load(input_) == {
             "columns": {
-                "ds": {"type": "DATETIME", "user_attribute": "Hello, world!"},
+                "ds": {"type": "TIMESTAMP", "user_attribute": "Hello, world!"},
                 "user_id": {"type": "INT"},
             },
             "tables": {
@@ -633,7 +633,7 @@ async def test_update_node_config_sql_query(
         version="1",
         query=test_query,
         columns=[
-            Column(name="ds", type=ColumnType.DATETIME),
+            Column(name="ds", type=ColumnType.TIMESTAMP),
             Column(name="user_id", type=ColumnType.INT),
         ],
     )
@@ -643,7 +643,7 @@ async def test_update_node_config_sql_query(
     with open(path, encoding="utf-8") as input_:
         assert yaml.safe_load(input_) == {
             "columns": {
-                "ds": {"type": "DATETIME"},
+                "ds": {"type": "TIMESTAMP"},
                 "user_id": {"type": "INT"},
             },
             "type": "transform",
@@ -669,11 +669,11 @@ def test_get_columns_from_tables() -> None:
 
     table_b = Table(
         table="B",
-        columns=[Column(name="ds", type=ColumnType.DATETIME)],
+        columns=[Column(name="ds", type=ColumnType.TIMESTAMP)],
     )
 
     assert get_columns_from_tables([table_a, table_b]) == [
-        Column(name="ds", type=ColumnType.DATETIME),
+        Column(name="ds", type=ColumnType.TIMESTAMP),
         Column(name="user_id", type=ColumnType.INT),
     ]
 

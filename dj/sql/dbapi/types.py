@@ -32,8 +32,8 @@ NUMBER = DBAPIType(
     ColumnType.DECIMAL,
     ColumnType.BOOL,
 )
-DATETIME = DBAPIType(
-    ColumnType.DATETIME,
+TIMESTAMP = DBAPIType(
+    ColumnType.TIMESTAMP,
     ColumnType.DATE,
     ColumnType.TIME,
     ColumnType.TIMEDELTA,

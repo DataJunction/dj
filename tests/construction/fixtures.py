@@ -459,7 +459,7 @@ def construction_session(  # pylint: disable=too-many-locals
                 type=ColumnType.INT,
                 dimension=user_dim_ref,
             ),
-            Column(name="timestamp", type=ColumnType.DATETIME),
+            Column(name="timestamp", type=ColumnType.TIMESTAMP),
             Column(name="text", type=ColumnType.STR),
         ],
         tables=[
@@ -470,7 +470,7 @@ def construction_session(  # pylint: disable=too-many-locals
                 columns=[
                     Column(name="id", type=ColumnType.INT),
                     Column(name="user_id", type=ColumnType.INT),
-                    Column(name="timestamp", type=ColumnType.DATETIME),
+                    Column(name="timestamp", type=ColumnType.TIMESTAMP),
                     Column(name="text", type=ColumnType.STR),
                 ],
                 cost=10.0,
@@ -483,7 +483,7 @@ def construction_session(  # pylint: disable=too-many-locals
                 columns=[
                     Column(name="id", type=ColumnType.INT),
                     Column(name="user_id", type=ColumnType.INT),
-                    Column(name="timestamp", type=ColumnType.DATETIME),
+                    Column(name="timestamp", type=ColumnType.TIMESTAMP),
                     Column(name="text", type=ColumnType.STR),
                 ],
                 cost=100.0,
@@ -603,7 +603,7 @@ def construction_session(  # pylint: disable=too-many-locals
             ),
             Column(name="order_date", type=ColumnType.DATE),
             Column(name="status", type=ColumnType.STR),
-            Column(name="_etl_loaded_at", type=ColumnType.DATETIME),
+            Column(name="_etl_loaded_at", type=ColumnType.TIMESTAMP),
         ],
         tables=[
             Table(
@@ -615,7 +615,7 @@ def construction_session(  # pylint: disable=too-many-locals
                     Column(name="user_id", type=ColumnType.INT),
                     Column(name="order_date", type=ColumnType.DATE),
                     Column(name="status", type=ColumnType.STR),
-                    Column(name="_etl_loaded_at", type=ColumnType.DATETIME),
+                    Column(name="_etl_loaded_at", type=ColumnType.TIMESTAMP),
                 ],
                 cost=10.0,
                 database=postgres,

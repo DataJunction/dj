@@ -152,7 +152,7 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
                     },
                     {
                         "name": "timestamp",
-                        "type": "DATETIME",
+                        "type": "TIMESTAMP",
                     },
                     {
                         "name": "text",
@@ -160,7 +160,7 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
                     },
                     {
                         "name": "__time",
-                        "type": "DATETIME",
+                        "type": "TIMESTAMP",
                     },
                     {
                         "name": "count",
@@ -242,8 +242,8 @@ def test_get_columns(mocker: MockerFixture, requests_mock: Mocker) -> None:
     ] == [
         "INTEGER",
         "INTEGER",
-        "DATETIME",
+        "TIMESTAMP",
         "TEXT",
-        "DATETIME",
+        "TIMESTAMP",
         "INTEGER",
     ]

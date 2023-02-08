@@ -11,7 +11,7 @@ columns:
   status:
     type: STR
   _etl_loaded_at:
-    type: DATETIME
+    type: TIMESTAMP
 tables:
   postgres:
   - catalog: null

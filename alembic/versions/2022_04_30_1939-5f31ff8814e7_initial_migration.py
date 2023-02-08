@@ -81,7 +81,7 @@ def upgrade():
                 "INT",
                 "DECIMAL",
                 "BOOL",
-                "DATETIME",
+                "TIMESTAMP",
                 "DATE",
                 "TIME",
                 "TIMEDELTA",

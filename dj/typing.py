@@ -57,12 +57,21 @@ PRIMITIVE_TYPES = {
     "INT",
     "DECIMAL",
     "BOOL",
-    "DATETIME",
+    "TIMESTAMP",
     "DATE",
     "TIME",
     "TIMEDELTA",
     "NULL",
     "WILDCARD",
+}
+
+ALIASES = {
+    "DATETIME": "TIMESTAMP",
+    "DECIMAL": "FLOAT",
+    "INTEGER": "INT",
+    "STRING": "STR",
+    "LIST": "ARRAY",
+    "DICT": "MAP",
 }
 
 
@@ -176,6 +185,8 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
         type_ = type_.upper().strip()
         if type_ in COMPLEX_TYPES or type_ in PRIMITIVE_TYPES:
             obj = str.__new__(cls, type_)
+        elif type_ in ALIASES:
+            obj = str.__new__(cls, ALIASES[type_])
         else:
             obj = cls._validate_type(type_)
         obj.name = name
@@ -228,6 +239,7 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
                 raise ColumnTypeError(f"{outer} is not a KNOWN complex type.")
             inners = inner.split(",")
             return ColumnType(outer)[inners]
+        type_ = ALIASES.get(type_, type_)
         if type_ not in PRIMITIVE_TYPES:
             raise ColumnTypeError(f"{type_} is not an acceptable type.")
         return ColumnType(type_)
@@ -259,7 +271,7 @@ class TypeEnum(str, Enum):
     STRING = "STRING"
     BINARY = "BINARY"
     NUMBER = "NUMBER"
-    DATETIME = "DATETIME"
+    TIMESTAMP = "TIMESTAMP"
     UNKNOWN = "UNKNOWN"
 
 

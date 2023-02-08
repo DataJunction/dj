@@ -133,7 +133,7 @@ class TestCreateOrUpdateNodes:
             "columns": {
                 "id": {"type": "INT"},
                 "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
-                "timestamp": {"type": "DATETIME"},
+                "timestamp": {"type": "TIMESTAMP"},
                 "text": {"type": "STR"},
             },
             "mode": "published",
@@ -275,7 +275,7 @@ class TestCreateOrUpdateNodes:
         assert data["current"]["columns"] == [
             {"name": "id", "type": "INT"},
             {"name": "user_id", "type": "INT"},
-            {"name": "timestamp", "type": "DATETIME"},
+            {"name": "timestamp", "type": "TIMESTAMP"},
             {"name": "text", "type": "STR"},
         ]
 
@@ -340,7 +340,7 @@ class TestCreateOrUpdateNodes:
                 "columns": {
                     "id": {"type": "INT"},
                     "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
-                    "timestamp": {"type": "DATETIME"},
+                    "timestamp": {"type": "TIMESTAMP"},
                     "text_v2": {"type": "STR"},
                 },
             },
@@ -351,7 +351,7 @@ class TestCreateOrUpdateNodes:
         assert data["current"]["columns"] == [
             {"name": "id", "type": "INT"},
             {"name": "user_id", "type": "INT"},
-            {"name": "timestamp", "type": "DATETIME"},
+            {"name": "timestamp", "type": "TIMESTAMP"},
             {"name": "text_v2", "type": "STR"},
         ]
 

@@ -166,7 +166,7 @@ To see the list of available nodes:
           },
           {
             "name": "_etl_loaded_at",
-            "type": "DATETIME"
+            "type": "TIMESTAMP"
           }
         ]
       },
