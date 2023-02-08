@@ -363,6 +363,26 @@ class Node(ABC):
         _diff(self, other)
         return diffs
 
+    def similarity_score(self, other: "Node") -> float:
+        """
+        Determine how similar two nodes are with a float score
+        """
+        self_nodes = list(self.flatten())
+        other_nodes = list(other.flatten())
+        intersection = [
+            self_node for self_node in self_nodes if self_node in other_nodes
+        ]
+        union = (
+            [self_node for self_node in self_nodes if self_node not in intersection]
+            + [
+                other_node
+                for other_node in other_nodes
+                if other_node not in intersection
+            ]
+            + intersection
+        )
+        return len(intersection) / len(union)
+
     def __eq__(self, other) -> bool:
         """
         Compares two nodes for "top level" equality.
