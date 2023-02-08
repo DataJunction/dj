@@ -50,7 +50,7 @@ def test_trivial_ne(trivial_query):
 
 def test_trivial_diff(trivial_query):
     """
-    test find_all on a trivial query
+    test diff on a trivial query
     """
     assert trivial_query.diff(
         Query(
@@ -65,6 +65,32 @@ def test_trivial_diff(trivial_query):
         (Name(name="a", quote_style=""), Name(name="b", quote_style="")),
         (Wildcard(), Column(name=Name(name="a", quote_style=""), namespace=None)),
     ]
+
+
+def test_trivial_similarity_different(trivial_query):
+    """
+    test diff on a trivial query
+    """
+    assert (
+        trivial_query.similarity_score(
+            Query(
+                ctes=[],
+                select=Select(
+                    distinct=False,
+                    from_=From(tables=[Table(Name(name="b"))]),
+                    projection=[Column(Name("a"))],
+                ),
+            ),
+        )
+        == 5 / 8
+    )
+
+
+def test_trivial_similarity_same(trivial_query):
+    """
+    test similarity score on a trivial query
+    """
+    assert trivial_query.similarity_score(trivial_query) == 1
 
 
 def test_findall_trivial(trivial_query):
