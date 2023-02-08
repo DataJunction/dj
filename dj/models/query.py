@@ -123,7 +123,7 @@ class QueryExtType(int, Enum):
     """
 
     UUID = 1
-    DATETIME = 2
+    TIMESTAMP = 2
 
 
 def encode_results(obj: Any) -> Any:
@@ -134,7 +134,7 @@ def encode_results(obj: Any) -> Any:
         return msgpack.ExtType(QueryExtType.UUID, str(obj).encode("utf-8"))
 
     if isinstance(obj, datetime):
-        return msgpack.ExtType(QueryExtType.DATETIME, obj.isoformat().encode("utf-8"))
+        return msgpack.ExtType(QueryExtType.TIMESTAMP, obj.isoformat().encode("utf-8"))
 
     return obj
 
@@ -146,7 +146,7 @@ def decode_results(code: int, data: bytes) -> Any:
     if code == QueryExtType.UUID:
         return uuid.UUID(data.decode())
 
-    if code == QueryExtType.DATETIME:
+    if code == QueryExtType.TIMESTAMP:
         return datetime.fromisoformat(data.decode())
 
     return msgpack.ExtType(code, data)

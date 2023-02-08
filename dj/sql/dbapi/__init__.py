@@ -18,9 +18,9 @@ from dj.sql.dbapi.exceptions import (
 )
 from dj.sql.dbapi.types import (
     BINARY,
-    DATETIME,
     NUMBER,
     STRING,
+    TIMESTAMP,
     Binary,
     Date,
     DateFromTicks,

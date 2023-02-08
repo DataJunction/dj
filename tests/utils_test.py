@@ -121,8 +121,8 @@ def test_get_more_specific_type() -> None:
     Test ``get_more_specific_type``.
     """
     assert (
-        get_more_specific_type(ColumnType.STR, ColumnType.DATETIME)
-        == ColumnType.DATETIME
+        get_more_specific_type(ColumnType.STR, ColumnType.TIMESTAMP)
+        == ColumnType.TIMESTAMP
     )
     assert get_more_specific_type(ColumnType.STR, ColumnType.INT) == ColumnType.INT
     assert get_more_specific_type(None, ColumnType.INT) == ColumnType.INT

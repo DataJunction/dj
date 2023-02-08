@@ -1675,7 +1675,7 @@ async def test_get_query_for_sql_date_trunc(
                 table="comments",
                 columns=[
                     Column(name="user_id", type=ColumnType.INT),
-                    Column(name="timestamp", type=ColumnType.DATETIME),
+                    Column(name="timestamp", type=ColumnType.TIMESTAMP),
                 ],
             ),
         ],
@@ -1685,7 +1685,7 @@ async def test_get_query_for_sql_date_trunc(
 
     engine = create_engine(database.URI)
     connection = engine.connect()
-    connection.execute("CREATE TABLE comments (user_id INT, timestamp DATETIME)")
+    connection.execute("CREATE TABLE comments (user_id INT, timestamp TIMESTAMP)")
     mocker.patch("dj.models.database.create_engine", return_value=engine)
 
     num_comments_ref = Node(

@@ -701,6 +701,22 @@ RAW_COL_PAT = re.compile(r"{\s*?(?P<expr>.*?)\s*?}")
 
 
 @dataclass(eq=False)
+class Cast(Operation):
+    """
+    Case statement
+
+    >>> str(Cast(Number(5), ColumnType.Float))
+    'CAST(5 AS FLOAT)'
+    """
+
+    expr: Expression
+    type_: "ColumnType"
+
+    def __str__(self) -> str:
+        return f"CAST({self.expr} AS {self.type})"
+
+
+@dataclass(eq=False)
 class Function(Named, Operation):
     """
     Represents a function used in a statement

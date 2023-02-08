@@ -7,7 +7,7 @@ columns:
     type: INT
     dimension: core.dim_users
   timestamp:
-    type: DATETIME
+    type: TIMESTAMP
   text:
     type: STR
 tables:

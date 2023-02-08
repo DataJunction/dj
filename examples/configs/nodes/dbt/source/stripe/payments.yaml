@@ -14,7 +14,7 @@ columns:
   created:
     type: DATE
   _batched_at:
-    type: DATETIME
+    type: TIMESTAMP
 tables:
   postgres:
   - catalog: null

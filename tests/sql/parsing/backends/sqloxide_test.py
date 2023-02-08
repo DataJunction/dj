@@ -75,6 +75,29 @@ def test_derived_subquery_parse_lateral_fail():
         )
 
 
+def test_parse_cast():
+    """
+    test parsing a query with a Cast
+    """
+    assert (
+        str(
+            parse(
+                """SELECT CAST('2022-01-01T12:34:56Z' AS TIMESTAMP)""",
+            ).select.projection[0],
+        )
+        == "CAST('2022-01-01T12:34:56Z' AS TIMESTAMP)"
+    )
+
+    assert (
+        str(
+            parse(
+                """SELECT CAST('2022-01-01T12:34:56Z' AS DATETIME)""",
+            ).select.projection[0],
+        )
+        == "CAST('2022-01-01T12:34:56Z' AS TIMESTAMP)"
+    )
+
+
 @pytest.mark.parametrize("query_name", TPCDS_QUERY_SET)
 def test_parse_tpcds(request, query_name):
     """

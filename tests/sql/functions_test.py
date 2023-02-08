@@ -49,7 +49,7 @@ def test_now() -> None:
     """
     Test ``Now`` function.
     """
-    assert Now.infer_type() == ColumnType.DATETIME
+    assert Now.infer_type() == ColumnType.TIMESTAMP
     assert query_to_string(Now.get_sqla_function()) == "now()"
 
 

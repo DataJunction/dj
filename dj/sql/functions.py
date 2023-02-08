@@ -184,11 +184,11 @@ class DateTrunc(Function):
 
     @staticmethod
     def infer_type(resolution: str, column: Column) -> ColumnType:  # type: ignore
-        return ColumnType.DATETIME
+        return ColumnType.TIMESTAMP
 
     @staticmethod
     def infer_type_from_types(*args) -> ColumnType:  # type: ignore
-        return ColumnType.DATETIME
+        return ColumnType.TIMESTAMP
 
     # pylint: disable=too-many-branches
     @staticmethod
@@ -341,11 +341,11 @@ class Now(Function):
 
     @staticmethod
     def infer_type() -> ColumnType:  # type: ignore
-        return ColumnType.DATETIME
+        return ColumnType.TIMESTAMP
 
     @staticmethod
     def infer_type_from_types() -> ColumnType:  # type: ignore
-        return ColumnType.DATETIME
+        return ColumnType.TIMESTAMP
 
     @staticmethod
     def get_sqla_function(  # type: ignore

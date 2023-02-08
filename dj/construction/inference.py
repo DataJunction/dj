@@ -109,6 +109,11 @@ def _(expression: ast.Raw):
 
 
 @get_type_of_expression.register
+def _(expression: ast.Cast):
+    return expression.type_
+
+
+@get_type_of_expression.register
 def _(expression: ast.IsNull):
     return ColumnType.BOOL
 

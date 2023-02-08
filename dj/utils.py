@@ -121,8 +121,8 @@ def get_more_specific_type(
     might store timestamps as strings, while Postgres would store the same data as a
     datetime.
 
-        >>> get_more_specific_type(ColumnType.STR, ColumnType.DATETIME)
-        'DATETIME'
+        >>> get_more_specific_type(ColumnType.STR, ColumnType.TIMESTAMP)
+        'TIMESTAMP'
         >>> get_more_specific_type(ColumnType.STR, ColumnType.INT)
         'INT'
 
@@ -137,7 +137,7 @@ def get_more_specific_type(
         ColumnType.INT,
         ColumnType.DECIMAL,
         ColumnType.BOOL,
-        ColumnType.DATETIME,
+        ColumnType.TIMESTAMP,
         ColumnType.DATE,
         ColumnType.TIME,
         ColumnType.TIMEDELTA,
