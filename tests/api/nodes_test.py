@@ -141,15 +141,6 @@ class TestCreateOrUpdateNodes:
                 "text": {"type": "STR"},
             },
             "mode": "published",
-            "tables": [
-                {
-                    "catalog": None,
-                    "schema_": "basic",
-                    "table": "comments",
-                    "cost": 10.0,
-                    "database_name": "postgres",
-                },
-            ],
         }
 
     @pytest.fixture
@@ -179,10 +170,10 @@ class TestCreateOrUpdateNodes:
             "type": "transform",
             "mode": "published",
             "description": "Distinct users per country",
-            "columns": {
-                "country": {"type": "STR"},
-                "num_users": {"type": "INT"},
-            },
+            "columns": [
+                {"name": "country", "type": "STR"},
+                {"name": "num_users", "type": "INT"},
+            ],
         }
 
     @pytest.fixture
@@ -197,10 +188,10 @@ class TestCreateOrUpdateNodes:
             "type": "transform",
             "mode": "published",
             "description": "Distinct users per country",
-            "columns": {
-                "country": {"type": "STR"},
-                "num_users": {"type": "INT"},
-            },
+            "columns": [
+                {"name": "country", "type": "STR"},
+                {"name": "num_users", "type": "INT"},
+            ],
         }
 
     @pytest.fixture
@@ -316,25 +307,6 @@ class TestCreateOrUpdateNodes:
         new_data = response.json()
         assert data == new_data
 
-        # Update a node with a new table should create a new revision
-        response = client.patch(
-            f"/nodes/{create_source_node_payload['name']}/",
-            json={
-                "tables": [
-                    {
-                        "catalog": None,
-                        "schema_": "basic",
-                        "table": "commentsv2",
-                        "cost": 10.0,
-                        "database_name": "postgres",
-                    },
-                ],
-            },
-        )
-        data = response.json()
-        assert data["version"] == "3"
-        assert data["tables"][0]["table"] == "commentsv2"
-
         # Try to update a node with a table that has different columns
         response = client.patch(
             f"/nodes/{create_source_node_payload['name']}/",
@@ -348,30 +320,13 @@ class TestCreateOrUpdateNodes:
             },
         )
         data = response.json()
-        assert data["version"] == "4"
+        assert data["version"] == "3"
         assert data["columns"] == [
             {"name": "id", "type": "INT"},
             {"name": "user_id", "type": "INT"},
             {"name": "timestamp", "type": "TIMESTAMP"},
             {"name": "text_v2", "type": "STR"},
         ]
-
-    def test_create_source_node_with_unregistered_databases(
-        self,
-        client: TestClient,
-        create_source_node_payload: Dict[str, Any],
-    ) -> None:
-        """
-        Creating a source node with a table in an unregistered database should fail.
-        """
-
-        response = client.post(
-            "/nodes/",
-            json=create_source_node_payload,
-        )
-        data = response.json()
-        assert response.status_code == 500
-        assert data["message"] == "Database(s) {'postgres'} not supported."
 
     def test_update_nonexistent_node(
         self,
@@ -835,3 +790,191 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "errors": [],
             "warnings": [],
         }
+
+    def test_adding_tables_to_nodes(self, session: Session, client: TestClient):
+        """
+        Test adding tables to existing nodes
+        """
+        database = Database(name="postgres", URI="postgres://")
+        session.add(database)
+        session.commit()
+
+        response = client.post(
+            "/nodes/",
+            json={
+                "columns": {
+                    "payment_id": {"type": "INT"},
+                    "payment_type": {"type": "INT"},
+                    "payment_amount": {"type": "FLOAT"},
+                    "customer_id": {"type": "INT"},
+                    "account_type": {"type": "STR"},
+                },
+                "description": "A source table for revenue data",
+                "mode": "published",
+                "name": "third_party_revenue",
+                "type": "source",
+            },
+        )
+        assert response.status_code == 200
+
+        response = client.post(
+            "/nodes/third_party_revenue/table/",
+            json={
+                "database_name": "postgres",
+                "catalog": "test",
+                "cost": 1.0,
+                "schema": "accounting",
+                "table": "revenue",
+                "columns": [
+                    {"name": "payment_id", "type": "INT"},
+                    {"name": "payment_type", "type": "INT"},
+                    {"name": "payment_amount", "type": "FLOAT"},
+                    {"name": "customer_id", "type": "INT"},
+                    {"name": "account_type", "type": "STR"},
+                ],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data == {
+            "message": "Table revenue has been successfully linked to node third_party_revenue",
+        }
+
+        # Test adding a second table
+        response = client.post(
+            "/nodes/third_party_revenue/table/",
+            json={
+                "database_name": "postgres",
+                "catalog": "test",
+                "cost": 1.0,
+                "schema": "accounting",
+                "table": "third_party_revenue",
+                "columns": [
+                    {"name": "payment_id", "type": "INT"},
+                    {"name": "payment_type", "type": "INT"},
+                    {"name": "payment_amount", "type": "FLOAT"},
+                    {"name": "customer_id", "type": "INT"},
+                    {"name": "account_type", "type": "STR"},
+                ],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data == {
+            "message": (
+                "Table third_party_revenue has been successfully "
+                "linked to node third_party_revenue"
+            ),
+        }
+
+        # Test returning a 409 when the table already exists
+        response = client.post(
+            "/nodes/third_party_revenue/table/",
+            json={
+                "database_name": "postgres",
+                "catalog": "test",
+                "cost": 1.0,
+                "schema": "accounting",
+                "table": "revenue",
+                "columns": [
+                    {"name": "payment_id", "type": "INT"},
+                    {"name": "payment_type", "type": "INT"},
+                    {"name": "payment_amount", "type": "FLOAT"},
+                    {"name": "customer_id", "type": "INT"},
+                    {"name": "account_type", "type": "STR"},
+                ],
+            },
+        )
+        assert response.status_code == 409
+        data = response.json()
+        assert data == {
+            "message": (
+                "Table ('test', 'accounting', 'revenue') already "
+                "exists for node third_party_revenue"
+            ),
+            "errors": [],
+            "warnings": [],
+        }
+
+    def test_adding_dimensions_to_node_columns(self, client: TestClient):
+        """
+        Test adding tables to existing nodes
+        """
+
+        response = client.post(
+            "/nodes/",
+            json={
+                "columns": {
+                    "payment_id": {"type": "INT"},
+                    "payment_type": {"type": "INT"},
+                    "payment_amount": {"type": "FLOAT"},
+                    "customer_id": {"type": "INT"},
+                    "account_type": {"type": "STR"},
+                },
+                "description": "A source table for revenue data",
+                "mode": "published",
+                "name": "company_revenue",
+                "type": "source",
+            },
+        )
+        assert response.status_code == 200
+
+        response = client.post(
+            "/nodes/",
+            json={
+                "columns": {
+                    "id": {"type": "INT"},
+                    "payment_type_name": {"type": "STR"},
+                    "payment_type_classification": {"type": "INT"},
+                },
+                "description": "A source table for different types of payments",
+                "mode": "published",
+                "name": "payment_type_table",
+                "type": "source",
+            },
+        )
+        assert response.status_code == 200
+
+        response = client.post(
+            "/nodes/",
+            json={
+                "description": "Payment type dimensions",
+                "query": (
+                    "SELECT id, payment_type_name, payment_type_classification "
+                    "FROM payment_type_table"
+                ),
+                "mode": "published",
+                "name": "payment_type",
+                "type": "dimension",
+            },
+        )
+        assert response.status_code == 200
+
+        # Attach the payment_type dimension to the payment_type column on the company_revenue node
+        response = client.post(
+            "/nodes/company_revenue/columns/payment_type?dimension=payment_type",
+        )
+        data = response.json()
+        assert data == {
+            "message": (
+                "Dimension node payment_type has been successfully "
+                "linked to column payment_type on node company_revenue"
+            ),
+        }
+
+        # Check that the proper error is raised when the column doesn't exist
+        response = client.post(
+            "/nodes/company_revenue/columns/non_existent_column?dimension=payment_type",
+        )
+        assert response.status_code == 404
+        data = response.json()
+        assert data["message"] == (
+            "A column with name `non_existent_column` on node "
+            "`company_revenue` does not exist."
+        )
+
+        # Check that the proper error is raised when no dimension is provided
+        response = client.post("/nodes/company_revenue/columns/payment_type")
+        assert response.status_code == 400
+        data = response.json()
+        assert data["message"] == "A dimension node must be specified"
