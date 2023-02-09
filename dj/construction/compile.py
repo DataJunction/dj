@@ -177,7 +177,7 @@ def _tables_to_namespaces(
 
 
 # pylint: disable=R0914, R0913, R0912, W0621
-def _validate_groupby_filters_ons_columns(
+def _validate_columns(
     session: Session,
     select: ast.Select,
     table_nodes: Dict[str, ast.TableExpression],
@@ -191,7 +191,10 @@ def _validate_groupby_filters_ons_columns(
     # used to check need and capacity for merging in dimensions
     dimension_columns: Set[NodeRevision] = set()
 
-    gbfo: List[Tuple[ast.Column, bool]] = []
+    gbfo: List[Tuple[ast.Column, bool]] = [
+        (col, col.is_api_column)
+        for col in chain(*(exp.find_all(ast.Column) for exp in select.projection))
+    ]
 
     if select.group_by:
         gbfo += [
@@ -237,22 +240,25 @@ def _validate_groupby_filters_ons_columns(
                     dim = get_dj_node(session, namespace, {NodeType.DIMENSION})
                 except DJException:
                     pass
-                CompoundBuildException().append(
-                    error=DJError(
-                        code=ErrorCode.INVALID_SQL_QUERY,
-                        message=f"Cannot reference a dimension with {col.name}",
-                        context=str(col.parent),
-                    ),
-                    message="Cannot extract dependencies from SELECT",
-                )
                 if bad_col_exc is not None:  # pragma: no cover
+
                     CompoundBuildException().append(
                         error=DJError(
                             code=ErrorCode.INVALID_COLUMN,
-                            message=f"Invalid column in query {col.name}",
+                            message=str(bad_col_exc),
                         ),
                         message="Cannot extract dependencies from SELECT",
                     )
+                else:
+                    CompoundBuildException().append(
+                        error=DJError(
+                            code=ErrorCode.INVALID_SQL_QUERY,
+                            message=f"Cannot reference the dimension with {col.name}",
+                            context=str(col.parent),
+                        ),
+                        message="Cannot extract dependencies from SELECT",
+                    )
+
             else:  # dim allowed
                 if bad_namespace:  # pragma: no cover
                     CompoundBuildException().errors = CompoundBuildException().errors[
@@ -340,16 +346,7 @@ def _compile_select_ast(
         },
     )
 
-    # check projection
-    for col in chain(*(exp.find_all(ast.Column) for exp in select.projection)):  # type: ignore
-        _check_col(
-            cast(ast.Column, col),
-            table_nodes,
-            multiple_refs,
-            namespaces,
-        )
-
-    dimension_columns |= _validate_groupby_filters_ons_columns(
+    dimension_columns |= _validate_columns(
         session,
         select,
         table_nodes,
