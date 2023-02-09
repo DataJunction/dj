@@ -1,4 +1,5 @@
 description: Country dimension
+display_name: 'Basic: Dimension: Countries'
 type: dimension
 query: |-
   SELECT country,

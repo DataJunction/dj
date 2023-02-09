@@ -1,4 +1,5 @@
 description: Orders fact table
+display_name: 'Dbt: Source: Jaffle Shop: Orders'
 type: source
 columns:
   id:

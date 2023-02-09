@@ -1,4 +1,5 @@
 description: Customer table
+display_name: 'Dbt: Source: Jaffle Shop: Customers'
 type: source
 columns:
   id:

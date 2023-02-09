@@ -27,6 +27,7 @@ from dj.sql.build import get_query_for_node
     fields=[
         "id",
         "name",
+        "display_name",
         "description",
         "query",
         "dimensions",

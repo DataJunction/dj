@@ -1,4 +1,5 @@
 description: A fact table with comments
+display_name: 'Basic: Source: Comments'
 type: source
 columns:
   id:

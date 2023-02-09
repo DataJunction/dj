@@ -1,4 +1,5 @@
 description: User dimension
+display_name: 'Dbt: Dimension: Customers'
 type: dimension
 query: |-
   SELECT id,
