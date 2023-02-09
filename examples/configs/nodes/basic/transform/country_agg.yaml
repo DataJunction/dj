@@ -1,4 +1,5 @@
 description: Country level agg table
+display_name: 'Basic: Transform: Country Agg'
 type: transform
 query: |-
   SELECT country,

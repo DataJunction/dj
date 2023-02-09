@@ -2,7 +2,7 @@
 Models for tables.
 """
 
-from typing import TYPE_CHECKING, List, Optional, TypedDict
+from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
 from sqlmodel import Field, Relationship
 
@@ -111,6 +111,12 @@ class Table(TableBase, table=True):  # type: ignore
             "table": self.table,
             "cost": self.cost,
         }
+
+    def identifier(self) -> Tuple[Optional[str], Optional[str], str]:
+        """
+        Unique identifier for this table.
+        """
+        return self.catalog, self.schema_, self.table
 
     def __hash__(self):
         return hash(self.id)

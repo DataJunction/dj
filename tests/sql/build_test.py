@@ -33,11 +33,12 @@ async def test_get_query_for_node(mocker: MockerFixture) -> None:
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     parent_ref = Node(name="A", current_version="1")
-    parent = NodeRevision(node=parent_ref, version="1")
+    parent = NodeRevision(name=parent_ref.name, node=parent_ref, version="1")
     parent_ref.current = parent
 
     child_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     child = NodeRevision(
+        name=child_ref.name,
         node=child_ref,
         version="1",
         tables=[
@@ -72,6 +73,7 @@ async def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
 
     parent_ref = Node(name="A", current_version="1")
     parent = NodeRevision(
+        name=parent_ref.name,
         node=parent_ref,
         version="1",
         tables=[
@@ -93,6 +95,7 @@ async def test_get_query_for_node_with_groupbys(mocker: MockerFixture) -> None:
 
     child_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     child = NodeRevision(
+        name=child_ref.name,
         node=child_ref,
         version="1",
         query="SELECT COUNT(*) AS cnt FROM A",
@@ -125,11 +128,12 @@ async def test_get_query_for_node_specify_database(mocker: MockerFixture) -> Non
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     parent_ref = Node(name="A", current_version="1")
-    parent = NodeRevision(node=parent_ref, version="1")
+    parent = NodeRevision(name=parent_ref.name, node=parent_ref, version="1")
     parent_ref.current = parent
 
     child_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     child = NodeRevision(
+        name=child_ref.name,
         node=child_ref,
         version="1",
         tables=[
@@ -169,11 +173,12 @@ async def test_get_query_for_node_no_databases(mocker: MockerFixture) -> None:
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     parent_ref = Node(name="A", current_version="1")
-    parent = NodeRevision(node=parent_ref, version="1")
+    parent = NodeRevision(name=parent_ref.name, node=parent_ref, version="1")
     parent_ref.current = parent
 
     child_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     child = NodeRevision(
+        name=child_ref.name,
         node=child_ref,
         version="1",
         tables=[
@@ -206,11 +211,12 @@ async def test_get_query_for_node_no_active_databases(mocker: MockerFixture) -> 
     database.do_ping = mocker.AsyncMock(return_value=False)
 
     parent_ref = Node(name="A", current_version="1")
-    parent = NodeRevision(node=parent_ref, version="1")
+    parent = NodeRevision(name=parent_ref.name, node=parent_ref, version="1")
     parent_ref.current = parent
 
     child_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     child = NodeRevision(
+        name=child_ref.name,
         node=child_ref,
         version="1",
         tables=[
@@ -350,6 +356,7 @@ async def test_get_query_for_node_with_multiple_dimensions(
 
     dimension_1_ref = Node(name="core.users", current_version="1")
     dimension_1 = NodeRevision(
+        name=dimension_1_ref.name,
         node=dimension_1_ref,
         version="1",
         type=NodeType.DIMENSION,
@@ -374,6 +381,7 @@ async def test_get_query_for_node_with_multiple_dimensions(
 
     dimension_2_ref = Node(name="core.bands", current_version="1")
     dimension_2 = NodeRevision(
+        name=dimension_2_ref.name,
         node=dimension_2_ref,
         version="1",
         type=NodeType.DIMENSION,
@@ -398,6 +406,7 @@ async def test_get_query_for_node_with_multiple_dimensions(
 
     parent_ref = Node(name="core.comments", current_version="1")
     parent = NodeRevision(
+        name=parent_ref.name,
         node=parent_ref,
         version="1",
         tables=[
@@ -542,6 +551,7 @@ async def test_get_query_for_sql(mocker: MockerFixture, session: Session) -> Non
 
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
     node_a = NodeRevision(
+        name="A",
         version="1",
         tables=[
             Table(
@@ -606,6 +616,7 @@ async def test_get_query_for_sql_no_metrics(
         type=NodeType.DIMENSION,
     )
     dimension = NodeRevision(
+        name=dimension_ref.name,
         node=dimension_ref,
         version="1",
         tables=[
@@ -653,6 +664,7 @@ FROM dim_users) AS "core.users"'''
         type=NodeType.DIMENSION,
     )
     other_dimension = NodeRevision(
+        name=other_ref.name,
         node=other_ref,
         version="1",
         columns=[
@@ -707,6 +719,7 @@ async def test_get_query_for_sql_having(
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     node_a = NodeRevision(
+        name="A",
         version="1",
         tables=[
             Table(
@@ -729,6 +742,7 @@ async def test_get_query_for_sql_having(
 
     node_b_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     node_b = NodeRevision(
+        name=node_b_ref.name,
         node=node_b_ref,
         version="1",
         query="SELECT COUNT(*) AS cnt FROM A",
@@ -776,6 +790,7 @@ async def test_get_query_for_sql_with_dimensions(  # pylint: disable=too-many-lo
         type=NodeType.DIMENSION,
     )
     dimension = NodeRevision(
+        name=dimension_ref.name,
         node=dimension_ref,
         version="1",
         tables=[
@@ -797,6 +812,7 @@ async def test_get_query_for_sql_with_dimensions(  # pylint: disable=too-many-lo
     )
 
     parent = NodeRevision(
+        name="core.comments",
         version="1",
         tables=[
             Table(
@@ -892,6 +908,7 @@ async def test_get_query_for_sql_with_dimensions_order_by(  # pylint: disable=to
         type=NodeType.DIMENSION,
     )
     dimension = NodeRevision(
+        name=dimension_ref.name,
         node=dimension_ref,
         version="1",
         tables=[
@@ -913,6 +930,7 @@ async def test_get_query_for_sql_with_dimensions_order_by(  # pylint: disable=to
     )
 
     parent = NodeRevision(
+        name="core.comments",
         version="1",
         tables=[
             Table(
@@ -1063,6 +1081,7 @@ async def test_get_query_for_sql_compound_names(
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     node_a = NodeRevision(
+        name="core.A",
         version="1",
         tables=[
             Table(
@@ -1085,6 +1104,7 @@ async def test_get_query_for_sql_compound_names(
 
     node_b_ref = Node(name="core.B", current_version="1", type=NodeType.METRIC)
     node_b = NodeRevision(
+        name=node_b_ref.name,
         node=node_b_ref,
         version="1",
         query="SELECT COUNT(*) AS cnt FROM core.A",
@@ -1122,6 +1142,7 @@ async def test_get_query_for_sql_multiple_databases(
     database_2 = Database(id=2, name="fast", URI="sqlite://", cost=1.0)
 
     node_a = NodeRevision(
+        name="A",
         version="1",
         tables=[
             Table(
@@ -1155,6 +1176,7 @@ async def test_get_query_for_sql_multiple_databases(
 
     node_b_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     node_b = NodeRevision(
+        name=node_b_ref.name,
         node=node_b_ref,
         version="1",
         query="SELECT COUNT(*) AS cnt FROM A",
@@ -1192,6 +1214,7 @@ async def test_get_query_for_sql_multiple_metrics(
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     node_a = NodeRevision(
+        name="A",
         version="1",
         tables=[
             Table(
@@ -1218,6 +1241,7 @@ async def test_get_query_for_sql_multiple_metrics(
 
     node_b_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     node_b = NodeRevision(
+        name=node_b_ref.name,
         node=node_b_ref,
         version="1",
         query="SELECT COUNT(*) AS cnt FROM A",
@@ -1227,6 +1251,7 @@ async def test_get_query_for_sql_multiple_metrics(
 
     node_c_ref = Node(name="C", current_version="1", type=NodeType.METRIC)
     node_c = NodeRevision(
+        name=node_c_ref.name,
         node=node_c_ref,
         version="1",
         query="SELECT MAX(one) AS max_one FROM A",
@@ -1263,6 +1288,7 @@ async def test_get_query_for_sql_non_identifiers(
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     node_a = NodeRevision(
+        name="A",
         version="1",
         tables=[
             Table(
@@ -1289,6 +1315,7 @@ async def test_get_query_for_sql_non_identifiers(
 
     node_b_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     node_b = NodeRevision(
+        name=node_b_ref.name,
         node=node_b_ref,
         version="1",
         query="SELECT COUNT(*) AS cnt FROM A",
@@ -1297,6 +1324,7 @@ async def test_get_query_for_sql_non_identifiers(
     session.add(node_b)
     node_c_ref = Node(name="C", current_version="1", type=NodeType.METRIC)
     node_c = NodeRevision(
+        name=node_c_ref.name,
         node=node_c_ref,
         version="1",
         query="SELECT MAX(one) AS max_one FROM A",
@@ -1333,6 +1361,7 @@ async def test_get_query_for_sql_different_parents(
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     node_a = NodeRevision(
+        name="A",
         version="1",
         tables=[
             Table(
@@ -1348,6 +1377,7 @@ async def test_get_query_for_sql_different_parents(
     node_a_ref = Node(name="A", current_version="1")
     node_a.node = node_a_ref
     node_b = NodeRevision(
+        name="B",
         version="1",
         tables=[
             Table(
@@ -1363,6 +1393,7 @@ async def test_get_query_for_sql_different_parents(
     node_b_ref = Node(name="B", current_version="1")
     node_b.node = node_b_ref
     node_c = NodeRevision(
+        name="C",
         version="1",
         query="SELECT COUNT(*) AS cnt FROM A",
         parents=[node_a_ref],
@@ -1372,6 +1403,7 @@ async def test_get_query_for_sql_different_parents(
     session.add(node_c)
     node_d_ref = Node(name="D", type=NodeType.METRIC, current_version="1")
     node_d = NodeRevision(
+        name=node_d_ref.name,
         node=node_d_ref,
         version="1",
         query="SELECT MAX(one) AS max_one FROM A",
@@ -1400,6 +1432,7 @@ async def test_get_query_for_sql_not_metric(
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     node_a = NodeRevision(
+        name="A",
         version="1",
         tables=[
             Table(
@@ -1417,6 +1450,7 @@ async def test_get_query_for_sql_not_metric(
 
     node_b_ref = Node(name="B", current_version="1")
     node_b = NodeRevision(
+        name=node_b_ref.name,
         node=node_b_ref,
         version="1",
         query="SELECT one FROM A",
@@ -1443,6 +1477,7 @@ async def test_get_query_for_sql_no_databases(
     get_session().__next__.return_value = session
 
     node_a = NodeRevision(
+        name="A",
         version="1",
         tables=[],
     )
@@ -1451,6 +1486,7 @@ async def test_get_query_for_sql_no_databases(
 
     node_b_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     node_b = NodeRevision(
+        name=node_b_ref.name,
         node=node_b_ref,
         version="1",
         query="SELECT COUNT(*) AS cnt FROM A",
@@ -1476,6 +1512,7 @@ async def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) 
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     node_a = NodeRevision(
+        name="A",
         version="1",
         tables=[
             Table(
@@ -1498,6 +1535,7 @@ async def test_get_query_for_sql_alias(mocker: MockerFixture, session: Session) 
 
     node_b_ref = Node(name="B", current_version="1", type=NodeType.METRIC)
     node_b = NodeRevision(
+        name=node_b_ref.name,
         node=node_b_ref,
         version="1",
         query="SELECT COUNT(*) AS cnt FROM A",
@@ -1534,6 +1572,7 @@ async def test_get_query_for_sql_where_groupby(
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     comments = NodeRevision(
+        name="core.comments",
         version="1",
         tables=[
             Table(
@@ -1560,6 +1599,7 @@ async def test_get_query_for_sql_where_groupby(
         type=NodeType.METRIC,
     )
     num_comments = NodeRevision(
+        name=num_comments_ref.name,
         node=num_comments_ref,
         verison=1,
         query="SELECT COUNT(*) FROM core.comments",
@@ -1601,6 +1641,7 @@ async def test_get_query_for_sql_where_groupby_num(
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     comments = NodeRevision(
+        name="core.comments",
         version="1",
         tables=[
             Table(
@@ -1627,6 +1668,7 @@ async def test_get_query_for_sql_where_groupby_num(
         type=NodeType.METRIC,
     )
     num_comments = NodeRevision(
+        name=num_comments_ref.name,
         node=num_comments_ref,
         verison=1,
         query="SELECT COUNT(*) FROM core.comments",
@@ -1668,6 +1710,7 @@ async def test_get_query_for_sql_date_trunc(
     database = Database(id=1, name="db", URI="sqlite://")
 
     comments = NodeRevision(
+        name="core.comments",
         version="1",
         tables=[
             Table(
@@ -1685,7 +1728,7 @@ async def test_get_query_for_sql_date_trunc(
 
     engine = create_engine(database.URI)
     connection = engine.connect()
-    connection.execute("CREATE TABLE comments (user_id INT, timestamp TIMESTAMP)")
+    connection.execute("CREATE TABLE comments (user_id INT, timestamp DATETIME)")
     mocker.patch("dj.models.database.create_engine", return_value=engine)
 
     num_comments_ref = Node(
@@ -1694,6 +1737,7 @@ async def test_get_query_for_sql_date_trunc(
         type=NodeType.METRIC,
     )
     num_comments = NodeRevision(
+        name=num_comments_ref.name,
         node=num_comments_ref,
         verison=1,
         query="SELECT COUNT(*) FROM core.comments",
@@ -1737,6 +1781,7 @@ async def test_get_query_for_sql_invalid_column(
     database = Database(id=1, name="slow", URI="sqlite://", cost=1.0)
 
     comments = NodeRevision(
+        name="core.comments",
         version="1",
         tables=[
             Table(
@@ -1763,6 +1808,7 @@ async def test_get_query_for_sql_invalid_column(
         type=NodeType.METRIC,
     )
     num_comments = NodeRevision(
+        name=num_comments_ref.name,
         node=num_comments_ref,
         verison=1,
         query="SELECT COUNT(*) FROM core.comments",
@@ -1984,6 +2030,7 @@ def test_find_on_clause_parent_invalid_reference(mocker: MockerFixture) -> None:
 
     dimension_ref = Node(name="core.users", current_version="1")
     dimension = NodeRevision(
+        name=dimension_ref.name,
         node=dimension_ref,
         version="1",
         type=NodeType.DIMENSION,
@@ -2008,6 +2055,7 @@ def test_find_on_clause_parent_invalid_reference(mocker: MockerFixture) -> None:
 
     parent_ref = Node(name="core.comments", current_version="1")
     parent = NodeRevision(
+        name=parent_ref.name,
         node=parent_ref,
         version="1",
         tables=[
@@ -2033,7 +2081,12 @@ def test_find_on_clause_parent_invalid_reference(mocker: MockerFixture) -> None:
         name="core.num_comments",
         current_version="1",
     )
-    child = NodeRevision(node=child_ref, version="1", parents=[parent_ref])
+    child = NodeRevision(
+        name=child_ref.name,
+        node=child_ref,
+        version="1",
+        parents=[parent_ref],
+    )
     child_ref.current = child
 
     node_select = mocker.MagicMock()
@@ -2059,6 +2112,7 @@ def test_get_join_columns() -> None:  # pylint: disable=too-many-locals
         type=NodeType.DIMENSION,
     )
     dimension = NodeRevision(
+        name=dimension_ref.name,
         node=dimension_ref,
         version="1",
         tables=[
@@ -2081,7 +2135,7 @@ def test_get_join_columns() -> None:  # pylint: disable=too-many-locals
     dimension_ref.current = dimension
 
     orphan_ref = Node(name="orphan", current_version="1")
-    orphan = NodeRevision(node=orphan_ref, version="1")
+    orphan = NodeRevision(name=orphan_ref.name, node=orphan_ref, version="1")
     orphan_ref.current = orphan
 
     with pytest.raises(Exception) as excinfo:
@@ -2093,6 +2147,7 @@ def test_get_join_columns() -> None:  # pylint: disable=too-many-locals
         current_version="1",
     )
     parent_without_columns = NodeRevision(
+        name=parent_without_columns_ref.name,
         node=parent_without_columns_ref,
         version="1",
     )
@@ -2100,6 +2155,7 @@ def test_get_join_columns() -> None:  # pylint: disable=too-many-locals
 
     broken_ref = Node(name="broken", current_version="1")
     broken = NodeRevision(
+        name=broken_ref.name,
         node=broken_ref,
         version="1",
         parents=[parent_without_columns_ref],
@@ -2112,6 +2168,7 @@ def test_get_join_columns() -> None:  # pylint: disable=too-many-locals
 
     parent_ref = Node(name="parent", current_version="1")
     parent = NodeRevision(
+        name=parent_ref.name,
         node=parent_ref,
         version="1",
         tables=[
@@ -2135,6 +2192,7 @@ def test_get_join_columns() -> None:  # pylint: disable=too-many-locals
 
     child_ref = Node(name="child", current_version="1")
     child = NodeRevision(
+        name=child_ref.name,
         node=child_ref,
         version="1",
         parents=[parent_without_columns_ref, parent_ref],

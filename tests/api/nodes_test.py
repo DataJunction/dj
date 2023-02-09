@@ -30,10 +30,10 @@ def test_read_node(session: Session, client: TestClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-
-    assert data["current"]["version"] == "1"
-    assert data["current_version"] == "1"
-    assert len(data["revisions"]) == 1
+    assert data["version"] == "1"
+    assert data["node_id"] == 1
+    assert data["node_revision_id"] == 1
+    assert data["type"] == "source"
 
     response = client.get("/nodes/nothing/")
     data = response.json()
@@ -95,19 +95,23 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert len(data) == 3
 
     nodes = {node["name"]: node for node in data}
-    assert nodes["not-a-metric"]["current"]["query"] is None
-    assert not nodes["not-a-metric"]["current"]["columns"]
+    assert nodes["not-a-metric"]["query"] is None
+    assert nodes["not-a-metric"]["version"] == "1"
+    assert nodes["not-a-metric"]["display_name"] == "Not-A-Metric"
+    assert not nodes["not-a-metric"]["columns"]
 
-    assert nodes["also-not-a-metric"]["current"]["query"] == "SELECT 42 AS answer"
-    assert nodes["also-not-a-metric"]["current"]["columns"] == [
+    assert nodes["also-not-a-metric"]["query"] == "SELECT 42 AS answer"
+    assert nodes["also-not-a-metric"]["display_name"] == "Also-Not-A-Metric"
+    assert nodes["also-not-a-metric"]["columns"] == [
         {
             "name": "answer",
             "type": "INT",
         },
     ]
 
-    assert nodes["a-metric"]["current"]["query"] == "SELECT COUNT(*) FROM my_table"
-    assert nodes["a-metric"]["current"]["columns"] == [
+    assert nodes["a-metric"]["query"] == "SELECT COUNT(*) FROM my_table"
+    assert nodes["a-metric"]["display_name"] == "A-Metric"
+    assert nodes["a-metric"]["columns"] == [
         {
             "name": "_col0",
             "type": "INT",
@@ -266,13 +270,12 @@ class TestCreateOrUpdateNodes:
 
         assert data["name"] == "comments"
         assert data["type"] == "source"
-        assert data["current_version"] == "1"
-        assert data["current"]["name"] == "comments"
-        assert data["current"]["version"] == "1"
-        assert data["current"]["node_id"] == 1
-        assert data["current"]["description"] == "A fact table with comments"
-        assert data["current"]["query"] is None
-        assert data["current"]["columns"] == [
+        assert data["display_name"] == "Comments"
+        assert data["version"] == "1"
+        assert data["node_id"] == 1
+        assert data["description"] == "A fact table with comments"
+        assert data["query"] is None
+        assert data["columns"] == [
             {"name": "id", "type": "INT"},
             {"name": "user_id", "type": "INT"},
             {"name": "timestamp", "type": "TIMESTAMP"},
@@ -293,22 +296,22 @@ class TestCreateOrUpdateNodes:
             f"/nodes/{create_source_node_payload['name']}/",
             json={
                 "description": "New description",
+                "display_name": "Comments facts",
             },
         )
         data = response.json()
 
         assert data["name"] == "comments"
+        assert data["display_name"] == "Comments facts"
         assert data["type"] == "source"
-        assert data["current_version"] == "2"
-        assert data["current"]["name"] == "comments"
-        assert data["current"]["version"] == "2"
-        assert data["current"]["node_id"] == 1
-        assert data["current"]["description"] == "New description"
+        assert data["version"] == "2"
+        assert data["node_id"] == 1
+        assert data["description"] == "New description"
 
         # Try to update node with no changes
         response = client.patch(
             f"/nodes/{create_source_node_payload['name']}/",
-            json={"description": "New description"},
+            json={"description": "New description", "display_name": "Comments facts"},
         )
         new_data = response.json()
         assert data == new_data
@@ -329,9 +332,8 @@ class TestCreateOrUpdateNodes:
             },
         )
         data = response.json()
-        assert data["current_version"] == "3"
-        assert data["current"]["version"] == "3"
-        assert data["current"]["tables"][0]["table"] == "commentsv2"
+        assert data["version"] == "3"
+        assert data["tables"][0]["table"] == "commentsv2"
 
         # Try to update a node with a table that has different columns
         response = client.patch(
@@ -346,9 +348,8 @@ class TestCreateOrUpdateNodes:
             },
         )
         data = response.json()
-        assert data["current_version"] == "4"
-        assert data["current"]["version"] == "4"
-        assert data["current"]["columns"] == [
+        assert data["version"] == "4"
+        assert data["columns"] == [
             {"name": "id", "type": "INT"},
             {"name": "user_id", "type": "INT"},
             {"name": "timestamp", "type": "TIMESTAMP"},
@@ -421,39 +422,45 @@ class TestCreateOrUpdateNodes:
         Test creating and updating a transform node that references an existing source.
         """
 
+        # Create a transform node
         response = client.post(
             "/nodes/",
             json=create_transform_node_payload,
         )
         data = response.json()
         assert data["name"] == "country_agg"
+        assert data["display_name"] == "Country Agg"
         assert data["type"] == "transform"
-        assert data["current"]["description"] == "Distinct users per country"
+        assert data["description"] == "Distinct users per country"
         assert (
-            data["current"]["query"]
+            data["query"]
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
-        assert data["current"]["columns"] == [
+        assert data["columns"] == [
             {"name": "country", "type": "STR"},
             {"name": "num_users", "type": "INT"},
         ]
-        assert data["current"]["tables"] == []
+        assert data["tables"] == []
 
+        # Update the transform node
         response = client.patch(
             "/nodes/country_agg/",
-            json={"description": "Some new description"},
+            json={
+                "description": "Some new description",
+                "display_name": "Country Aggregation by User",
+            },
         )
         data = response.json()
         assert data["name"] == "country_agg"
+        assert data["display_name"] == "Country Aggregation by User"
         assert data["type"] == "transform"
-        assert data["current_version"] == "2"
-        assert data["current"]["version"] == "2"
-        assert data["current"]["description"] == "Some new description"
+        assert data["version"] == "2"
+        assert data["description"] == "Some new description"
         assert (
-            data["current"]["query"]
+            data["query"]
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
-        assert data["current"]["tables"] == []
+        assert data["tables"] == []
 
         # Try to update with a new query that references a non-existent source
         response = client.patch(
@@ -477,30 +484,32 @@ class TestCreateOrUpdateNodes:
             },
         )
         data = response.json()
-        assert data["current_version"] == "3"
-        assert data["current"]["version"] == "3"
+        assert data["version"] == "3"
         assert (
-            data["current"]["query"]
-            == "SELECT country, COUNT(DISTINCT id) AS num_users, "
+            data["query"] == "SELECT country, COUNT(DISTINCT id) AS num_users, "
             "COUNT(*) AS num_entries FROM basic.source.users"
         )
-        assert data["current"]["columns"] == [
+        assert data["columns"] == [
             {"name": "country", "type": "STR"},
             {"name": "num_users", "type": "INT"},
             {"name": "num_entries", "type": "INT"},
         ]
 
-        # Verify that all historical revisions are available for the node
-        response = client.get("/nodes/country_agg/")
+        # Verify that asking for revisions for a non-existent transform fails
+        response = client.get("/nodes/random_transform/revisions/")
         data = response.json()
-        assert len(data["revisions"]) == 3
-        assert {rev["version"]: rev["query"] for rev in data["revisions"]} == {
+        assert data["detail"] == "Node not found: `random_transform`"
+
+        # Verify that all historical revisions are available for the node
+        response = client.get("/nodes/country_agg/revisions/")
+        data = response.json()
+        assert {rev["version"]: rev["query"] for rev in data} == {
             "1": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
             "2": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
             "3": "SELECT country, COUNT(DISTINCT id) AS num_users, COUNT(*) AS num_entries "
             "FROM basic.source.users",
         }
-        assert {rev["version"]: rev["columns"] for rev in data["revisions"]} == {
+        assert {rev["version"]: rev["columns"] for rev in data} == {
             "1": [
                 {"name": "country", "type": "STR"},
                 {"name": "num_users", "type": "INT"},
@@ -535,15 +544,15 @@ class TestCreateOrUpdateNodes:
 
         assert response.status_code == 200
         assert data["name"] == "countries"
+        assert data["display_name"] == "Countries"
         assert data["type"] == "dimension"
-        assert data["current_version"] == "1"
-        assert data["current"]["name"] == "countries"
-        assert data["current"]["description"] == "Country dimension"
+        assert data["version"] == "1"
+        assert data["description"] == "Country dimension"
         assert (
-            data["current"]["query"] == "SELECT country, COUNT(1) AS user_cnt "
+            data["query"] == "SELECT country, COUNT(1) AS user_cnt "
             "FROM basic.source.users GROUP BY country"
         )
-        assert data["current"]["columns"] == [
+        assert data["columns"] == [
             {"name": "country", "type": "STR"},
             {"name": "user_cnt", "type": "INT"},
         ]
@@ -554,11 +563,10 @@ class TestCreateOrUpdateNodes:
             json={"query": "SELECT country FROM basic.source.users GROUP BY country"},
         )
         data = response.json()
-        assert data["current_version"] == "2"
-        assert data["current"]["version"] == "2"
+        assert data["version"] == "2"
 
         # The columns should have been updated
-        assert data["current"]["columns"] == [{"name": "country", "type": "STR"}]
+        assert data["columns"] == [{"name": "country", "type": "STR"}]
 
 
 class TestValidateNodes:  # pylint: disable=too-many-public-methods

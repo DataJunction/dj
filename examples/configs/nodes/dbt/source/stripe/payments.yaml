@@ -1,4 +1,5 @@
 description: Payments fact table.
+display_name: 'Dbt: Source: Stripe: Payments'
 type: source
 columns:
   id:
