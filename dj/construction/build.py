@@ -242,16 +242,19 @@ def add_filters_and_aggs_to_query_ast(
     """
     Add filters and aggs to a query ast
     """
+    projection_addition = []
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
             query.select.where and [query.select.where] or []
         )
 
         for filter_ in filters:
+            temp_select = parse(f"select * where {filter_}", dialect).select
             filter_asts.append(
                 # use parse to get the asts from the strings we got
-                parse(f"select * where {filter_}", dialect).select.where,  # type:ignore
+                temp_select.where,  # type:ignore
             )
+            projection_addition += list(temp_select.find_all(ast.Column))
         query.select.where = reduce(
             lambda left, right: ast.BinaryOp(
                 ast.BinaryOpKind.And,
@@ -260,12 +263,18 @@ def add_filters_and_aggs_to_query_ast(
             ),
             filter_asts,
         )
+
     if aggs:
         for agg in aggs:
-            query.select.group_by += parse(
+            temp_select = parse(
                 f"select * group by {agg}",
                 dialect,
-            ).select.group_by  # type:ignore
+            ).select
+            query.select.group_by += temp_select.group_by  # type:ignore
+            projection_addition += list(temp_select.find_all(ast.Column))
+    query.select.projection += [
+        col.set_api_column(True).copy() for col in set(projection_addition)
+    ]
 
 
 async def build_node_for_database(  # pylint: disable=too-many-arguments
