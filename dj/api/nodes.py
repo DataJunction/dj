@@ -7,10 +7,12 @@ from http import HTTPStatus
 from typing import Dict, List, Optional, Tuple, Union
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, SQLModel, select
 
+from dj.api.helpers import get_database_by_name, get_node_by_name
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, ErrorCode
@@ -244,64 +246,6 @@ def list_node_revisions(
     return node.revisions  # type: ignore
 
 
-def check_databases_registered(
-    tables: List[CreateTable],
-    session: Session,
-) -> Dict[str, Database]:
-    """
-    Verify that the referenced databases are registered in the system.
-    """
-
-    database_names = {table.database_name for table in tables}
-    query = select(Database).where(
-        # pylint: disable=no-member
-        Database.name.in_(database_names),  # type: ignore
-    )
-    databases = {db.name: db for db in session.exec(query).all()}
-    missing_databases = database_names - databases.keys()
-    if missing_databases:
-        raise DJException(message=f"Database(s) {missing_databases} not supported.")
-    return databases
-
-
-def create_source_node_revision(
-    data: Union[CreateSourceNode],
-    session: Session,
-) -> NodeRevision:
-    """
-    Creates a source node revision.
-    """
-
-    databases = check_databases_registered(data.tables, session)
-
-    node_revision = NodeRevision(
-        name=data.name,
-        description=data.description,
-        type=data.type,
-        columns=[
-            Column(
-                name=column_name,
-                type=ColumnType[column_data["type"]],
-                dimension_column=column_data.get("dimension"),
-            )
-            for column_name, column_data in data.columns.items()
-        ],
-        tables=[
-            Table(
-                catalog=table.catalog,
-                schema_=table.schema_,
-                table=table.table,
-                cost=table.cost,
-                database=databases[table.database_name],
-                columns=[],
-            )
-            for table in data.tables
-        ],
-        parents=[],
-    )
-    return node_revision
-
-
 def create_node_revision(
     data: Union[CreateNode],
     session: Session,
@@ -349,7 +293,19 @@ def create_node(
     node = Node(name=data.name, type=data.type, current_version=0)
 
     if data.type == NodeType.SOURCE:
-        node_revision = create_source_node_revision(data, session)
+        node_revision = NodeRevision(
+            name=data.name,
+            description=data.description,
+            type=data.type,
+            columns=[
+                Column(
+                    name=column_name,
+                    type=ColumnType[column_data["type"]],
+                )
+                for column_name, column_data in data.columns.items()
+            ],
+            parents=[],
+        )
     else:
         node_revision = create_node_revision(data, session)
 
@@ -364,6 +320,99 @@ def create_node(
     session.commit()
     session.refresh(node.current)
     return node  # type: ignore
+
+
+@router.post("/nodes/{name}/columns/{column}/")
+def add_dimension_to_node(
+    name: str,
+    column: str,
+    dimension: Optional[str] = None,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
+    """
+    Add information to a node column
+    """
+    if not dimension:
+        raise DJException(
+            message="A dimension node must be specified",
+            http_status_code=400,
+        )
+
+    node = get_node_by_name(session=session, name=name)
+    dimension_node = get_node_by_name(
+        session=session,
+        name=dimension,
+        node_type=NodeType.DIMENSION,
+    )
+
+    target_column = None
+    for node_column in node.current.columns:
+        if node_column.name == column:
+            target_column = node_column
+            node_column.dimension = dimension_node
+            node_column.dimension_id = dimension_node.id
+    if not target_column:
+        raise DJException(
+            message=f"A column with name `{column}` on node `{name}` does not exist.",
+            http_status_code=404,
+        )
+
+    session.add(node)
+    session.commit()
+    session.refresh(node)
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": (
+                f"Dimension node {dimension} has been successfully "
+                f"linked to column {column} on node {name}"
+            ),
+        },
+    )
+
+
+@router.post("/nodes/{name}/table/")
+def add_table_to_node(
+    name: str, data: CreateTable, *, session: Session = Depends(get_session)
+) -> JSONResponse:
+    """
+    Add a table to a node
+    """
+    node = get_node_by_name(session=session, name=name)
+    database = get_database_by_name(session=session, name=data.database_name)
+    table = Table(
+        catalog=data.catalog,
+        schema=data.schema_,
+        table=data.table,
+        database_id=database.id,
+        cost=data.cost,
+        columns=[
+            Column(name=column.name, type=ColumnType(column.type))
+            for column in data.columns
+        ],
+    )
+    for existing_table in node.current.tables:
+        if existing_table.identifier() == table.identifier():
+            raise DJException(
+                message=f"Table {table.identifier()} already exists for node {name}",
+                http_status_code=HTTPStatus.CONFLICT,
+            )
+    session.add(table)
+    session.commit()
+    session.refresh(table)
+
+    node.current.tables.append(table)
+    session.add(node)
+    session.commit()
+    session.refresh(node)
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": (
+                f"Table {data.table} has been successfully linked to node {name}"
+            ),
+        },
+    )
 
 
 @router.patch("/nodes/{name}/", response_model=NodeMetadata)
@@ -417,21 +466,6 @@ def update_node(
         mode=data.mode if data.mode else old_revision.mode,
     )
 
-    # Update tables if they're provided
-    if data.tables:
-        databases = check_databases_registered(data.tables, session)
-        new_revision.tables = [
-            Table(
-                catalog=table.catalog,
-                schema_=table.schema_,
-                table=table.table,
-                cost=table.cost,
-                database=databases[table.database_name],
-                columns=[],
-            )
-            for table in data.tables
-        ]
-
     # Build the new version and link its parents
     if new_revision.type != NodeType.SOURCE:
         _, validated_node, dependencies_map = validate(new_revision, session)
@@ -464,8 +498,6 @@ def update_node(
     )
     source_node_change_check = (
         old_revision.type == NodeType.SOURCE
-        and {table.identifier() for table in old_tables}
-        == {table.identifier() for table in new_revision.tables}
         and {col.identifier() for col in old_revision.columns}
         == {col.identifier() for col in new_revision.columns}
         and old_revision.description == new_revision.description
