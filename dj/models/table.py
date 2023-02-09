@@ -75,7 +75,7 @@ class Table(TableBase, table=True):  # type: ignore
     """
     A table with data.
 
-    Nodes can data in multiple tables, in different databases.
+    Nodes can have data in multiple tables, in different databases.
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
@@ -122,9 +122,19 @@ class Table(TableBase, table=True):  # type: ignore
         return hash(self.id)
 
 
+class CreateColumn(BaseSQLModel):
+    """
+    A column creation request
+    """
+
+    name: str
+    type: str
+
+
 class CreateTable(TableBase):
     """
     Create table input
     """
 
     database_name: str
+    columns: List[CreateColumn]
