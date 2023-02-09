@@ -326,26 +326,7 @@ async def index_nodes(  # pylint: disable=too-many-locals
                 nodes_to_delete.remove(node.name)
             finished.add(node.name)
 
-    # remove existing nodes that were not found when indexing current configs
-    if nodes_to_delete:
-        await asyncio.wait(
-            {remove_node(session, existing_nodes[name]) for name in nodes_to_delete},
-            return_when=asyncio.ALL_COMPLETED,
-        )
-
     return list(nodes.values())
-
-
-async def remove_node(session: Session, node: Node):
-    """
-    Remove a node.
-    """
-    _logger.info(
-        "Removing %s node %s",
-        node.type,
-        node.name,
-    )
-    session.delete(node)
 
 
 async def add_node(  # pylint: disable=too-many-locals

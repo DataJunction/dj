@@ -18,7 +18,7 @@ from typing_extensions import TypedDict
 
 from dj.models.base import BaseSQLModel
 from dj.models.column import Column, ColumnYAML
-from dj.models.table import CreateTable, Table, TableNodeRevision, TableYAML
+from dj.models.table import Table, TableNodeRevision, TableYAML
 from dj.sql.parse import is_metric
 from dj.typing import ColumnType
 from dj.utils import UTCDatetime
@@ -397,10 +397,6 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 raise Exception(
                     f"Node {self.name} of type source should not have a query",
                 )
-            if not self.tables:
-                raise Exception(
-                    f"Node {self.name} of type source needs at least one table",
-                )
 
         if self.type in {NodeType.TRANSFORM, NodeType.METRIC, NodeType.DIMENSION}:
             if not self.query:
@@ -451,7 +447,6 @@ class SourceNodeFields(BaseSQLModel):
     """
 
     columns: Dict[str, SourceNodeColumnType]
-    tables: List[CreateTable]
 
 
 class CreateNode(ImmutableNodeFields, MutableNodeFields):
