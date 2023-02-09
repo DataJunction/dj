@@ -73,8 +73,11 @@ async def test_build_metric_with_dimensions_aggs(mocker, request):
         aggs=["basic.dimension.users.country", "basic.dimension.users.gender"],
     )
 
-    expected = """
-    SELECT  COUNT(1) AS cnt
+    expecteds = (
+        """
+    SELECT  COUNT(1) AS cnt,
+    basic_DOT_dimension_DOT_users.gender,
+    basic_DOT_dimension_DOT_users.country
     FROM basic.comments
     LEFT JOIN (SELECT  basic.comments.id,
         basic.comments.full_name,
@@ -88,9 +91,28 @@ async def test_build_metric_with_dimensions_aggs(mocker, request):
     ) AS basic_DOT_dimension_DOT_users
             ON basic.comments.user_id = basic_DOT_dimension_DOT_users.id
     GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
-    """
+    """,
+        """
+    SELECT  COUNT(1) AS cnt,
+    basic_DOT_dimension_DOT_users.country,
+    basic_DOT_dimension_DOT_users.gender
+    FROM basic.comments
+    LEFT JOIN (SELECT  basic.comments.id,
+        basic.comments.full_name,
+        basic.comments.age,
+        basic.comments.country,
+        basic.comments.gender,
+        basic.comments.preferred_language,
+        basic.comments.secret_number
+    FROM basic.comments
 
-    assert compare_query_strings(str(query), expected)
+    ) AS basic_DOT_dimension_DOT_users
+            ON basic.comments.user_id = basic_DOT_dimension_DOT_users.id
+    GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
+    """,
+    )
+    str_query = str(query)
+    assert any(compare_query_strings(str_query, expected) for expected in expecteds)
 
 
 @pytest.mark.asyncio
@@ -170,7 +192,8 @@ async def test_build_metric_with_dimensions_filters(mocker, request):
     )
 
     expected = """
-    SELECT  COUNT(1) AS cnt
+    SELECT  COUNT(1) AS cnt,
+    basic_DOT_dimension_DOT_users.age
     FROM basic.comments
     LEFT JOIN (SELECT  basic.comments.id,
         basic.comments.full_name,

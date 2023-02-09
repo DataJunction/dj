@@ -5,6 +5,7 @@ import re
 
 # pylint: disable=R0401,C0302
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from enum import Enum
 from itertools import chain, zip_longest
@@ -140,6 +141,12 @@ class Node(ABC):
         for child in flatten(value):
             if isinstance(child, Node) and not key.startswith("_"):
                 child.set_parent(self, key)
+
+    def copy(self: TNode) -> TNode:
+        """
+        Create a deep copy of the `self`
+        """
+        return deepcopy(self)
 
     def get_nearest_parent_of_type(
         self: "Node",
@@ -951,6 +958,7 @@ class Column(Named):
     _table: Optional["TableExpression"] = field(repr=False, default=None)
     _type: Optional["ColumnType"] = field(repr=False, default=None)
     _expression: Optional[Expression] = field(repr=False, default=None)
+    _api_column: bool = False
 
     def add_type(self, type_: ColumnType) -> "Column":
         """
@@ -971,6 +979,20 @@ class Column(Named):
         Add a referenced expression
         """
         self._expression = expression
+        return self
+
+    @property
+    def is_api_column(self) -> bool:
+        """
+        Is the column added from the api?
+        """
+        return self._api_column
+
+    def set_api_column(self, api_column: bool = False) -> "Column":
+        """
+        Set the api column flag
+        """
+        self._api_column = api_column
         return self
 
     @property
