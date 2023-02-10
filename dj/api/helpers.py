@@ -7,7 +7,7 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from dj.errors import DJException
-from dj.models import Column, Database
+from dj.models import Catalog, Column, Database
 from dj.models.node import Node, NodeRevision, NodeType
 
 
@@ -64,3 +64,17 @@ def get_column(node: NodeRevision, column_name: str) -> Column:
             http_status_code=404,
         )
     return requested_column
+
+
+def get_catalog(session: Session, name: str) -> Catalog:
+    """
+    Get a catalog by name
+    """
+    statement = select(Catalog).where(Catalog.name == name)
+    catalog = session.exec(statement).one_or_none()
+    if not catalog:
+        raise DJException(
+            message=f"Catalog with name `{name}` does not exist.",
+            http_status_code=404,
+        )
+    return catalog

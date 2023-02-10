@@ -12,7 +12,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, SQLModel, select
 
-from dj.api.helpers import get_column, get_database_by_name, get_node_by_name
+from dj.api.helpers import (
+    get_catalog,
+    get_column,
+    get_database_by_name,
+    get_node_by_name,
+)
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, ErrorCode
@@ -374,11 +379,14 @@ def add_table_to_node(
     """
     node = get_node_by_name(session=session, name=name)
     database = get_database_by_name(session=session, name=data.database_name)
+    catalog = get_catalog(session=session, name=data.catalog_name)
     table = Table(
-        catalog=data.catalog,
+        catalog_id=catalog.id,
+        catalog=catalog,
         schema=data.schema_,
         table=data.table,
         database_id=database.id,
+        database=database,
         cost=data.cost,
         columns=[
             Column(name=column.name, type=ColumnType(column.type))
