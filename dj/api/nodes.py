@@ -380,29 +380,34 @@ def add_table_to_node(
     node = get_node_by_name(session=session, name=name)
     database = get_database_by_name(session=session, name=data.database_name)
     catalog = get_catalog(session=session, name=data.catalog_name)
+    for existing_table in node.current.tables:
+        if (
+            existing_table.database == database
+            and existing_table.catalog == catalog
+            and existing_table.table == data.table
+        ):
+            raise DJException(
+                message=(
+                    f"Table {data.table} in database {database.name} in "
+                    f"catalog {catalog.name} already exists for node {name}"
+                ),
+                http_status_code=HTTPStatus.CONFLICT,
+            )
     table = Table(
         catalog_id=catalog.id,
-        catalog=catalog,
         schema=data.schema_,
         table=data.table,
         database_id=database.id,
-        database=database,
         cost=data.cost,
         columns=[
             Column(name=column.name, type=ColumnType(column.type))
             for column in data.columns
         ],
     )
-    for existing_table in node.current.tables:
-        if existing_table.identifier() == table.identifier():
-            raise DJException(
-                message=f"Table {table.identifier()} already exists for node {name}",
-                http_status_code=HTTPStatus.CONFLICT,
-            )
+
     session.add(table)
     session.commit()
     session.refresh(table)
-
     node.current.tables.append(table)
     session.add(node)
     session.commit()
