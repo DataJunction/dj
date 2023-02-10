@@ -176,7 +176,6 @@ class NodeRevisionBase(BaseSQLModel):
             String,
             default=generate_display_name("name"),
         ),
-        foreign_key="node.display_name",
     )
     type: NodeType = Field(sa_column=SqlaColumn(Enum(NodeType)))
     description: str = ""
