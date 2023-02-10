@@ -7,8 +7,8 @@ from typing import Optional
 from sqlmodel import Session, select
 
 from dj.errors import DJException
-from dj.models import Database
-from dj.models.node import Node, NodeType
+from dj.models import Column, Database
+from dj.models.node import Node, NodeRevision, NodeType
 
 
 def get_node_by_name(
@@ -46,3 +46,21 @@ def get_database_by_name(session: Session, name: str) -> Database:
             http_status_code=404,
         )
     return database
+
+
+def get_column(node: NodeRevision, column_name: str) -> Column:
+    """
+    Get a column from a node revision
+    """
+    requested_column = None
+    for node_column in node.columns:
+        if node_column.name == column_name:
+            requested_column = node_column
+            break
+
+    if not requested_column:
+        raise DJException(
+            message=f"Column {column_name} does not exist on node {node.name}",
+            http_status_code=404,
+        )
+    return requested_column
