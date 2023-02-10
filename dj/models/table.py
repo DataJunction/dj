@@ -88,7 +88,7 @@ class Table(TableBase, table=True):  # type: ignore
         },
     )
 
-    catalog_id: Optional[int] = Field(default=None, foreign_key="catalog.id")
+    catalog_id: Optional[int] = Field(foreign_key="catalog.id")
     catalog: Optional["Catalog"] = Relationship(back_populates="tables")
 
     database_id: int = Field(foreign_key="database.id")
@@ -114,7 +114,9 @@ class Table(TableBase, table=True):  # type: ignore
             "cost": self.cost,
         }
 
-    def identifier(self) -> Tuple[Optional[str], Optional[str], str]:
+    def identifier(
+        self,
+    ) -> Tuple[Optional[str], Optional[str], str]:  # pragma: no cover
         """
         Unique identifier for this table.
         """

@@ -893,8 +893,8 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data == {
             "message": (
-                "Table ('test', 'accounting', 'revenue') already "
-                "exists for node third_party_revenue"
+                "Table revenue in database postgres in catalog test already exists "
+                "for node third_party_revenue"
             ),
             "errors": [],
             "warnings": [],
