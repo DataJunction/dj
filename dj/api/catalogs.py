@@ -7,10 +7,11 @@ from http import HTTPStatus
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, SQLModel, select
 
 from dj.api.engines import EngineInfo, get_engine
+from dj.api.helpers import get_catalog
+from dj.errors import DJException
 from dj.models.catalog import Catalog
 from dj.utils import get_session
 
@@ -25,21 +26,6 @@ class CatalogInfo(SQLModel):
 
     name: str
     engines: List[EngineInfo] = []
-
-
-def get_catalog(session: Session, name: str) -> Catalog:
-    """
-    Return a Catalog instance given a catalog name
-    """
-    statement = select(Catalog).where(Catalog.name == name)
-    try:
-        catalog = session.exec(statement).one()
-    except NoResultFound as exc:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Catalog not found: `{name}`",
-        ) from exc
-    return catalog
 
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
@@ -69,7 +55,7 @@ def add_catalog(
     """
     try:
         get_catalog(session, data.name)
-    except HTTPException:
+    except DJException:
         pass
     else:
         raise HTTPException(

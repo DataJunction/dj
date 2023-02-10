@@ -48,7 +48,6 @@ class TableBase(BaseSQLModel):
     A base table.
     """
 
-    catalog: Optional[str] = None
     schema_: Optional[str] = Field(default=None, alias="schema")
     table: str
     cost: float = 1.0
@@ -89,6 +88,9 @@ class Table(TableBase, table=True):  # type: ignore
         },
     )
 
+    catalog_id: Optional[int] = Field(default=None, foreign_key="catalog.id")
+    catalog: Optional["Catalog"] = Relationship(back_populates="tables")
+
     database_id: int = Field(foreign_key="database.id")
     database: "Database" = Relationship(back_populates="tables")
 
@@ -116,7 +118,12 @@ class Table(TableBase, table=True):  # type: ignore
         """
         Unique identifier for this table.
         """
-        return self.catalog, self.schema_, self.table
+        # Catalogs will soon be required and this return can be simplified
+        return (
+            self.catalog.name if self.catalog else None,  # pylint: disable=no-member
+            self.schema_,
+            self.table,
+        )
 
     def __hash__(self):
         return hash(self.id)
@@ -137,4 +144,5 @@ class CreateTable(TableBase):
     """
 
     database_name: str
+    catalog_name: str
     columns: List[CreateColumn]
