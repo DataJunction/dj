@@ -1,6 +1,7 @@
 """
 Tests for the nodes API.
 """
+# pylint: disable=too-many-lines
 from typing import Any, Dict
 
 import pytest
@@ -997,3 +998,95 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "Dimension node payment_type has been successfully "
             "linked to column payment_type on node company_revenue"
         )
+
+
+def test_node_similarity(session: Session, client: TestClient):
+    """
+    Test determining node similarity based on their queries
+    """
+    source_data = Node(
+        name="source_data",
+        type=NodeType.SOURCE,
+        current_version="1",
+    )
+    source_data_rev = NodeRevision(
+        node=source_data,
+        version="1",
+        name=source_data.name,
+        type=source_data.type,
+    )
+    a_transform = Node(
+        name="a_transform",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+    )
+    a_transform_rev = NodeRevision(
+        name=a_transform.name,
+        node=a_transform,
+        version="1",
+        query="SELECT 1 as num",
+        type=a_transform.type,
+        columns=[
+            Column(name="num", type=ColumnType.INT),
+        ],
+    )
+    another_transform = Node(
+        name="another_transform",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+    )
+    another_transform_rev = NodeRevision(
+        name=another_transform.name,
+        node=another_transform,
+        version="1",
+        query="SELECT 1 as num",
+        type=another_transform.type,
+        columns=[
+            Column(name="num", type=ColumnType.INT),
+        ],
+    )
+    yet_another_transform = Node(
+        name="yet_another_transform",
+        type=NodeType.TRANSFORM,
+        current_version="1",
+    )
+    yet_another_transform_rev = NodeRevision(
+        name=yet_another_transform.name,
+        node=yet_another_transform,
+        version="1",
+        query="SELECT 2 as num",
+        type=yet_another_transform.type,
+        columns=[
+            Column(name="num", type=ColumnType.INT),
+        ],
+    )
+    session.add(source_data_rev)
+    session.add(a_transform_rev)
+    session.add(another_transform_rev)
+    session.add(yet_another_transform_rev)
+    session.commit()
+
+    response = client.get("/nodes/similarity/a_transform/another_transform")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["similarity"] == 1.0
+
+    response = client.get("/nodes/similarity/a_transform/yet_another_transform")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["similarity"] == 0.7142857142857143
+
+    response = client.get("/nodes/similarity/yet_another_transform/another_transform")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["similarity"] == 0.7142857142857143
+
+    # Check that the proper error is raised when using a source node
+    response = client.get("/nodes/similarity/a_transform/source_data")
+    assert response.status_code == 409
+    data = response.json()
+    assert data == {
+        "message": "Cannot determine similarity of source nodes",
+        "errors": [],
+        "warnings": [],
+    }
