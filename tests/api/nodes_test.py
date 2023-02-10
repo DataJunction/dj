@@ -969,12 +969,27 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert response.status_code == 404
         data = response.json()
         assert data["message"] == (
-            "A column with name `non_existent_column` on node "
-            "`company_revenue` does not exist."
+            "Column non_existent_column does not " "exist on node company_revenue"
         )
 
-        # Check that the proper error is raised when no dimension is provided
-        response = client.post("/nodes/company_revenue/columns/payment_type/")
-        assert response.status_code == 400
+        # Add a dimension including a specific dimension column name
+        response = client.post(
+            "/nodes/company_revenue/columns/payment_type/"
+            "?dimension=payment_type"
+            "&dimension_column=payment_type_name",
+        )
+        assert response.status_code == 200
         data = response.json()
-        assert data["message"] == "A dimension node must be specified"
+        assert data["message"] == (
+            "Dimension node payment_type has been successfully "
+            "linked to column payment_type on node company_revenue"
+        )
+
+        # Check that not including the dimension defaults it to the column name
+        response = client.post("/nodes/company_revenue/columns/payment_type/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["message"] == (
+            "Dimension node payment_type has been successfully "
+            "linked to column payment_type on node company_revenue"
+        )

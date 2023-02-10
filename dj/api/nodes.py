@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, SQLModel, select
 
-from dj.api.helpers import get_database_by_name, get_node_by_name
+from dj.api.helpers import get_column, get_database_by_name, get_node_by_name
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, ErrorCode
@@ -327,16 +327,14 @@ def add_dimension_to_node(
     name: str,
     column: str,
     dimension: Optional[str] = None,
+    dimension_column: Optional[str] = None,
     session: Session = Depends(get_session),
 ) -> JSONResponse:
     """
     Add information to a node column
     """
-    if not dimension:
-        raise DJException(
-            message="A dimension node must be specified",
-            http_status_code=400,
-        )
+    if not dimension:  # If no dimension is set, assume it matches the column name
+        dimension = column
 
     node = get_node_by_name(session=session, name=name)
     dimension_node = get_node_by_name(
@@ -345,17 +343,13 @@ def add_dimension_to_node(
         node_type=NodeType.DIMENSION,
     )
 
-    target_column = None
-    for node_column in node.current.columns:
-        if node_column.name == column:
-            target_column = node_column
-            node_column.dimension = dimension_node
-            node_column.dimension_id = dimension_node.id
-    if not target_column:
-        raise DJException(
-            message=f"A column with name `{column}` on node `{name}` does not exist.",
-            http_status_code=404,
-        )
+    if dimension_column:  # Check that the column exists before linking
+        get_column(dimension_node.current, dimension_column)
+
+    target_column = get_column(node.current, column)
+    target_column.dimension = dimension_node
+    target_column.dimension_id = dimension_node.id
+    target_column.dimension_column = dimension_column
 
     session.add(node)
     session.commit()
