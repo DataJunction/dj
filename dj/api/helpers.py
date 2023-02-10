@@ -56,6 +56,7 @@ def get_column(node: NodeRevision, column_name: str) -> Column:
     for node_column in node.columns:
         if node_column.name == column_name:
             requested_column = node_column
+            break
 
     if not requested_column:
         raise DJException(

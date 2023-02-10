@@ -969,7 +969,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert response.status_code == 404
         data = response.json()
         assert data["message"] == (
-            "Column non_existent_column does not " "exist on node company_revenue"
+            "Column non_existent_column does not exist on node company_revenue"
         )
 
         # Add a dimension including a specific dimension column name
