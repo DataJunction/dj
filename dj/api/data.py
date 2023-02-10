@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
+from dj.api.helpers import get_catalog
 from dj.errors import DJException
 from dj.models.node import AvailabilityState, AvailabilityStateBase, Node, NodeType
 from dj.utils import get_session
@@ -38,13 +39,15 @@ def add_availability(
             message=f"Cannot add availability state, node `{node_name}` does not exist",
         ) from exc
 
+    catalog = get_catalog(session=session, name=new_availability.catalog)
+
     # Source nodes require that any availability states set are for one of the defined tables
     existing_node_revision = existing_node.current
     if existing_node.type == NodeType.SOURCE:
         matches = False
         for table in existing_node_revision.tables:
             if (
-                table.catalog == new_availability.catalog
+                table.catalog.name == catalog.name
                 and table.schema_ == new_availability.schema_
                 and table.table == new_availability.table
             ):
@@ -64,7 +67,7 @@ def add_availability(
     # Merge the new availability state with the current availability state if one exists
     if (
         existing_node_revision.availability
-        and existing_node_revision.availability.catalog == new_availability.catalog
+        and existing_node_revision.availability.catalog == catalog.name
         and existing_node_revision.availability.schema_ == new_availability.schema_
         and existing_node_revision.availability.table == new_availability.table
     ):

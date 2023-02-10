@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from dj.models import Table
+from dj.models import Catalog, Table
 from dj.models.column import Column, ColumnType
 from dj.models.node import Node, NodeRevision, NodeType
 
@@ -21,6 +21,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         """
         Add nodes to facilitate testing of availability state updates
         """
+        catalog = Catalog(name="test")
+        session.add(catalog)
+        session.commit()
+        session.refresh(catalog)
 
         node1 = Node(
             name="revenue_source",
@@ -40,7 +44,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             tables=[
                 Table(
                     database_id=1,
-                    catalog="test",
+                    catalog_id=catalog.id,
                     schema="accounting",
                     table="revenue",
                 ),
@@ -102,7 +106,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
@@ -123,7 +127,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20230125,
-            "catalog": "prod",
+            "catalog": "test",
             "min_partition": ["2022", "01", "01"],
             "table": "pmts",
             "max_partition": ["2023", "01", "25"],
@@ -142,7 +146,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
@@ -158,7 +162,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
@@ -174,7 +178,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "new_accounting",
                 "table": "new_payments_table",
                 "valid_through_ts": 20230125,
@@ -195,7 +199,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20230125,
-            "catalog": "prod",
+            "catalog": "test",
             "min_partition": ["2022", "01", "01"],
             "table": "new_payments_table",
             "max_partition": ["2023", "01", "25"],
@@ -214,7 +218,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
@@ -236,7 +240,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
@@ -265,7 +269,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/nonexistentnode/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
@@ -293,7 +297,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         client.post(
             "/data/availability/large_revenue_payments_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
@@ -304,7 +308,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/large_revenue_payments_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230102,
@@ -333,7 +337,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20230102,
-            "catalog": "prod",
+            "catalog": "test",
             "min_partition": ["2022", "01", "01"],
             "table": "large_pmts",
             "max_partition": ["2023", "01", "02"],
@@ -352,7 +356,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         client.post(
             "/data/availability/large_revenue_payments_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
@@ -363,7 +367,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/large_revenue_payments_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
@@ -392,7 +396,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20230101,
-            "catalog": "prod",
+            "catalog": "test",
             "min_partition": ["2021", "12", "31"],
             "table": "large_pmts",
             "max_partition": ["2023", "01", "01"],
@@ -411,7 +415,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         client.post(
             "/data/availability/large_revenue_payments_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
@@ -422,7 +426,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/large_revenue_payments_only/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20221231,
@@ -451,7 +455,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         node_dict.pop("updated_at")
         assert node_dict == {
             "valid_through_ts": 20221231,
-            "catalog": "prod",
+            "catalog": "test",
             "min_partition": ["2022", "01", "01"],
             "table": "large_pmts",
             "max_partition": ["2023", "01", "01"],
@@ -509,7 +513,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         response = client.post(
             "/data/availability/revenue_source/",
             json={
-                "catalog": "prod",
+                "catalog": "test",
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
@@ -524,7 +528,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "message": (
                 "Cannot set availability state, source "
                 "nodes require availability states match "
-                "an existing table: prod.accounting.large_pmts"
+                "an existing table: test.accounting.large_pmts"
             ),
             "errors": [],
             "warnings": [],

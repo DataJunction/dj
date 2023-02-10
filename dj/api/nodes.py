@@ -12,7 +12,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, SQLModel, select
 
-from dj.api.helpers import get_column, get_database_by_name, get_node_by_name
+from dj.api.helpers import (
+    get_catalog,
+    get_column,
+    get_database_by_name,
+    get_node_by_name,
+)
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, ErrorCode
@@ -374,8 +379,22 @@ def add_table_to_node(
     """
     node = get_node_by_name(session=session, name=name)
     database = get_database_by_name(session=session, name=data.database_name)
+    catalog = get_catalog(session=session, name=data.catalog_name)
+    for existing_table in node.current.tables:
+        if (
+            existing_table.database == database
+            and existing_table.catalog == catalog
+            and existing_table.table == data.table
+        ):
+            raise DJException(
+                message=(
+                    f"Table {data.table} in database {database.name} in "
+                    f"catalog {catalog.name} already exists for node {name}"
+                ),
+                http_status_code=HTTPStatus.CONFLICT,
+            )
     table = Table(
-        catalog=data.catalog,
+        catalog_id=catalog.id,
         schema=data.schema_,
         table=data.table,
         database_id=database.id,
@@ -385,16 +404,10 @@ def add_table_to_node(
             for column in data.columns
         ],
     )
-    for existing_table in node.current.tables:
-        if existing_table.identifier() == table.identifier():
-            raise DJException(
-                message=f"Table {table.identifier()} already exists for node {name}",
-                http_status_code=HTTPStatus.CONFLICT,
-            )
+
     session.add(table)
     session.commit()
     session.refresh(table)
-
     node.current.tables.append(table)
     session.add(node)
     session.commit()

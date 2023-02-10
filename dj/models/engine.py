@@ -17,3 +17,4 @@ class Engine(BaseSQLModel, table=True):  # type: ignore
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     version: str
+    uri: Optional[str]
