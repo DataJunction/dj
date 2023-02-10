@@ -37,6 +37,7 @@ from dj.models.node import (
 )
 from dj.models.table import CreateTable
 from dj.sql.parsing import ast
+from dj.sql.parsing.backends.sqloxide import parse
 from dj.utils import UTCDatetime, get_session
 
 _logger = logging.getLogger(__name__)
@@ -525,3 +526,23 @@ def update_node(
     session.commit()
     session.refresh(node.current)
     return node  # type: ignore
+
+
+@router.get("/nodes/similarity/{node1_name}/{node2_name}")
+def node_similarity(
+    node1_name: str, node2_name: str, *, session: Session = Depends(get_session)
+) -> JSONResponse:
+    """
+    Compare two nodes by how similar their queries are
+    """
+    node1 = get_node_by_name(session=session, name=node1_name)
+    node2 = get_node_by_name(session=session, name=node2_name)
+    if NodeType.SOURCE in (node1.type, node2.type):
+        raise DJException(
+            message="Cannot determine similarity of source nodes",
+            http_status_code=HTTPStatus.CONFLICT,
+        )
+    node1_ast = parse(node1.current.query)  # type: ignore
+    node2_ast = parse(node2.current.query)  # type: ignore
+    similarity = node1_ast.similarity_score(node2_ast)
+    return JSONResponse(status_code=200, content={"similarity": similarity})

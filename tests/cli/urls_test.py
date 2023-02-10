@@ -36,6 +36,7 @@ http://localhost:8000/nodes/{name}/: Show the active version of the specified no
 http://localhost:8000/nodes/{name}/revisions/: List all revisions for the node.
 http://localhost:8000/nodes/{name}/columns/{column}/: Add information to a node column
 http://localhost:8000/nodes/{name}/table/: Add a table to a node
+http://localhost:8000/nodes/similarity/{node1_name}/{node2_name}: Compare two nodes by how similar their queries are
 http://localhost:8000/data/availability/{node_name}/: Add an availability state to a node
 http://localhost:8000/graphql: GraphQL endpoint.
 """
