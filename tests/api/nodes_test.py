@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from dj.models import Database, Table
+from dj.models import Catalog, Database, Table
 from dj.models.column import Column, ColumnType
 from dj.models.node import Node, NodeRevision, NodeType
 
@@ -795,6 +795,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         """
         Test adding tables to existing nodes
         """
+        catalog = Catalog(name="test")
+        session.add(catalog)
+        session.commit()
+
         database = Database(name="postgres", URI="postgres://")
         session.add(database)
         session.commit()
@@ -821,7 +825,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "/nodes/third_party_revenue/table/",
             json={
                 "database_name": "postgres",
-                "catalog": "test",
+                "catalog_name": "test",
                 "cost": 1.0,
                 "schema": "accounting",
                 "table": "revenue",
@@ -845,7 +849,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "/nodes/third_party_revenue/table/",
             json={
                 "database_name": "postgres",
-                "catalog": "test",
+                "catalog_name": "test",
                 "cost": 1.0,
                 "schema": "accounting",
                 "table": "third_party_revenue",
@@ -872,7 +876,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "/nodes/third_party_revenue/table/",
             json={
                 "database_name": "postgres",
-                "catalog": "test",
+                "catalog_name": "test",
                 "cost": 1.0,
                 "schema": "accounting",
                 "table": "revenue",
@@ -889,8 +893,8 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data == {
             "message": (
-                "Table ('test', 'accounting', 'revenue') already "
-                "exists for node third_party_revenue"
+                "Table revenue in database postgres in catalog test already exists "
+                "for node third_party_revenue"
             ),
             "errors": [],
             "warnings": [],

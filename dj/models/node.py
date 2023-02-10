@@ -219,7 +219,7 @@ class AvailabilityStateBase(BaseSQLModel):
     An availability state base
     """
 
-    catalog: Optional[str] = None
+    catalog: str
     schema_: Optional[str] = Field(default=None)
     table: str
     valid_through_ts: int
