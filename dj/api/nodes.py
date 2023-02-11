@@ -620,10 +620,10 @@ def node_similarity(
     return JSONResponse(status_code=200, content={"similarity": similarity})
 
 
-@router.get("/nodes/{name}/downstream/")
+@router.get("/nodes/{name}/downstream/", response_model=List[Node])
 def downstream_nodes(
     name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
-) -> List[NodeMetadata]:
+) -> List[Node]:
     """
     List all nodes that are downstream from the given node, filterable by type.
     """
