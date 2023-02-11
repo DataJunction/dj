@@ -39,6 +39,7 @@ http://localhost:8000/nodes/{name}/table/: Add a table to a node
 http://localhost:8000/nodes/similarity/{node1_name}/{node2_name}: Compare two nodes by how similar their queries are
 http://localhost:8000/data/availability/{node_name}/: Add an availability state to a node
 http://localhost:8000/health/: Healthcheck for services.
+http://localhost:8000/cubes/{name}/: Get information on a cube
 http://localhost:8000/graphql: GraphQL endpoint.
 """
     )
