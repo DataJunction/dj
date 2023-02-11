@@ -13,7 +13,17 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from dj import __version__
-from dj.api import catalogs, data, databases, engines, health, metrics, nodes, queries
+from dj.api import (
+    catalogs,
+    cubes,
+    data,
+    databases,
+    engines,
+    health,
+    metrics,
+    nodes,
+    queries,
+)
 from dj.api.graphql.main import graphql_app
 from dj.errors import DJException
 from dj.models.catalog import Catalog
@@ -46,6 +56,7 @@ app.include_router(metrics.router)
 app.include_router(nodes.router)
 app.include_router(data.router)
 app.include_router(health.router)
+app.include_router(cubes.router)
 app.include_router(graphql_app, prefix="/graphql")
 
 
