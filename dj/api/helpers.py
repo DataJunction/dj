@@ -1,10 +1,11 @@
 """
 Helpers for API endpoints
 """
-
-
+from http import HTTPStatus
 from typing import Dict, List, Optional, Tuple, Union
 
+from fastapi import HTTPException
+from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
@@ -12,7 +13,7 @@ from dj.construction.build import build_node_for_database
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, ErrorCode
-from dj.models import Catalog, Column, Database
+from dj.models import Catalog, Column, Database, Engine
 from dj.models.node import (
     Node,
     NodeMode,
@@ -29,18 +30,24 @@ def get_node_by_name(
     session: Session,
     name: str,
     node_type: Optional[NodeType] = None,
+    with_current: bool = False,
 ) -> Node:
     """
     Get a node by name
     """
     statement = select(Node).where(Node.name == name)
     if node_type:
-        statement.where(Node.type == node_type)
-    node = session.exec(statement).one_or_none()
+        statement = statement.where(Node.type == node_type)
+    if with_current:
+        statement = statement.options(joinedload(Node.current))
+        node = session.exec(statement).unique().one_or_none()
+    else:
+        node = session.exec(statement).one_or_none()
+
     if not node:
         raise DJException(
             message=(
-                f"A {'' if not node_type else node_type} "
+                f"A {'' if not node_type else node_type + ' '}"
                 f"node with name `{name}` does not exist."
             ),
             http_status_code=404,
@@ -118,6 +125,23 @@ async def get_query(
         filters=filters,
     )
     return query_ast, optimal_database
+
+
+def get_engine(session: Session, name: str, version: str) -> Engine:
+    """
+    Return an Engine instance given an engine name and version
+    """
+    statement = (
+        select(Engine).where(Engine.name == name).where(Engine.version == version)
+    )
+    try:
+        engine = session.exec(statement).one()
+    except NoResultFound as exc:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail=f"Engine not found: `{name}` version `{version}`",
+        ) from exc
+    return engine
 
 
 def get_downstream_nodes(

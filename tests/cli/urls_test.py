@@ -33,6 +33,7 @@ http://localhost:8000/metrics/{name}/sql/: Return SQL for a metric.
 http://localhost:8000/nodes/validate/: Validate a node.
 http://localhost:8000/nodes/: List the available nodes.
 http://localhost:8000/nodes/{name}/: Show the active version of the specified node.
+http://localhost:8000/nodes/{name}/materialization/: Update materialization config of the specified node.
 http://localhost:8000/nodes/{name}/revisions/: List all revisions for the node.
 http://localhost:8000/nodes/{name}/columns/{column}/: Add information to a node column
 http://localhost:8000/nodes/{name}/table/: Add a table to a node
