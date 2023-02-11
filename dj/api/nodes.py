@@ -1,6 +1,7 @@
 """
 Node related APIs.
 """
+import collections
 import http.client
 import logging
 from http import HTTPStatus
@@ -617,3 +618,22 @@ def node_similarity(
     node2_ast = parse(node2.current.query)  # type: ignore
     similarity = node1_ast.similarity_score(node2_ast)
     return JSONResponse(status_code=200, content={"similarity": similarity})
+
+
+@router.get("/nodes/{name}/downstream/")
+def downstream_nodes(
+    name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
+) -> List[NodeMetadata]:
+    """
+    List all nodes that are downstream from the given node, filterable by type.
+    """
+    node = get_node_by_name(session=session, name=name)
+    queue = collections.deque([node])
+    metrics = set()
+    while queue:
+        current = queue.popleft()
+        if current.id != node.id and (node_type is None or current.type == node_type):
+            metrics.add(current)
+        for child in current.children:
+            queue.append(child.node)
+    return metrics  # type: ignore

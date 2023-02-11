@@ -999,6 +999,105 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "linked to column payment_type on node company_revenue"
         )
 
+    def test_node_downstreams(self, client: TestClient):
+        """
+        Test getting downstream nodes of different node types.
+        """
+
+        client.post(
+            "/nodes/",
+            json={
+                "name": "event_source",
+                "description": "Events",
+                "type": "source",
+                "columns": {
+                    "event_id": {"type": "INT"},
+                    "event_latency": {"type": "INT"},
+                    "device_id": {"type": "INT"},
+                    "country": {"type": "STR", "dimension": "countries_dim"},
+                },
+                "mode": "published",
+            },
+        )
+
+        client.post(
+            "/nodes/",
+            json={
+                "name": "long_events",
+                "description": "High-Latency Events",
+                "type": "transform",
+                "query": "SELECT event_id, event_latency, device_id, country "
+                "FROM event_source WHERE event_latency > 1000000",
+                "mode": "published",
+            },
+        )
+
+        client.post(
+            "/nodes/",
+            json={
+                "name": "country_dim",
+                "description": "Country Dimension",
+                "type": "dimension",
+                "query": "SELECT country, COUNT(DISTINCT event_id) AS events_cnt "
+                "FROM event_source GROUP BY country",
+                "mode": "published",
+            },
+        )
+
+        client.post(
+            "/nodes/",
+            json={
+                "name": "device_ids_count",
+                "description": "Number of Distinct Devices",
+                "type": "metric",
+                "query": "SELECT COUNT(DISTINCT device_id) " "FROM event_source",
+                "mode": "published",
+            },
+        )
+
+        client.post(
+            "/nodes/",
+            json={
+                "name": "long_events_distinct_countries",
+                "description": "Number of Distinct Countries for Long Events",
+                "type": "metric",
+                "query": "SELECT COUNT(DISTINCT country) " "FROM long_events",
+                "mode": "published",
+            },
+        )
+
+        response = client.get("/nodes/event_source/downstream/?node_type=metric")
+        data = response.json()
+        assert {node["name"] for node in data} == {
+            "long_events_distinct_countries",
+            "device_ids_count",
+        }
+
+        response = client.get("/nodes/event_source/downstream/?node_type=transform")
+        data = response.json()
+        assert {node["name"] for node in data} == {"long_events"}
+
+        response = client.get("/nodes/event_source/downstream/?node_type=dimension")
+        data = response.json()
+        assert {node["name"] for node in data} == {"country_dim"}
+
+        response = client.get("/nodes/event_source/downstream/")
+        data = response.json()
+        assert {node["name"] for node in data} == {
+            "long_events_distinct_countries",
+            "device_ids_count",
+            "long_events",
+            "country_dim",
+        }
+
+        response = client.get("/nodes/device_ids_count/downstream/")
+        data = response.json()
+        assert data == []
+
+        response = client.get("/nodes/long_events/downstream/")
+        data = response.json()
+        assert {node["name"] for node in data} == {"long_events_distinct_countries"}
+
 
 def test_node_similarity(session: Session, client: TestClient):
     """
