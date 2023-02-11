@@ -48,6 +48,24 @@ class NodeRelationship(BaseSQLModel, table=True):  # type: ignore
     )
 
 
+class CubeRelationship(BaseSQLModel, table=True):  # type: ignore
+    """
+    Join table for many-to-many relationships between cube nodes and metric/dimension nodes.
+    """
+
+    cube_id: Optional[int] = Field(
+        default=None,
+        foreign_key="noderevision.id",
+        primary_key=True,
+    )
+
+    cube_element_id: Optional[int] = Field(
+        default=None,
+        foreign_key="node.id",
+        primary_key=True,
+    )
+
+
 class NodeColumns(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for node columns.
@@ -75,12 +93,14 @@ class NodeType(str, enum.Enum):
     2. TRANSFORM nodes are SQL transformations, reading from SOURCE/TRANSFORM nodes.
     3. METRIC nodes are leaves in the DAG, and have a single aggregation query.
     4. DIMENSION nodes are special SOURCE nodes that can be auto-joined with METRICS.
+    5. CUBE nodes contain a reference to a set of METRICS and a set of DIMENSIONS.
     """
 
     SOURCE = "source"
     TRANSFORM = "transform"
     METRIC = "metric"
     DIMENSION = "dimension"
+    CUBE = "cube"
 
 
 class NodeMode(str, enum.Enum):
@@ -269,6 +289,7 @@ class Node(NodeBase, table=True):  # type: ignore
     )
 
     revisions: List["NodeRevision"] = Relationship(back_populates="node")
+    cubes: List["NodeRevision"] = Relationship(back_populates="cube_elements")
     current: "NodeRevision" = Relationship(
         sa_relationship_kwargs={
             "primaryjoin": "and_(Node.id==NodeRevision.node_id, "
@@ -300,7 +321,15 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     version: Optional[str] = Field(default="1")
     node_id: Optional[int] = Field(foreign_key="node.id")
     node: Node = Relationship(back_populates="revisions")
-
+    cube_elements: List["Node"] = Relationship(  # Only used by cube nodes
+        back_populates="cubes",
+        link_model=CubeRelationship,
+        sa_relationship_kwargs={
+            "primaryjoin": "NodeRevision.id==CubeRelationship.cube_id",
+            "secondaryjoin": "Node.id==CubeRelationship.cube_element_id",
+            "lazy": "joined",
+        },
+    )
     status: NodeStatus = NodeStatus.INVALID
     updated_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
@@ -391,7 +420,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         """
         Extra validation for node data.
         """
-        if self.type == NodeType.SOURCE:
+        if self.type in (NodeType.SOURCE, NodeType.CUBE):
             if self.query:
                 raise Exception(
                     f"Node {self.name} of type source should not have a query",
@@ -408,6 +437,12 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 raise Exception(
                     f"Node {self.name} of type metric has an invalid query, "
                     "should have a single aggregation",
+                )
+
+        if self.type == NodeType.CUBE:
+            if not self.cube_elements:
+                raise Exception(
+                    f"Node {self.name} of type cube node needs cube elements",
                 )
 
 
@@ -448,6 +483,17 @@ class SourceNodeFields(BaseSQLModel):
     columns: Dict[str, SourceNodeColumnType]
 
 
+class CubeNodeFields(BaseSQLModel):
+    """
+    Cube node fields that can be changed
+    """
+
+    display_name: Optional[str]
+    cube_elements: List[str]
+    description: str
+    mode: NodeMode
+
+
 class CreateNode(ImmutableNodeFields, MutableNodeFields):
     """
     Create non-source node object.
@@ -457,6 +503,12 @@ class CreateNode(ImmutableNodeFields, MutableNodeFields):
 class CreateSourceNode(ImmutableNodeFields, MutableNodeFields, SourceNodeFields):
     """
     A create object for source nodes
+    """
+
+
+class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
+    """
+    A create object for cube nodes
     """
 
 
