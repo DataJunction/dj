@@ -6,39 +6,13 @@ from http import HTTPStatus
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.exc import NoResultFound
-from sqlmodel import Session, SQLModel, select
+from sqlmodel import Session, select
 
-from dj.models.engine import Engine
+from dj.api.helpers import get_engine
+from dj.models.engine import Engine, EngineInfo
 from dj.utils import get_session
 
 router = APIRouter()
-
-
-class EngineInfo(SQLModel):
-    """
-    Class for engine creation
-    """
-
-    name: str
-    version: str
-
-
-def get_engine(session: Session, name: str, version: str) -> Engine:
-    """
-    Return an Engine instance given an engine name and version
-    """
-    statement = (
-        select(Engine).where(Engine.name == name).where(Engine.version == version)
-    )
-    try:
-        engine = session.exec(statement).one()
-    except NoResultFound as exc:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Engine not found: `{name}` version `{version}`",
-        ) from exc
-    return engine
 
 
 @router.get("/engines/", response_model=List[EngineInfo])

@@ -8,16 +8,20 @@ from datetime import datetime, timezone
 from functools import partial
 from typing import Dict, List, Optional, cast
 
-from pydantic import Extra
+from pydantic import BaseModel, Extra
+from pydantic import Field as PydanticField
 from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlalchemy.sql.schema import Column as SqlaColumn
+from sqlalchemy.sql.schema import UniqueConstraint
 from sqlalchemy.types import Enum
-from sqlmodel import Field, Relationship
+from sqlmodel import Field, Relationship, SQLModel
 from typing_extensions import TypedDict
 
+from dj.models import Catalog, Database, Engine
 from dj.models.base import BaseSQLModel
 from dj.models.column import Column, ColumnYAML
+from dj.models.engine import EngineInfo
 from dj.models.table import Table, TableNodeRevision, TableYAML
 from dj.sql.parse import is_metric
 from dj.typing import ColumnType
@@ -312,10 +316,28 @@ class Node(NodeBase, table=True):  # type: ignore
         return hash(self.id)
 
 
+class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
+    """
+    Materialization configuration for a node and specific engines.
+    """
+
+    node_revision_id: int = Field(foreign_key="noderevision.id", primary_key=True)
+    node_revision: "NodeRevision" = Relationship(
+        back_populates="materialization_configs",
+    )
+
+    engine_id: int = Field(foreign_key="engine.id", primary_key=True)
+    engine: Engine = Relationship()
+
+    config: str = Field(nullable=False)
+
+
 class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     """
     A node revision.
     """
+
+    __table_args__ = (UniqueConstraint("version", "node_id"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
     version: Optional[str] = Field(default="1")
@@ -386,6 +408,12 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             "cascade": "all, delete",
             "uselist": False,
         },
+    )
+
+    # Nodes of type SOURCE will not have this property as their materialization
+    # is not managed as a part of this service
+    materialization_configs: List[MaterializationConfig] = Relationship(
+        back_populates="node_revision",
     )
 
     def to_yaml(self) -> NodeYAML:
@@ -494,6 +522,11 @@ class CubeNodeFields(BaseSQLModel):
     mode: NodeMode
 
 
+#
+# Create and Update objects
+#
+
+
 class CreateNode(ImmutableNodeFields, MutableNodeFields):
     """
     Create non-source node object.
@@ -531,3 +564,113 @@ class UpdateNode(MutableNodeFields, SourceNodeFields):
         """
 
         extra = Extra.forbid
+
+
+class UpsertMaterializationConfig(BaseSQLModel):
+    """
+    An upsert object for materialization configs
+    """
+
+    engine_name: str
+    engine_version: str
+    config: str
+
+
+#
+# Response output objects
+#
+
+
+class OutputModel(BaseModel):
+    """
+    An output model with the ability to flatten fields. When fields are created with
+    `Field(flatten=True)`, the field's values will be automatically flattened into the
+    parent output model.
+    """
+
+    def _iter(self, *args, to_dict: bool = False, **kwargs):
+        for dict_key, value in super()._iter(to_dict, *args, **kwargs):
+            if to_dict and self.__fields__[dict_key].field_info.extra.get(
+                "flatten",
+                False,
+            ):
+                assert isinstance(value, dict)
+                for key, val in value.items():
+                    yield key, val
+            else:
+                yield dict_key, value
+
+
+class SimpleColumn(SQLModel):
+    """
+    A simplified column schema, without ID or dimensions.
+    """
+
+    name: str
+    type: ColumnType
+
+
+class TableOutput(SQLModel):
+    """
+    Output for table information.
+    """
+
+    id: Optional[int]
+    catalog: Optional[Catalog]
+    schema_: Optional[str]
+    table: Optional[str]
+    database: Optional[Database]
+
+
+class MaterializationConfigOutput(SQLModel):
+    """
+    Output for materialization config.
+    """
+
+    engine: EngineInfo
+    config: str
+
+
+class NodeRevisionOutput(SQLModel):
+    """
+    Output for a node revision with information about columns and if it is a metric.
+    """
+
+    id: int = Field(alias="node_revision_id")
+    node_id: int
+    type: NodeType
+    name: str
+    display_name: str
+    version: str
+    description: str = ""
+    query: Optional[str] = None
+    availability: Optional[AvailabilityState] = None
+    columns: List[SimpleColumn]
+    tables: List[TableOutput]
+    updated_at: UTCDatetime
+    materialization_configs: List[MaterializationConfigOutput]
+
+    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        allow_population_by_field_name = True
+
+
+class NodeOutput(OutputModel):
+    """
+    Output for a node that shows the current revision.
+    """
+
+    current: NodeRevisionOutput = PydanticField(flatten=True)
+    created_at: UTCDatetime
+
+
+class NodeValidation(SQLModel):
+    """
+    A validation of a provided node definition
+    """
+
+    message: str
+    status: NodeStatus
+    node: Node
+    node_revision: NodeRevision
+    dependencies: List[NodeRevisionOutput]
+    columns: List[Column]

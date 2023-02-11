@@ -16,7 +16,7 @@ def test_raise_get_node_when_node_does_not_exist(session: Session):
     with pytest.raises(DJException) as exc_info:
         helpers.get_node_by_name(session=session, name="foo")
 
-    assert "A  node with name `foo` does not exist." in str(exc_info.value)
+    assert "A node with name `foo` does not exist." in str(exc_info.value)
 
 
 def test_raise_get_database_when_database_does_not_exist(session: Session):
