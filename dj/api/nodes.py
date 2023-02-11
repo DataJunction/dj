@@ -2,6 +2,7 @@
 Node related APIs.
 """
 import collections
+import http.client
 import logging
 from http import HTTPStatus
 from typing import Dict, List, Optional, Tuple, Union
@@ -21,10 +22,11 @@ from dj.api.helpers import (
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, ErrorCode
-from dj.models import Database, Table
+from dj.models import Catalog, Database, Table
 from dj.models.column import Column, ColumnType
 from dj.models.node import (
     AvailabilityState,
+    CreateCubeNode,
     CreateNode,
     CreateSourceNode,
     Node,
@@ -59,7 +61,7 @@ class TableMetadata(SQLModel):
     """
 
     id: Optional[int]
-    catalog: Optional[str]
+    catalog: Optional[Catalog]
     schema_: Optional[str]
     table: Optional[str]
     database: Optional[Database]
@@ -135,6 +137,23 @@ class NodeValidation(SQLModel):
     node_revision: NodeRevision
     dependencies: List[NodeRevisionMetadata]
     columns: List[Column]
+
+
+def raise_on_query_not_allowed(
+    data: Union[CreateNode, CreateSourceNode, CreateCubeNode],
+) -> None:
+    """
+    Check if the payload includes a query for a node type that can't have one
+    """
+    if (
+        data.type in (NodeType.SOURCE, NodeType.CUBE)
+        and not isinstance(data, (CreateSourceNode, CreateCubeNode))
+        and data.query
+    ):
+        raise DJException(
+            message=(f"Query not allowed for node of type {data.type}"),
+            http_status_code=http.client.UNPROCESSABLE_ENTITY,
+        )
 
 
 def validate(
@@ -214,7 +233,7 @@ def read_nodes(*, session: Session = Depends(get_session)) -> List[NodeMetadata]
     """
     List the available nodes.
     """
-    nodes = session.exec(select(Node).options(joinedload(Node.current))).all()
+    nodes = session.exec(select(Node).options(joinedload(Node.current))).unique().all()
     return nodes
 
 
@@ -224,7 +243,7 @@ def read_node(name: str, *, session: Session = Depends(get_session)) -> NodeMeta
     Show the active version of the specified node.
     """
     statement = select(Node).where(Node.name == name).options(joinedload(Node.current))
-    node = session.exec(statement).one_or_none()
+    node = session.exec(statement).unique().one_or_none()
     if not node:
         raise HTTPException(
             status_code=HTTPStatus.NOT_FOUND,
@@ -283,9 +302,55 @@ def create_node_revision(
     return node_revision
 
 
+def create_cube_node_revision(
+    session: Session,
+    data: Union[CreateCubeNode],
+) -> NodeRevision:
+    """
+    Create a cube node revision.
+    """
+    if not data.cube_elements:
+        raise DJException(
+            message=("Cannot create a cube node with no cube elements"),
+            http_status_code=http.client.UNPROCESSABLE_ENTITY,
+        )
+    metrics = []
+    dimensions = []
+    for node_name in data.cube_elements:
+        cube_element = get_node_by_name(session=session, name=node_name)
+        if cube_element.type == NodeType.METRIC:
+            metrics.append(cube_element)
+        elif cube_element.type == NodeType.DIMENSION:
+            dimensions.append(cube_element)
+        else:
+            raise DJException(
+                message=(
+                    f"Node {cube_element.name} of type {cube_element.type} "
+                    "cannot be added to a cube"
+                ),
+                http_status_code=http.client.UNPROCESSABLE_ENTITY,
+            )
+    if not metrics:
+        raise DJException(
+            message=("At least one metric is required to create a cube node"),
+            http_status_code=http.client.UNPROCESSABLE_ENTITY,
+        )
+    if not dimensions:
+        raise DJException(
+            message=("At least one dimension is required to create a cube node"),
+            http_status_code=http.client.UNPROCESSABLE_ENTITY,
+        )
+    return NodeRevision(
+        name=data.name,
+        description=data.description,
+        type=data.type,
+        cube_elements=metrics + dimensions,
+    )
+
+
 @router.post("/nodes/", response_model=NodeMetadata)
 def create_node(
-    data: Union[CreateSourceNode, CreateNode],
+    data: Union[CreateSourceNode, CreateCubeNode, CreateNode],
     session: Session = Depends(get_session),
 ) -> NodeMetadata:
     """
@@ -294,9 +359,14 @@ def create_node(
     query = select(Node).where(Node.name == data.name)
     node = session.exec(query).one_or_none()
     if node:
-        raise DJException(f"A node with name `{data.name}` already exists.")
+        raise DJException(
+            message=f"A node with name `{data.name}` already exists.",
+            http_status_code=HTTPStatus.CONFLICT,
+        )
 
     node = Node(name=data.name, type=data.type, current_version=0)
+
+    raise_on_query_not_allowed(data)
 
     if data.type == NodeType.SOURCE:
         node_revision = NodeRevision(
@@ -312,6 +382,8 @@ def create_node(
             ],
             parents=[],
         )
+    elif data.type == NodeType.CUBE:
+        node_revision = create_cube_node_revision(session=session, data=data)
     else:
         node_revision = create_node_revision(data, session)
 

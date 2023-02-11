@@ -281,7 +281,7 @@ class TestCreateOrUpdateNodes:
         )
         data = response.json()
         assert data["message"] == "A node with name `comments` already exists."
-        assert response.status_code == 500
+        assert response.status_code == 409
 
         # Update node with a new description should create a new revision
         response = client.patch(
