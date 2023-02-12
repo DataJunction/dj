@@ -65,5 +65,8 @@ class Catalog(BaseSQLModel, table=True):  # type: ignore
     )
     extra_params: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
 
-    def __str__(self):
+    def __str__(self) -> str:
         return self.name
+
+    def __hash__(self) -> int:
+        return hash(self.id)

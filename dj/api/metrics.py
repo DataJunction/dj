@@ -9,11 +9,11 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, SQLModel, select
 
+from dj.api.helpers import get_query
 from dj.api.queries import save_query_and_run
 from dj.config import Settings
 from dj.models.node import Node, NodeType
-from dj.models.query import QueryWithResults
-from dj.sql.build import get_query_for_node
+from dj.models.query import QueryCreate, QueryWithResults
 from dj.sql.dag import get_dimensions
 from dj.utils import UTCDatetime, get_session, get_settings
 
@@ -109,9 +109,9 @@ def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric
 @router.get("/metrics/{name}/data/", response_model=QueryWithResults)
 async def read_metrics_data(
     name: str,
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
     database_name: Optional[str] = None,
-    d: List[str] = Query([]),  # pylint: disable=invalid-name
-    f: List[str] = Query([]),  # pylint: disable=invalid-name
     *,
     session: Session = Depends(get_session),
     settings: Settings = Depends(get_settings),
@@ -121,13 +121,16 @@ async def read_metrics_data(
     """
     Return data for a metric.
     """
-    node = get_metric(session, name)
-    create_query = await get_query_for_node(
-        session,
-        node,
-        d,
-        f,
-        database_name,
+    query_ast, optimal_database = await get_query(
+        session=session,
+        metric=name,
+        dimensions=dimensions,
+        filters=filters,
+        database_name=database_name,
+    )
+    create_query = QueryCreate(
+        submitted_query=str(query_ast),
+        database_id=optimal_database.id,
     )
 
     return save_query_and_run(
@@ -142,9 +145,9 @@ async def read_metrics_data(
 @router.get("/metrics/{name}/sql/", response_model=TranslatedSQL)
 async def read_metrics_sql(
     name: str,
+    dimensions: List[str] = Query([]),  # pylint: disable=invalid-name
+    filters: List[str] = Query([]),  # pylint: disable=invalid-name
     database_name: Optional[str] = None,
-    d: List[str] = Query([]),  # pylint: disable=invalid-name
-    f: List[str] = Query([]),  # pylint: disable=invalid-name
     *,
     session: Session = Depends(get_session),
 ) -> TranslatedSQL:
@@ -154,10 +157,14 @@ async def read_metrics_sql(
     A database can be optionally specified. If no database is specified the optimal one
     will be used.
     """
-    node = get_metric(session, name)
-    create_query = await get_query_for_node(session, node, d, f, database_name)
-
+    query_ast, optimal_database = await get_query(
+        session=session,
+        metric=name,
+        dimensions=dimensions,
+        filters=filters,
+        database_name=database_name,
+    )
     return TranslatedSQL(
-        database_id=create_query.database_id,
-        sql=create_query.submitted_query,
+        database_id=optimal_database.id,
+        sql=str(query_ast),
     )
