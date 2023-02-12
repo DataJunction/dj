@@ -64,3 +64,6 @@ class Catalog(BaseSQLModel, table=True):  # type: ignore
         default_factory=partial(datetime.now, timezone.utc),
     )
     extra_params: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
+
+    def __str__(self):
+        return self.name
