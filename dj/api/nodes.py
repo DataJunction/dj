@@ -1,11 +1,10 @@
 """
 Node related APIs.
 """
-import collections
 import http.client
 import logging
 from http import HTTPStatus
-from typing import Dict, List, Optional, Tuple, Union
+from typing import List, Optional, Union
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import JSONResponse
@@ -17,11 +16,11 @@ from dj.api.helpers import (
     get_catalog,
     get_column,
     get_database_by_name,
+    get_downstream_nodes,
     get_node_by_name,
+    validate_node_data,
 )
-from dj.construction.extract import extract_dependencies_from_node
-from dj.construction.inference import get_type_of_expression
-from dj.errors import DJError, DJException, ErrorCode
+from dj.errors import DJException
 from dj.models import Catalog, Database, Table
 from dj.models.column import Column, ColumnType
 from dj.models.node import (
@@ -30,7 +29,6 @@ from dj.models.node import (
     CreateNode,
     CreateSourceNode,
     Node,
-    NodeMode,
     NodeRevision,
     NodeRevisionBase,
     NodeStatus,
@@ -38,7 +36,6 @@ from dj.models.node import (
     UpdateNode,
 )
 from dj.models.table import CreateTable
-from dj.sql.parsing import ast
 from dj.sql.parsing.backends.sqloxide import parse
 from dj.utils import UTCDatetime, get_session
 
@@ -156,55 +153,6 @@ def raise_on_query_not_allowed(
         )
 
 
-def validate(
-    data: Union[NodeRevisionBase, NodeRevision],
-    session: Session = Depends(get_session),
-) -> Tuple[Node, NodeRevision, Dict[NodeRevision, List[ast.Table]]]:
-    """
-    Validate a node.
-    """
-
-    node = Node(name=data.name, type=data.type)
-    node_revision = NodeRevision.parse_obj(data)
-    node_revision.node = node
-
-    # Try to parse the node's query and extract dependencies
-    try:
-        (
-            query_ast,
-            dependencies_map,
-            missing_parents_map,
-        ) = extract_dependencies_from_node(
-            session=session,
-            node=node_revision,
-            raise_=False,
-        )
-    except ValueError as exc:
-        raise DJException(message=str(exc)) from exc
-
-    # Only raise on missing parents if the node mode is set to published
-    if missing_parents_map and node_revision.mode == NodeMode.PUBLISHED:
-        raise DJException(
-            errors=[
-                DJError(
-                    code=ErrorCode.MISSING_PARENT,
-                    message="Node definition contains references to nodes that do not exist",
-                    debug={"missing_parents": list(missing_parents_map.keys())},
-                ),
-            ],
-        )
-
-    # Add aliases for any unnamed columns and confirm that all column types can be inferred
-    query_ast.select.add_aliases_to_unnamed_columns()
-    node_revision.columns = [
-        Column(name=col.name.name, type=get_type_of_expression(col))  # type: ignore
-        for col in query_ast.select.projection
-    ]
-
-    node_revision.status = NodeStatus.VALID
-    return node, node_revision, dependencies_map
-
-
 @router.post("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
     data: Union[NodeRevisionBase, NodeRevision],
@@ -217,7 +165,7 @@ def validate_node(
     if data.type == NodeType.SOURCE:
         raise DJException(message="Source nodes cannot be validated")
 
-    node, node_revision, dependencies_map = validate(data, session)
+    node, node_revision, dependencies_map = validate_node_data(data, session)
     return NodeValidation(
         message=f"Node `{node.name}` is valid",
         status=NodeStatus.VALID,
@@ -280,7 +228,7 @@ def create_node_revision(
     """
 
     node_revision = NodeRevision.parse_obj(data)
-    _, node, dependencies_map = validate(node_revision, session)
+    _, node, dependencies_map = validate_node_data(node_revision, session)
     new_parents = [node.name for node in dependencies_map]
     parent_refs = session.exec(
         select(Node).where(
@@ -548,7 +496,7 @@ def update_node(
 
     # Build the new version and link its parents
     if new_revision.type != NodeType.SOURCE:
-        _, validated_node, dependencies_map = validate(new_revision, session)
+        _, validated_node, dependencies_map = validate_node_data(new_revision, session)
         new_parents = [n.name for n in dependencies_map]
         parent_refs = session.exec(
             select(Node).where(
@@ -620,20 +568,11 @@ def node_similarity(
     return JSONResponse(status_code=200, content={"similarity": similarity})
 
 
-@router.get("/nodes/{name}/downstream/")
+@router.get("/nodes/{name}/downstream/", response_model=List[NodeMetadata])
 def downstream_nodes(
     name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
 ) -> List[NodeMetadata]:
     """
     List all nodes that are downstream from the given node, filterable by type.
     """
-    node = get_node_by_name(session=session, name=name)
-    queue = collections.deque([node])
-    metrics = set()
-    while queue:
-        current = queue.popleft()
-        if current.id != node.id and (node_type is None or current.type == node_type):
-            metrics.add(current)
-        for child in current.children:
-            queue.append(child.node)
-    return metrics  # type: ignore
+    return get_downstream_nodes(session, name, node_type)  # type: ignore

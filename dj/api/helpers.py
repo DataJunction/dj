@@ -2,14 +2,26 @@
 Helpers for API endpoints
 """
 
-from typing import List, Optional, Tuple
 
+from typing import Dict, List, Optional, Tuple, Union
+
+from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from dj.construction.build import build_node_for_database
-from dj.errors import DJException
+from dj.construction.extract import extract_dependencies_from_node
+from dj.construction.inference import get_type_of_expression
+from dj.errors import DJError, DJException, ErrorCode
 from dj.models import Catalog, Column, Database
-from dj.models.node import Node, NodeRevision, NodeType
+from dj.models.node import (
+    Node,
+    NodeMode,
+    NodeRelationship,
+    NodeRevision,
+    NodeRevisionBase,
+    NodeStatus,
+    NodeType,
+)
 from dj.sql.parsing import ast
 
 
@@ -106,3 +118,98 @@ async def get_query(
         filters=filters,
     )
     return query_ast, optimal_database
+
+
+def get_downstream_nodes(
+    session: Session,
+    node_name: str,
+    node_type: NodeType = None,
+) -> List[Node]:
+    """
+    Gets all downstream children of the given node, filterable by node type.
+    Uses a recursive CTE query to build out all descendants from the node.
+    """
+    node = get_node_by_name(session=session, name=node_name)
+
+    dag = (
+        select(
+            NodeRelationship.parent_id,
+            NodeRevision.node_id,
+        )
+        .where(NodeRelationship.parent_id == node.id)
+        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
+        .join(Node, Node.id == NodeRevision.node_id)
+    ).cte("dag", recursive=True)
+
+    paths = dag.union_all(
+        select(
+            dag.c.parent_id,
+            NodeRevision.node_id,
+        )
+        .join(NodeRelationship, dag.c.node_id == NodeRelationship.parent_id)
+        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
+        .join(Node, Node.id == NodeRevision.node_id),
+    )
+
+    statement = (
+        select(Node)
+        .join(paths, paths.c.node_id == Node.id)
+        .options(joinedload(Node.current))
+    )
+
+    results = session.exec(statement).unique().all()
+
+    return [
+        downstream
+        for downstream in results
+        if downstream.type == node_type or node_type is None
+    ]
+
+
+def validate_node_data(
+    data: Union[NodeRevisionBase, NodeRevision],
+    session: Session,
+) -> Tuple[Node, NodeRevision, Dict[NodeRevision, List[ast.Table]]]:
+    """
+    Validate a node.
+    """
+
+    node = Node(name=data.name, type=data.type)
+    node_revision = NodeRevision.parse_obj(data)
+    node_revision.node = node
+
+    # Try to parse the node's query and extract dependencies
+    try:
+        (
+            query_ast,
+            dependencies_map,
+            missing_parents_map,
+        ) = extract_dependencies_from_node(
+            session=session,
+            node=node_revision,
+            raise_=False,
+        )
+    except ValueError as exc:
+        raise DJException(message=str(exc)) from exc
+
+    # Only raise on missing parents if the node mode is set to published
+    if missing_parents_map and node_revision.mode == NodeMode.PUBLISHED:
+        raise DJException(
+            errors=[
+                DJError(
+                    code=ErrorCode.MISSING_PARENT,
+                    message="Node definition contains references to nodes that do not exist",
+                    debug={"missing_parents": list(missing_parents_map.keys())},
+                ),
+            ],
+        )
+
+    # Add aliases for any unnamed columns and confirm that all column types can be inferred
+    query_ast.select.add_aliases_to_unnamed_columns()
+    node_revision.columns = [
+        Column(name=col.name.name, type=get_type_of_expression(col))  # type: ignore
+        for col in query_ast.select.projection
+    ]
+
+    node_revision.status = NodeStatus.VALID
+    return node, node_revision, dependencies_map
