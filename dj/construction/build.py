@@ -286,7 +286,7 @@ async def build_node_for_database(  # pylint: disable=too-many-arguments
     dimensions: Optional[List[str]] = None,
 ) -> Tuple[ast.Query, Database]:
     """
-    Determines the optimal database to run the query in and builds the query AST appropriately
+    Determines the optimal database to run the query in and builds the node appropriately
     """
     if node.query is None:
         raise Exception(
@@ -296,8 +296,22 @@ async def build_node_for_database(  # pylint: disable=too-many-arguments
     top_dbs: Set[Database] = set()
     if filters or dimensions:
         add_filters_and_aggs_to_query_ast(query, dialect, filters, dimensions)
-    else:
+    else:# if not dimensions then we can see if the node is directly materialized
         top_dbs = {table.database for table in node.tables}
+
+    return await build_ast_for_database(session, query, dialect, database_id, top_dbs)
+
+async def build_ast_for_database(  # pylint: disable=too-many-arguments
+    session: Session,
+    query: ast.Query,
+    dialect: Optional[str] = None,
+    database_id: Optional[int] = None,
+    top_dbs: Optional[Set[Database]] = None
+) -> Tuple[ast.Query, Database]:
+    """
+    Determines the optimal database to run the query in and builds the query AST appropriately
+    """
+    top_dbs = top_dbs or set()
     build_plan = generate_build_plan_from_query(session, query, dialect)
     if database_id is not None:
         for top_db in top_dbs:
