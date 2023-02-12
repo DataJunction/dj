@@ -70,7 +70,7 @@ async def test_build_metric_with_dimensions_aggs(mocker, request):
     query, _ = await build_node_for_database(
         construction_session,
         num_comments_mtc.current,
-        aggs=["basic.dimension.users.country", "basic.dimension.users.gender"],
+        dimensions=["basic.dimension.users.country", "basic.dimension.users.gender"],
     )
 
     expecteds = (

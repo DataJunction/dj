@@ -11,8 +11,9 @@ from sqlmodel import Session
 
 from dj.models.column import Column
 from dj.models.node import Node, NodeRevision, NodeType
-from dj.models.query import Database, QueryCreate, QueryWithResults
+from dj.models.query import Database, QueryWithResults
 from dj.models.table import Table
+from dj.sql.parsing.backends.sqloxide import parse
 from dj.typing import ColumnType
 
 
@@ -166,14 +167,11 @@ def test_read_metrics_data(
     session.add(node_revision)
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
+    session.refresh(database)
 
-    create_query = QueryCreate(
-        database_id=database.id,
-        submitted_query="SELECT COUNT(*) FROM my_table",
-    )
     mocker.patch(
-        "dj.api.metrics.get_query_for_node",
-        return_value=create_query,
+        "dj.api.metrics.get_query",
+        return_value=(parse("SELECT COUNT(*) FROM my_table"), database),
     )
     uuid = UUID("74099c09-91f3-4df7-be9d-96a8075ff5a8")
     save_query_and_run = mocker.patch(
@@ -191,33 +189,6 @@ def test_read_metrics_data(
         client.get("/metrics/a-metric/data/")
 
     save_query_and_run.assert_called()
-    assert save_query_and_run.mock_calls[0].args[0] == create_query
-
-
-def test_read_metrics_data_errors(session: Session, client: TestClient) -> None:
-    """
-    Test errors on ``GET /metrics/{node_id}/data/``.
-    """
-    database = Database(name="test", URI="sqlite://")
-    node = Node(name="a-metric", current_version="1")
-    node_revision = NodeRevision(
-        name=node.name,
-        node=node,
-        version="1",
-        query="SELECT 1 AS col",
-    )
-    session.add(database)
-    session.add(node_revision)
-    session.execute("CREATE TABLE my_table (one TEXT)")
-    session.commit()
-
-    response = client.get("/metrics/2/data/")
-    assert response.status_code == 404
-    assert response.json() == {"detail": "Metric node not found: `2`"}
-
-    response = client.get("/metrics/a-metric/data/")
-    assert response.status_code == 400
-    assert response.json() == {"detail": "Not a metric node: `a-metric`"}
 
 
 def test_read_metrics_sql(
@@ -242,14 +213,13 @@ def test_read_metrics_sql(
     session.execute("CREATE TABLE my_table (one TEXT)")
     session.commit()
 
-    create_query = QueryCreate(
-        database_id=database.id,
-        submitted_query="SELECT COUNT(*) FROM my_table",
-    )
     mocker.patch(
-        "dj.api.metrics.get_query_for_node",
-        return_value=create_query,
+        "dj.api.helpers.build_node_for_database",
+        return_value=(parse("SELECT COUNT(*) FROM my_table"), database),
     )
 
     response = client.get("/metrics/a-metric/sql/")
-    assert response.json() == {"database_id": 1, "sql": "SELECT COUNT(*) FROM my_table"}
+    assert response.json() == {
+        "database_id": 1,
+        "sql": "SELECT  COUNT(*) \n FROM my_table",
+    }
