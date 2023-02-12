@@ -268,15 +268,14 @@ def _validate_columns(
                 if dim is not None:  # pragma: no cover
                     if col.name.name not in {c.name for c in dim.columns}:
                         CompoundBuildException().append(
-                            error=DJError(
+                            DJError(
                                 code=ErrorCode.MISSING_COLUMNS,
                                 message=(
                                     f"Dimension `{dim.name}` has no column "
-                                    "`{col.name.name}`.",
+                                    "`{col.name.name}`."
                                 ),
                                 context=str(col.parent),
                             ),
-                            message="Cannot extract dependencies from SELECT",
                         )
                     else:
                         dim_table = ast.Table(

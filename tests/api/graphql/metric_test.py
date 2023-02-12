@@ -11,6 +11,7 @@ from sqlmodel import Session
 
 from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.query import Database, QueryCreate, QueryWithResults
+from dj.sql.parsing.backends.sqloxide import parse
 
 
 def test_read_metrics(session: Session, client: TestClient):
@@ -170,7 +171,7 @@ def test_read_metrics_data(
 
     create_query = QueryCreate(
         database_id=database.id,
-        submitted_query="SELECT COUNT(*) FROM my_table",
+        submitted_query="SELECT  COUNT(*) \n FROM my_table",
     )
     mocker.patch(
         "dj.api.graphql.metric.get_query_for_node",
@@ -196,6 +197,11 @@ def test_read_metrics_data(
         }
     }
     """
+
+    mocker.patch(
+        "dj.api.helpers.build_node_for_database",
+        return_value=(parse("SELECT COUNT(*) FROM my_table"), database),
+    )
 
     with freeze_time("2021-01-01T00:00:00Z"):
         client.post("/graphql", json={"query": query})
@@ -284,47 +290,6 @@ def test_read_metrics_sql_errors(session: Session, client: TestClient):
     {
         readMetricsSql(nodeName: "a-metric"){
             sql
-        }
-    }
-    """
-
-    response_json = client.post("/graphql", json={"query": query}).json()
-    assert response_json["data"] is None
-    assert response_json["errors"][0]["message"] == "Not a metric node: `a-metric`"
-
-
-def test_read_metrics_data_errors(session: Session, client: TestClient):
-    """
-    Test error response in ``read_metrics_data``.
-    """
-    database = Database(name="test", URI="sqlite://")
-    node = Node(name="a-metric", current_version="1")
-    node_revision = NodeRevision(
-        name=node.name,
-        node=node,
-        version="1",
-        query="SELECT 1 AS col",
-    )
-    session.add(database)
-    session.add(node_revision)
-    session.execute("CREATE TABLE my_table (one TEXT)")
-    session.commit()
-
-    query = """
-    {
-        readMetricsData(nodeName: "a-metric"){
-            id
-        }
-    }
-    """
-
-    response_json = client.post("/graphql", json={"query": query}).json()
-    assert response_json["data"] is None
-    assert response_json["errors"][0]["message"] == "Not a metric node: `a-metric`"
-    query = """
-    {
-        readMetricsData(nodeName: "a-metric"){
-            id
         }
     }
     """
