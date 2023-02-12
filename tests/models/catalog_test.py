@@ -5,13 +5,16 @@ Tests for ``dj.models.catalog``.
 from dj.models.catalog import Catalog
 
 
-def test_catalog_str_repr():
+def test_catalog_str_and_hash():
     """
-    Test that a catalog instance renders appropriately to a string
+    Test that a catalog instance works properly with str and hash
     """
-    spark = Catalog(name="spark")
+    spark = Catalog(id=1, name="spark")
     assert str(spark) == "spark"
-    trino = Catalog(name="trino")
+    assert hash(spark) == 1
+    trino = Catalog(id=2, name="trino")
     assert str(trino) == "trino"
-    druid = Catalog(name="druid")
+    assert hash(trino) == 2
+    druid = Catalog(id=3, name="druid")
     assert str(druid) == "druid"
+    assert hash(druid) == 3

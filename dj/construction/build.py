@@ -237,10 +237,10 @@ def add_filters_and_aggs_to_query_ast(
     query: ast.Query,
     dialect: Optional[str] = None,
     filters: Optional[List[str]] = None,
-    aggs: Optional[List[str]] = None,
+    dimensions: Optional[List[str]] = None,
 ):
     """
-    Add filters and aggs to a query ast
+    Add filters and dimensions to a query ast
     """
     projection_addition = []
     if filters:
@@ -264,8 +264,8 @@ def add_filters_and_aggs_to_query_ast(
             filter_asts,
         )
 
-    if aggs:
-        for agg in aggs:
+    if dimensions:
+        for agg in dimensions:
             temp_select = parse(
                 f"select * group by {agg}",
                 dialect,
@@ -283,7 +283,7 @@ async def build_node_for_database(  # pylint: disable=too-many-arguments
     dialect: Optional[str] = None,
     database_id: Optional[int] = None,
     filters: Optional[List[str]] = None,
-    aggs: Optional[List[str]] = None,
+    dimensions: Optional[List[str]] = None,
 ) -> Tuple[ast.Query, Database]:
     """
     Determines the optimal database to run the query in and builds the query AST appropriately
@@ -294,8 +294,8 @@ async def build_node_for_database(  # pylint: disable=too-many-arguments
         )
     query = parse(node.query, dialect)
     top_dbs: Set[Database] = set()
-    if filters or aggs:
-        add_filters_and_aggs_to_query_ast(query, dialect, filters, aggs)
+    if filters or dimensions:
+        add_filters_and_aggs_to_query_ast(query, dialect, filters, dimensions)
     else:
         top_dbs = {table.database for table in node.tables}
     build_plan = generate_build_plan_from_query(session, query, dialect)
