@@ -8,3 +8,4 @@ Contributors
 * Ali Raza <dejavu87@gmail.com>
 * Sam Redai <samuelspersonalemail@gmail.com>
 * Nick Ouellet <nick@ouellet.dev>
+* Yian Shang <yian.shang@gmail.com>
