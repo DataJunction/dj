@@ -6,134 +6,45 @@ import logging
 from http import HTTPStatus
 from typing import List, Optional, Union
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
 from sqlalchemy.orm import joinedload
-from sqlmodel import Session, SQLModel, select
+from sqlmodel import Session, select
 
 from dj.api.helpers import (
     get_catalog,
     get_column,
     get_database_by_name,
     get_downstream_nodes,
+    get_engine,
     get_node_by_name,
     validate_node_data,
 )
 from dj.errors import DJException
-from dj.models import Catalog, Database, Table
+from dj.models import Table
 from dj.models.column import Column, ColumnType
 from dj.models.node import (
-    AvailabilityState,
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
+    MaterializationConfig,
     Node,
+    NodeOutput,
     NodeRevision,
     NodeRevisionBase,
+    NodeRevisionOutput,
     NodeStatus,
     NodeType,
+    NodeValidation,
     UpdateNode,
+    UpsertMaterializationConfig,
 )
 from dj.models.table import CreateTable
 from dj.sql.parsing.backends.sqloxide import parse
-from dj.utils import UTCDatetime, get_session
+from dj.utils import get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-class SimpleColumn(SQLModel):
-    """
-    A simplified column schema, without ID or dimensions.
-    """
-
-    name: str
-    type: ColumnType
-
-
-class TableMetadata(SQLModel):
-    """
-    Output for table information.
-    """
-
-    id: Optional[int]
-    catalog: Optional[Catalog]
-    schema_: Optional[str]
-    table: Optional[str]
-    database: Optional[Database]
-
-
-class NodeRevisionMetadata(SQLModel):
-    """
-    A node with information about columns and if it is a metric.
-    """
-
-    id: int = Field(alias="node_revision_id")
-    node_id: int
-    type: NodeType
-    name: str
-    display_name: str
-    version: str
-    description: str = ""
-    query: Optional[str] = None
-    availability: Optional[AvailabilityState] = None
-    columns: List[SimpleColumn]
-    tables: List[TableMetadata]
-    updated_at: UTCDatetime
-
-    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
-        allow_population_by_field_name = True
-
-
-class OutputModel(BaseModel):
-    """
-    An output model with the ability to flatten fields. When fields are created with
-    `Field(flatten=True)`, the field's values will be automatically flattened into the
-    parent output model.
-    """
-
-    def _iter(self, *args, to_dict: bool = False, **kwargs):
-        for dict_key, value in super()._iter(to_dict, *args, **kwargs):
-            if to_dict and self.__fields__[dict_key].field_info.extra.get(
-                "flatten",
-                False,
-            ):
-                assert isinstance(value, dict)
-                for key, val in value.items():
-                    yield key, val
-            else:
-                yield dict_key, value
-
-
-class NodeMetadata(OutputModel):
-    """
-    A node that shows the current revision.
-    """
-
-    current: NodeRevisionMetadata = Field(flatten=True)
-    created_at: UTCDatetime
-
-
-class NodeWithRevisions(NodeMetadata):
-    """
-    Output for a reference node with revision history.
-    """
-
-    revisions: List[NodeRevisionMetadata]
-
-
-class NodeValidation(SQLModel):
-    """
-    A validation of a provided node definition
-    """
-
-    message: str
-    status: NodeStatus
-    node: Node
-    node_revision: NodeRevision
-    dependencies: List[NodeRevisionMetadata]
-    columns: List[Column]
 
 
 def raise_on_query_not_allowed(
@@ -176,8 +87,8 @@ def validate_node(
     )
 
 
-@router.get("/nodes/", response_model=List[NodeMetadata])
-def read_nodes(*, session: Session = Depends(get_session)) -> List[NodeMetadata]:
+@router.get("/nodes/", response_model=List[NodeOutput])
+def read_nodes(*, session: Session = Depends(get_session)) -> List[NodeOutput]:
     """
     List the available nodes.
     """
@@ -185,37 +96,99 @@ def read_nodes(*, session: Session = Depends(get_session)) -> List[NodeMetadata]
     return nodes
 
 
-@router.get("/nodes/{name}/", response_model=NodeMetadata)
-def read_node(name: str, *, session: Session = Depends(get_session)) -> NodeMetadata:
+@router.get("/nodes/{name}/", response_model=NodeOutput)
+def read_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutput:
     """
     Show the active version of the specified node.
     """
-    statement = select(Node).where(Node.name == name).options(joinedload(Node.current))
-    node = session.exec(statement).unique().one_or_none()
-    if not node:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Node not found: `{name}`",
-        )
+    node = get_node_by_name(session, name, with_current=True)
     return node  # type: ignore
 
 
-@router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionMetadata])
+@router.post("/nodes/{name}/materialization/")
+def upsert_node_materialization_config(
+    name: str,
+    data: UpsertMaterializationConfig,
+    *,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
+    """
+    Update materialization config of the specified node.
+    """
+    node = get_node_by_name(session, name, with_current=True)
+    if node.type == NodeType.SOURCE:
+        raise DJException(
+            http_status_code=HTTPStatus.BAD_REQUEST,
+            message=f"Cannot set materialization config for source node `{name}`!",
+        )
+    current_revision = node.current
+
+    # Check to see if a config for this engine already exists with the exact same config
+    existing_config_for_engine = [
+        config
+        for config in node.current.materialization_configs
+        if config.engine.name == data.engine_name
+    ]
+    if (
+        existing_config_for_engine
+        and existing_config_for_engine[0].config == data.config
+    ):
+        return JSONResponse(
+            status_code=HTTPStatus.NO_CONTENT,
+            content={
+                "message": (
+                    f"The same materialization config provided already exists for "
+                    f"node `{name}` so no update was performed."
+                ),
+            },
+        )
+
+    # Materialization config changed, so create a new materialization config and a new node
+    # revision that references it.
+    engine = get_engine(session, data.engine_name, data.engine_version)
+    new_node_revision = create_new_revision_from_existing(current_revision)
+    new_node_revision.node = node
+    new_node_revision.version = str(int(current_revision.version) + 1)  # type: ignore
+
+    unchanged_existing_configs = [
+        config
+        for config in node.current.materialization_configs
+        if config.engine.name != data.engine_name
+    ]
+    new_config = MaterializationConfig(
+        node_revision=new_node_revision,
+        engine=engine,
+        config=data.config,
+    )
+    new_node_revision.materialization_configs = unchanged_existing_configs + [
+        new_config,
+    ]
+    node.current_version = new_node_revision.version
+
+    # This will add the materialization config, the new node rev, and update the node's version.
+    session.add(new_node_revision)
+    session.add(node)
+    session.commit()
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": (
+                f"Successfully updated materialization config for node `{name}`"
+                f" and engine `{engine.name}`."
+            ),
+        },
+    )
+
+
+@router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
 def list_node_revisions(
     name: str, *, session: Session = Depends(get_session)
-) -> List[NodeRevisionMetadata]:
+) -> List[NodeRevisionOutput]:
     """
     List all revisions for the node.
     """
-    statement = select(Node).where(
-        Node.name == name,
-    )
-    node = session.exec(statement).one_or_none()
-    if not node:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Node not found: `{name}`",
-        )
+    node = get_node_by_name(session, name, with_current=False)
     return node.revisions  # type: ignore
 
 
@@ -296,11 +269,11 @@ def create_cube_node_revision(
     )
 
 
-@router.post("/nodes/", response_model=NodeMetadata)
+@router.post("/nodes/", response_model=NodeOutput)
 def create_node(
     data: Union[CreateSourceNode, CreateCubeNode, CreateNode],
     session: Session = Depends(get_session),
-) -> NodeMetadata:
+) -> NodeOutput:
     """
     Create a node.
     """
@@ -443,13 +416,50 @@ def add_table_to_node(
     )
 
 
-@router.patch("/nodes/{name}/", response_model=NodeMetadata)
+def create_new_revision_from_existing(
+    old_revision: NodeRevision,
+    data: UpdateNode = None,
+) -> NodeRevision:
+    """
+    Creates a new revision from an existing node revision.
+    """
+    new_revision = NodeRevision(
+        name=old_revision.name,
+        display_name=(
+            data.display_name
+            if data and data.display_name
+            else old_revision.display_name
+        ),
+        description=(
+            data.description if data and data.description else old_revision.description
+        ),
+        query=(data.query if data and data.query else old_revision.query),
+        type=old_revision.type,
+        columns=[
+            Column(
+                name=column_name,
+                type=ColumnType[column_data["type"]],
+                dimension_column=column_data.get("dimension"),
+            )
+            for column_name, column_data in data.columns.items()
+        ]
+        if data and data.columns
+        else old_revision.columns,
+        tables=old_revision.tables,
+        parents=[],
+        mode=data.mode if data and data.mode else old_revision.mode,
+        materialization_configs=old_revision.materialization_configs,
+    )
+    return new_revision
+
+
+@router.patch("/nodes/{name}/", response_model=NodeOutput)
 def update_node(
     name: str,
     data: Union[UpdateNode],
     *,
     session: Session = Depends(get_session),
-) -> NodeMetadata:
+) -> NodeOutput:
     """
     Update a node.
     """
@@ -468,31 +478,7 @@ def update_node(
         )
 
     old_revision = node.current
-    old_tables = old_revision.tables
-    new_revision = NodeRevision(
-        name=old_revision.name,
-        display_name=(
-            old_revision.display_name if not data.display_name else data.display_name
-        ),
-        description=(
-            old_revision.description if not data.description else data.description
-        ),
-        query=data.query if data.query else old_revision.query,
-        type=old_revision.type,
-        columns=[
-            Column(
-                name=column_name,
-                type=ColumnType[column_data["type"]],
-                dimension_column=column_data.get("dimension"),
-            )
-            for column_name, column_data in data.columns.items()
-        ]
-        if data.columns
-        else old_revision.columns,
-        tables=old_tables,
-        parents=[],
-        mode=data.mode if data.mode else old_revision.mode,
-    )
+    new_revision = create_new_revision_from_existing(old_revision, data)
 
     # Build the new version and link its parents
     if new_revision.type != NodeType.SOURCE:
@@ -568,10 +554,10 @@ def node_similarity(
     return JSONResponse(status_code=200, content={"similarity": similarity})
 
 
-@router.get("/nodes/{name}/downstream/", response_model=List[NodeMetadata])
+@router.get("/nodes/{name}/downstream/", response_model=List[NodeOutput])
 def downstream_nodes(
     name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
-) -> List[NodeMetadata]:
+) -> List[NodeOutput]:
     """
     List all nodes that are downstream from the given node, filterable by type.
     """
