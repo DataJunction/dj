@@ -72,16 +72,10 @@ def test_catalog_list(
     assert response.json() == [
         {
             "name": "dev",
-            "engines": [{"name": "spark", "version": "3.3.1"}],
+            "engines": [{"name": "spark", "version": "3.3.1", "uri": None}],
         },
-        {
-            "name": "test",
-            "engines": [],
-        },
-        {
-            "name": "prod",
-            "engines": [],
-        },
+        {"name": "test", "engines": []},
+        {"name": "prod", "engines": []},
     ]
 
 
@@ -119,7 +113,10 @@ def test_catalog_get_catalog(
     )
     assert response.status_code == 200
     data = response.json()
-    assert data == {"name": "dev", "engines": [{"name": "spark", "version": "3.3.1"}]}
+    assert data == {
+        "name": "dev",
+        "engines": [{"name": "spark", "uri": None, "version": "3.3.1"}],
+    }
 
 
 def test_catalog_adding_a_new_catalog_with_engines(
@@ -132,6 +129,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
         "/engines/",
         json={
             "name": "spark",
+            "uri": None,
             "version": "3.3.1",
         },
     )
@@ -157,6 +155,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
         "engines": [
             {
                 "name": "spark",
+                "uri": None,
                 "version": "3.3.1",
             },
         ],
@@ -173,6 +172,7 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
         "/engines/",
         json={
             "name": "spark",
+            "uri": None,
             "version": "3.3.1",
         },
     )
@@ -204,6 +204,7 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
         "engines": [
             {
                 "name": "spark",
+                "uri": None,
                 "version": "3.3.1",
             },
         ],
@@ -220,6 +221,7 @@ def test_catalog_adding_without_duplicating(
         "/engines/",
         json={
             "name": "spark",
+            "uri": None,
             "version": "2.4.4",
         },
     )
@@ -297,14 +299,17 @@ def test_catalog_adding_without_duplicating(
         "engines": [
             {
                 "name": "spark",
+                "uri": None,
                 "version": "2.4.4",
             },
             {
                 "name": "spark",
+                "uri": None,
                 "version": "3.3.0",
             },
             {
                 "name": "spark",
+                "uri": None,
                 "version": "3.3.1",
             },
         ],
