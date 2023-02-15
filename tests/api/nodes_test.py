@@ -263,7 +263,7 @@ class TestCreateOrUpdateNodes:
         assert data["name"] == "comments"
         assert data["type"] == "source"
         assert data["display_name"] == "Comments"
-        assert data["version"] == "1"
+        assert data["version"] == "v1.0"
         assert data["node_id"] == 1
         assert data["description"] == "A fact table with comments"
         assert data["query"] is None
@@ -296,7 +296,7 @@ class TestCreateOrUpdateNodes:
         assert data["name"] == "comments"
         assert data["display_name"] == "Comments facts"
         assert data["type"] == "source"
-        assert data["version"] == "2"
+        assert data["version"] == "v1.1"
         assert data["node_id"] == 1
         assert data["description"] == "New description"
 
@@ -321,7 +321,7 @@ class TestCreateOrUpdateNodes:
             },
         )
         data = response.json()
-        assert data["version"] == "3"
+        assert data["version"] == "v2.0"
         assert data["columns"] == [
             {"name": "id", "type": "INT"},
             {"name": "user_id", "type": "INT"},
@@ -398,7 +398,7 @@ class TestCreateOrUpdateNodes:
         ]
         assert data["tables"] == []
 
-        # Update the transform node
+        # Update the transform node with two minor changes
         response = client.patch(
             "/nodes/country_agg/",
             json={
@@ -410,7 +410,7 @@ class TestCreateOrUpdateNodes:
         assert data["name"] == "country_agg"
         assert data["display_name"] == "Country Aggregation by User"
         assert data["type"] == "transform"
-        assert data["version"] == "2"
+        assert data["version"] == "v1.1"
         assert data["description"] == "Some new description"
         assert (
             data["query"]
@@ -440,7 +440,7 @@ class TestCreateOrUpdateNodes:
             },
         )
         data = response.json()
-        assert data["version"] == "3"
+        assert data["version"] == "v2.0"
         assert (
             data["query"] == "SELECT country, COUNT(DISTINCT id) AS num_users, "
             "COUNT(*) AS num_entries FROM basic.source.users"
@@ -460,21 +460,21 @@ class TestCreateOrUpdateNodes:
         response = client.get("/nodes/country_agg/revisions/")
         data = response.json()
         assert {rev["version"]: rev["query"] for rev in data} == {
-            "1": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
-            "2": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
-            "3": "SELECT country, COUNT(DISTINCT id) AS num_users, COUNT(*) AS num_entries "
+            "v1.0": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
+            "v1.1": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
+            "v2.0": "SELECT country, COUNT(DISTINCT id) AS num_users, COUNT(*) AS num_entries "
             "FROM basic.source.users",
         }
         assert {rev["version"]: rev["columns"] for rev in data} == {
-            "1": [
+            "v1.0": [
                 {"name": "country", "type": "STR"},
                 {"name": "num_users", "type": "INT"},
             ],
-            "2": [
+            "v1.1": [
                 {"name": "country", "type": "STR"},
                 {"name": "num_users", "type": "INT"},
             ],
-            "3": [
+            "v2.0": [
                 {"name": "country", "type": "STR"},
                 {"name": "num_users", "type": "INT"},
                 {"name": "num_entries", "type": "INT"},
@@ -502,7 +502,7 @@ class TestCreateOrUpdateNodes:
         assert data["name"] == "countries"
         assert data["display_name"] == "Countries"
         assert data["type"] == "dimension"
-        assert data["version"] == "1"
+        assert data["version"] == "v1.0"
         assert data["description"] == "Country dimension"
         assert (
             data["query"] == "SELECT country, COUNT(1) AS user_cnt "
@@ -519,7 +519,8 @@ class TestCreateOrUpdateNodes:
             json={"query": "SELECT country FROM basic.source.users GROUP BY country"},
         )
         data = response.json()
-        assert data["version"] == "2"
+        # Should result in a major version update due to the query change
+        assert data["version"] == "v2.0"
 
         # The columns should have been updated
         assert data["columns"] == [{"name": "country", "type": "STR"}]
@@ -563,7 +564,7 @@ class TestCreateOrUpdateNodes:
 
         response = client.get("/nodes/country_agg/")
         old_node_data = response.json()
-        assert old_node_data["version"] == "1"
+        assert old_node_data["version"] == "v1.0"
         assert old_node_data["materialization_configs"] == []
 
         # Setting the materialization config should succeed with a new node revision created.
@@ -585,7 +586,7 @@ class TestCreateOrUpdateNodes:
         # Reading the node should yield the materialization config and new revision.
         response = client.get("/nodes/country_agg/")
         data = response.json()
-        assert data["version"] == "2"
+        assert data["version"] == "v2.0"
         assert data["materialization_configs"] == [
             {"config": "blahblah", "engine": {"name": "spark", "version": "2.4.4"}},
         ]

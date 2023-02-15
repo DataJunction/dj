@@ -437,14 +437,14 @@ async def test_get_query_for_node_with_multiple_dimensions(
 
     child_ref = Node(
         name="core.num_comments",
-        current_version="1",
+        current_version="v1.0",
         type=NodeType.METRIC,
     )
     child = NodeRevision(
         name=child_ref.name,
         type=child_ref.type,
         node=child_ref,
-        verison=1,
+        version="1",
         query="SELECT COUNT(*) FROM core.comments",
         parents=[parent_ref],
     )
@@ -836,14 +836,14 @@ async def test_get_query_for_sql_with_dimensions(  # pylint: disable=too-many-lo
 
     child_ref = Node(
         name="core.num_comments",
-        current_version="1",
+        current_version="v1.0",
         type=NodeType.METRIC,
     )
     child = NodeRevision(
         name=child_ref.name,
         type=child_ref.type,
         node=child_ref,
-        verison=1,
+        version="v1.0",
         query="SELECT COUNT(*) FROM core.comments",
         parents=[parent_ref],
     )
@@ -954,14 +954,14 @@ async def test_get_query_for_sql_with_dimensions_order_by(  # pylint: disable=to
 
     child_ref = Node(
         name="core.num_comments",
-        current_version="1",
+        current_version="v1.0",
         type=NodeType.METRIC,
     )
     child = NodeRevision(
         name=child_ref.name,
         type=child_ref.type,
         node=child_ref,
-        verison=1,
+        version="v1.0",
         query="SELECT COUNT(*) FROM core.comments",
         parents=[parent_ref],
     )
@@ -1595,13 +1595,13 @@ async def test_get_query_for_sql_where_groupby(
 
     num_comments_ref = Node(
         name="core.num_comments",
-        current_version="1",
+        current_version="v1.0",
         type=NodeType.METRIC,
     )
     num_comments = NodeRevision(
         name=num_comments_ref.name,
         node=num_comments_ref,
-        verison=1,
+        version="v1.0",
         query="SELECT COUNT(*) FROM core.comments",
         parents=[comments_ref],
     )
@@ -1664,13 +1664,13 @@ async def test_get_query_for_sql_where_groupby_num(
 
     num_comments_ref = Node(
         name="core.num_comments",
-        current_version="1",
+        current_version="v1.0",
         type=NodeType.METRIC,
     )
     num_comments = NodeRevision(
         name=num_comments_ref.name,
         node=num_comments_ref,
-        verison=1,
+        version="v1.0",
         query="SELECT COUNT(*) FROM core.comments",
         parents=[comments_ref],
     )
@@ -1733,13 +1733,13 @@ async def test_get_query_for_sql_date_trunc(
 
     num_comments_ref = Node(
         name="core.num_comments",
-        current_version="1",
+        current_version="v1.0",
         type=NodeType.METRIC,
     )
     num_comments = NodeRevision(
         name=num_comments_ref.name,
         node=num_comments_ref,
-        verison=1,
+        version="v1.0",
         query="SELECT COUNT(*) FROM core.comments",
         parents=[comments_ref],
     )
@@ -1804,13 +1804,13 @@ async def test_get_query_for_sql_invalid_column(
 
     num_comments_ref = Node(
         name="core.num_comments",
-        current_version="1",
+        current_version="v1.0",
         type=NodeType.METRIC,
     )
     num_comments = NodeRevision(
         name=num_comments_ref.name,
         node=num_comments_ref,
-        verison=1,
+        version="v1.0",
         query="SELECT COUNT(*) FROM core.comments",
         parents=[comments_ref],
     )
@@ -1901,12 +1901,12 @@ def test_find_on_clause(mocker: MockerFixture) -> None:
     )
     parent_ref.current = parent
 
-    child_ref = Node(name="core.num_comments", current_version="1")
+    child_ref = Node(name="core.num_comments", current_version="v1.0")
     child = NodeRevision(
         name=child_ref.name,
         type=child_ref.type,
         node=child_ref,
-        verison=1,
+        version="v1.0",
         parents=[parent_ref],
     )
     child_ref.current = child
