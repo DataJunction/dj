@@ -40,7 +40,7 @@ def test_read_node(session: Session, client: TestClient) -> None:
     data = response.json()
 
     assert response.status_code == 404
-    assert data["detail"] == "Node not found: `nothing`"
+    assert data["message"] == "A node with name `nothing` does not exist."
 
 
 def test_read_nodes(session: Session, client: TestClient) -> None:
@@ -454,7 +454,7 @@ class TestCreateOrUpdateNodes:
         # Verify that asking for revisions for a non-existent transform fails
         response = client.get("/nodes/random_transform/revisions/")
         data = response.json()
-        assert data["detail"] == "Node not found: `random_transform`"
+        assert data["message"] == "A node with name `random_transform` does not exist."
 
         # Verify that all historical revisions are available for the node
         response = client.get("/nodes/country_agg/revisions/")
@@ -523,6 +523,91 @@ class TestCreateOrUpdateNodes:
 
         # The columns should have been updated
         assert data["columns"] == [{"name": "country", "type": "STR"}]
+
+    def test_upsert_materialization_config(  # pylint: disable=too-many-arguments
+        self,
+        database: Database,  # pylint: disable=unused-argument
+        source_node: Node,  # pylint: disable=unused-argument
+        client: TestClient,
+        create_source_node_payload: Dict[str, Any],
+        create_transform_node_payload: Dict[str, Any],
+    ) -> None:
+        """
+        Test creating & updating materialization config for a node.
+        """
+
+        # Setting the materialization config for a source node should fail
+        client.post("/nodes/", json=create_source_node_payload)
+        response = client.post(
+            "/nodes/comments/materialization/",
+            json={"engine_name": "spark", "engine_version": "2.4.4", "config": "{}"},
+        )
+        assert response.status_code == 400
+        assert (
+            response.json()["message"]
+            == "Cannot set materialization config for source node `comments`!"
+        )
+
+        # Setting the materialization config for an engine that doesn't exist should fail
+        client.post("/nodes/", json=create_transform_node_payload)
+        response = client.post(
+            "/nodes/country_agg/materialization/",
+            json={"engine_name": "spark", "engine_version": "2.4.4", "config": "{}"},
+        )
+        assert response.status_code == 404
+        data = response.json()
+        assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
+
+        # Create the engine and check the existing transform node
+        client.post("/engines/", json={"name": "spark", "version": "2.4.4"})
+
+        response = client.get("/nodes/country_agg/")
+        old_node_data = response.json()
+        assert old_node_data["version"] == "1"
+        assert old_node_data["materialization_configs"] == []
+
+        # Setting the materialization config should succeed with a new node revision created.
+        response = client.post(
+            "/nodes/country_agg/materialization/",
+            json={
+                "engine_name": "spark",
+                "engine_version": "2.4.4",
+                "config": "blahblah",
+            },
+        )
+        data = response.json()
+        assert (
+            data["message"]
+            == "Successfully updated materialization config for node `country_agg`"
+            " and engine `spark`."
+        )
+
+        # Reading the node should yield the materialization config and new revision.
+        response = client.get("/nodes/country_agg/")
+        data = response.json()
+        assert data["version"] == "2"
+        assert data["materialization_configs"] == [
+            {"config": "blahblah", "engine": {"name": "spark", "version": "2.4.4"}},
+        ]
+        assert old_node_data["node_revision_id"] < data["node_revision_id"]
+
+        # Setting the same config should yield a message indicating so.
+        response = client.post(
+            "/nodes/country_agg/materialization/",
+            json={
+                "engine_name": "spark",
+                "engine_version": "2.4.4",
+                "config": "blahblah",
+            },
+        )
+        assert response.status_code == 204
+
+        data = response.json()
+        assert (
+            data["message"]
+            == "The same materialization config provided already exists for node "
+            "`country_agg` so no update was performed."
+        )
 
 
 class TestValidateNodes:  # pylint: disable=too-many-public-methods
