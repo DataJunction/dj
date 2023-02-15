@@ -20,7 +20,7 @@ def test_engine_adding_a_new_engine(
     )
     data = response.json()
     assert response.status_code == 200
-    assert data == {"name": "spark", "version": "3.3.1"}
+    assert data == {"name": "spark", "uri": None, "version": "3.3.1"}
 
 
 def test_engine_list(
@@ -62,14 +62,17 @@ def test_engine_list(
     assert data == [
         {
             "name": "spark",
+            "uri": None,
             "version": "2.4.4",
         },
         {
             "name": "spark",
+            "uri": None,
             "version": "3.3.0",
         },
         {
             "name": "spark",
+            "uri": None,
             "version": "3.3.1",
         },
     ]
@@ -95,7 +98,7 @@ def test_engine_get_engine(
     )
     assert response.status_code == 200
     data = response.json()
-    assert data == {"name": "spark", "version": "3.3.1"}
+    assert data == {"name": "spark", "uri": None, "version": "3.3.1"}
 
 
 def test_engine_raise_on_engine_already_exists(

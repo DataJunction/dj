@@ -587,7 +587,10 @@ class TestCreateOrUpdateNodes:
         data = response.json()
         assert data["version"] == "2"
         assert data["materialization_configs"] == [
-            {"config": "blahblah", "engine": {"name": "spark", "version": "2.4.4"}},
+            {
+                "config": "blahblah",
+                "engine": {"name": "spark", "uri": None, "version": "2.4.4"},
+            },
         ]
         assert old_node_data["node_revision_id"] < data["node_revision_id"]
 
