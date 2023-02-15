@@ -4,6 +4,8 @@ Utility functions.
 import datetime
 import logging
 import os
+import re
+from enum import Enum
 from functools import lru_cache
 
 # pylint: disable=line-too-long
@@ -20,6 +22,7 @@ from sqlmodel import Session, create_engine
 from yarl import URL
 
 from dj.config import Settings
+from dj.errors import DJException
 from dj.typing import ColumnType
 
 
@@ -209,3 +212,53 @@ class UTCDatetime(datetime.datetime):
             return value.replace(tzinfo=datetime.timezone.utc)
 
         return value.astimezone(datetime.timezone.utc)
+
+
+class VersionUpgrade(str, Enum):
+    """
+    The version upgrade type
+    """
+
+    MAJOR = "major"
+    MINOR = "minor"
+
+
+class Version:
+    """
+    Represents a basic semantic version with only major & minor parts.
+    Used for tracking node versioning.
+    """
+
+    def __init__(self, major, minor):
+        self.major = major
+        self.minor = minor
+
+    def __str__(self) -> str:
+        return f"v{self.major}.{self.minor}"
+
+    @classmethod
+    def parse(cls, version_string) -> "Version":
+        """
+        Parse a version string.
+        """
+        version_regex = re.compile(r"^v(?P<major>[0-9]+)\.(?P<minor>[0-9]+)")
+        matcher = version_regex.search(version_string)
+        if not matcher:
+            raise DJException(
+                http_status_code=500,
+                message=f"Unparseable version {version_string}!",
+            )
+        results = matcher.groupdict()
+        return Version(int(results["major"]), int(results["minor"]))
+
+    def next_minor_version(self) -> "Version":
+        """
+        Returns the next minor version
+        """
+        return Version(self.major, self.minor + 1)
+
+    def next_major_version(self) -> "Version":
+        """
+        Returns the next major version
+        """
+        return Version(self.major + 1, 0)

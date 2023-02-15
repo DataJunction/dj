@@ -68,7 +68,7 @@ def test_read_cube(client: TestClient) -> None:
     assert response.status_code == 200
     data = response.json()
     assert data["node_id"] == 4
-    assert data["version"] == "1"
+    assert data["version"] == "v1.0"
     assert data["node_revision_id"] == 4
     assert data["type"] == "cube"
     assert data["name"] == "number_of_accounts_by_account_type"
@@ -84,14 +84,16 @@ def test_read_cube(client: TestClient) -> None:
     assert data["type"] == "cube"
     assert data["name"] == "number_of_accounts_by_account_type"
     assert data["display_name"] == "Number Of Accounts By Account Type"
-    assert data["version"] == "1"
+    assert data["version"] == "v1.0"
     assert data["description"] == "A cube of number of accounts grouped by account type"
-    assert {"id": 2, "current_version": "1", "name": "account_type"} in data[
+    assert {"id": 2, "current_version": "v1.0", "name": "account_type"} in data[
         "cube_elements"
     ]
-    assert {"id": 3, "current_version": "1", "name": "number_of_account_types"} in data[
-        "cube_elements"
-    ]
+    assert {
+        "id": 3,
+        "current_version": "v1.0",
+        "name": "number_of_account_types",
+    } in data["cube_elements"]
 
     # Check that creating a cube with a query fails appropriately
     response = client.post(

@@ -11,8 +11,10 @@ from sqlalchemy.engine.url import make_url
 from yarl import URL
 
 from dj.config import Settings
+from dj.errors import DJException
 from dj.typing import ColumnType
 from dj.utils import (
+    Version,
     get_engine,
     get_issue_url,
     get_more_specific_type,
@@ -153,3 +155,27 @@ def test_get_engine(mocker: MockerFixture, settings: Settings) -> None:
     mocker.patch("dj.utils.get_settings", return_value=settings)
     engine = get_engine()
     assert engine.url == make_url("sqlite://")
+
+
+def test_version_parse() -> None:
+    """
+    Test version parsing
+    """
+    ver = Version.parse("v1.0")
+    assert ver.major == 1
+    assert ver.minor == 0
+    assert str(ver.next_major_version()) == "v2.0"
+    assert str(ver.next_minor_version()) == "v1.1"
+    assert str(ver.next_minor_version().next_minor_version()) == "v1.2"
+
+    ver = Version.parse("v21.12")
+    assert ver.major == 21
+    assert ver.minor == 12
+    assert str(ver.next_major_version()) == "v22.0"
+    assert str(ver.next_minor_version()) == "v21.13"
+    assert str(ver.next_minor_version().next_minor_version()) == "v21.14"
+    assert str(ver.next_major_version().next_minor_version()) == "v22.1"
+
+    with pytest.raises(DJException) as excinfo:
+        Version.parse("0")
+    assert str(excinfo.value) == "Unparseable version 0!"
