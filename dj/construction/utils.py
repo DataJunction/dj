@@ -30,6 +30,7 @@ def get_dj_node(
     session: Session,
     node_name: str,
     kinds: Optional[Set[NodeType]] = None,
+    raise_:bool = True
 ) -> Optional[NodeRevision]:
     """Return the DJ Node with a given name from a set of node types"""
     query = select(Node).filter(Node.name == node_name)
@@ -37,6 +38,8 @@ def get_dj_node(
     try:
         match = session.exec(query).one()
     except NoResultFound:
+        if not raise_:
+            return None
         kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
         CompoundBuildException().append(
             error=DJError(
@@ -49,6 +52,8 @@ def get_dj_node(
 
     # found a node but it's not the right kind
     if match and kinds and (match.type not in kinds):
+        if not raise_:
+            return None
         CompoundBuildException().append(  # pragma: no cover
             error=DJError(
                 code=ErrorCode.NODE_TYPE_ERROR,

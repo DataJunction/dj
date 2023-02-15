@@ -2,53 +2,94 @@
 Functions for making queries directly against DJ
 """
 
-from dj.sql.parsing.backends.sqloxide import parse
-from dj.sql.parsing.backends.exceptions import DJParseException
-from dj.construction.utils import make_name, get_dj_node
-from dj.construction.build import build_ast_for_database
-from dj.sql.parsing import ast
-from typing import Optional, List, Tuple
+from typing import Optional
+
 from sqlmodel import Session
+
+from dj.construction.build import build_ast_for_database
+from dj.construction.utils import get_dj_node, make_name, amenable_name
 from dj.models.node import NodeType
+from dj.sql.parsing import ast
+from typing import Tuple
+from dj.models.database import Database
+from dj.sql.parsing.backends.exceptions import DJParseException
+from dj.sql.parsing.backends.sqloxide import parse
 
 
-def dj_query(session: Session, query: str, dialect: Optional[str] = None, database_id: Optional[int] = None):
+async def build_dj_metric_query(
+    session: Session,
+    query: str,
+    dialect: Optional[str] = None,
+    database_id: Optional[int] = None,
+) -> Tuple[ast.Query, Database]:
+    """
+    Build a dj query in SQL that may include dj metrics
+    """
     query_ast = parse(query, dialect)
     select = query_ast._to_select()
-    if len(select.from_.tables)!=1 or select.from_.joins:
-        raise DJParseException("DJ queries expect no joins and a single table in FROM.")
-    source = select.from_.tables[0]
-    if not isinstance(source, ast.Table):
-        raise DJParseException("The DJ query source must be a single unaliased Table.")
-    source_name = make_name(source.namespace, source.name.name)
-    if source_name=='metrics':
-        if not select.projection or len(select.projection)>1:
-            raise DJParseException("A DJ metric query can only contain a single column expression.")
 
-        metrics = list(select.projection[0].find_all(ast.Column))
-        if len(metrics)!=1:
-            raise DJParseException(f"A DJ metric query must contain a single column reference in the projection but saw {', '.join(str(metric) for metric in metrics)}.")
-        metric = metrics[0]
-        metric_name = make_name(metric.namespace, metric.name.name)
-        metric_node = get_dj_node(session, metric_name, {NodeType.METRIC})
-        metric_ast = parse(metric_node.query, dialect)#type: ignore
-        metric_ast.select.group_by+=query_ast.select.group_by
-        if metric_ast.select.where and select.where:
-            metric_ast.select.where = ast.BinaryOp(ast.BinaryOpKind.And, metric_ast.select.where, select.where)
-        elif select.where:
-            metric_ast.select.where = select.where
-        if metric_ast.select.having and select.having:
-            metric_ast.select.having = ast.BinaryOp(ast.BinaryOpKind.And, metric_ast.select.having, select.having)
-        elif select.having:
-            metric_ast.select.having = select.having
-        metric_ast.select.group_by += select.group_by
-        select.where = None
-        select.having = None
-        select.group_by = []
-        select.projection = []
+    for col in select.find_all(ast.Column):
+        froms = []
+        col_name = make_name(col.namespace, col.name.name)
+        if metric_node := get_dj_node(
+            session, col_name, {NodeType.METRIC}, raise_=False
+        ):
+            parent_select = col.get_nearest_parent_of_type(ast.Select)
+            if not getattr(parent_select, "_validated", False):
+                if len(parent_select.from_.tables) != 1 or parent_select.from_.joins:
+                    raise DJParseException(
+                        "Any SELECT referencing a Metric must source from a single unaliased Table named 'metrics.'."
+                    )
+                metrics_ref = parent_select.from_.tables[0]
+                metrics_ref_name = make_name(
+                    metrics_ref.namespace, metrics_ref.name.name
+                )
+                if metrics_ref_name != "metrics":
+                    raise DJParseException(
+                        "The name of the table for a Metric select must be 'metrics'."
+                    )
+                parent_select.from_ = ast.From([])
+                parent_select._validated = True
 
+            metric_name = amenable_name(metric_node.name)
+            metric_select = parse(metric_node.query)._to_select()
+            tables = metric_select.from_.tables + [
+                join.table for join in metric_select.from_.joins
+            ]
+            for table in tables:
+                if isinstance(table, ast.Select):
+                    continue
+                if isinstance(table, ast.Alias):
+                    if isinstance(table.child, ast.Select):
+                        continue
+                    table = table.child
+                table_name = make_name(table.namespace, table.name.name)
+                if table_node := get_dj_node(
+                    session,
+                    table_name,
+                    {NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION},
+                    raise_=False,
+                ):
+                    metric_select.projection += [
+                        ast.Column(ast.Name(col.name)) for col in table_node.columns
+                    ]
+                    froms.append(table.copy())
 
-        
+            metric_table_expression = ast.Alias(
+                ast.Name(metric_name), None, metric_select
+            )
+            froms.append(metric_table_expression)
+            metric_column = ast.Column(
+                ast.Name(metric_node.columns[0].name), _table=metric_table_expression
+            )
+            parent_select.replace(col, metric_column)
+            parent_select.from_.tables += froms
 
-    raise DJParseException(f"Query `{query}` is not an acceptable DJ query.")
+    for col in select.find_all(ast.Column):
+        col_name = make_name(col.namespace)
+        if get_dj_node(session, col_name, {NodeType.DIMENSION}, raise_=False):
+            col.set_api_column(True)
 
+    return await build_ast_for_database(
+        session, query=ast.Query(select), dialect=dialect, database_id=database_id
+    )
