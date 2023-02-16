@@ -2,16 +2,15 @@
 Functions for making queries directly against DJ
 """
 
-from typing import Optional
+from typing import Optional, Tuple
 
 from sqlmodel import Session
 
 from dj.construction.build import build_ast_for_database
-from dj.construction.utils import get_dj_node, make_name, amenable_name
+from dj.construction.utils import amenable_name, get_dj_node, make_name
+from dj.models.database import Database
 from dj.models.node import NodeType
 from dj.sql.parsing import ast
-from typing import Tuple
-from dj.models.database import Database
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.sql.parsing.backends.sqloxide import parse
 
@@ -32,21 +31,25 @@ async def build_dj_metric_query(
         froms = []
         col_name = make_name(col.namespace, col.name.name)
         if metric_node := get_dj_node(
-            session, col_name, {NodeType.METRIC}, raise_=False
+            session,
+            col_name,
+            {NodeType.METRIC},
+            raise_=False,
         ):
             parent_select = col.get_nearest_parent_of_type(ast.Select)
             if not getattr(parent_select, "_validated", False):
                 if len(parent_select.from_.tables) != 1 or parent_select.from_.joins:
                     raise DJParseException(
-                        "Any SELECT referencing a Metric must source from a single unaliased Table named 'metrics.'."
+                        "Any SELECT referencing a Metric must source from a single unaliased Table named 'metrics.'.",
                     )
                 metrics_ref = parent_select.from_.tables[0]
                 metrics_ref_name = make_name(
-                    metrics_ref.namespace, metrics_ref.name.name
+                    metrics_ref.namespace,
+                    metrics_ref.name.name,
                 )
                 if metrics_ref_name != "metrics":
                     raise DJParseException(
-                        "The name of the table for a Metric select must be 'metrics'."
+                        "The name of the table for a Metric select must be 'metrics'.",
                     )
                 parent_select.from_ = ast.From([])
                 parent_select._validated = True
@@ -76,11 +79,14 @@ async def build_dj_metric_query(
                     froms.append(table.copy())
 
             metric_table_expression = ast.Alias(
-                ast.Name(metric_name), None, metric_select
+                ast.Name(metric_name),
+                None,
+                metric_select,
             )
             froms.append(metric_table_expression)
             metric_column = ast.Column(
-                ast.Name(metric_node.columns[0].name), _table=metric_table_expression
+                ast.Name(metric_node.columns[0].name),
+                _table=metric_table_expression,
             )
             parent_select.replace(col, metric_column)
             parent_select.from_.tables += froms
@@ -91,5 +97,8 @@ async def build_dj_metric_query(
             col.set_api_column(True)
 
     return await build_ast_for_database(
-        session, query=ast.Query(select), dialect=dialect, database_id=database_id
+        session,
+        query=ast.Query(select),
+        dialect=dialect,
+        database_id=database_id,
     )

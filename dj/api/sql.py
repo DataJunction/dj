@@ -2,8 +2,7 @@
 Metric related APIs.
 """
 
-from http import HTTPStatus
-from typing import List, Optional
+from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
 from sqlalchemy.exc import NoResultFound
@@ -21,7 +20,6 @@ router = APIRouter()
 
 
 from dj.api.metrics import TranslatedSQL
-
 
 
 @router.get("/sql/data/", response_model=QueryWithResults)

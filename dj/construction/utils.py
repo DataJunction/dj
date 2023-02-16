@@ -30,7 +30,7 @@ def get_dj_node(
     session: Session,
     node_name: str,
     kinds: Optional[Set[NodeType]] = None,
-    raise_:bool = True
+    raise_: bool = True,
 ) -> Optional[NodeRevision]:
     """Return the DJ Node with a given name from a set of node types"""
     query = select(Node).filter(Node.name == node_name)

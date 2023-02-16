@@ -23,6 +23,7 @@ from dj.api import (
     metrics,
     nodes,
     queries,
+    sql,
 )
 from dj.api.graphql.main import graphql_app
 from dj.errors import DJException
@@ -53,6 +54,7 @@ app.include_router(databases.router)
 app.include_router(engines.router)
 app.include_router(queries.router)
 app.include_router(metrics.router)
+app.include_router(sql.router)
 app.include_router(nodes.router)
 app.include_router(data.router)
 app.include_router(health.router)

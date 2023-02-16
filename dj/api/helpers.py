@@ -127,6 +127,7 @@ async def get_query(
     )
     return query_ast, optimal_database
 
+
 async def get_dj_query(
     session: Session,
     query: str,
@@ -142,10 +143,11 @@ async def get_dj_query(
     )
     query_ast, optimal_database = await build_dj_metric_query(
         session=session,
-        query = query,
+        query=query,
         database_id=database_id,
     )
     return query_ast, optimal_database
+
 
 def get_engine(session: Session, name: str, version: str) -> Engine:
     """
