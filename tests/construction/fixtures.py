@@ -399,6 +399,14 @@ def construction_session(  # pylint: disable=too-many-locals
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(name="full_name", type=ColumnType.STR),
+            Column(name="names_map", type=ColumnType.MAP["str", "str"]),
+            Column(
+                name="user_metadata",
+                type=ColumnType.MAP[
+                    "str",
+                    ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
+                ],
+            ),
             Column(name="age", type=ColumnType.INT),
             Column(name="country", type=ColumnType.STR),
             Column(name="gender", type=ColumnType.STR),
@@ -413,6 +421,14 @@ def construction_session(  # pylint: disable=too-many-locals
                 columns=[
                     Column(name="id", type=ColumnType.INT),
                     Column(name="full_name", type=ColumnType.STR),
+                    Column(name="names_map", type=ColumnType.MAP["str", "str"]),
+                    Column(
+                        name="user_metadata",
+                        type=ColumnType.MAP[
+                            "str",
+                            ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
+                        ],
+                    ),
                     Column(name="age", type=ColumnType.INT),
                     Column(name="country", type=ColumnType.STR),
                     Column(name="gender", type=ColumnType.STR),
@@ -429,6 +445,14 @@ def construction_session(  # pylint: disable=too-many-locals
                 columns=[
                     Column(name="id", type=ColumnType.INT),
                     Column(name="full_name", type=ColumnType.STR),
+                    Column(name="names_map", type=ColumnType.MAP["str", "str"]),
+                    Column(
+                        name="user_metadata",
+                        type=ColumnType.MAP[
+                            "str",
+                            ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
+                        ],
+                    ),
                     Column(name="age", type=ColumnType.INT),
                     Column(name="country", type=ColumnType.STR),
                     Column(name="gender", type=ColumnType.STR),
