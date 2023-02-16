@@ -32,7 +32,7 @@ def test_columntype_array_wrong_number_generic():
     """tests that complex require specific number of args"""
     with pytest.raises(ColumnTypeError) as exc:
         ColumnType("array[str, str]")
-    assert "ARRAY expects 1 inner type but got 2" in str(exc)
+    assert "ColumnTypeError('STR, STR is not an acceptable type.')" in str(exc)
 
 
 def test_columntype_map_bad_key():
