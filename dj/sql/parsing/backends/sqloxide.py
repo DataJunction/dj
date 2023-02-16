@@ -149,6 +149,13 @@ def parse_expression(  # pylint: disable=R0911,R0912
             return parse_query(  # pylint: disable=W0212
                 parse_tree["Subquery"],
             )._to_select()
+
+        if match_keys(parse_tree, {"MapAccess"}):
+            subtree = parse_tree["MapAccess"]
+            return ast.MapSubscript(
+                parse_column(subtree["column"]),
+                [key["Value"]["SingleQuotedString"] for key in subtree["keys"]],
+            )
     raise DJParseException("Failed to parse Expression")  # pragma: no cover
 
 

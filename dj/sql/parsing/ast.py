@@ -627,7 +627,7 @@ class BinaryOp(Operation):
     right: Expression
 
     def __str__(self) -> str:
-        return f"{(self.left)} {self.op.value} {(self.right)}"
+        return f"{self.left} {self.op.value} {self.right}"
 
 
 @dataclass(eq=False)
@@ -1028,6 +1028,20 @@ class Column(Named):
             prefix += "" if self.namespace is None else str(self.namespace)
         prefix += "." if prefix else ""
         return prefix + str(self.name)
+
+
+@dataclass(eq=False)
+class MapSubscript(Expression):
+    """
+    Map accessors
+    """
+
+    map_column: "Column"
+    keys: List[Name]
+
+    def __str__(self) -> str:
+        key_chains = "".join([f'["{key}"]' for key in self.keys])
+        return f"{self.map_column}{key_chains}"
 
 
 @dataclass(eq=False)

@@ -14,6 +14,7 @@ from dj.sql.parsing.ast import (
     Column,
     From,
     IsNull,
+    MapSubscript,
     Name,
     Namespace,
     Null,
@@ -453,6 +454,24 @@ def test_replace():
     select_statement.replace(Name("a"), Name("A"))
     select_statement.replace("b", "B")
     assert compare_query_strings("select * from A, B", str(select_statement))
+
+
+def test_map_subscripts():
+    """
+    Test that map subscripts work in a query
+    """
+    query = Select(
+        from_=From(
+            tables=[Table(Name(name="a"))],
+        ),
+        projection=[
+            MapSubscript(
+                Column(name=Name(name="some_map", quote_style=""), namespace=None),
+                keys=["x"],
+            ),
+        ],
+    )
+    assert compare_query_strings('SELECT some_map["x"] FROM a', str(query))
 
 
 def test_query_to_select(cte_query):
