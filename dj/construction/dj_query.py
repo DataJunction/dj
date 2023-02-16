@@ -2,7 +2,7 @@
 Functions for making queries directly against DJ
 """
 
-from typing import Optional, Tuple
+from typing import Optional, Tuple, cast
 
 from sqlmodel import Session
 
@@ -15,7 +15,7 @@ from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.sql.parsing.backends.sqloxide import parse
 
 
-async def build_dj_metric_query(
+async def build_dj_metric_query(  # pylint: disable=R0914
     session: Session,
     query: str,
     dialect: Optional[str] = None,
@@ -25,7 +25,7 @@ async def build_dj_metric_query(
     Build a dj query in SQL that may include dj metrics
     """
     query_ast = parse(query, dialect)
-    select = query_ast._to_select()
+    select = query_ast._to_select()  # pylint: disable=R0914
 
     for col in select.find_all(ast.Column):
         froms = []
@@ -36,26 +36,32 @@ async def build_dj_metric_query(
             {NodeType.METRIC},
             raise_=False,
         ):
-            parent_select = col.get_nearest_parent_of_type(ast.Select)
+            parent_select = cast(ast.Select, col.get_nearest_parent_of_type(ast.Select))
             if not getattr(parent_select, "_validated", False):
                 if len(parent_select.from_.tables) != 1 or parent_select.from_.joins:
                     raise DJParseException(
-                        "Any SELECT referencing a Metric must source from a single unaliased Table named 'metrics.'.",
+                        "Any SELECT referencing a Metric must source "
+                        "from a single unaliased Table named 'metrics.'.",
                     )
                 metrics_ref = parent_select.from_.tables[0]
-                metrics_ref_name = make_name(
-                    metrics_ref.namespace,
-                    metrics_ref.name.name,
-                )
+                try:
+                    metrics_ref_name = make_name(
+                        metrics_ref.namespace,  # type: ignore
+                        metrics_ref.name.name,  # type: ignore
+                    )
+                except AttributeError:
+                    metrics_ref_name = ""
                 if metrics_ref_name != "metrics":
                     raise DJParseException(
                         "The name of the table for a Metric select must be 'metrics'.",
                     )
                 parent_select.from_ = ast.From([])
-                parent_select._validated = True
+                parent_select._validated = True  # pylint: disable=R0914
 
             metric_name = amenable_name(metric_node.name)
-            metric_select = parse(metric_node.query)._to_select()
+            metric_select = parse(
+                cast(str, metric_node.query),
+            )._to_select()  # pylint: disable=R0914
             tables = metric_select.from_.tables + [
                 join.table for join in metric_select.from_.joins
             ]
@@ -83,7 +89,7 @@ async def build_dj_metric_query(
                 None,
                 metric_select,
             )
-            froms.append(metric_table_expression)
+            froms.append(metric_table_expression)#type: ignore
             metric_column = ast.Column(
                 ast.Name(metric_node.columns[0].name),
                 _table=metric_table_expression,

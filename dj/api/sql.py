@@ -4,22 +4,17 @@ Metric related APIs.
 
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
-from sqlalchemy.exc import NoResultFound
-from sqlmodel import Session, SQLModel, select
+from fastapi import APIRouter, BackgroundTasks, Depends, Response
+from sqlmodel import Session
 
 from dj.api.helpers import get_dj_query
+from dj.api.metrics import TranslatedSQL
 from dj.api.queries import save_query_and_run
 from dj.config import Settings
-from dj.models.node import Node, NodeType
 from dj.models.query import QueryCreate, QueryWithResults
-from dj.sql.dag import get_dimensions
-from dj.utils import UTCDatetime, get_session, get_settings
+from dj.utils import get_session, get_settings
 
 router = APIRouter()
-
-
-from dj.api.metrics import TranslatedSQL
 
 
 @router.get("/sql/data/", response_model=QueryWithResults)
