@@ -30,6 +30,8 @@ http://localhost:8000/metrics/: List all available metrics.
 http://localhost:8000/metrics/{name}/: Return a metric by name.
 http://localhost:8000/metrics/{name}/data/: Return data for a metric.
 http://localhost:8000/metrics/{name}/sql/: Return SQL for a metric.
+http://localhost:8000/sql/data/: Return data for a DJ Query.
+http://localhost:8000/sql/: Return SQL for a DJ Query.
 http://localhost:8000/nodes/validate/: Validate a node.
 http://localhost:8000/nodes/: List the available nodes.
 http://localhost:8000/nodes/{name}/: Show the active version of the specified node.

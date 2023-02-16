@@ -15,7 +15,7 @@ from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.sql.parsing.backends.sqloxide import parse
 
 
-async def build_dj_metric_query(  # pylint: disable=R0914
+async def build_dj_metric_query(  # pylint: disable=R0914,R0912
     session: Session,
     query: str,
     dialect: Optional[str] = None,
@@ -25,7 +25,7 @@ async def build_dj_metric_query(  # pylint: disable=R0914
     Build a dj query in SQL that may include dj metrics
     """
     query_ast = parse(query, dialect)
-    select = query_ast._to_select()  # pylint: disable=R0914
+    select = query_ast._to_select()  # pylint: disable=W0212
 
     for col in select.find_all(ast.Column):
         froms = []
@@ -56,12 +56,12 @@ async def build_dj_metric_query(  # pylint: disable=R0914
                         "The name of the table for a Metric select must be 'metrics'.",
                     )
                 parent_select.from_ = ast.From([])
-                parent_select._validated = True  # pylint: disable=R0914
+                parent_select._validated = True  # pylint: disable=W0212
 
             metric_name = amenable_name(metric_node.name)
-            metric_select = parse(
+            metric_select = parse(  # pylint: disable=W0212
                 cast(str, metric_node.query),
-            )._to_select()  # pylint: disable=R0914
+            )._to_select()
             tables = metric_select.from_.tables + [
                 join.table for join in metric_select.from_.joins
             ]
@@ -89,7 +89,7 @@ async def build_dj_metric_query(  # pylint: disable=R0914
                 None,
                 metric_select,
             )
-            froms.append(metric_table_expression)#type: ignore
+            froms.append(metric_table_expression)  # type: ignore
             metric_column = ast.Column(
                 ast.Name(metric_node.columns[0].name),
                 _table=metric_table_expression,
