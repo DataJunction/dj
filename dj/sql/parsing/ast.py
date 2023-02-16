@@ -1037,7 +1037,7 @@ class MapSubscript(Expression):
     """
 
     map_column: "Column"
-    keys: List[str]
+    keys: List[Name]
 
     def __str__(self) -> str:
         key_chains = "".join([f'["{key}"]' for key in self.keys])
