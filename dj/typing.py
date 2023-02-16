@@ -79,10 +79,6 @@ def process_array_args(*args: str) -> Tuple["ColumnType"]:
     """
     Validate the args of an ARRAY
     """
-    if len(args) != 1:
-        raise ColumnTypeError(
-            f"ARRAY expects 1 inner type but got {len(args)}.",
-        )
     return (ColumnType(args[0]),)
 
 
@@ -90,11 +86,11 @@ def process_map_args(*args: str) -> Tuple["ColumnType", "ColumnType"]:
     """
     Validate the args of an MAP
     """
-    if len(args) != 2:
+    if len(args) < 2:
         raise ColumnTypeError(
             f"MAP expects 2 inner types but got {len(args)}.",
         )
-    arg1, arg2 = ColumnType(args[0], "key"), ColumnType(args[1], "value")
+    arg1, arg2 = ColumnType(args[0], "key"), ColumnType(",".join(args[1:]), "value")
     if arg1 not in PRIMITIVE_TYPES - {"WILDCARD", "NULL"}:
         raise ColumnTypeError(f"MAP key is not an acceptable type {arg1}.")
     return arg1, arg2
@@ -237,7 +233,7 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
             inner = test.group("inner")
             if outer not in COMPLEX_TYPES:
                 raise ColumnTypeError(f"{outer} is not a KNOWN complex type.")
-            inners = inner.split(",")
+            inners = inner.split(",") if outer == ColumnType.MAP else inner
             return ColumnType(outer)[inners]
         type_ = ALIASES.get(type_, type_)
         if type_ not in PRIMITIVE_TYPES:

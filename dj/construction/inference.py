@@ -109,6 +109,14 @@ def _(expression: ast.Raw):
 
 
 @get_type_of_expression.register
+def _(expression: ast.MapSubscript):
+    type_ = expression.map_column.type
+    for _ in expression.keys:
+        type_ = type_.args[1]  # type: ignore
+    return type_  # type: ignore
+
+
+@get_type_of_expression.register
 def _(expression: ast.Cast):
     return expression.type_
 

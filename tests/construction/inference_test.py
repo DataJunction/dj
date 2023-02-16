@@ -174,6 +174,32 @@ def test_raising_when_expression_has_no_parent():
     assert "Cannot resolve type of column status." in str(exc_info.value)
 
 
+def test_infer_map_subscripts(construction_session: Session):
+    """
+    Test inferring map subscript types
+    """
+    query = parse(
+        """
+        SELECT
+          names_map["first"] as first_name,
+          names_map["last"] as last_name,
+          user_metadata["propensity_score"] as propensity_score,
+          user_metadata["propensity_score"]["weighted"] as weighted_propensity_score,
+          user_metadata["propensity_score"]["weighted"]["year"] as weighted_propensity_score_year
+        FROM basic.source.users
+    """,
+    )
+    query.compile(construction_session)
+    types = [
+        ColumnType.STR,
+        ColumnType.STR,
+        ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
+        ColumnType.MAP["str", "float"],
+        ColumnType.FLOAT,
+    ]
+    assert types == [exp.type for exp in query.select.projection]
+
+
 def test_infer_types_complicated(construction_session: Session):
     """
     Test inferring complicated types
