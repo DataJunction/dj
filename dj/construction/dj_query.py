@@ -27,6 +27,7 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
     query_ast = parse(query, dialect)
     select = query_ast._to_select()  # pylint: disable=W0212
 
+    # we check all columns looking for metric nodes
     for col in select.find_all(ast.Column):
         froms = []
         col_name = make_name(col.namespace, col.name.name)
@@ -36,12 +37,13 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
             {NodeType.METRIC},
             raise_=False,
         ):
+            # if we found a metric node we need to check where it came from
             parent_select = cast(ast.Select, col.get_nearest_parent_of_type(ast.Select))
             if not getattr(parent_select, "_validated", False):
                 if len(parent_select.from_.tables) != 1 or parent_select.from_.joins:
                     raise DJParseException(
                         "Any SELECT referencing a Metric must source "
-                        "from a single unaliased Table named 'metrics.'.",
+                        "from a single unaliased Table named `metrics`.",
                     )
                 metrics_ref = parent_select.from_.tables[0]
                 try:
@@ -53,11 +55,12 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
                     metrics_ref_name = ""
                 if metrics_ref_name != "metrics":
                     raise DJParseException(
-                        "The name of the table for a Metric select must be 'metrics'.",
+                        "The name of the table in a Metric query must be `metrics`.",
                     )
                 parent_select.from_ = ast.From([])
                 parent_select._validated = True  # pylint: disable=W0212
 
+            # we have a metric from `metrics`
             metric_name = amenable_name(metric_node.name)
             metric_select = parse(  # pylint: disable=W0212
                 cast(str, metric_node.query),
@@ -65,6 +68,10 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
             tables = metric_select.from_.tables + [
                 join.table for join in metric_select.from_.joins
             ]
+            # we go through all the dep nodes directly in the metric's from
+            # we need to surface the node itself to join potential dims
+            # and to surface the node we need to source all its columns
+            # - in the metric for an implicit join
             for table in tables:
                 if isinstance(table, ast.Select):
                     continue
@@ -97,6 +104,8 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
             parent_select.replace(col, metric_column)
             parent_select.from_.tables += froms
 
+    # make the ast aware of all dimensions that are mentioned
+    # that have come from the api
     for col in select.find_all(ast.Column):
         col_name = make_name(col.namespace)
         if get_dj_node(session, col_name, {NodeType.DIMENSION}, raise_=False):

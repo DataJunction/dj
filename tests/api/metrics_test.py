@@ -147,50 +147,6 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
     assert response.json() == {"detail": "Not a metric node: `a-metric`"}
 
 
-def test_read_metrics_data(
-    mocker: MockerFixture,
-    session: Session,
-    client: TestClient,
-) -> None:
-    """
-    Test ``GET /metrics/{node_id}/data/``.
-    """
-    database = Database(name="test", URI="sqlite://")
-    node = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
-    node_revision = NodeRevision(
-        name=node.name,
-        node=node,
-        version="1",
-        query="SELECT COUNT(*) FROM my_table",
-    )
-    session.add(database)
-    session.add(node_revision)
-    session.execute("CREATE TABLE my_table (one TEXT)")
-    session.commit()
-    session.refresh(database)
-
-    mocker.patch(
-        "dj.api.metrics.get_query",
-        return_value=(parse("SELECT COUNT(*) FROM my_table"), database),
-    )
-    uuid = UUID("74099c09-91f3-4df7-be9d-96a8075ff5a8")
-    save_query_and_run = mocker.patch(
-        "dj.api.metrics.save_query_and_run",
-        return_value=QueryWithResults(
-            database_id=1,
-            id=uuid,
-            submitted_query="SELECT COUNT(*) FROM my_table",
-            results=[],
-            errors=[],
-        ),
-    )
-
-    with freeze_time("2021-01-01T00:00:00Z"):
-        client.get("/metrics/a-metric/data/")
-
-    save_query_and_run.assert_called()
-
-
 def test_read_metrics_sql(
     mocker: MockerFixture,
     session: Session,

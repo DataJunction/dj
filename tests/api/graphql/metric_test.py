@@ -148,67 +148,6 @@ def test_read_metric_errors(session: Session, client: TestClient) -> None:
     assert response_json["errors"][0]["message"] == "Not a metric node: `a-metric`"
 
 
-def test_read_metrics_data(
-    mocker: MockerFixture,
-    session: Session,
-    client: TestClient,
-):
-    """
-    Test ``read_metrics_data``.
-    """
-    database = Database(name="test", URI="sqlite://")
-    node = Node(name="a-metric", current_version="1", type=NodeType.METRIC)
-    node_revision = NodeRevision(
-        name=node.name,
-        node=node,
-        version="1",
-        query="SELECT COUNT(*) FROM my_table",
-    )
-    session.add(database)
-    session.add(node_revision)
-    session.execute("CREATE TABLE my_table (one TEXT)")
-    session.commit()
-
-    create_query = QueryCreate(
-        database_id=database.id,
-        submitted_query="SELECT  COUNT(*) \n FROM my_table",
-    )
-    mocker.patch(
-        "dj.api.graphql.metric.get_query_for_node",
-        return_value=create_query,
-    )
-    uuid = UUID("74099c09-91f3-4df7-be9d-96a8075ff5a8")
-    save_query_and_run = mocker.patch(
-        "dj.api.graphql.metric.save_query_and_run",
-        return_value=QueryWithResults(
-            database_id=1,
-            id=uuid,
-            submitted_query="SELECT COUNT(*) FROM my_table",
-            results=[],
-            errors=[],
-        ),
-    )
-
-    query = """
-    {
-        readMetricsData(nodeName: "a-metric"){
-            id
-            submittedQuery
-        }
-    }
-    """
-
-    mocker.patch(
-        "dj.api.helpers.build_node_for_database",
-        return_value=(parse("SELECT COUNT(*) FROM my_table"), database),
-    )
-
-    with freeze_time("2021-01-01T00:00:00Z"):
-        client.post("/graphql", json={"query": query})
-
-    save_query_and_run.assert_called()
-    assert save_query_and_run.mock_calls[0].args[0] == create_query
-
 
 def test_read_metrics_sql(
     mocker: MockerFixture,

@@ -9,7 +9,6 @@ from typing import Any, List, NewType, Union
 import strawberry
 from strawberry.types import Info
 
-from dj.api.queries import save_query_and_run
 from dj.models.query import BaseQuery as BaseQuery_
 from dj.models.query import ColumnMetadata as ColumnMetadata_
 from dj.models.query import Query as Query_
@@ -51,67 +50,4 @@ class ColumnMetadata:
     """
 
 
-def row_serializer(row: List[Any]) -> List[Union[int, float, str]]:
-    """
-    Serialize values in a row into numbers or strings.
-    """
 
-    def transform(value: Any) -> Union[int, float, str]:
-        """
-        Convert values to numbers or strings.
-        """
-        return value if isinstance(value, (int, float)) else repr(value)
-
-    return [transform(value) for value in row]
-
-
-Row = strawberry.scalar(  # pragma: no cover
-    NewType("Row", List[List[Union[int, float, str]]]),
-    serialize=row_serializer,
-    parse_value=lambda v: v,
-)
-
-
-@strawberry.experimental.pydantic.type(
-    model=StatementResults_,
-    fields=["sql", "columns", "row_count"],
-)
-class StatementResults:
-    """
-    Results for a given statement.
-
-    This contains the SQL, column names and types, and rows
-    """
-
-    rows: List[Row]  # type: ignore
-
-
-@strawberry.experimental.pydantic.type(model=QueryResults_, all_fields=True)
-class QueryResults:
-    """
-    Results for a given query.
-    """
-
-
-@strawberry.experimental.pydantic.type(model=QueryWithResults_, all_fields=True)
-class QueryWithResults:
-    """
-    Model for query with results.
-    """
-
-
-QueryExtType = strawberry.enum(QueryExtType_)
-
-
-async def submit_query(create_query: QueryCreate, info: Info) -> QueryWithResults:
-    """
-    Submit a query.
-    """
-    query_with_results = save_query_and_run(
-        create_query.to_pydantic(),  # type: ignore
-        info.context["session"],
-        info.context["settings"],
-        info.context["response"],
-        info.context["background_tasks"],
-    )
-    return QueryWithResults.from_pydantic(query_with_results)  # type: ignore
