@@ -1221,7 +1221,7 @@ class Select(Expression):  # pylint: disable=R0902
         """
         for i, expression in enumerate(self.projection):
             if not isinstance(expression, (Column, Alias)):
-                name = f"_col{i}"
+                name = f"col{i}"
                 aliased = Alias(Name(name), child=expression)
                 # only replace those that are identical in memory
                 self.replace(expression, aliased, lambda a, b: id(a) == id(b))
