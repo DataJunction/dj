@@ -6,6 +6,7 @@ Custom types for annotations.
 
 from __future__ import annotations
 
+import collections
 import re
 from enum import Enum
 from types import ModuleType
@@ -79,6 +80,15 @@ def process_array_args(*args: str) -> Tuple["ColumnType"]:
     """
     Validate the args of an ARRAY
     """
+    if len(args) != 1:
+        raise ColumnTypeError(
+            f"{', '.join(args)} is not an acceptable type for ARRAY"
+            if args
+            else "ARRAY needs subtype defined.",
+        )
+    array_type = args[0]
+    if isinstance(array_type, list) and array_type[0] in COMPLEX_TYPES:
+        return (ColumnType(array_type[0])[array_type[1]],)
     return (ColumnType(args[0]),)
 
 
@@ -90,21 +100,35 @@ def process_map_args(*args: str) -> Tuple["ColumnType", "ColumnType"]:
         raise ColumnTypeError(
             f"MAP expects 2 inner types but got {len(args)}.",
         )
-    arg1, arg2 = ColumnType(args[0], "key"), ColumnType(",".join(args[1:]), "value")
-    if arg1 not in PRIMITIVE_TYPES - {"WILDCARD", "NULL"}:
-        raise ColumnTypeError(f"MAP key is not an acceptable type {arg1}.")
-    return arg1, arg2
+    key_args, value_args = args[0], args[1]
+
+    map_key_type = (
+        ColumnType(key_args[0], "key")[key_args[1]]
+        if isinstance(key_args, list)
+        else ColumnType(key_args, "key")
+    )
+    if map_key_type not in PRIMITIVE_TYPES - {"WILDCARD", "NULL"}:
+        raise ColumnTypeError(f"`{map_key_type}` is not an acceptable MAP key type.")
+
+    map_value_type = (
+        ColumnType(value_args[0], "value")[value_args[1]]
+        if isinstance(value_args, list)
+        else ColumnType(value_args, "value")
+    )
+    return map_key_type, map_value_type
 
 
 def process_row_args(*args: str) -> Tuple["ColumnType", ...]:
     """
     Validate the args of a ROW
     """
-
     ret = []
     for arg in args:
-        type_, name, *_ = (*arg.split(), None)
-        ret.append(ColumnType(type_, name and name.strip("\"' ")))
+        if not isinstance(arg, list):
+            type_, name, *_ = (*arg.split(), None)
+            ret.append(ColumnType(type_, name and name.strip("\"' ")))
+        else:
+            ret.append(ColumnType(arg[0])[arg[1]])
     return tuple(ret)
 
 
@@ -227,18 +251,47 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
 
     @classmethod
     def _validate_type(cls, type_: str):
-        test = TYPE_PATTERN.match(type_)
-        if test is not None:
-            outer = test.group("outer")
-            inner = test.group("inner")
-            if outer not in COMPLEX_TYPES:
-                raise ColumnTypeError(f"{outer} is not a KNOWN complex type.")
-            inners = inner.split(",") if outer == ColumnType.MAP else inner
-            return ColumnType(outer)[inners]
+        nested = parse_nested_type(type_)[0]
+        if isinstance(nested, list) and len(nested) > 1:
+            if nested[0] not in COMPLEX_TYPES:
+                raise ColumnTypeError(f"{nested[0]} is not a known complex type.")
+            return ColumnType(nested[0])[nested[1]]
         type_ = ALIASES.get(type_, type_)
         if type_ not in PRIMITIVE_TYPES:
             raise ColumnTypeError(f"{type_} is not an acceptable type.")
         return ColumnType(type_)
+
+
+def parse_nested_type(expr: str) -> List:
+    """
+    Parses a nested type expression.
+    """
+    tokenizer = re.compile(r"\s*([\[\]\,])\s*").split
+    tokens = list(filter(None, tokenizer(expr)))
+
+    stack = collections.deque()  # type: ignore
+    top = items = []  # type: ignore
+
+    for i, token in enumerate(tokens):
+        next_token = tokens[i + 1] if i + 1 < len(tokens) else None
+        if token == "[":
+            stack.append(items)
+            items.append([])
+            items = items[-1]
+        elif token == "]":
+            if not stack:
+                raise ColumnTypeError(f"Unbalanced parentheses: {expr}")
+            stack.pop()
+            items = stack.pop()
+        elif token.upper() in COMPLEX_TYPES or next_token == "[":
+            stack.append(items)
+            items.append([token])
+            items = items[-1]
+        elif token != ",":
+            items.append(token)
+    if stack:
+        raise ColumnTypeError("Missing type definition for complex type!")
+    return top
 
 
 # pylint: disable=W0223
