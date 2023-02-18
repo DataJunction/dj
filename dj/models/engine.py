@@ -27,3 +27,4 @@ class EngineInfo(SQLModel):
 
     name: str
     version: str
+    uri: Optional[str]

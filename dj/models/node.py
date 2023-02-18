@@ -25,7 +25,10 @@ from dj.models.engine import EngineInfo
 from dj.models.table import Table, TableNodeRevision, TableYAML
 from dj.sql.parse import is_metric
 from dj.typing import ColumnType
-from dj.utils import UTCDatetime
+from dj.utils import UTCDatetime, Version
+
+DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
+DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
 
 
 class NodeRelationship(BaseSQLModel, table=True):  # type: ignore
@@ -286,7 +289,7 @@ class Node(NodeBase, table=True):  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
 
-    current_version: str = Field(default="1")
+    current_version: str = Field(default=str(DEFAULT_DRAFT_VERSION))
     created_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
@@ -340,7 +343,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     __table_args__ = (UniqueConstraint("version", "node_id"),)
 
     id: Optional[int] = Field(default=None, primary_key=True)
-    version: Optional[str] = Field(default="1")
+    version: Optional[str] = Field(default=str(DEFAULT_DRAFT_VERSION))
     node_id: Optional[int] = Field(foreign_key="node.id")
     node: Node = Relationship(back_populates="revisions")
     cube_elements: List["Node"] = Relationship(  # Only used by cube nodes
@@ -451,7 +454,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         if self.type in (NodeType.SOURCE, NodeType.CUBE):
             if self.query:
                 raise Exception(
-                    f"Node {self.name} of type source should not have a query",
+                    f"Node {self.name} of type {self.type} should not have a query",
                 )
 
         if self.type in {NodeType.TRANSFORM, NodeType.METRIC, NodeType.DIMENSION}:

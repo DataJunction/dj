@@ -648,7 +648,7 @@ class BinaryOp(Operation):
     right: Expression
 
     def __str__(self) -> str:
-        return f"{(self.left)} {self.op.value} {(self.right)}"
+        return f"{self.left} {self.op.value} {self.right}"
 
 
 @dataclass(eq=False)
@@ -1097,6 +1097,20 @@ class Column(Named):
 
 
 @dataclass(eq=False)
+class MapSubscript(Expression):
+    """
+    Map accessors
+    """
+
+    map_column: "Column"
+    keys: List[Name]
+
+    def __str__(self) -> str:
+        key_chains = "".join([f'["{key}"]' for key in self.keys])
+        return f"{self.map_column}{key_chains}"
+
+
+@dataclass(eq=False)
 class Wildcard(Expression):
     """
     Wildcard or '*' expression
@@ -1275,8 +1289,8 @@ class Select(Expression):  # pylint: disable=R0902
         Add an alias to any unnamed columns in the projection (`_col<n>`)
         """
         for i, expression in enumerate(self.projection):
-            if not isinstance(expression, Named):
-                name = f"_col{i}"
+            if not isinstance(expression, (Column, Alias)):
+                name = f"col{i}"
                 aliased = Alias(Name(name), child=expression)
                 # only replace those that are identical in memory
                 self.replace(expression, aliased, lambda a, b: id(a) == id(b))

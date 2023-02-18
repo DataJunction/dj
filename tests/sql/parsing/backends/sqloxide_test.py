@@ -3,15 +3,9 @@ tests for the backend that takes sqloxide output and transforms it into an DJ as
 """
 import pytest
 
-from dj.sql.parsing.ast import (
-    Between,
-    Boolean,
-    Column,
-    Name,
-    Number,
-    UnaryOp,
-    UnaryOpKind,
-)
+from dj.sql.parsing.ast import Between, Boolean, Column
+from dj.sql.parsing.ast import MapSubscript as ASTMapSubscript
+from dj.sql.parsing.ast import Name, Number, UnaryOp, UnaryOpKind
 from dj.sql.parsing.ast import Wildcard as ASTWildcard
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.sql.parsing.backends.sqloxide import (
@@ -168,3 +162,19 @@ def test_wildcard_parsetree():
     tests parsing the very particular case of a wilcard as a key
     """
     parse_expression({"Wildcard": {}}).compare(ASTWildcard())
+
+
+def test_map_subscript():
+    """
+    tests parsing the very particular case of a wilcard as a key
+    """
+    parse_expression(
+        {
+            "MapAccess": {
+                "column": {"Identifier": {"value": "names_map", "quote_style": None}},
+                "keys": [{"Value": {"SingleQuotedString": "first"}}],
+            },
+        },
+    ).compare(
+        ASTMapSubscript(Column(Name(name="names_map", quote_style="")), keys=["first"]),
+    )

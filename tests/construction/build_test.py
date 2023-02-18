@@ -261,7 +261,7 @@ async def test_build_metric_with_database_id_specified(mocker, request):
 @pytest.mark.asyncio
 async def test_build_node_for_database_with_unnamed_column(mocker, request):
     """
-    Test building a node that has an unnamed column (so defaults to _col<n>)
+    Test building a node that has an unnamed column (so defaults to col<n>)
     """
     mocker.patch("dj.models.database.Database.do_ping", return_value=True)
 
@@ -272,7 +272,7 @@ async def test_build_node_for_database_with_unnamed_column(mocker, request):
         version="1",
         query="""SELECT 1 FROM basic.dimension.countries""",
         columns=[
-            Column(name="_col1", type=ColumnType.INT),
+            Column(name="col1", type=ColumnType.INT),
         ],
     )
     await build_node_for_database(

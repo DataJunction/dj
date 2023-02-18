@@ -24,11 +24,14 @@ from dj.errors import DJException
 from dj.models import Table
 from dj.models.column import Column, ColumnType
 from dj.models.node import (
+    DEFAULT_DRAFT_VERSION,
+    DEFAULT_PUBLISHED_VERSION,
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
     MaterializationConfig,
     Node,
+    NodeMode,
     NodeOutput,
     NodeRevision,
     NodeRevisionBase,
@@ -41,7 +44,7 @@ from dj.models.node import (
 )
 from dj.models.table import CreateTable
 from dj.sql.parsing.backends.sqloxide import parse
-from dj.utils import get_session
+from dj.utils import Version, VersionUpgrade, get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -146,9 +149,12 @@ def upsert_node_materialization_config(
     # Materialization config changed, so create a new materialization config and a new node
     # revision that references it.
     engine = get_engine(session, data.engine_name, data.engine_version)
-    new_node_revision = create_new_revision_from_existing(current_revision)
-    new_node_revision.node = node
-    new_node_revision.version = str(int(current_revision.version) + 1)  # type: ignore
+    new_node_revision = create_new_revision_from_existing(
+        session,
+        current_revision,
+        node,
+        version_upgrade=VersionUpgrade.MAJOR,
+    )
 
     unchanged_existing_configs = [
         config
@@ -160,10 +166,10 @@ def upsert_node_materialization_config(
         engine=engine,
         config=data.config,
     )
-    new_node_revision.materialization_configs = unchanged_existing_configs + [
+    new_node_revision.materialization_configs = unchanged_existing_configs + [  # type: ignore
         new_config,
     ]
-    node.current_version = new_node_revision.version
+    node.current_version = new_node_revision.version  # type: ignore
 
     # This will add the materialization config, the new node rev, and update the node's version.
     session.add(new_node_revision)
@@ -214,7 +220,7 @@ def create_node_revision(
     node_revision.parents = parent_refs
 
     _logger.info(
-        "Parent nodes for %s (v%s): %s",
+        "Parent nodes for %s (%s): %s",
         data.name,
         node_revision.version,
         [p.name for p in node_revision.parents],
@@ -310,7 +316,11 @@ def create_node(
 
     # Point the node to the new node revision.
     node_revision.node = node
-    node_revision.version = str(int(node.current_version) + 1)
+    node_revision.version = (
+        str(DEFAULT_DRAFT_VERSION)
+        if data.mode == NodeMode.DRAFT
+        else str(DEFAULT_PUBLISHED_VERSION)
+    )
     node.current_version = node_revision.version
 
     node_revision.extra_validation()
@@ -417,14 +427,51 @@ def add_table_to_node(
 
 
 def create_new_revision_from_existing(
+    session: Session,
     old_revision: NodeRevision,
+    node: Node,
     data: UpdateNode = None,
-) -> NodeRevision:
+    version_upgrade: VersionUpgrade = None,
+) -> Optional[NodeRevision]:
     """
     Creates a new revision from an existing node revision.
     """
+    minor_changes = (
+        (data and data.description and old_revision.description != data.description)
+        or (data and data.mode and old_revision.mode != data.mode)
+        or (
+            data
+            and data.display_name
+            and old_revision.display_name != data.display_name
+        )
+    )
+    query_changes = (
+        old_revision.type != NodeType.SOURCE
+        and data
+        and data.query
+        and old_revision.query != data.query
+    )
+    column_changes = (
+        old_revision.type == NodeType.SOURCE
+        and data is not None
+        and data.columns is not None
+        and ({col.identifier() for col in old_revision.columns} != data.columns)
+    )
+    major_changes = query_changes or column_changes
+
+    # If nothing has changed, do not create the new node revision
+    if not minor_changes and not major_changes and not version_upgrade:
+        return None
+
+    old_version = Version.parse(node.current_version)
     new_revision = NodeRevision(
         name=old_revision.name,
+        node_id=node.id,
+        version=str(
+            old_version.next_major_version()
+            if major_changes or version_upgrade == VersionUpgrade.MAJOR
+            else old_version.next_minor_version(),
+        ),
         display_name=(
             data.display_name
             if data and data.display_name
@@ -450,6 +497,31 @@ def create_new_revision_from_existing(
         mode=data.mode if data and data.mode else old_revision.mode,
         materialization_configs=old_revision.materialization_configs,
     )
+
+    # Link the new revision to its parents if the query has changed
+    if (
+        new_revision.type != NodeType.SOURCE
+        and new_revision.query != old_revision.query
+    ):
+        _, validated_node, dependencies_map = validate_node_data(new_revision, session)
+        new_parents = [n.name for n in dependencies_map]
+        parent_refs = session.exec(
+            select(Node).where(
+                # pylint: disable=no-member
+                Node.name.in_(  # type: ignore
+                    new_parents,
+                ),
+            ),
+        ).all()
+        new_revision.parents = list(parent_refs)
+
+        _logger.info(
+            "Parent nodes for %s (v%s): %s",
+            new_revision.name,
+            new_revision.version,
+            [p.name for p in new_revision.parents],
+        )
+        new_revision.columns = validated_node.columns or []
     return new_revision
 
 
@@ -478,56 +550,16 @@ def update_node(
         )
 
     old_revision = node.current
-    new_revision = create_new_revision_from_existing(old_revision, data)
+    new_revision = create_new_revision_from_existing(session, old_revision, node, data)
 
-    # Build the new version and link its parents
-    if new_revision.type != NodeType.SOURCE:
-        _, validated_node, dependencies_map = validate_node_data(new_revision, session)
-        new_parents = [n.name for n in dependencies_map]
-        parent_refs = session.exec(
-            select(Node).where(
-                # pylint: disable=no-member
-                Node.name.in_(  # type: ignore
-                    new_parents,
-                ),
-            ),
-        ).all()
-        new_revision.parents = list(parent_refs)
-
-        _logger.info(
-            "Parent nodes for %s (v%s): %s",
-            new_revision.name,
-            new_revision.version,
-            [p.name for p in new_revision.parents],
-        )
-        new_revision.columns = validated_node.columns or []
-
-    # If nothing has changed, do not create the new node revision
-    node_change_check = (
-        old_revision.type != NodeType.SOURCE
-        and old_revision.query == new_revision.query
-        and old_revision.description == new_revision.description
-        and old_revision.mode == new_revision.mode
-        and old_revision.display_name == new_revision.display_name
-    )
-    source_node_change_check = (
-        old_revision.type == NodeType.SOURCE
-        and {col.identifier() for col in old_revision.columns}
-        == {col.identifier() for col in new_revision.columns}
-        and old_revision.description == new_revision.description
-        and old_revision.mode == new_revision.mode
-        and old_revision.display_name == new_revision.display_name
-    )
-    if node_change_check or source_node_change_check:
+    if not new_revision:
         return node  # type: ignore
 
-    # Point the reference node to the new node revision.
-    new_revision.node = node
-    new_revision.version = str(int(node.current_version) + 1)
     node.current_version = new_revision.version
 
     new_revision.extra_validation()
 
+    session.add(new_revision)
     session.add(node)
     session.commit()
     session.refresh(node.current)

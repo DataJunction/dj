@@ -245,7 +245,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
         """basic.num_users""": {
             None: (
                 True,
-                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users)
+                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users) AS col0
  FROM (SELECT  basic.comments.country,
     COUNT(DISTINCT basic.comments.id) AS num_users
  FROM basic.comments
@@ -254,7 +254,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             ),
             1: (
                 True,
-                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users)
+                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users) AS col0
  FROM (SELECT  basic.comments.country,
     COUNT(DISTINCT basic.comments.id) AS num_users
  FROM basic.comments
@@ -263,7 +263,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             ),
             2: (
                 True,
-                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users)
+                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users) AS col0
  FROM (SELECT  comments.country,
     COUNT(DISTINCT comments.id) AS num_users
  FROM comments
@@ -402,6 +402,14 @@ def construction_session(  # pylint: disable=too-many-locals
         columns=[
             Column(name="id", type=ColumnType.INT),
             Column(name="full_name", type=ColumnType.STR),
+            Column(name="names_map", type=ColumnType.MAP["str", "str"]),
+            Column(
+                name="user_metadata",
+                type=ColumnType.MAP[
+                    "str",
+                    ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
+                ],
+            ),
             Column(name="age", type=ColumnType.INT),
             Column(name="country", type=ColumnType.STR),
             Column(name="gender", type=ColumnType.STR),
@@ -416,6 +424,14 @@ def construction_session(  # pylint: disable=too-many-locals
                 columns=[
                     Column(name="id", type=ColumnType.INT),
                     Column(name="full_name", type=ColumnType.STR),
+                    Column(name="names_map", type=ColumnType.MAP["str", "str"]),
+                    Column(
+                        name="user_metadata",
+                        type=ColumnType.MAP[
+                            "str",
+                            ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
+                        ],
+                    ),
                     Column(name="age", type=ColumnType.INT),
                     Column(name="country", type=ColumnType.STR),
                     Column(name="gender", type=ColumnType.STR),
@@ -432,6 +448,14 @@ def construction_session(  # pylint: disable=too-many-locals
                 columns=[
                     Column(name="id", type=ColumnType.INT),
                     Column(name="full_name", type=ColumnType.STR),
+                    Column(name="names_map", type=ColumnType.MAP["str", "str"]),
+                    Column(
+                        name="user_metadata",
+                        type=ColumnType.MAP[
+                            "str",
+                            ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
+                        ],
+                    ),
                     Column(name="age", type=ColumnType.INT),
                     Column(name="country", type=ColumnType.STR),
                     Column(name="gender", type=ColumnType.STR),
@@ -526,7 +550,7 @@ def construction_session(  # pylint: disable=too-many-locals
         node=num_users_mtc_ref,
         version="1",
         query="""
-        SELECT SUM(num_users)
+        SELECT SUM(num_users) AS col0
         FROM basic.transform.country_agg
         """,
         columns=[
