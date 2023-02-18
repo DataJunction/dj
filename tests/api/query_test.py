@@ -74,33 +74,34 @@ def test_query_validate(mocker, request, client) -> None:
     GROUP  BY age 
     """
     expected = """
-SELECT  Avg(n_comments),
-	age 
- FROM (SELECT  basic_DOT_num_comments.cnt AS n_comments,
-	basic_DOT_dimension_DOT_users.country AS country,
-	basic_DOT_dimension_DOT_users.age AS age 
- FROM basic.comments, (SELECT  COUNT(1) AS cnt,
-	basic.comments.id,
-	basic.comments.user_id,
-	basic.comments.timestamp,
-	basic.comments.text 
- FROM basic.comments
- 
-) AS basic_DOT_num_comments
-LEFT JOIN (SELECT  basic.comments.id,
-	basic.comments.full_name,
-	basic.comments.age,
-	basic.comments.country,
-	basic.comments.gender,
-	basic.comments.preferred_language,
-	basic.comments.secret_number 
- FROM basic.comments
- 
-) AS basic_DOT_dimension_DOT_users
-        ON basic.comments.user_id = basic_DOT_dimension_DOT_users.id AND basic.comments.user_id = basic_DOT_dimension_DOT_users.id 
- GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.country)
- 
- GROUP BY  age
+SELECT Avg(n_comments) AS col0,
+       age
+FROM   (SELECT basic_DOT_num_comments.cnt            AS n_comments,
+               basic_DOT_dimension_DOT_users.country AS country,
+               basic_DOT_dimension_DOT_users.age     AS age
+        FROM   basic.comments,
+               (SELECT COUNT(1) AS cnt,
+                       basic.comments.id,
+                       basic.comments.user_id,
+                       basic.comments.timestamp,
+                       basic.comments.text
+                FROM   basic.comments) AS basic_DOT_num_comments
+               LEFT JOIN (SELECT basic.comments.id,
+                                 basic.comments.full_name,
+                                 basic.comments.age,
+                                 basic.comments.country,
+                                 basic.comments.gender,
+                                 basic.comments.preferred_language,
+                                 basic.comments.secret_number
+                          FROM   basic.comments) AS
+                         basic_DOT_dimension_DOT_users
+                      ON basic.comments.user_id =
+basic_DOT_dimension_DOT_users.id
+                         AND basic.comments.user_id =
+                             basic_DOT_dimension_DOT_users.id
+        GROUP  BY basic_DOT_dimension_DOT_users.country,
+                  basic_DOT_dimension_DOT_users.country)
+GROUP  BY age 
     """
 
 
