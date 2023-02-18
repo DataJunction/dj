@@ -96,10 +96,15 @@ class Node(ABC):
 
     parent: Optional["Node"] = None
     parent_key: Optional[str] = None
+    validate_strict: bool = True
 
     def __post_init__(self):
         self.add_self_as_parent()
 
+    def _validate(self):
+        """
+        Validate an ast node
+        """
     def clear_parent(self: TNode) -> TNode:
         """
         Remove parent from the node
@@ -141,6 +146,11 @@ class Node(ABC):
         for child in flatten(value):
             if isinstance(child, Node) and not key.startswith("_"):
                 child.set_parent(self, key)
+        #if node is not being instantiated for the first time let's validate
+        try:
+            self._validate()
+        except AttributeError:
+            pass#dataclass not fully initialized yet
 
     def copy(self: TNode) -> TNode:
         """
@@ -255,65 +265,76 @@ class Node(ABC):
         from_: Any,
         to: Any,
         compare: Optional[Callable[[Any, Any], bool]] = None,
+        _replace: Optional[Callable[["Node", Any, Any], "Node"]] = None
     ) -> TNode:
         """
         Replace a node `from_` with a node `to` in the subtree
         ensures that parents and children are appropriately resolved
         accounts for possible cycles
         """
-        _compare: Callable[[Any, Any], bool] = compare or (
-            lambda a, b: a.compare(b) if isinstance(a, Node) else a == b
-        )
+        class Replacer:
+            """
+            Replacer class keeps track of seen nodes 
+            and does the compare and replace calls
+            while recursively calling `Node.replace`
+            """
+            def __init__(self, compare: Optional[Callable[[Any, Any], bool]]=None):
+                self._compare : Callable[[Any, Any], bool] = compare or (
+                    lambda a, b: a.compare(b) if isinstance(a, Node) else a == b
+                )
 
-        seen: Set[
-            int
-        ] = (
-            set()
-        )  # to avoid infinite recursion from cycles ex. column->table->column...
-
-        def _replace(  # pylint: disable=too-many-branches,invalid-name
-            self: Node,
-            from_: Any,
-            to: Any,
-        ):
-            if id(self) in seen:
-                return
-            seen.add(id(self))
-            for name, child in self.fields(
-                flat=False,
-                nodes_only=False,
-                obfuscated=True,
-                nones=False,
-                named=True,
+                self.seen: Set[
+                    int
+                ] = (
+                    set()
+                )  # to avoid infinite recursion from cycles ex. column->table->column...
+        
+            def __call__(  # pylint: disable=too-many-branches,invalid-name
+                self,
+                self_node: Node,
+                from_: Any,
+                to: Any,
             ):
-                iterable = False
-                for iterable_type in (list, tuple, set):
-                    if isinstance(child, iterable_type):
-                        iterable = True
-                        new = []
-                        for element in child:
-                            if not _compare(
-                                element,
-                                from_,
-                            ):  # if the node is not a match, keep the old
-                                new.append(element)
-                            else:
-                                new.append(to)
-                            # recurse to other nodes in the iterable
-                            if isinstance(element, Node):  # pragma: no cover
-                                _replace(element, from_, to)
-                        new = iterable_type(new)  # type: ignore
-                        setattr(self, name, new)
-                if not iterable:
+                if id(self_node) in self.seen:
+                    return
+                self.seen.add(id(self_node))
+                for name, child in self_node.fields(
+                    flat=False,
+                    nodes_only=False,
+                    obfuscated=True,
+                    nones=False,
+                    named=True,
+                ):
+                    iterable = False
+                    for iterable_type in (list, tuple, set):
+                        if isinstance(child, iterable_type):
+                            iterable = True
+                            new = []
+                            for element in child:
+                                if not self._compare(
+                                    element,
+                                    from_,
+                                ):  # if the node is not a match, keep the old
+                                    new.append(element)
+                                else:
+                                    new.append(to)
+                                # recurse to other nodes in the iterable
+                                if isinstance(element, Node):  # pragma: no cover
+                                    element.replace(from_, to, _replace = self)
+                            new = iterable_type(new)  # type: ignore
+                            setattr(self_node, name, new)
+                    if not iterable:
+                        if isinstance(child, Node):
+                            if self._compare(child, from_):
+                                setattr(self_node, name, to)
+                        else:
+                            if self._compare(child, from_):
+                                setattr(self_node, name, to)
                     if isinstance(child, Node):
-                        if _compare(child, from_):
-                            setattr(self, name, to)
-                    else:
-                        if _compare(child, from_):
-                            setattr(self, name, to)
-                if isinstance(child, Node):
-                    _replace(child, from_, to)
+                        child.replace(from_, to, _replace = self)
 
+        if _replace is None:
+            _replace = Replacer(compare)
         _replace(self, from_, to)
         return self
 
@@ -678,6 +699,11 @@ class In(Expression):
 
     def __post_init__(self):
         super().__post_init__()
+        self._validate()
+
+    def _validate(self):
+
+        super()._validate()
         if isinstance(self.source, Select) and len(self.source.projection) > 1:
             raise DJParseException("IN subquery cannot have more than a single column.")
 
@@ -699,9 +725,12 @@ class Over(Expression):
 
     partition_by: List[Expression] = field(default_factory=list)
     order_by: List["Order"] = field(default_factory=list)
-
     def __post_init__(self):
         super().__post_init__()
+        self._validate()
+    def _validate(self):
+
+        super()._validate()
         if not (self.partition_by or self.order_by):
             raise DJParseException(
                 "An OVER requires at least a PARTITION BY or ORDER BY",
@@ -838,9 +867,11 @@ class Raw(Expression):
     expressions: List[Expression] = field(default_factory=list)
     expression_replace_names: List[str] = field(default_factory=list)
     over: Optional[Over] = None
-
     def __post_init__(self):
         super().__post_init__()
+        self._validate()
+    def _validate(self):
+        super()._validate()
         if self.expr_string is None or self.type is None:
             raise DJParseException("Raw requires a name, string and type")
 
@@ -889,9 +920,11 @@ class Null(Value):
     """
 
     value = None
-
     def __post_init__(self):
         super().__post_init__()
+        self._validate()
+    def _validate(self):
+        super()._validate()
         if self.value is not None:
             raise DJParseException("NULL does not take a value.")
 
@@ -906,6 +939,9 @@ class Number(Value):
 
     def __post_init__(self):
         super().__post_init__()
+        self._validate()
+    def _validate(self):
+        super()._validate()
         if type(self.value) not in (float, int):
             try:
                 self.value = int(self.value)
@@ -942,8 +978,38 @@ class Alias(Named, Generic[AliasedType]):
 
     def __post_init__(self):
         super().__post_init__()
+        self._validate()
+
+    def _validate(self):
+        super()._validate()
         if isinstance(self.child, Alias):
-            raise DJParseException("An alias cannot descend from another Alias.")
+            if self.validate_strict:
+                raise DJParseException("An alias cannot descend from another Alias.")
+            self.child = self.child.child
+
+    def replace(  # pylint: disable=invalid-name
+        self,
+        from_: Any,
+        to: Any,
+        _replace: Callable[["Node", Any, Any], "Node"]
+    ) -> "Alias":
+        """ 
+        Replace a node with another on an Alias
+
+        Note: Replacing in an Alias has different behavior
+            than wrapping one Alias in another
+            when replacing, the inner alias takes the place
+            of the one replacing within
+        """
+        if _replace._compare(from_, self.child) and isinstance(to, Alias):
+            if self.parent:
+                self.parent.replace(self, to, _replace = _replace)
+                self.name = to.name
+                self.namespace = to.namespace
+                self.child = to.child
+            return to
+        _replace(self, from_, to)
+        return self
 
     def __str__(self) -> str:
         return f"{self.child} AS {self.name}"
@@ -1196,6 +1262,9 @@ class Select(Expression):  # pylint: disable=R0902
 
     def __post_init__(self):
         super().__post_init__()
+        self._validate()
+    def _validate(self):
+        super()._validate()
         if not self.projection:
             raise DJParseException(
                 "Expected at least a single item in projection at {self}.",

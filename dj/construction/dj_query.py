@@ -26,7 +26,6 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
     """
     query_ast = parse(query, dialect)
     select = query_ast._to_select()  # pylint: disable=W0212
-
     # we check all columns looking for metric nodes
     for col in select.find_all(ast.Column):
         froms = []
@@ -39,7 +38,7 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
         ):
             # if we found a metric node we need to check where it came from
             parent_select = cast(ast.Select, col.get_nearest_parent_of_type(ast.Select))
-            if not getattr(parent_select, "_validated", False):
+            if not getattr(parent_select, "_validated", False):# we haven't seen this
                 if len(parent_select.from_.tables) != 1 or parent_select.from_.joins:
                     raise DJParseException(
                         "Any SELECT referencing a Metric must source "
@@ -57,7 +56,7 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
                     raise DJParseException(
                         "The name of the table in a Metric query must be `metrics`.",
                     )
-                parent_select.from_ = ast.From([])
+                parent_select.from_ = ast.From([])# clear the FROM to prep it for the actual tables
                 parent_select._validated = True  # pylint: disable=W0212
 
             # we have a metric from `metrics`
@@ -74,7 +73,7 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
             # - in the metric for an implicit join
             for table in tables:
                 if isinstance(table, ast.Select):
-                    continue
+                    continue#pragma: no cover
                 if isinstance(table, ast.Alias):
                     if isinstance(table.child, ast.Select):
                         continue
@@ -87,10 +86,9 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
                     raise_=False,
                 ):
                     metric_select.projection += [
-                        ast.Column(ast.Name(col.name)) for col in table_node.columns
+                        ast.Column(ast.Name(col.name), _table = table.alias_or_self()) for col in table_node.columns
                     ]
                     froms.append(table.copy())
-
             metric_table_expression = ast.Alias(
                 ast.Name(metric_name),
                 None,

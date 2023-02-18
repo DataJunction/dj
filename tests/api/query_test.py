@@ -74,7 +74,7 @@ def test_query_validate(mocker, request, client) -> None:
     GROUP  BY age 
     """
     expected = """
-    SELECT  Avg(n_comments),
+SELECT  Avg(n_comments),
 	age 
  FROM (SELECT  basic_DOT_num_comments.cnt AS n_comments,
 	basic_DOT_dimension_DOT_users.country AS country,
