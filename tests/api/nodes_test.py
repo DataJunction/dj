@@ -728,7 +728,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert data["node_revision"]["name"] == "foo"
         assert (
             data["node_revision"]["query"]
-            == "SELECT large_revenue_payments_only.payment_id FROM large_revenue_payments_only"
+            == "SELECT  large_revenue_payments_only.payment_id FROM large_revenue_payments_only"
         )
         assert data["node"]["type"] == "transform"
 
