@@ -236,4 +236,5 @@ def validate_node_data(
     ]
 
     node_revision.status = NodeStatus.VALID
+    node_revision.query = str(query_ast)
     return node, node_revision, dependencies_map
