@@ -835,7 +835,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert data["columns"] == [
             {
                 "id": None,
-                "name": "_col0",
+                "name": "col0",
                 "type": "INT",
                 "dimension_id": None,
                 "dimension_column": None,

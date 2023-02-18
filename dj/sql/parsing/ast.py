@@ -1220,8 +1220,8 @@ class Select(Expression):  # pylint: disable=R0902
         Add an alias to any unnamed columns in the projection (`_col<n>`)
         """
         for i, expression in enumerate(self.projection):
-            if not isinstance(expression, Named):
-                name = f"_col{i}"
+            if not isinstance(expression, (Column, Alias)):
+                name = f"col{i}"
                 aliased = Alias(Name(name), child=expression)
                 # only replace those that are identical in memory
                 self.replace(expression, aliased, lambda a, b: id(a) == id(b))
