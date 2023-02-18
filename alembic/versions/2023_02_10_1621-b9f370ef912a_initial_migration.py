@@ -118,7 +118,7 @@ def upgrade():
         sa.Column(
             "type",
             sa.String(),
-            nullable=True,
+            nullable=False,
         ),
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
