@@ -78,4 +78,3 @@ def test_get_dj_node_raise_unknown_node_exception(session: Session):
     )
 
     CompoundBuildException().reset()
-

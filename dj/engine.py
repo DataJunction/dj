@@ -84,5 +84,3 @@ def run_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
         output.append((sql, columns, stream))
 
     return output
-
-

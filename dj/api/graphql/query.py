@@ -48,6 +48,3 @@ class ColumnMetadata:
     """
     A simple model for column metadata.
     """
-
-
-

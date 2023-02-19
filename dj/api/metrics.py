@@ -105,7 +105,6 @@ def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric
     return Metric.parse_node(node)
 
 
-
 @router.get("/metrics/{name}/sql/", response_model=TranslatedSQL)
 async def read_metrics_sql(
     name: str,

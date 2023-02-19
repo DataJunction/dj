@@ -143,7 +143,7 @@ def _build_dimensions_on_select(
                                 ),
                             )
 
-                    if join_on:#table had stuff to join
+                    if join_on:  # table had stuff to join
                         select.from_.joins.append(  # pragma: no cover
                             ast.Join(
                                 ast.JoinKind.LeftOuter,

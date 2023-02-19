@@ -148,7 +148,6 @@ def test_read_metric_errors(session: Session, client: TestClient) -> None:
     assert response_json["errors"][0]["message"] == "Not a metric node: `a-metric`"
 
 
-
 def test_read_metrics_sql(
     mocker: MockerFixture,
     session: Session,

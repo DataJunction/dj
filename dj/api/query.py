@@ -17,6 +17,7 @@ from dj.utils import get_session, get_settings
 
 router = APIRouter()
 
+
 class DJSQL(SQLModel):
     """
     Class for DJ SQL request.
@@ -24,6 +25,7 @@ class DJSQL(SQLModel):
 
     database_name: Optional[str]
     sql: str
+
 
 @router.get("/query/validate", response_model=TranslatedSQL)
 async def read_metrics_sql(

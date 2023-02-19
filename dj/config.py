@@ -13,7 +13,9 @@ from celery import Celery
 from pydantic import BaseSettings
 
 
-class Settings(BaseSettings):  # pylint: disable=too-few-public-methods #pragma: no cover
+class Settings(
+    BaseSettings
+):  # pylint: disable=too-few-public-methods #pragma: no cover
     """
     Configuration for the metric repository.
     """

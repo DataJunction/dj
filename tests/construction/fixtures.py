@@ -381,8 +381,10 @@ def construction_session(  # pylint: disable=too-many-locals
         GROUP BY country
         """,
         columns=[
-            Column(name="country", type=ColumnType.STR,
-                            dimension=user_dim_ref,
+            Column(
+                name="country",
+                type=ColumnType.STR,
+                dimension=user_dim_ref,
                 dimension_column="country",
             ),
             Column(name="num_users", type=ColumnType.INT),
@@ -575,8 +577,9 @@ def construction_session(  # pylint: disable=too-many-locals
         WHERE a.country='US'
         """,
         columns=[
-            Column(name="sum_users", type=ColumnType.INT,
-            
+            Column(
+                name="sum_users",
+                type=ColumnType.INT,
             ),
         ],
     )

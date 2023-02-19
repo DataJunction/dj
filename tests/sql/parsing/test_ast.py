@@ -607,3 +607,35 @@ def test_query_to_select(cte_query):
             distinct=False,
         ),
     )
+
+
+def test_double_alias():
+    """
+    Test that a double alias resolves to the second alias
+    under non-strict validation
+    """
+    Alias.validate_strict = False
+    assert Alias(Name("a"), child=Alias(Name("b"), child=Table(Name("tbl")))).compare(
+        Alias(
+            name=Name(name="a"),
+            namespace=None,
+            child=Table(
+                name=Name(name="tbl"),
+            ),
+        )
+    )
+    Alias.validate_strict = True
+
+def test_alias_replace():
+    """
+    Test that replacing something in an alias
+    with another alias results in the inner alias
+    taking the outer's place
+    """
+    alias = Alias(Name("b"), child=Table(Name("tbl")))
+    replace = Alias(Name("a"), child=Table(Name("tbl")))
+    alias.replace(
+        Table(Name("tbl")),
+        replace,
+    )
+    assert alias.compare(replace)
