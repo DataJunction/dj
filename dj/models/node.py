@@ -18,10 +18,11 @@ from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel
 from typing_extensions import TypedDict
 
-from dj.models import Catalog, Database, Engine
 from dj.models.base import BaseSQLModel
+from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
-from dj.models.engine import EngineInfo
+from dj.models.database import Database
+from dj.models.engine import Engine, EngineInfo
 from dj.models.table import Table, TableNodeRevision, TableYAML
 from dj.sql.parse import is_metric
 from dj.typing import ColumnType

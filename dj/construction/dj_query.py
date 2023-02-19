@@ -31,6 +31,7 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
     for col in select.find_all(ast.Column):
         joins = []
         col_name = make_name(col.namespace, col.name.name)
+
         if metric_node := get_dj_node(
             session,
             col_name,

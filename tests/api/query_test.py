@@ -2,15 +2,19 @@
 Tests for the metrics API.
 """
 
+from sqlmodel import Session
 
 from tests.sql.utils import compare_query_strings
 
 
-def test_query_validate_errors(mocker, client) -> None:
+def test_query_validate_errors(mocker, request, client) -> None:
     """
     Test errors on ``GET /query/validate``.
     """
     mocker.patch("dj.models.database.Database.do_ping", return_value=True)
+    session: Session = request.getfixturevalue(  # pylint: disable=W0612; #noqa:F841
+        "construction_session",
+    )
 
     query = """
     SELECT Avg(n_comments),
@@ -37,11 +41,14 @@ def test_query_validate_errors(mocker, client) -> None:
     ) in response.text
 
 
-def test_query_validate(mocker, client) -> None:
+def test_query_validate(mocker, request, client) -> None:
     """
     Test ``GET /query/validate``.
     """
     mocker.patch("dj.models.database.Database.do_ping", return_value=True)
+    session: Session = request.getfixturevalue(  # pylint: disable=W0612; #noqa: F841
+        "construction_session",
+    )
 
     query = """
     SELECT Avg(n_comments),
