@@ -2,7 +2,7 @@
 SQL parsing functions.
 """
 
-from typing import Any, Iterator, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, Optional, Set, Tuple
 
 from sqloxide import parse_sql
 
@@ -60,6 +60,21 @@ def get_expression_from_projection(projection: Projection) -> Expression:
     raise NotImplementedError(f"Unable to handle expression: {projection}")
 
 
+def contains_agg_function_if_any(expr: Expression) -> bool:
+    """
+    Checks if the expression contains an aggregation function.
+    """
+    while expr:
+        if not isinstance(expr, Dict):
+            break
+        head = list(expr.keys())[0]
+        if head == "Function":
+            name = expr[head]["name"][0]["value"]  # type: ignore
+            return function_registry[name].is_aggregation
+        expr = expr[head]  # type: ignore
+    return False
+
+
 def is_metric(query: Optional[str]) -> bool:
     """
     Return if a SQL query defines a metric.
@@ -80,11 +95,11 @@ def is_metric(query: Optional[str]) -> bool:
 
     # must be a function
     expression = get_expression_from_projection(expressions[0])
-    if "Function" not in expression:
-        return False
 
     # must be an aggregation
-    function = expression["Function"]
-    name = function["name"][0]["value"]
-    dj_function = function_registry[name.upper()]
-    return dj_function.is_aggregation
+    if "Case" in expression:
+        case_when = expression["Case"]
+        return all(
+            contains_agg_function_if_any(result) for result in case_when["results"]
+        )
+    return contains_agg_function_if_any(expression)

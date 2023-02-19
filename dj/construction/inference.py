@@ -122,6 +122,21 @@ def _(expression: ast.Cast):
 
 
 @get_type_of_expression.register
+def _(expression: ast.Case):
+    result_types = [
+        res.type
+        for res in expression.results
+        + ([expression.else_result] if expression.else_result else [])
+        if res.type != "NULL"
+    ]
+    if not all(result_types[0] == res for res in result_types):
+        raise DJParseException(
+            f"Not all the same type in CASE! Found: {', '.join(result_types)}",
+        )
+    return result_types[0]
+
+
+@get_type_of_expression.register
 def _(expression: ast.IsNull):
     return ColumnType.BOOL
 

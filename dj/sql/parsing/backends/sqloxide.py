@@ -7,7 +7,7 @@ from sqloxide import parse_sql
 
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.exceptions import DJParseException
-from dj.typing import ColumnType
+from dj.typing import PRIMITIVE_TYPES, ColumnType
 
 
 def match_keys(parse_tree: dict, *keys: Set[str]) -> Optional[Set[str]]:
@@ -91,6 +91,15 @@ def parse_cast(parse_tree: dict) -> ast.Cast:
             type_ = ColumnType(data_type)
         elif match_keys(parse_tree["data_type"], {"Custom"}):
             type_ = ColumnType(parse_tree["data_type"]["Custom"][0]["value"])
+        elif isinstance(data_type, dict) and {
+            typ.upper() for typ in data_type.keys()
+        }.intersection(PRIMITIVE_TYPES):
+            print(data_type)
+            type_ = [
+                ColumnType(typ)
+                for typ in data_type.keys()
+                if typ.upper() in PRIMITIVE_TYPES
+            ][0]
         else:
             raise DJParseException("Failed to parse CAST type.")  # pragma: no cover
         return ast.Cast(expr, type_)

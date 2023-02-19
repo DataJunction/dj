@@ -148,6 +148,7 @@ async def read_metrics_sql(
     dimensions: List[str] = Query([]),  # pylint: disable=invalid-name
     filters: List[str] = Query([]),  # pylint: disable=invalid-name
     database_name: Optional[str] = None,
+    check_database_online: bool = True,
     *,
     session: Session = Depends(get_session),
 ) -> TranslatedSQL:
@@ -163,6 +164,7 @@ async def read_metrics_sql(
         dimensions=dimensions,
         filters=filters,
         database_name=database_name,
+        check_database_online=check_database_online,
     )
     return TranslatedSQL(
         database_id=optimal_database.id,
