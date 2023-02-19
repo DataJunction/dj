@@ -4,19 +4,13 @@ GQL Models for queries.
 
 # pylint: disable=too-few-public-methods, no-member
 
-from typing import Any, List, NewType, Union
 
 import strawberry
-from strawberry.types import Info
 
 from dj.models.query import BaseQuery as BaseQuery_
 from dj.models.query import ColumnMetadata as ColumnMetadata_
 from dj.models.query import Query as Query_
 from dj.models.query import QueryCreate as QueryCreate_
-from dj.models.query import QueryExtType as QueryExtType_
-from dj.models.query import QueryResults as QueryResults_
-from dj.models.query import QueryWithResults as QueryWithResults_
-from dj.models.query import StatementResults as StatementResults_
 from dj.typing import QueryState as QueryState_
 
 QueryState = strawberry.enum(QueryState_)

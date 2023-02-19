@@ -3,22 +3,12 @@ Query related functions.
 """
 
 import logging
-from datetime import datetime, timezone
 from typing import List, Tuple
 
 import sqlparse
 from sqlalchemy import text
-from sqlmodel import Session
 
-from dj.config import Settings
-from dj.models.query import (
-    ColumnMetadata,
-    Query,
-    QueryResults,
-    QueryState,
-    QueryWithResults,
-    StatementResults,
-)
+from dj.models.query import ColumnMetadata, Query
 from dj.typing import ColumnType, Description, SQLADialect, Stream, TypeEnum
 
 _logger = logging.getLogger(__name__)

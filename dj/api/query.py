@@ -4,16 +4,12 @@ Metric related APIs.
 
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, Response
+from fastapi import APIRouter, Depends
 from sqlmodel import Session, SQLModel
-
 
 from dj.api.helpers import get_dj_query
 from dj.api.metrics import TranslatedSQL
-from dj.config import Settings
-from dj.models import database
-from dj.models.query import QueryCreate, QueryWithResults
-from dj.utils import get_session, get_settings
+from dj.utils import get_session
 
 router = APIRouter()
 

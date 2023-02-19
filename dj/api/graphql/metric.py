@@ -12,13 +12,11 @@ from fastapi import HTTPException
 from sqlmodel import select
 from strawberry.types import Info
 
-from dj.api.helpers import get_query
 from dj.api.metrics import Metric as Metric_
 from dj.api.metrics import TranslatedSQL as TranslatedSQL_
 from dj.api.metrics import get_metric
 from dj.models.node import Node as Node_
 from dj.models.node import NodeType as Node_Type
-from dj.models.query import QueryCreate
 from dj.sql.build import get_query_for_node
 
 

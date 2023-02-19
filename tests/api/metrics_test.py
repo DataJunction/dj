@@ -2,16 +2,14 @@
 Tests for the metrics API.
 """
 
-from uuid import UUID
 
 from fastapi.testclient import TestClient
-from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
 from dj.models.column import Column
 from dj.models.node import Node, NodeRevision, NodeType
-from dj.models.query import Database, QueryWithResults
+from dj.models.query import Database
 from dj.models.table import Table
 from dj.sql.parsing.backends.sqloxide import parse
 from dj.typing import ColumnType

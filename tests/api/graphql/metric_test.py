@@ -2,16 +2,13 @@
 Test for GQL metrics.
 """
 
-from uuid import UUID
 
 from fastapi.testclient import TestClient
-from freezegun import freeze_time
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
 from dj.models.node import Node, NodeRevision, NodeType
-from dj.models.query import Database, QueryCreate, QueryWithResults
-from dj.sql.parsing.backends.sqloxide import parse
+from dj.models.query import Database, QueryCreate
 
 
 def test_read_metrics(session: Session, client: TestClient):

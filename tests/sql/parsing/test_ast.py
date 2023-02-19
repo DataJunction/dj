@@ -622,9 +622,10 @@ def test_double_alias():
             child=Table(
                 name=Name(name="tbl"),
             ),
-        )
+        ),
     )
     Alias.validate_strict = True
+
 
 def test_alias_replace():
     """

@@ -5,16 +5,14 @@ Metric related APIs.
 from http import HTTPStatus
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, SQLModel, select
 
 from dj.api.helpers import get_query
-from dj.config import Settings
 from dj.models.node import Node, NodeType
-from dj.models.query import QueryCreate, QueryWithResults
 from dj.sql.dag import get_dimensions
-from dj.utils import UTCDatetime, get_session, get_settings
+from dj.utils import UTCDatetime, get_session
 
 router = APIRouter()
 

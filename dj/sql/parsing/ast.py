@@ -65,8 +65,9 @@ def _raw_clean_hash(obj) -> str:
     if dirty < 0:
         return f"N{abs(dirty)}"
     return str(dirty)
-    
-class Replacer:
+
+
+class Replacer:  # pylint: disable=too-few-public-methods
     """
     Replacer class keeps track of seen nodes
     and does the compare and replace calls
@@ -128,6 +129,7 @@ class Replacer:
             if isinstance(child, Node):
                 child.replace(from_, to, _replace=self)
 
+
 class DJEnum(Enum):
     """
     A DJ AST enum
@@ -157,13 +159,12 @@ class Node(ABC):
 
     parent: Optional["Node"] = None
     parent_key: Optional[str] = None
-    validate_strict: Optional[bool] = True # how to validate; `None` is no validation
+    validate_strict: Optional[bool] = True  # how to validate; `None` is no validation
     __instantiated = False
 
     def __post_init__(self):
         self.add_self_as_parent()
         self.__instantiated = True
-
 
     def validate(self):
         """
@@ -212,7 +213,8 @@ class Node(ABC):
             if isinstance(child, Node) and not key.startswith("_"):
                 child.set_parent(self, key)
         # if node is not being instantiated for the first time let's validate
-        self.__instantiated and self.validate()
+        if self.__instantiated:
+            self.validate()
 
     def copy(self: TNode) -> TNode:
         """
@@ -996,7 +998,7 @@ class Alias(Named, Generic[AliasedType]):
             self.child = self.child.child
 
     def replace(  # pylint: disable=invalid-name
-        self,  
+        self,
         from_: Any,
         to: Any,
         compare: Optional[Callable[[Any, Any], bool]] = None,
@@ -1012,7 +1014,11 @@ class Alias(Named, Generic[AliasedType]):
         """
         if _replace is None:
             _replace = Replacer(compare)
-        if _replace._compare(from_, self.child) and isinstance(to, Alias):
+        # pylint: disable=W0212
+        if _replace._compare(from_, self.child) and isinstance(  # type: ignore
+            to,
+            Alias,
+        ):  # pylint: disable=W0212
             self.name = to.name
             self.namespace = to.namespace
             self.child = to.child
