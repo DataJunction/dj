@@ -115,12 +115,13 @@ async def read_metrics_data(
     return QueryWithResults.from_pydantic(query_with_results)  # type: ignore
 
 
-async def read_metrics_sql(
+async def read_metrics_sql(  # pylint: disable=too-many-arguments
     node_name: str,
     info: Info,
     database_name: Optional[str] = None,
     d: Optional[List[str]] = None,  # pylint: disable=invalid-name
     f: Optional[List[str]] = None,  # pylint: disable=invalid-name
+    check_database_online: bool = True,
 ) -> TranslatedSQL:
     """
     Return SQL for a metric.
@@ -135,7 +136,14 @@ async def read_metrics_sql(
         node = get_metric(session, node_name)
     except HTTPException as ex:
         raise Exception(ex.detail) from ex
-    create_query = await get_query_for_node(session, node, d, f, database_name)
+    create_query = await get_query_for_node(
+        session,
+        node,
+        d,
+        f,
+        database_name,
+        check_database_online,
+    )
 
     return TranslatedSQL.from_pydantic(  # type: ignore
         TranslatedSQL_(

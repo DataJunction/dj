@@ -1,6 +1,8 @@
 """
 tests for the backend that takes sqloxide output and transforms it into an DJ ast
 """
+# pylint: disable=line-too-long
+
 import pytest
 
 from dj.sql.parsing.ast import Between, Boolean, Column
@@ -89,6 +91,24 @@ def test_parse_cast():
             ).select.projection[0],
         )
         == "CAST('2022-01-01T12:34:56Z' AS TIMESTAMP)"
+    )
+
+    assert (
+        str(
+            parse(
+                """SELECT CASE WHEN
+                     CAST(COUNT(*) AS INTEGER) > 0
+                   THEN
+                     CAST(CAST(SUM(COALESCE(something, 0)) AS INTEGER) AS DOUBLE)
+                     / CAST(CAST(COUNT(*) AS INTEGER) AS DOUBLE)
+                   ELSE
+                     NULL END""",
+            ).select.projection[0],
+        )
+        == """(CASE
+        WHEN CAST(COUNT(*) AS INT) > 0 THEN CAST(CAST(SUM(COALESCE(something, 0)) AS INT) AS DOUBLE) / CAST(CAST(COUNT(*) AS INT) AS DOUBLE)
+        ELSE None
+    END)"""
     )
 
 

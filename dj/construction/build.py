@@ -297,6 +297,7 @@ async def build_node_for_database(  # pylint: disable=too-many-arguments
     database_id: Optional[int] = None,
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
+    check_database_online: bool = True,
 ) -> Tuple[ast.Query, Database]:
     """
     Determines the optimal database to run the query in and builds the node appropriately
@@ -312,7 +313,14 @@ async def build_node_for_database(  # pylint: disable=too-many-arguments
     else:  # if not dimensions then we can see if the node is directly materialized
         top_dbs = {table.database for table in node.tables}
 
-    return await build_ast_for_database(session, query, dialect, database_id, top_dbs)
+    return await build_ast_for_database(
+        session,
+        query,
+        dialect,
+        database_id,
+        top_dbs,
+        check_database_online,
+    )
 
 
 async def build_ast_for_database(  # pylint: disable=too-many-arguments
@@ -321,6 +329,7 @@ async def build_ast_for_database(  # pylint: disable=too-many-arguments
     dialect: Optional[str] = None,
     database_id: Optional[int] = None,
     top_dbs: Optional[Set[Database]] = None,
+    check_database_online: bool = True,
 ) -> Tuple[ast.Query, Database]:
     """
     Determines the optimal database to run the query in and builds the query AST appropriately
@@ -338,7 +347,10 @@ async def build_ast_for_database(  # pylint: disable=too-many-arguments
         )
 
     else:
-        build_plan_depth, database = await optimize_level_by_cost(build_plan)
+        build_plan_depth, database = await optimize_level_by_cost(  # type: ignore
+            build_plan,
+            check_database_online=check_database_online,
+        )
         for top_db in top_dbs:
             if top_db.cost <= database.cost:  # pragma: no cover
                 return query, top_db
