@@ -12,7 +12,7 @@ def test_query_validate_errors(mocker, request, client) -> None:
     Test errors on ``GET /query/validate``.
     """
     mocker.patch("dj.models.database.Database.do_ping", return_value=True)
-    session: Session = request.getfixturevalue(  # pylint: disable=W0612; #noqa:F841
+    session: Session = request.getfixturevalue(  # noqa: F841 # pylint:disable=W0612
         "construction_session",
     )
 
@@ -46,7 +46,7 @@ def test_query_validate(mocker, request, client) -> None:
     Test ``GET /query/validate``.
     """
     mocker.patch("dj.models.database.Database.do_ping", return_value=True)
-    session: Session = request.getfixturevalue(  # pylint: disable=W0612; #noqa: F841
+    session: Session = request.getfixturevalue(  # noqa: F841 # pylint:disable=W0612
         "construction_session",
     )
 
