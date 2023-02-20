@@ -4,7 +4,6 @@ Tests for the metrics API.
 
 
 from fastapi.testclient import TestClient
-from pytest_mock import MockerFixture
 from sqlmodel import Session
 
 from dj.models import Catalog
@@ -12,7 +11,6 @@ from dj.models.column import Column
 from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.query import Database
 from dj.models.table import Table
-from dj.sql.parsing.backends.sqloxide import parse
 from dj.typing import ColumnType
 
 

@@ -76,7 +76,7 @@ def read_metric(node_name: str, info: Info) -> Metric:
     )
 
 
-async def read_metrics_sql(
+async def read_metrics_sql(  # pylint: disable=R0913
     node_name: str,
     info: Info,
     database_name: Optional[str] = None,
