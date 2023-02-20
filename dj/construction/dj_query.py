@@ -3,7 +3,7 @@ Functions for making queries directly against DJ
 """
 
 from functools import reduce
-from typing import Optional, Set, Tuple, cast
+from typing import List, Optional, Set, Tuple, cast
 
 from sqlmodel import Session
 
@@ -88,11 +88,10 @@ def _resolve_metric_nodes(session, col):
         # and to surface the node we need to source all its columns
         # - in the metric for an implicit join
         for table in tables:
-            _hoist_metric_source_tables(
+            joins += _hoist_metric_source_tables(
                 session,
                 table,
                 metric_select,
-                joins,
                 metric_table_expression,
             )
 
@@ -110,17 +109,17 @@ def _hoist_metric_source_tables(
     session,
     table,
     metric_select,
-    joins,
     metric_table_expression,
-):
+) -> List[ast.Join]:
     """
     Hoist tables in a metric query
     """
+    joins = []
     if isinstance(table, ast.Select):
-        return  # pragma: no cover
+        return []  # pragma: no cover
     if isinstance(table, ast.Alias):
         if isinstance(table.child, ast.Select):
-            return  # pragma: no cover
+            return []  # pragma: no cover
         table = table.child
     table_name = make_name(table.namespace, table.name.name)
     if table_node := try_get_dj_node(  # pragma: no cover
@@ -130,7 +129,7 @@ def _hoist_metric_source_tables(
     ):
         source_cols = []
         for tbl_col in table_node.columns:
-            _make_source_columns(tbl_col, table, source_cols)
+            source_cols.append(_make_source_columns(tbl_col, table))
         # add the source's columns to the metric projection
         # so we can left join hoist the source alongside the metric select
         # so that dimensions can join properly in build
@@ -139,7 +138,7 @@ def _hoist_metric_source_tables(
         # that will hoist the source up
         ons = []
         for src_col in source_cols:
-            _source_column_join_on_expression(src_col, metric_table_expression, ons)
+            ons += _source_column_join_on_expression(src_col, metric_table_expression)
         # make the join
         if ons:  # pragma: no cover
             joins.append(
@@ -156,9 +155,10 @@ def _hoist_metric_source_tables(
                     ),
                 ),
             )
+    return joins
 
 
-def _make_source_columns(tbl_col, table, source_cols):
+def _make_source_columns(tbl_col, table) -> ast.Alias[ast.Column]:
     """
     Make the source columns for hoisting
     """
@@ -166,18 +166,20 @@ def _make_source_columns(tbl_col, table, source_cols):
         ast.Name(tbl_col.name),
         _table=table.alias_or_self(),
     )
-    source_cols.append(
-        ast.Alias(
-            ast.Name(amenable_name(str(temp_col))),
-            child=temp_col,
-        ),
+    return ast.Alias(
+        ast.Name(amenable_name(str(temp_col))),
+        child=temp_col,
     )
 
 
-def _source_column_join_on_expression(src_col, metric_table_expression, ons):
+def _source_column_join_on_expression(
+    src_col,
+    metric_table_expression,
+) -> List[ast.BinaryOp]:
     """
     Make the part of the ON for the source column
     """
+    ons = []
     ons.append(
         ast.BinaryOp(
             ast.BinaryOpKind.Eq,
@@ -188,6 +190,7 @@ def _source_column_join_on_expression(src_col, metric_table_expression, ons):
             src_col.child.copy(),
         ),
     )
+    return ons
 
 
 def _label_dimension_nodes(session, col):
