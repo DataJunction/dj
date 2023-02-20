@@ -76,7 +76,7 @@ def _resolve_metric_nodes(session, col):
         # and to surface the node we need to source all its columns
         # - in the metric for an implicit join
         for table in tables:
-            _hoist_metric_sourece_tables(
+            _hoist_metric_source_tables(
                 session,
                 table,
                 metric_select,
@@ -94,7 +94,7 @@ def _resolve_metric_nodes(session, col):
         parent_select.from_.joins += joins
 
 
-def _hoist_metric_sourece_tables(
+def _hoist_metric_source_tables(
     session,
     table,
     metric_select,
