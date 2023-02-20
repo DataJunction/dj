@@ -14,6 +14,7 @@ from sqlmodel import Session, select
 from sqloxide import parse_sql
 
 from dj.constants import DJ_DATABASE_ID
+from dj.errors import DJException
 from dj.models.database import Database
 from dj.models.node import Node, NodeRevision
 from dj.sql.parse import find_nodes_by_key
@@ -104,6 +105,7 @@ async def get_database_for_nodes(
     nodes: List[Node],
     node_columns: Dict[str, Set[str]],
     database_name: Optional[str] = None,
+    check_database_online: bool = True,
 ) -> Database:
     """
     Given a list of nodes, return the best database to compute metric.
@@ -128,14 +130,22 @@ async def get_database_for_nodes(
     # if a specific database was requested, return it if it's online
     if database_name is not None:
         for database in databases:
-            if database.name == database_name and await database.do_ping():
+            if database.name == database_name:
+                if check_database_online and await database.do_ping():
+                    return database
                 return database
         raise Exception(f"Unknown database `{database_name}`")
 
-    return await get_cheapest_online_database(databases)
+    return await get_cheapest_online_database(
+        databases,
+        check_database_online=check_database_online,
+    )
 
 
-async def get_cheapest_online_database(databases: Set[Database]) -> Database:
+async def get_cheapest_online_database(
+    databases: Set[Database],
+    check_database_online: bool = True,
+) -> Database:
     """
     Return the cheapest online database.
 
@@ -145,6 +155,8 @@ async def get_cheapest_online_database(databases: Set[Database]) -> Database:
     """
     # sort by cheapest
     sorted_databases = sorted(databases, key=operator.attrgetter("cost"))
+    if not check_database_online and sorted_databases:
+        return sorted_databases[0]
 
     # create tasks to ping all of the databases in parallel
     pings = [asyncio.create_task(database.do_ping()) for database in sorted_databases]
@@ -179,7 +191,7 @@ async def get_cheapest_online_database(databases: Set[Database]) -> Database:
                 return database
 
         else:
-            raise Exception("No active database was found")
+            raise DJException(message="No active database was found")
 
 
 def get_referenced_columns_from_sql(

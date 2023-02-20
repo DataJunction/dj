@@ -327,8 +327,30 @@ async def test_get_database_for_nodes(mocker: MockerFixture) -> None:
     session = next(get_session())
     session.exec().all.return_value = [database_1, database_2]
     with pytest.raises(Exception) as excinfo:
-        await get_database_for_nodes(session, [], referenced_columns)
+        await get_database_for_nodes(
+            session,
+            [],
+            referenced_columns,
+            check_database_online=True,
+        )
     assert str(excinfo.value) == "No active database was found"
+
+    result = await get_database_for_nodes(
+        session,
+        [],
+        referenced_columns,
+        database_name="fast",
+        check_database_online=True,
+    )
+    assert result == database_1
+    result = await get_database_for_nodes(
+        session,
+        [],
+        referenced_columns,
+        database_name="slow",
+        check_database_online=True,
+    )
+    assert result == database_2
 
 
 @pytest.mark.asyncio
@@ -354,6 +376,13 @@ async def test_get_cheapest_online_database(mocker: MockerFixture) -> None:
     asyncio.create_task.side_effect = [slow_ping, fast_ping]
 
     assert await get_cheapest_online_database({database_1, database_2}) == database_1
+    assert (
+        await get_cheapest_online_database(
+            {database_1, database_2},
+            check_database_online=False,
+        )
+        == database_1
+    )
 
 
 @pytest.mark.asyncio
@@ -379,6 +408,13 @@ async def test_get_cheapest_online_database_offline(mocker: MockerFixture) -> No
     asyncio.create_task.side_effect = [slow_ping, fast_ping]
 
     assert await get_cheapest_online_database({database_1, database_2}) == database_2
+    assert (
+        await get_cheapest_online_database(
+            {database_1, database_2},
+            check_database_online=False,
+        )
+        == database_1
+    )
 
 
 @pytest.mark.asyncio
@@ -404,3 +440,10 @@ async def test_get_cheapest_online_database_timeout(mocker: MockerFixture) -> No
     asyncio.create_task.side_effect = [slow_ping, fast_ping]
 
     assert await get_cheapest_online_database({database_1, database_2}) == database_2
+    assert (
+        await get_cheapest_online_database(
+            {database_1, database_2},
+            check_database_online=False,
+        )
+        == database_1
+    )

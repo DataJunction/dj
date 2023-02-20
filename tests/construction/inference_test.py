@@ -7,6 +7,7 @@ from sqlmodel import Session
 
 from dj.construction.inference import get_type_of_expression
 from dj.models.node import Node
+from dj.sql.parse import contains_agg_function_if_any
 from dj.sql.parsing import ast
 from dj.sql.parsing.ast import BinaryOpKind
 from dj.sql.parsing.backends.exceptions import DJParseException
@@ -251,7 +252,9 @@ def test_infer_types_complicated(construction_session: Session):
       last_name<>'yoyo' and last_name='yoyo' or last_name='yoyo',
       last_name,
       bizarre,
-      (select 5.0)
+      (select 5.0),
+      CASE WHEN first_name = last_name THEN COUNT(DISTINCT first_name) ELSE
+      COUNT(DISTINCT last_name) END
       FROM (
       SELECT id,
          first_name,
@@ -297,5 +300,27 @@ def test_infer_types_complicated(construction_session: Session):
         ColumnType.STR,
         ColumnType.BOOL,
         ColumnType.FLOAT,
+        ColumnType.INT,
     ]
     assert types == [exp.type for exp in query.select.projection]
+
+
+def test_infer_bad_case_types(construction_session: Session):
+    """
+    Test inferring mismatched case types.
+    """
+    assert not contains_agg_function_if_any({})
+    with pytest.raises(Exception) as excinfo:
+        query = parse(
+            """
+            SELECT
+            CASE WHEN first_name = last_name THEN COUNT(DISTINCT first_name) ELSE last_name END
+            FROM dbt.source.jaffle_shop.customers
+            """,
+        )
+        query.compile(construction_session)
+        [  # pylint: disable=pointless-statement
+            exp.type for exp in query.select.projection
+        ]
+
+    assert str(excinfo.value) == "Not all the same type in CASE! Found: INT, STR"
