@@ -123,7 +123,10 @@ def _level_database(
             _level_database(sub_sub_build_plan, levels, level + 1)
 
 
-async def optimize_level_by_cost(build_plan: BuildPlan) -> Tuple[int, Database]:
+async def optimize_level_by_cost(
+    build_plan: BuildPlan,
+    check_database_online: bool = True,
+) -> Tuple[int, Optional[Database]]:
     """
     from a build plan, determine how deep to follow the build plan
     by choosing the lowest cost database
@@ -137,20 +140,27 @@ async def optimize_level_by_cost(build_plan: BuildPlan) -> Tuple[int, Database]:
         if combined_level:
             try:
                 cheapest_levels.append(
-                    (i, await get_cheapest_online_database(combined_level)),
+                    (
+                        i,
+                        await get_cheapest_online_database(
+                            combined_level,
+                            check_database_online=check_database_online,
+                        ),
+                    ),
                 )
                 some_db = True
             except Exception as exc:  # pylint: disable=broad-except    # pragma: no cover
                 if "No active database found" not in str(exc):
                     raise exc
 
-    if not some_db:  # pragma: no cover
+    if check_database_online and not some_db:  # pragma: no cover
         raise Exception("No database found that can execute this query.")
 
-    return sorted(
+    choices = sorted(
         cheapest_levels,
         key=lambda icl: icl[1].cost if icl[1] else float("-inf"),
-    )[0]
+    )
+    return choices[0] if choices else (0, None)
 
 
 async def optimize_level_by_database_id(
@@ -167,7 +177,7 @@ async def optimize_level_by_database_id(
     combined_levels = [reduce(lambda a, b: a & b, level) for level in levels]
     for i, level in enumerate(combined_levels):
         for database in level:
-            if database.id == database_id and await database.do_ping():
+            if database.id == database_id:
                 return i, database
     raise Exception(
         f"The requested database with id {database_id} cannot run this query.",
