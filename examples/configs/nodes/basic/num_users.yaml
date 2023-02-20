@@ -5,5 +5,5 @@ query: |-
   SELECT SUM(num_users)
   FROM basic.transform.country_agg
 columns:
-  col0:
+  _col0:
     type: INT
