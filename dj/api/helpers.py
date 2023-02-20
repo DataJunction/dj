@@ -102,12 +102,13 @@ def get_catalog(session: Session, name: str) -> Catalog:
     return catalog
 
 
-async def get_query(
+async def get_query(  # pylint: disable=too-many-arguments
     session: Session,
     metric: str,
     dimensions: List[str],
     filters: List[str],
     database_name: Optional[str] = None,
+    check_database_online: bool = True,
 ) -> Tuple[ast.Query, Database]:
     """
     Get a query for a metric, dimensions, and filters
@@ -124,6 +125,7 @@ async def get_query(
         database_id=database_id,
         dimensions=dimensions,
         filters=filters,
+        check_database_online=check_database_online,
     )
     return query_ast, optimal_database
 

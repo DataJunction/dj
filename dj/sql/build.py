@@ -106,12 +106,13 @@ def get_dimensions_from_filters(filters: List[str]) -> Set[str]:
     return {parse_filter(filter_)[0] for filter_ in filters}
 
 
-async def get_query_for_node(  # pylint: disable=too-many-locals
+async def get_query_for_node(  # pylint: disable=too-many-locals,too-many-arguments
     session: Session,
     node: Node,
     groupbys: List[str],
     filters: List[str],
     database_name: Optional[str] = None,
+    check_database_online: bool = True,
 ) -> QueryCreate:
     """
     Return a DJ QueryCreate object from a given node.
@@ -153,6 +154,7 @@ async def get_query_for_node(  # pylint: disable=too-many-locals
         nodes,
         referenced_columns,
         database_name,
+        check_database_online=check_database_online,
     )
 
     # base query

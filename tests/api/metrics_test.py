@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
 from sqlmodel import Session
 
+from dj.models import Catalog
 from dj.models.column import Column
 from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.query import Database
@@ -146,14 +147,31 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
 
 
 def test_read_metrics_sql(
-    mocker: MockerFixture,
     session: Session,
     client: TestClient,
 ) -> None:
     """
     Test ``GET /metrics/{node_id}/sql/``.
     """
-    database = Database(name="test", URI="sqlite://")
+    database = Database(name="test", URI="blah://", tables=[])
+
+    source_node = Node(name="my_table", type=NodeType.SOURCE, current_version="1")
+    table = Table(
+        table="my_table",
+        catalog=Catalog(name="basic"),
+        schema="rev",
+        database=database,
+        columns=[Column(name="one", type=ColumnType["STR"])],
+    )
+    source_node_rev = NodeRevision(
+        name=source_node.name,
+        node=source_node,
+        version="1",
+        columns=[Column(name="one", type=ColumnType["STR"])],
+        type=NodeType.SOURCE,
+        tables=[table],
+    )
+
     node = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
     node_revision = NodeRevision(
         name=node.name,
@@ -164,16 +182,14 @@ def test_read_metrics_sql(
     )
     session.add(database)
     session.add(node_revision)
-    session.execute("CREATE TABLE my_table (one TEXT)")
+    session.add(source_node_rev)
     session.commit()
 
-    mocker.patch(
-        "dj.api.helpers.build_node_for_database",
-        return_value=(parse("SELECT COUNT(*) FROM my_table"), database),
-    )
-
-    response = client.get("/metrics/a-metric/sql/")
+    response = client.get("/metrics/a-metric/sql/?check_database_online=false")
     assert response.json() == {
         "database_id": 1,
-        "sql": "SELECT  COUNT(*) \n FROM my_table",
+        "sql": "SELECT  COUNT(*) AS col0 \n FROM basic.rev.my_table",
     }
+
+    response = client.get("/metrics/a-metric/sql/?check_database_online=true")
+    assert response.json()["message"] == "No active database was found"
