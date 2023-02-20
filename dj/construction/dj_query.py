@@ -3,17 +3,30 @@ Functions for making queries directly against DJ
 """
 
 from functools import reduce
-from typing import Optional, Tuple, cast
+from typing import Optional, Set, Tuple, cast
 
 from sqlmodel import Session
 
 from dj.construction.build import build_ast_for_database
 from dj.construction.utils import amenable_name, get_dj_node, make_name
+from dj.errors import DJException
 from dj.models.database import Database
-from dj.models.node import NodeType
+from dj.models.node import NodeRevision, NodeType
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.sql.parsing.backends.sqloxide import parse
+
+
+def try_get_dj_node(
+    session: Session,
+    name: str,
+    kinds: Set[NodeType],
+) -> Optional[NodeRevision]:
+    "wraps get dj node to return None if no node is found"
+    try:
+        return get_dj_node(session, name, kinds)
+    except DJException:
+        return None
 
 
 def _resolve_metric_nodes(session, col):
@@ -23,11 +36,10 @@ def _resolve_metric_nodes(session, col):
     """
     joins = []
     col_name = make_name(col.namespace, col.name.name)
-    if metric_node := get_dj_node(
+    if metric_node := try_get_dj_node(
         session,
         col_name,
         {NodeType.METRIC},
-        raise_=False,
     ):
         # if we found a metric node we need to check where it came from
         parent_select = cast(ast.Select, col.get_nearest_parent_of_type(ast.Select))
@@ -111,11 +123,10 @@ def _hoist_metric_source_tables(
             return  # pragma: no cover
         table = table.child
     table_name = make_name(table.namespace, table.name.name)
-    if table_node := get_dj_node(  # pragma: no cover
+    if table_node := try_get_dj_node(  # pragma: no cover
         session,
         table_name,
         {NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION},
-        raise_=False,
     ):
         source_cols = []
         for tbl_col in table_node.columns:
@@ -184,7 +195,7 @@ def _label_dimension_nodes(session, col):
     Mark dimensions as api columns for compile to acknowledge them
     """
     col_name = make_name(col.namespace)
-    if get_dj_node(session, col_name, {NodeType.DIMENSION}, raise_=False):
+    if try_get_dj_node(session, col_name, {NodeType.DIMENSION}):
         col.set_api_column(True)
 
 
