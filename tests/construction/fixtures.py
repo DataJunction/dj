@@ -381,7 +381,12 @@ def construction_session(  # pylint: disable=too-many-locals
         GROUP BY country
         """,
         columns=[
-            Column(name="country", type=ColumnType.STR),
+            Column(
+                name="country",
+                type=ColumnType.STR,
+                dimension=user_dim_ref,
+                dimension_column="country",
+            ),
             Column(name="num_users", type=ColumnType.INT),
         ],
     )
@@ -551,10 +556,33 @@ def construction_session(  # pylint: disable=too-many-locals
         FROM basic.transform.country_agg
         """,
         columns=[
-            Column(name="_col0", type=ColumnType.INT),
+            Column(name="col0", type=ColumnType.INT),
         ],
     )
-
+    num_users_us_join_mtc_ref = Node(
+        name="basic.num_users_us",
+        type=NodeType.METRIC,
+        current_version="1",
+    )
+    num_users_us_join_mtc = NodeRevision(
+        name=num_users_us_join_mtc_ref.name,
+        type=num_users_us_join_mtc_ref.type,
+        node=num_users_us_join_mtc_ref,
+        version="1",
+        query="""
+        SELECT SUM(a.num_users) as sum_users
+        FROM basic.transform.country_agg a
+        INNER JOIN basic.source.users b
+        ON a.country=b.country
+        WHERE a.country='US'
+        """,
+        columns=[
+            Column(
+                name="sum_users",
+                type=ColumnType.INT,
+            ),
+        ],
+    )
     customers_dim_ref = Node(
         name="dbt.dimension.customers",
         type=NodeType.DIMENSION,
@@ -687,6 +715,7 @@ def construction_session(  # pylint: disable=too-many-locals
     session.add(country_agg_tfm)
     session.add(users_src)
     session.add(comments_src)
+    session.add(num_users_us_join_mtc)
     session.add(num_comments_mtc)
     session.add(num_users_mtc)
     session.add(customers_dim)

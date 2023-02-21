@@ -24,7 +24,11 @@ def _check_col(
     """
     Check if a column can be had in the query
     """
-    namespace = make_name(col.namespace)  # str preceding the column name
+    namespace = (
+        make_name(col.table.namespace, col.table.name.name)
+        if isinstance(col.table, ast.Named)
+        else make_name(col.namespace)
+    )  # str preceding the column name
     cols = namespaces.get(namespace)
     if cols is None:  # there is just no namespace at all where the node could come from
         CompoundBuildException().append(

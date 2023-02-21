@@ -10,6 +10,7 @@ from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from dj.construction.build import build_node_for_database
+from dj.construction.dj_query import build_dj_metric_query
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, ErrorCode
@@ -125,6 +126,27 @@ async def get_query(  # pylint: disable=too-many-arguments
         dimensions=dimensions,
         filters=filters,
         check_database_online=check_database_online,
+    )
+    return query_ast, optimal_database
+
+
+async def get_dj_query(
+    session: Session,
+    query: str,
+    database_name: Optional[str] = None,
+) -> Tuple[ast.Query, Database]:
+    """
+    Get a query for a metric, dimensions, and filters
+    """
+    database_id = (
+        get_database_by_name(session=session, name=database_name).id
+        if database_name
+        else None
+    )
+    query_ast, optimal_database = await build_dj_metric_query(
+        session=session,
+        query=query,
+        database_id=database_id,
     )
     return query_ast, optimal_database
 

@@ -3,22 +3,12 @@ Query related functions.
 """
 
 import logging
-from datetime import datetime, timezone
 from typing import List, Tuple
 
 import sqlparse
 from sqlalchemy import text
-from sqlmodel import Session
 
-from dj.config import Settings
-from dj.models.query import (
-    ColumnMetadata,
-    Query,
-    QueryResults,
-    QueryState,
-    QueryWithResults,
-    StatementResults,
-)
+from dj.models.query import ColumnMetadata, Query
 from dj.typing import ColumnType, Description, SQLADialect, Stream, TypeEnum
 
 _logger = logging.getLogger(__name__)
@@ -84,49 +74,3 @@ def run_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
         output.append((sql, columns, stream))
 
     return output
-
-
-def process_query(
-    session: Session,
-    settings: Settings,
-    query: Query,
-) -> QueryWithResults:
-    """
-    Process a query.
-    """
-    query.scheduled = datetime.now(timezone.utc)
-    query.state = QueryState.SCHEDULED
-    query.executed_query = query.submitted_query
-
-    errors = []
-    query.started = datetime.now(timezone.utc)
-    try:
-        root = []
-        for sql, columns, stream in run_query(query):
-            rows = list(stream)
-            root.append(
-                StatementResults(
-                    sql=sql,
-                    columns=columns,
-                    rows=rows,
-                    row_count=len(rows),
-                ),
-            )
-        results = QueryResults(__root__=root)
-
-        query.state = QueryState.FINISHED
-        query.progress = 1.0
-    except Exception as ex:  # pylint: disable=broad-except
-        results = QueryResults(__root__=[])
-        query.state = QueryState.FAILED
-        errors = [str(ex)]
-
-    query.finished = datetime.now(timezone.utc)
-
-    session.add(query)
-    session.commit()
-    session.refresh(query)
-
-    settings.results_backend.add(str(query.id), results.json())
-
-    return QueryWithResults(results=results, errors=errors, **query.dict())

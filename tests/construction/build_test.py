@@ -34,10 +34,8 @@ async def test_build_node_for_database(node_name: str, db_id: int, mocker, reque
             select(Node).filter(Node.name == node_name),
         ),
     )[0]
-    print("NOO", node)
 
     if succeeds:
-        print("NOO curr", node.current)
         ast, _ = await build_node_for_database(
             construction_session,
             node.current,

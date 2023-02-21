@@ -37,6 +37,7 @@ def get_dj_node(
     try:
         match = session.exec(query).one()
     except NoResultFound:
+
         kind_msg = " or ".join(str(k) for k in kinds) if kinds else ""
         CompoundBuildException().append(
             error=DJError(
@@ -49,6 +50,7 @@ def get_dj_node(
 
     # found a node but it's not the right kind
     if match and kinds and (match.type not in kinds):
+
         CompoundBuildException().append(  # pragma: no cover
             error=DJError(
                 code=ErrorCode.NODE_TYPE_ERROR,
