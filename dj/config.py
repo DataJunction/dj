@@ -1,7 +1,6 @@
 """
 Configuration for the metric repository.
 """
-
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
@@ -14,7 +13,9 @@ from celery import Celery
 from pydantic import BaseSettings
 
 
-class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
+class Settings(
+    BaseSettings,
+):  # pylint: disable=too-few-public-methods #pragma: no cover
     """
     Configuration for the metric repository.
     """

@@ -22,7 +22,7 @@ from dj.api import (
     health,
     metrics,
     nodes,
-    queries,
+    query,
 )
 from dj.api.graphql.main import graphql_app
 from dj.errors import DJException
@@ -51,8 +51,8 @@ app = FastAPI(
 app.include_router(catalogs.router)
 app.include_router(databases.router)
 app.include_router(engines.router)
-app.include_router(queries.router)
 app.include_router(metrics.router)
+app.include_router(query.router)
 app.include_router(nodes.router)
 app.include_router(data.router)
 app.include_router(health.router)

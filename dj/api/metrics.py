@@ -5,17 +5,14 @@ Metric related APIs.
 from http import HTTPStatus
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Response
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, SQLModel, select
 
 from dj.api.helpers import get_query
-from dj.api.queries import save_query_and_run
-from dj.config import Settings
 from dj.models.node import Node, NodeType
-from dj.models.query import QueryCreate, QueryWithResults
 from dj.sql.dag import get_dimensions
-from dj.utils import UTCDatetime, get_session, get_settings
+from dj.utils import UTCDatetime, get_session
 
 router = APIRouter()
 
@@ -104,42 +101,6 @@ def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric
     """
     node = get_metric(session, name)
     return Metric.parse_node(node)
-
-
-@router.get("/metrics/{name}/data/", response_model=QueryWithResults)
-async def read_metrics_data(
-    name: str,
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    database_name: Optional[str] = None,
-    *,
-    session: Session = Depends(get_session),
-    settings: Settings = Depends(get_settings),
-    response: Response,
-    background_tasks: BackgroundTasks,
-) -> QueryWithResults:
-    """
-    Return data for a metric.
-    """
-    query_ast, optimal_database = await get_query(
-        session=session,
-        metric=name,
-        dimensions=dimensions,
-        filters=filters,
-        database_name=database_name,
-    )
-    create_query = QueryCreate(
-        submitted_query=str(query_ast),
-        database_id=optimal_database.id,
-    )
-
-    return save_query_and_run(
-        create_query,
-        session,
-        settings,
-        response,
-        background_tasks,
-    )
 
 
 @router.get("/metrics/{name}/sql/", response_model=TranslatedSQL)
