@@ -83,10 +83,7 @@ def _resolve_metric_nodes(session, col):
             None,
             metric_select,
         )
-        # we go through all the dep nodes directly in the metric's FROM
-        # we need to surface the node itself to join potential dims
-        # and to surface the node we need to source all its columns
-        # - in the metric for an implicit join
+
         for table in tables:
             joins += _hoist_metric_source_tables(
                 session,
@@ -113,6 +110,10 @@ def _hoist_metric_source_tables(
 ) -> List[ast.Join]:
     """
     Hoist tables in a metric query
+    we go through all the dep nodes directly in the metric's FROM
+    we need to surface the node itself to join potential dims
+    and to surface the node we need to source all its columns
+    - in the metric for an implicit join
     """
     joins = []
     if isinstance(table, ast.Select):

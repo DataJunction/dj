@@ -1,5 +1,5 @@
 """
-Metric related APIs.
+DJ Query related APIs.
 """
 
 from typing import Optional
@@ -23,7 +23,7 @@ class DJSQL(SQLModel):
     sql: str
 
 
-@router.get("/query/validate", response_model=TranslatedSQL)
+@router.post("/query/validate", response_model=TranslatedSQL)
 async def read_metrics_sql(
     dj_sql: DJSQL,
     *,

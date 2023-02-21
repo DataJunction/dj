@@ -27,12 +27,15 @@ def test_query_validate_errors(mocker, request, client) -> None:
     GROUP  BY age
     """
 
-    response = client.get("/query/validate", json={"sql": query.format("")})
+    response = client.post("/query/validate", json={"sql": query.format("")})
     assert response.status_code == 500
 
     assert "The name of the table in a Metric query must be `metrics`." in response.text
 
-    response = client.get("/query/validate", json={"sql": query.format(", oops_table")})
+    response = client.post(
+        "/query/validate",
+        json={"sql": query.format(", oops_table")},
+    )
     assert response.status_code == 500
 
     assert (
@@ -92,5 +95,5 @@ LEFT JOIN (SELECT  basic.comments.id,
  GROUP BY  age
     """
 
-    response = client.get("/query/validate", json={"sql": query})
+    response = client.post("/query/validate", json={"sql": query})
     assert compare_query_strings(response.json()["sql"], expected)
