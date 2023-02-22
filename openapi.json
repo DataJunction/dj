@@ -7,9 +7,163 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+g2c5d4fa"
+        "version": "0.0.post1.dev1+gb22602a"
     },
     "paths": {
+        "/catalogs/": {
+            "get": {
+                "summary": "List Catalogs",
+                "description": "List all available catalogs",
+                "operationId": "list_catalogs_catalogs__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response List Catalogs Catalogs  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/CatalogInfo"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Add Catalog",
+                "description": "Add a Catalog",
+                "operationId": "add_catalog_catalogs__post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CatalogInfo"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CatalogInfo"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/catalogs/{name}/": {
+            "get": {
+                "summary": "Read Catalog",
+                "description": "Return a catalog by name",
+                "operationId": "read_catalog_catalogs__name___get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CatalogInfo"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/catalogs/{name}/engines/": {
+            "post": {
+                "summary": "Add Engines To Catalog",
+                "description": "Attach one or more engines to a catalog",
+                "operationId": "add_engines_to_catalog_catalogs__name__engines__post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "title": "Data",
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/EngineInfo"
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CatalogInfo"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/databases/": {
             "get": {
                 "summary": "Read Databases",
@@ -33,80 +187,37 @@
                 }
             }
         },
-        "/queries/": {
-            "post": {
-                "summary": "Submit Query",
-                "description": "Run or schedule a query.\n\nThis endpoint is different from others in that it accepts both JSON and msgpack, and\ncan also return JSON or msgpack, depending on HTTP headers.",
-                "operationId": "submit_query_queries__post",
-                "parameters": [
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "Accept",
-                            "type": "string"
-                        },
-                        "name": "accept",
-                        "in": "header"
+        "/engines/": {
+            "get": {
+                "summary": "List Engines",
+                "description": "List all available engines",
+                "operationId": "list_engines_engines__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response List Engines Engines  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/EngineInfo"
+                                    }
+                                }
+                            }
+                        }
                     }
-                ],
+                }
+            },
+            "post": {
+                "summary": "Add Engine",
+                "description": "Add an Engine",
+                "operationId": "add_engine_engines__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
                             "schema": {
-                                "title": "QueryCreate",
-                                "required": [
-                                    "database_id",
-                                    "submitted_query"
-                                ],
-                                "type": "object",
-                                "properties": {
-                                    "database_id": {
-                                        "title": "Database Id",
-                                        "type": "integer"
-                                    },
-                                    "catalog": {
-                                        "title": "Catalog",
-                                        "type": "string"
-                                    },
-                                    "schema": {
-                                        "title": "Schema",
-                                        "type": "string"
-                                    },
-                                    "submitted_query": {
-                                        "title": "Submitted Query",
-                                        "type": "string"
-                                    }
-                                },
-                                "description": "Model for submitted queries."
-                            }
-                        },
-                        "application/msgpack": {
-                            "schema": {
-                                "title": "QueryCreate",
-                                "required": [
-                                    "database_id",
-                                    "submitted_query"
-                                ],
-                                "type": "object",
-                                "properties": {
-                                    "database_id": {
-                                        "title": "Database Id",
-                                        "type": "integer"
-                                    },
-                                    "catalog": {
-                                        "title": "Catalog",
-                                        "type": "string"
-                                    },
-                                    "schema": {
-                                        "title": "Schema",
-                                        "type": "string"
-                                    },
-                                    "submitted_query": {
-                                        "title": "Submitted Query",
-                                        "type": "string"
-                                    }
-                                },
-                                "description": "Model for submitted queries."
+                                "$ref": "#/components/schemas/EngineInfo"
                             }
                         }
                     },
@@ -114,14 +225,13 @@
                 },
                 "responses": {
                     "200": {
-                        "description": "Return results as JSON or msgpack",
+                        "description": "Successful Response",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/QueryWithResults"
+                                    "$ref": "#/components/schemas/EngineInfo"
                                 }
-                            },
-                            "application/msgpack": {}
+                            }
                         }
                     },
                     "422": {
@@ -137,41 +247,29 @@
                 }
             }
         },
-        "/queries/{query_id}/": {
+        "/engines/{name}/{version}/": {
             "get": {
-                "summary": "Read Query",
-                "description": "Fetch information about a query.\n\nFor paginated queries we move the data from the results backend to the cache for a\nshort period, anticipating additional requests.",
-                "operationId": "read_query_queries__query_id___get",
+                "summary": "List Engine",
+                "description": "Return an engine by name and version",
+                "operationId": "list_engine_engines__name___version___get",
                 "parameters": [
                     {
                         "required": true,
                         "schema": {
-                            "title": "Query Id",
-                            "type": "string",
-                            "format": "uuid"
+                            "title": "Name",
+                            "type": "string"
                         },
-                        "name": "query_id",
+                        "name": "name",
                         "in": "path"
                     },
                     {
-                        "required": false,
+                        "required": true,
                         "schema": {
-                            "title": "Limit",
-                            "type": "integer",
-                            "default": 0
+                            "title": "Version",
+                            "type": "string"
                         },
-                        "name": "limit",
-                        "in": "query"
-                    },
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "Offset",
-                            "type": "integer",
-                            "default": 0
-                        },
-                        "name": "offset",
-                        "in": "query"
+                        "name": "version",
+                        "in": "path"
                     }
                 ],
                 "responses": {
@@ -180,7 +278,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/QueryWithResults"
+                                    "$ref": "#/components/schemas/EngineInfo"
                                 }
                             }
                         }
@@ -221,19 +319,19 @@
                 }
             }
         },
-        "/metrics/{node_id}/": {
+        "/metrics/{name}/": {
             "get": {
                 "summary": "Read Metric",
-                "description": "Return a metric by ID.",
-                "operationId": "read_metric_metrics__node_id___get",
+                "description": "Return a metric by name.",
+                "operationId": "read_metric_metrics__name___get",
                 "parameters": [
                     {
                         "required": true,
                         "schema": {
-                            "title": "Node Id",
-                            "type": "integer"
+                            "title": "Name",
+                            "type": "string"
                         },
-                        "name": "node_id",
+                        "name": "name",
                         "in": "path"
                     }
                 ],
@@ -261,54 +359,64 @@
                 }
             }
         },
-        "/metrics/{node_id}/data/": {
+        "/metrics/{name}/sql/": {
             "get": {
-                "summary": "Read Metrics Data",
-                "description": "Return data for a metric.",
-                "operationId": "read_metrics_data_metrics__node_id__data__get",
+                "summary": "Read Metrics Sql",
+                "description": "Return SQL for a metric.\n\nA database can be optionally specified. If no database is specified the optimal one\nwill be used.",
+                "operationId": "read_metrics_sql_metrics__name__sql__get",
                 "parameters": [
                     {
                         "required": true,
                         "schema": {
-                            "title": "Node Id",
-                            "type": "integer"
+                            "title": "Name",
+                            "type": "string"
                         },
-                        "name": "node_id",
+                        "name": "name",
                         "in": "path"
                     },
                     {
                         "required": false,
                         "schema": {
-                            "title": "Database Id",
-                            "type": "integer"
-                        },
-                        "name": "database_id",
-                        "in": "query"
-                    },
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "D",
+                            "title": "Dimensions",
                             "type": "array",
                             "items": {
                                 "type": "string"
                             },
                             "default": []
                         },
-                        "name": "d",
+                        "name": "dimensions",
                         "in": "query"
                     },
                     {
                         "required": false,
                         "schema": {
-                            "title": "F",
+                            "title": "Filters",
                             "type": "array",
                             "items": {
                                 "type": "string"
                             },
                             "default": []
                         },
-                        "name": "f",
+                        "name": "filters",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Database Name",
+                            "type": "string"
+                        },
+                        "name": "database_name",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Check Database Online",
+                            "type": "boolean",
+                            "default": true
+                        },
+                        "name": "check_database_online",
                         "in": "query"
                     }
                 ],
@@ -318,7 +426,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/QueryWithResults"
+                                    "$ref": "#/components/schemas/TranslatedSQL"
                                 }
                             }
                         }
@@ -336,57 +444,21 @@
                 }
             }
         },
-        "/metrics/{node_id}/sql/": {
-            "get": {
+        "/query/validate": {
+            "post": {
                 "summary": "Read Metrics Sql",
-                "description": "Return SQL for a metric.\n\nA database can be optionally specified. If no database is specified the optimal one\nwill be used.",
-                "operationId": "read_metrics_sql_metrics__node_id__sql__get",
-                "parameters": [
-                    {
-                        "required": true,
-                        "schema": {
-                            "title": "Node Id",
-                            "type": "integer"
-                        },
-                        "name": "node_id",
-                        "in": "path"
+                "description": "Return SQL for a DJ Query.\n\nA database can be optionally specified. If no database is specified the optimal one\nwill be used.",
+                "operationId": "read_metrics_sql_query_validate_post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/DJSQL"
+                            }
+                        }
                     },
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "Database Id",
-                            "type": "integer"
-                        },
-                        "name": "database_id",
-                        "in": "query"
-                    },
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "D",
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            },
-                            "default": []
-                        },
-                        "name": "d",
-                        "in": "query"
-                    },
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "F",
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            },
-                            "default": []
-                        },
-                        "name": "f",
-                        "in": "query"
-                    }
-                ],
+                    "required": true
+                },
                 "responses": {
                     "200": {
                         "description": "Successful Response",
@@ -394,6 +466,53 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/TranslatedSQL"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/validate/": {
+            "post": {
+                "summary": "Validate Node",
+                "description": "Validate a node.",
+                "operationId": "validate_node_nodes_validate__post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "title": "Data",
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/components/schemas/NodeRevisionBase"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/NodeRevision"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeValidation"
                                 }
                             }
                         }
@@ -425,8 +544,559 @@
                                     "title": "Response Read Nodes Nodes  Get",
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/components/schemas/NodeMetadata"
+                                        "$ref": "#/components/schemas/NodeOutput"
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Create Node",
+                "description": "Create a node.",
+                "operationId": "create_node_nodes__post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "title": "Data",
+                                "anyOf": [
+                                    {
+                                        "$ref": "#/components/schemas/CreateSourceNode"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/CreateCubeNode"
+                                    },
+                                    {
+                                        "$ref": "#/components/schemas/CreateNode"
+                                    }
+                                ]
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeOutput"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/{name}/": {
+            "get": {
+                "summary": "Read Node",
+                "description": "Show the active version of the specified node.",
+                "operationId": "read_node_nodes__name___get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeOutput"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "patch": {
+                "summary": "Update Node",
+                "description": "Update a node.",
+                "operationId": "update_node_nodes__name___patch",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateNode"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeOutput"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/{name}/materialization/": {
+            "post": {
+                "summary": "Upsert Node Materialization Config",
+                "description": "Update materialization config of the specified node.",
+                "operationId": "upsert_node_materialization_config_nodes__name__materialization__post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpsertMaterializationConfig"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/{name}/revisions/": {
+            "get": {
+                "summary": "List Node Revisions",
+                "description": "List all revisions for the node.",
+                "operationId": "list_node_revisions_nodes__name__revisions__get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response List Node Revisions Nodes  Name  Revisions  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/NodeRevisionOutput"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/{name}/columns/{column}/": {
+            "post": {
+                "summary": "Add Dimension To Node",
+                "description": "Add information to a node column",
+                "operationId": "add_dimension_to_node_nodes__name__columns__column___post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    },
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Column",
+                            "type": "string"
+                        },
+                        "name": "column",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Dimension",
+                            "type": "string"
+                        },
+                        "name": "dimension",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Dimension Column",
+                            "type": "string"
+                        },
+                        "name": "dimension_column",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/{name}/table/": {
+            "post": {
+                "summary": "Add Table To Node",
+                "description": "Add a table to a node",
+                "operationId": "add_table_to_node_nodes__name__table__post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateTable"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/similarity/{node1_name}/{node2_name}": {
+            "get": {
+                "summary": "Node Similarity",
+                "description": "Compare two nodes by how similar their queries are",
+                "operationId": "node_similarity_nodes_similarity__node1_name___node2_name__get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node1 Name",
+                            "type": "string"
+                        },
+                        "name": "node1_name",
+                        "in": "path"
+                    },
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node2 Name",
+                            "type": "string"
+                        },
+                        "name": "node2_name",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/{name}/downstream/": {
+            "get": {
+                "summary": "Downstream Nodes",
+                "description": "List all nodes that are downstream from the given node, filterable by type.",
+                "operationId": "downstream_nodes_nodes__name__downstream__get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "$ref": "#/components/schemas/NodeType"
+                        },
+                        "name": "node_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response Downstream Nodes Nodes  Name  Downstream  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/NodeOutput"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/data/availability/{node_name}/": {
+            "post": {
+                "summary": "Add Availability",
+                "description": "Add an availability state to a node",
+                "operationId": "add_availability_data_availability__node_name___post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node Name",
+                            "type": "string"
+                        },
+                        "name": "node_name",
+                        "in": "path"
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/AvailabilityStateBase"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/health/": {
+            "get": {
+                "summary": "Health",
+                "description": "Healthcheck for services.",
+                "operationId": "health_health__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response Health Health  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/HealthCheck"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/cubes/{name}/": {
+            "get": {
+                "summary": "Read Cube",
+                "description": "Get information on a cube",
+                "operationId": "read_cube_cubes__name___get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/CubeRevisionMetadata"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
                                 }
                             }
                         }
@@ -470,8 +1140,196 @@
     },
     "components": {
         "schemas": {
-            "ColumnMetadata": {
-                "title": "ColumnMetadata",
+            "AvailabilityState": {
+                "title": "AvailabilityState",
+                "required": [
+                    "catalog",
+                    "table",
+                    "valid_through_ts",
+                    "max_partition",
+                    "min_partition"
+                ],
+                "type": "object",
+                "properties": {
+                    "catalog": {
+                        "title": "Catalog",
+                        "type": "string"
+                    },
+                    "schema_": {
+                        "title": "Schema ",
+                        "type": "string"
+                    },
+                    "table": {
+                        "title": "Table",
+                        "type": "string"
+                    },
+                    "valid_through_ts": {
+                        "title": "Valid Through Ts",
+                        "type": "integer"
+                    },
+                    "max_partition": {
+                        "title": "Max Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "min_partition": {
+                        "title": "Min Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    },
+                    "updated_at": {
+                        "title": "Updated At",
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "description": "The availability of materialized data for a node"
+            },
+            "AvailabilityStateBase": {
+                "title": "AvailabilityStateBase",
+                "required": [
+                    "catalog",
+                    "table",
+                    "valid_through_ts",
+                    "max_partition",
+                    "min_partition"
+                ],
+                "type": "object",
+                "properties": {
+                    "catalog": {
+                        "title": "Catalog",
+                        "type": "string"
+                    },
+                    "schema_": {
+                        "title": "Schema ",
+                        "type": "string"
+                    },
+                    "table": {
+                        "title": "Table",
+                        "type": "string"
+                    },
+                    "valid_through_ts": {
+                        "title": "Valid Through Ts",
+                        "type": "integer"
+                    },
+                    "max_partition": {
+                        "title": "Max Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "min_partition": {
+                        "title": "Min Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "description": "An availability state base"
+            },
+            "Catalog": {
+                "title": "Catalog",
+                "required": [
+                    "name"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    },
+                    "uuid": {
+                        "title": "Uuid",
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "title": "Created At",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "title": "Updated At",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "extra_params": {
+                        "title": "Extra Params",
+                        "type": "object",
+                        "default": {}
+                    }
+                },
+                "description": "A catalog."
+            },
+            "CatalogInfo": {
+                "title": "CatalogInfo",
+                "required": [
+                    "name"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "engines": {
+                        "title": "Engines",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/EngineInfo"
+                        },
+                        "default": []
+                    }
+                },
+                "description": "Class for catalog creation"
+            },
+            "Column": {
+                "title": "Column",
+                "required": [
+                    "name",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "title": "Type",
+                        "type": "string"
+                    },
+                    "dimension_id": {
+                        "title": "Dimension Id",
+                        "type": "integer"
+                    },
+                    "dimension_column": {
+                        "title": "Dimension Column",
+                        "type": "string"
+                    }
+                },
+                "description": "A column.\n\nColumns can be physical (associated with ``Table`` objects) or abstract (associated\nwith ``Node`` objects)."
+            },
+            "CreateColumn": {
+                "title": "CreateColumn",
                 "required": [
                     "name",
                     "type"
@@ -483,29 +1341,271 @@
                         "type": "string"
                     },
                     "type": {
-                        "$ref": "#/components/schemas/ColumnType"
+                        "title": "Type",
+                        "type": "string"
                     }
                 },
-                "description": "A simple model for column metadata."
+                "description": "A column creation request"
             },
-            "ColumnType": {
-                "title": "ColumnType",
-                "enum": [
-                    "BYTES",
-                    "STR",
-                    "FLOAT",
-                    "INT",
-                    "DECIMAL",
-                    "BOOL",
-                    "TIMESTAMP",
-                    "DATE",
-                    "TIME",
-                    "TIMEDELTA",
-                    "LIST",
-                    "DICT"
+            "CreateCubeNode": {
+                "title": "CreateCubeNode",
+                "required": [
+                    "cube_elements",
+                    "description",
+                    "mode",
+                    "name",
+                    "type"
                 ],
-                "type": "string",
-                "description": "\n    Types for columns.\n\n    These represent the values from the ``python_type`` attribute in SQLAlchemy columns.\n    "
+                "type": "object",
+                "properties": {
+                    "display_name": {
+                        "title": "Display Name",
+                        "type": "string"
+                    },
+                    "cube_elements": {
+                        "title": "Cube Elements",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string"
+                    },
+                    "mode": {
+                        "$ref": "#/components/schemas/NodeMode"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/NodeType"
+                    }
+                },
+                "description": "A create object for cube nodes"
+            },
+            "CreateNode": {
+                "title": "CreateNode",
+                "required": [
+                    "description",
+                    "mode",
+                    "name",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
+                    "display_name": {
+                        "title": "Display Name",
+                        "type": "string"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string"
+                    },
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "mode": {
+                        "$ref": "#/components/schemas/NodeMode"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/NodeType"
+                    }
+                },
+                "description": "Create non-source node object."
+            },
+            "CreateSourceNode": {
+                "title": "CreateSourceNode",
+                "required": [
+                    "columns",
+                    "description",
+                    "mode",
+                    "name",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
+                    "columns": {
+                        "title": "Columns",
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/SourceNodeColumnType"
+                        }
+                    },
+                    "display_name": {
+                        "title": "Display Name",
+                        "type": "string"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string"
+                    },
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "mode": {
+                        "$ref": "#/components/schemas/NodeMode"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/NodeType"
+                    }
+                },
+                "description": "A create object for source nodes"
+            },
+            "CreateTable": {
+                "title": "CreateTable",
+                "required": [
+                    "table",
+                    "database_name",
+                    "catalog_name",
+                    "columns"
+                ],
+                "type": "object",
+                "properties": {
+                    "schema": {
+                        "title": "Schema",
+                        "type": "string"
+                    },
+                    "table": {
+                        "title": "Table",
+                        "type": "string"
+                    },
+                    "cost": {
+                        "title": "Cost",
+                        "type": "number",
+                        "default": 1.0
+                    },
+                    "database_name": {
+                        "title": "Database Name",
+                        "type": "string"
+                    },
+                    "catalog_name": {
+                        "title": "Catalog Name",
+                        "type": "string"
+                    },
+                    "columns": {
+                        "title": "Columns",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CreateColumn"
+                        }
+                    }
+                },
+                "description": "Create table input"
+            },
+            "CubeElementMetadata": {
+                "title": "CubeElementMetadata",
+                "required": [
+                    "id",
+                    "current_version",
+                    "name"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    },
+                    "current_version": {
+                        "title": "Current Version",
+                        "type": "string"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    }
+                },
+                "description": "Metadata for an element in a cube"
+            },
+            "CubeRevisionMetadata": {
+                "title": "CubeRevisionMetadata",
+                "required": [
+                    "node_revision_id",
+                    "node_id",
+                    "type",
+                    "name",
+                    "display_name",
+                    "version",
+                    "cube_elements",
+                    "updated_at"
+                ],
+                "type": "object",
+                "properties": {
+                    "node_revision_id": {
+                        "title": "Node Revision Id",
+                        "type": "integer"
+                    },
+                    "node_id": {
+                        "title": "Node Id",
+                        "type": "integer"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/NodeType"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "title": "Display Name",
+                        "type": "string"
+                    },
+                    "version": {
+                        "title": "Version",
+                        "type": "string"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string",
+                        "default": ""
+                    },
+                    "availability": {
+                        "$ref": "#/components/schemas/AvailabilityState"
+                    },
+                    "cube_elements": {
+                        "title": "Cube Elements",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CubeElementMetadata"
+                        }
+                    },
+                    "updated_at": {
+                        "title": "Updated At",
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "description": "Metadata for a cube node"
+            },
+            "DJSQL": {
+                "title": "DJSQL",
+                "required": [
+                    "sql"
+                ],
+                "type": "object",
+                "properties": {
+                    "database_name": {
+                        "title": "Database Name",
+                        "type": "string"
+                    },
+                    "sql": {
+                        "title": "Sql",
+                        "type": "string"
+                    }
+                },
+                "description": "Class for DJ SQL request."
             },
             "Database": {
                 "title": "Database",
@@ -570,6 +1670,29 @@
                 },
                 "description": "A database.\n\nA simple example:\n\n    name: druid\n    description: An Apache Druid database\n    URI: druid://localhost:8082/druid/v2/sql/\n    read-only: true\n    async_: false\n    cost: 1.0"
             },
+            "EngineInfo": {
+                "title": "EngineInfo",
+                "required": [
+                    "name",
+                    "version"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "version": {
+                        "title": "Version",
+                        "type": "string"
+                    },
+                    "uri": {
+                        "title": "Uri",
+                        "type": "string"
+                    }
+                },
+                "description": "Class for engine creation"
+            },
             "HTTPValidationError": {
                 "title": "HTTPValidationError",
                 "type": "object",
@@ -583,11 +1706,58 @@
                     }
                 }
             },
+            "HealthCheck": {
+                "title": "HealthCheck",
+                "required": [
+                    "name",
+                    "status"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/HealthcheckStatus"
+                    }
+                },
+                "description": "A healthcheck response."
+            },
+            "HealthcheckStatus": {
+                "title": "HealthcheckStatus",
+                "enum": [
+                    "ok",
+                    "failed"
+                ],
+                "type": "string",
+                "description": "Possible health statuses."
+            },
+            "MaterializationConfigOutput": {
+                "title": "MaterializationConfigOutput",
+                "required": [
+                    "engine",
+                    "config"
+                ],
+                "type": "object",
+                "properties": {
+                    "engine": {
+                        "$ref": "#/components/schemas/EngineInfo"
+                    },
+                    "config": {
+                        "title": "Config",
+                        "type": "string"
+                    }
+                },
+                "description": "Output for materialization config."
+            },
             "Metric": {
                 "title": "Metric",
                 "required": [
                     "id",
                     "name",
+                    "display_name",
+                    "current_version",
                     "created_at",
                     "updated_at",
                     "query",
@@ -601,6 +1771,14 @@
                     },
                     "name": {
                         "title": "Name",
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "title": "Display Name",
+                        "type": "string"
+                    },
+                    "current_version": {
+                        "title": "Current Version",
                         "type": "string"
                     },
                     "description": {
@@ -632,24 +1810,218 @@
                 },
                 "description": "Class for a metric."
             },
-            "NodeMetadata": {
-                "title": "NodeMetadata",
+            "Node": {
+                "title": "Node",
                 "required": [
-                    "id",
                     "name",
-                    "created_at",
-                    "updated_at",
-                    "type",
-                    "columns"
+                    "type"
                 ],
                 "type": "object",
                 "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/NodeType"
+                    },
+                    "display_name": {
+                        "title": "Display Name",
+                        "maxLength": 100,
+                        "type": "string"
+                    },
                     "id": {
                         "title": "Id",
                         "type": "integer"
                     },
+                    "current_version": {
+                        "title": "Current Version",
+                        "type": "string",
+                        "default": "v0.1"
+                    },
+                    "created_at": {
+                        "title": "Created At",
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "description": "Node that acts as an umbrella for all node revisions"
+            },
+            "NodeMode": {
+                "title": "NodeMode",
+                "enum": [
+                    "published",
+                    "draft"
+                ],
+                "type": "string",
+                "description": "Node mode.\n\nA node can be in one of the following modes:\n\n1. PUBLISHED - Must be valid and not cause any child nodes to be invalid\n2. DRAFT - Can be invalid, have invalid parents, and include dangling references"
+            },
+            "NodeOutput": {
+                "title": "NodeOutput",
+                "required": [
+                    "current",
+                    "created_at"
+                ],
+                "type": "object",
+                "properties": {
+                    "current": {
+                        "title": "Current",
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/NodeRevisionOutput"
+                            }
+                        ],
+                        "flatten": true
+                    },
+                    "created_at": {
+                        "title": "Created At",
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "description": "Output for a node that shows the current revision."
+            },
+            "NodeRevision": {
+                "title": "NodeRevision",
+                "required": [
+                    "name",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
                     "name": {
                         "title": "Name",
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "title": "Display Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/NodeType"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string",
+                        "default": ""
+                    },
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "mode": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/NodeMode"
+                            }
+                        ],
+                        "default": "published"
+                    },
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    },
+                    "version": {
+                        "title": "Version",
+                        "type": "string",
+                        "default": "v0.1"
+                    },
+                    "node_id": {
+                        "title": "Node Id",
+                        "type": "integer"
+                    },
+                    "status": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/NodeStatus"
+                            }
+                        ],
+                        "default": "invalid"
+                    },
+                    "updated_at": {
+                        "title": "Updated At",
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "description": "A node revision."
+            },
+            "NodeRevisionBase": {
+                "title": "NodeRevisionBase",
+                "required": [
+                    "name",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "title": "Display Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/NodeType"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string",
+                        "default": ""
+                    },
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "mode": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/NodeMode"
+                            }
+                        ],
+                        "default": "published"
+                    }
+                },
+                "description": "A base node revision."
+            },
+            "NodeRevisionOutput": {
+                "title": "NodeRevisionOutput",
+                "required": [
+                    "node_revision_id",
+                    "node_id",
+                    "type",
+                    "name",
+                    "display_name",
+                    "version",
+                    "columns",
+                    "tables",
+                    "updated_at",
+                    "materialization_configs"
+                ],
+                "type": "object",
+                "properties": {
+                    "node_revision_id": {
+                        "title": "Node Revision Id",
+                        "type": "integer"
+                    },
+                    "node_id": {
+                        "title": "Node Id",
+                        "type": "integer"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/NodeType"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "display_name": {
+                        "title": "Display Name",
+                        "type": "string"
+                    },
+                    "version": {
+                        "title": "Version",
                         "type": "string"
                     },
                     "description": {
@@ -657,22 +2029,12 @@
                         "type": "string",
                         "default": ""
                     },
-                    "created_at": {
-                        "title": "Created At",
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "updated_at": {
-                        "title": "Updated At",
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "type": {
-                        "$ref": "#/components/schemas/NodeType"
-                    },
                     "query": {
                         "title": "Query",
                         "type": "string"
+                    },
+                    "availability": {
+                        "$ref": "#/components/schemas/AvailabilityState"
                     },
                     "columns": {
                         "title": "Columns",
@@ -680,9 +2042,37 @@
                         "items": {
                             "$ref": "#/components/schemas/SimpleColumn"
                         }
+                    },
+                    "tables": {
+                        "title": "Tables",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/TableOutput"
+                        }
+                    },
+                    "updated_at": {
+                        "title": "Updated At",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "materialization_configs": {
+                        "title": "Materialization Configs",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MaterializationConfigOutput"
+                        }
                     }
                 },
-                "description": "A node with information about columns and if it is a metric."
+                "description": "Output for a node revision with information about columns and if it is a metric."
+            },
+            "NodeStatus": {
+                "title": "NodeStatus",
+                "enum": [
+                    "valid",
+                    "invalid"
+                ],
+                "type": "string",
+                "description": "Node status.\n\nA node can have one of the following statuses:\n\n1. VALID - All references to other nodes and node columns are valid\n2. INVALID - One or more parent nodes are incompatible or do not exist"
             },
             "NodeType": {
                 "title": "NodeType",
@@ -690,123 +2080,53 @@
                     "source",
                     "transform",
                     "metric",
-                    "dimension"
+                    "dimension",
+                    "cube"
                 ],
                 "type": "string",
-                "description": "\n    Node type.\n\n    A node can have 4 types, currently:\n\n    1. SOURCE nodes are root nodes in the DAG, and point to tables or views in a DB.\n    2. TRANSFORM nodes are SQL transformations, reading from SOURCE/TRANSFORM nodes.\n    3. METRIC nodes are leaves in the DAG, and have a single aggregation query.\n    4. DIMENSION nodes are special SOURCE nodes that can be auto-joined with METRICS.\n    "
+                "description": "Node type.\n\nA node can have 4 types, currently:\n\n1. SOURCE nodes are root nodes in the DAG, and point to tables or views in a DB.\n2. TRANSFORM nodes are SQL transformations, reading from SOURCE/TRANSFORM nodes.\n3. METRIC nodes are leaves in the DAG, and have a single aggregation query.\n4. DIMENSION nodes are special SOURCE nodes that can be auto-joined with METRICS.\n5. CUBE nodes contain a reference to a set of METRICS and a set of DIMENSIONS."
             },
-            "QueryResults": {
-                "title": "QueryResults",
-                "type": "array",
-                "items": {
-                    "$ref": "#/components/schemas/StatementResults"
-                },
-                "description": "Results for a given query."
-            },
-            "QueryState": {
-                "title": "QueryState",
-                "enum": [
-                    "UNKNOWN",
-                    "ACCEPTED",
-                    "SCHEDULED",
-                    "RUNNING",
-                    "FINISHED",
-                    "CANCELED",
-                    "FAILED"
-                ],
-                "type": "string",
-                "description": "\n    Different states of a query.\n    "
-            },
-            "QueryWithResults": {
-                "title": "QueryWithResults",
+            "NodeValidation": {
+                "title": "NodeValidation",
                 "required": [
-                    "database_id",
-                    "id",
-                    "submitted_query",
-                    "results",
-                    "errors"
+                    "message",
+                    "status",
+                    "node",
+                    "node_revision",
+                    "dependencies",
+                    "columns"
                 ],
                 "type": "object",
                 "properties": {
-                    "database_id": {
-                        "title": "Database Id",
-                        "type": "integer"
-                    },
-                    "catalog": {
-                        "title": "Catalog",
+                    "message": {
+                        "title": "Message",
                         "type": "string"
                     },
-                    "schema": {
-                        "title": "Schema",
-                        "type": "string"
+                    "status": {
+                        "$ref": "#/components/schemas/NodeStatus"
                     },
-                    "id": {
-                        "title": "Id",
-                        "type": "string",
-                        "format": "uuid"
+                    "node": {
+                        "$ref": "#/components/schemas/Node"
                     },
-                    "submitted_query": {
-                        "title": "Submitted Query",
-                        "type": "string"
+                    "node_revision": {
+                        "$ref": "#/components/schemas/NodeRevision"
                     },
-                    "executed_query": {
-                        "title": "Executed Query",
-                        "type": "string"
-                    },
-                    "scheduled": {
-                        "title": "Scheduled",
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "started": {
-                        "title": "Started",
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "finished": {
-                        "title": "Finished",
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "state": {
-                        "allOf": [
-                            {
-                                "$ref": "#/components/schemas/QueryState"
-                            }
-                        ],
-                        "default": "UNKNOWN"
-                    },
-                    "progress": {
-                        "title": "Progress",
-                        "type": "number",
-                        "default": 0.0
-                    },
-                    "results": {
-                        "$ref": "#/components/schemas/QueryResults"
-                    },
-                    "next": {
-                        "title": "Next",
-                        "maxLength": 65536,
-                        "minLength": 1,
-                        "type": "string",
-                        "format": "uri"
-                    },
-                    "previous": {
-                        "title": "Previous",
-                        "maxLength": 65536,
-                        "minLength": 1,
-                        "type": "string",
-                        "format": "uri"
-                    },
-                    "errors": {
-                        "title": "Errors",
+                    "dependencies": {
+                        "title": "Dependencies",
                         "type": "array",
                         "items": {
-                            "type": "string"
+                            "$ref": "#/components/schemas/NodeRevisionOutput"
+                        }
+                    },
+                    "columns": {
+                        "title": "Columns",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Column"
                         }
                     }
                 },
-                "description": "Model for query with results."
+                "description": "A validation of a provided node definition"
             },
             "SimpleColumn": {
                 "title": "SimpleColumn",
@@ -821,46 +2141,51 @@
                         "type": "string"
                     },
                     "type": {
-                        "$ref": "#/components/schemas/ColumnType"
+                        "title": "Type",
+                        "type": "string"
                     }
                 },
                 "description": "A simplified column schema, without ID or dimensions."
             },
-            "StatementResults": {
-                "title": "StatementResults",
-                "required": [
-                    "sql",
-                    "columns",
-                    "rows"
-                ],
+            "SourceNodeColumnType": {
+                "title": "SourceNodeColumnType",
                 "type": "object",
                 "properties": {
-                    "sql": {
-                        "title": "Sql",
+                    "type": {
+                        "title": "Type",
                         "type": "string"
                     },
-                    "columns": {
-                        "title": "Columns",
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/ColumnMetadata"
-                        }
-                    },
-                    "rows": {
-                        "title": "Rows",
-                        "type": "array",
-                        "items": {
-                            "type": "array",
-                            "items": {}
-                        }
-                    },
-                    "row_count": {
-                        "title": "Row Count",
-                        "type": "integer",
-                        "default": 0
+                    "dimension": {
+                        "title": "Dimension",
+                        "type": "string"
                     }
                 },
-                "description": "Results for a given statement.\n\nThis contains the SQL, column names and types, and rows"
+                "additionalProperties": false
+            },
+            "TableOutput": {
+                "title": "TableOutput",
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    },
+                    "catalog": {
+                        "$ref": "#/components/schemas/Catalog"
+                    },
+                    "schema_": {
+                        "title": "Schema ",
+                        "type": "string"
+                    },
+                    "table": {
+                        "title": "Table",
+                        "type": "string"
+                    },
+                    "database": {
+                        "$ref": "#/components/schemas/Database"
+                    }
+                },
+                "description": "Output for table information."
             },
             "TranslatedSQL": {
                 "title": "TranslatedSQL",
@@ -880,6 +2205,60 @@
                     }
                 },
                 "description": "Class for SQL generated from a given metric."
+            },
+            "UpdateNode": {
+                "title": "UpdateNode",
+                "type": "object",
+                "properties": {
+                    "columns": {
+                        "title": "Columns",
+                        "type": "object",
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/SourceNodeColumnType"
+                        }
+                    },
+                    "display_name": {
+                        "title": "Display Name",
+                        "type": "string"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string"
+                    },
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "mode": {
+                        "$ref": "#/components/schemas/NodeMode"
+                    }
+                },
+                "additionalProperties": false,
+                "description": "Update node object where all fields are optional"
+            },
+            "UpsertMaterializationConfig": {
+                "title": "UpsertMaterializationConfig",
+                "required": [
+                    "engine_name",
+                    "engine_version",
+                    "config"
+                ],
+                "type": "object",
+                "properties": {
+                    "engine_name": {
+                        "title": "Engine Name",
+                        "type": "string"
+                    },
+                    "engine_version": {
+                        "title": "Engine Version",
+                        "type": "string"
+                    },
+                    "config": {
+                        "title": "Config",
+                        "type": "string"
+                    }
+                },
+                "description": "An upsert object for materialization configs"
             },
             "ValidationError": {
                 "title": "ValidationError",
