@@ -635,6 +635,8 @@ class NodeRevisionOutput(SQLModel):
     name: str
     display_name: str
     version: str
+    status: NodeStatus
+    mode: NodeMode
     description: str = ""
     query: Optional[str] = None
     availability: Optional[AvailabilityState] = None
@@ -664,7 +666,6 @@ class NodeValidation(SQLModel):
 
     message: str
     status: NodeStatus
-    node: Node
     node_revision: NodeRevision
     dependencies: List[NodeRevisionOutput]
     columns: List[Column]

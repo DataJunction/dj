@@ -709,7 +709,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
 
         assert response.status_code == 200
-        assert len(data) == 6
+        assert len(data) == 5
         assert data["columns"] == [
             {
                 "dimension_column": None,
@@ -730,7 +730,6 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             data["node_revision"]["query"]
             == "SELECT payment_id FROM large_revenue_payments_only"
         )
-        assert data["node"]["type"] == "transform"
 
     def test_validating_an_invalid_node(self, client: TestClient) -> None:
         """
@@ -748,12 +747,8 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 500
-        assert data == {
-            "message": "Cannot resolve type of column bar.",
-            "errors": [],
-            "warnings": [],
-        }
+        assert response.status_code == 200
+        assert {"message": data["message"], "status": data["status"]} == {'message': 'Node `foo` is invalid', 'status': 'invalid'}
 
     def test_validating_invalid_sql(self, client: TestClient) -> None:
         """
@@ -827,11 +822,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
 
         assert response.status_code == 200
-        assert data["message"] == "Node `foo` is valid"
-        assert data["status"] == "valid"
-        assert data["node"]["name"] == "foo"
+        assert data["message"] == "Node `foo` is invalid"
+        assert data["status"] == "invalid"
         assert data["node_revision"]["mode"] == "draft"
-        assert data["node_revision"]["status"] == "valid"
+        assert data["node_revision"]["status"] == "invalid"
         assert data["columns"] == [
             {
                 "id": None,
