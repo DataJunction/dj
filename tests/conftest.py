@@ -41,6 +41,7 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
         results_backend=SimpleCache(default_timeout=0),
         celery_broker=None,
         redis_cache=None,
+        query_service=None,
     )
 
     mocker.patch(

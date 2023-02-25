@@ -19,6 +19,7 @@ from dj.utils import (
     get_issue_url,
     get_more_specific_type,
     get_name_from_path,
+    get_query_service_client,
     get_session,
     get_settings,
     setup_logging,
@@ -155,6 +156,16 @@ def test_get_engine(mocker: MockerFixture, settings: Settings) -> None:
     mocker.patch("dj.utils.get_settings", return_value=settings)
     engine = get_engine()
     assert engine.url == make_url("sqlite://")
+
+
+def test_get_query_service_client(mocker: MockerFixture, settings: Settings) -> None:
+    """
+    Test ``get_query_service_client``.
+    """
+    settings.query_service = "http://query_service:8001"
+    mocker.patch("dj.utils.get_settings", return_value=settings)
+    query_service_client = get_query_service_client()
+    assert query_service_client.uri == "http://query_service:8001"  # type: ignore
 
 
 def test_version_parse() -> None:

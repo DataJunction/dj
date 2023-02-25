@@ -6,11 +6,15 @@ from typing import Any, Dict
 
 import pytest
 from fastapi.testclient import TestClient
+from pytest_mock import MockerFixture
 from sqlmodel import Session
 
+from dj.api.main import app
 from dj.models import Catalog, Database, Table
 from dj.models.column import Column, ColumnType
 from dj.models.node import Node, NodeRevision, NodeType
+from dj.service_clients import QueryServiceClient
+from dj.utils import get_query_service_client
 
 
 def test_read_node(session: Session, client: TestClient) -> None:
@@ -881,7 +885,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "warnings": [],
         }
 
-    def test_adding_tables_to_nodes(self, session: Session, client: TestClient):
+    def test_adding_tables_to_nodes(
+        self,
+        mocker: MockerFixture,
+        session: Session,
+        client: TestClient,
+    ):
         """
         Test adding tables to existing nodes
         """
@@ -988,6 +997,57 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             ),
             "errors": [],
             "warnings": [],
+        }
+
+        # When no columns are set and no query service is configured, return an error
+        response = client.post(
+            "/nodes/third_party_revenue/table/",
+            json={
+                "database_name": "postgres",
+                "catalog_name": "test",
+                "cost": 1.0,
+                "schema": "accounting",
+                "table": "ledgers",
+                "columns": [],
+            },
+        )
+        assert response.status_code == 500
+        data = response.json()
+        assert data == {
+            "message": (
+                "No table columns were provided and no query service is "
+                "configured for table columns inference!"
+            ),
+            "errors": [],
+            "warnings": [],
+        }
+
+        # When a query service is configured and no columns are set, use it to infer columns
+        def get_query_service_client_override() -> QueryServiceClient:
+            mock_query_service = mocker.MagicMock()
+            mock_query_service.get_columns_for_table().return_value = [
+                Column(name="blah", type=ColumnType.INT),
+            ]
+            return mock_query_service
+
+        app.dependency_overrides[
+            get_query_service_client
+        ] = get_query_service_client_override
+        response = client.post(
+            "/nodes/third_party_revenue/table/",
+            json={
+                "database_name": "postgres",
+                "catalog_name": "test",
+                "cost": 1.0,
+                "schema": "accounting",
+                "table": "ledgers",
+                "columns": [],
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data == {
+            "message": "Table ledgers has been successfully linked to node third_party_revenue",
         }
 
     def test_adding_dimensions_to_node_columns(self, client: TestClient):

@@ -23,6 +23,7 @@ from yarl import URL
 
 from dj.config import Settings
 from dj.errors import DJException
+from dj.service_clients import QueryServiceClient
 from dj.typing import ColumnType
 
 
@@ -81,6 +82,16 @@ def get_session() -> Iterator[Session]:
 
     with Session(engine, autoflush=False) as session:  # pragma: no cover
         yield session
+
+
+def get_query_service_client() -> Optional[QueryServiceClient]:
+    """
+    Return query service client
+    """
+    settings = get_settings()
+    if not settings.query_service:
+        return None
+    return QueryServiceClient(settings.query_service)
 
 
 def get_name_from_path(repository: Path, path: Path) -> str:
