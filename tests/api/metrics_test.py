@@ -137,7 +137,8 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
 
     response = client.get("/metrics/foo")
     assert response.status_code == 404
-    assert response.json() == {"detail": "Metric node not found: `foo`"}
+    data = response.json()
+    assert data["message"] == "A node with name `foo` does not exist."
 
     response = client.get("/metrics/a-metric")
     assert response.status_code == 400
