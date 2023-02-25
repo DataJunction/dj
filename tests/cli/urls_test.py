@@ -35,11 +35,15 @@ http://localhost:8000/nodes/{name}/materialization/: Update materialization conf
 http://localhost:8000/nodes/{name}/revisions/: List all revisions for the node.
 http://localhost:8000/nodes/{name}/columns/{column}/: Add information to a node column
 http://localhost:8000/nodes/{name}/table/: Add a table to a node
+http://localhost:8000/nodes/{name}/tag/: Add a tag to a node
 http://localhost:8000/nodes/similarity/{node1_name}/{node2_name}: Compare two nodes by how similar their queries are
 http://localhost:8000/nodes/{name}/downstream/: List all nodes that are downstream from the given node, filterable by type.
 http://localhost:8000/data/availability/{node_name}/: Add an availability state to a node
 http://localhost:8000/health/: Healthcheck for services.
 http://localhost:8000/cubes/{name}/: Get information on a cube
+http://localhost:8000/tags/: List all available tags.
+http://localhost:8000/tags/{name}/: Return a tag by name.
+http://localhost:8000/tags/{name}/nodes/: Find nodes tagged with the tag, filterable by node type.
 http://localhost:8000/graphql: GraphQL endpoint.
 """
     )

@@ -20,6 +20,7 @@ from dj.api.helpers import (
     get_node_by_name,
     validate_node_data,
 )
+from dj.api.tags import get_tag_by_name
 from dj.errors import DJException
 from dj.models import Table
 from dj.models.column import Column, ColumnType
@@ -283,8 +284,7 @@ def create_node(
     """
     Create a node.
     """
-    query = select(Node).where(Node.name == data.name)
-    node = session.exec(query).one_or_none()
+    node = get_node_by_name(session, data.name, raise_if_not_exists=False)
     if node:
         raise DJException(
             message=f"A node with name `{data.name}` already exists.",
@@ -421,6 +421,32 @@ def add_table_to_node(
         content={
             "message": (
                 f"Table {data.table} has been successfully linked to node {name}"
+            ),
+        },
+    )
+
+
+@router.post("/nodes/{name}/tag/")
+def add_tag_to_node(
+    name: str, tag_name: str, *, session: Session = Depends(get_session)
+) -> JSONResponse:
+    """
+    Add a tag to a node
+    """
+    node = get_node_by_name(session=session, name=name)
+    tag = get_tag_by_name(session, name=tag_name, raise_if_not_exists=True)
+    node.tags.append(tag)
+
+    session.add(node)
+    session.commit()
+    session.refresh(node)
+    session.refresh(tag)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "message": (
+                f"Node `{name}` has been successfully tagged with tag `{tag_name}`"
             ),
         },
     )
