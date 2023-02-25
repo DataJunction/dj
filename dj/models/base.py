@@ -1,6 +1,7 @@
 """
 A base SQLModel class with a default naming convention.
 """
+from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlmodel import SQLModel
 
 NAMING_CONVENTION = {
@@ -20,3 +21,23 @@ class BaseSQLModel(SQLModel):
 
     metadata = SQLModel.metadata
     metadata.naming_convention = NAMING_CONVENTION
+
+
+def labelize(value: str) -> str:
+    """
+    Turn a system name into a human-readable name.
+    """
+
+    return value.replace(".", ": ").replace("_", " ").title()
+
+
+def generate_display_name(column_name: str):
+    """
+    SQLAlchemy helper to generate a human-readable version of the given system name.
+    """
+
+    def default_function(context: DefaultExecutionContext) -> str:
+        column_value = context.current_parameters.get(column_name)
+        return labelize(column_value)
+
+    return default_function

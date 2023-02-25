@@ -32,6 +32,7 @@ def get_node_by_name(
     name: str,
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
+    raise_if_not_exists: bool = True,
 ) -> Node:
     """
     Get a node by name
@@ -45,14 +46,16 @@ def get_node_by_name(
     else:
         node = session.exec(statement).one_or_none()
 
-    if not node:
-        raise DJException(
-            message=(
-                f"A {'' if not node_type else node_type + ' '}"
-                f"node with name `{name}` does not exist."
-            ),
-            http_status_code=404,
-        )
+    # Only raise an error for non-existent nodes if this flag is set
+    if raise_if_not_exists:
+        if not node:
+            raise DJException(
+                message=(
+                    f"A {'' if not node_type else node_type + ' '}"
+                    f"node with name `{name}` does not exist."
+                ),
+                http_status_code=404,
+            )
     return node
 
 

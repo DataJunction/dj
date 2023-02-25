@@ -30,9 +30,10 @@ from dj.constants import (
     SQLITE_DATABASE_ID,
     SQLITE_DATABASE_UUID,
 )
+from dj.models.base import labelize
 from dj.models.column import Column
 from dj.models.database import Database
-from dj.models.node import Node, NodeRevision, NodeType, NodeYAML, labelize
+from dj.models.node import Node, NodeRevision, NodeType, NodeYAML
 from dj.models.query import Query  # pylint: disable=unused-import
 from dj.models.table import Table
 from dj.sql.dag import render_dag
