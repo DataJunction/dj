@@ -11,19 +11,19 @@ from typing import Dict, List, Optional, cast
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
 from sqlalchemy import JSON, DateTime, String
-from sqlalchemy.engine.default import DefaultExecutionContext
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.sql.schema import UniqueConstraint
 from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel
 from typing_extensions import TypedDict
 
-from dj.models.base import BaseSQLModel
+from dj.models.base import BaseSQLModel, generate_display_name
 from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
 from dj.models.engine import Engine, EngineInfo
 from dj.models.table import Table, TableNodeRevision, TableYAML
+from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parse import is_metric
 from dj.typing import ColumnType
 from dj.utils import UTCDatetime, Version
@@ -150,26 +150,6 @@ class NodeYAML(TypedDict, total=False):
     query: str
     columns: Dict[str, ColumnYAML]
     tables: Dict[str, List[TableYAML]]
-
-
-def labelize(value: str) -> str:
-    """
-    Turn a system name into a human-readable name.
-    """
-
-    return value.replace(".", ": ").replace("_", " ").title()
-
-
-def generate_display_name(column_name: str):
-    """
-    SQLAlchemy helper to generate a human-readable version of the given system name.
-    """
-
-    def default_function(context: DefaultExecutionContext) -> str:
-        column_value = context.current_parameters.get(column_name)
-        return labelize(column_value)
-
-    return default_function
 
 
 class NodeBase(BaseSQLModel):
@@ -313,6 +293,15 @@ class Node(NodeBase, table=True):  # type: ignore
         sa_relationship_kwargs={
             "primaryjoin": "Node.id==NodeRelationship.parent_id",
             "secondaryjoin": "NodeRevision.id==NodeRelationship.child_id",
+        },
+    )
+
+    tags: List["Tag"] = Relationship(
+        back_populates="nodes",
+        link_model=TagNodeRelationship,
+        sa_relationship_kwargs={
+            "primaryjoin": "TagNodeRelationship.node_id==Node.id",
+            "secondaryjoin": "TagNodeRelationship.tag_id==Tag.id",
         },
     )
 
@@ -665,6 +654,7 @@ class NodeOutput(OutputModel):
 
     current: NodeRevisionOutput = PydanticField(flatten=True)
     created_at: UTCDatetime
+    tags: List["Tag"] = []
 
 
 class NodeValidation(SQLModel):
