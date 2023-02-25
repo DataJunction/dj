@@ -1,7 +1,6 @@
 """
 A base SQLModel class with a default naming convention.
 """
-
 from sqlmodel import SQLModel
 
 NAMING_CONVENTION = {

@@ -7,25 +7,16 @@ from http import HTTPStatus
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlmodel import Session, SQLModel, select
+from sqlmodel import Session, select
 
 from dj.api.engines import EngineInfo, get_engine
 from dj.api.helpers import get_catalog
 from dj.errors import DJException
-from dj.models.catalog import Catalog
+from dj.models.catalog import Catalog, CatalogInfo
 from dj.utils import get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-class CatalogInfo(SQLModel):
-    """
-    Class for catalog creation
-    """
-
-    name: str
-    engines: List[EngineInfo] = []
 
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
