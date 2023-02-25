@@ -94,7 +94,6 @@ def parse_cast(parse_tree: dict) -> ast.Cast:
         elif isinstance(data_type, dict) and {
             typ.upper() for typ in data_type.keys()
         }.intersection(PRIMITIVE_TYPES):
-            print(data_type)
             type_ = [
                 ColumnType(typ)
                 for typ in data_type.keys()
