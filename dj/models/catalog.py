@@ -9,10 +9,10 @@ from uuid import UUID, uuid4
 from sqlalchemy import DateTime
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
-from sqlmodel import JSON, Field, Relationship
+from sqlmodel import JSON, Field, Relationship, SQLModel
 
 from dj.models.base import BaseSQLModel
-from dj.models.engine import Engine
+from dj.models.engine import Engine, EngineInfo
 from dj.utils import UTCDatetime
 
 if TYPE_CHECKING:
@@ -70,3 +70,12 @@ class Catalog(BaseSQLModel, table=True):  # type: ignore
 
     def __hash__(self) -> int:
         return hash(self.id)
+
+
+class CatalogInfo(SQLModel):
+    """
+    Class for catalog creation
+    """
+
+    name: str
+    engines: List[EngineInfo] = []
