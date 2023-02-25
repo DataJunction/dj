@@ -279,9 +279,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 500
+        assert response.status_code == 404
         assert data == {
-            "message": "Cannot add availability state, node `nonexistentnode` does not exist",
+            "message": "A node with name `nonexistentnode` does not exist.",
             "errors": [],
             "warnings": [],
         }
