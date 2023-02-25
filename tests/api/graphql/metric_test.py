@@ -130,7 +130,10 @@ def test_read_metric_errors(session: Session, client: TestClient) -> None:
 
     response_json = client.post("/graphql", json={"query": query}).json()
     assert response_json["data"] is None
-    assert response_json["errors"][0]["message"] == "Metric node not found: `foo`"
+    assert (
+        response_json["errors"][0]["message"]
+        == "A node with name `foo` does not exist."
+    )
 
     query = """
     {

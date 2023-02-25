@@ -6,76 +6,26 @@ from http import HTTPStatus
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.exc import NoResultFound
-from sqlmodel import Session, SQLModel, select
+from sqlmodel import Session, select
 
-from dj.api.helpers import get_query
+from dj.api.helpers import get_node_by_name, get_query
+from dj.models.metric import Metric, TranslatedSQL
 from dj.models.node import Node, NodeType
-from dj.sql.dag import get_dimensions
-from dj.utils import UTCDatetime, get_session
+from dj.utils import get_session
 
 router = APIRouter()
-
-
-class Metric(SQLModel):
-    """
-    Class for a metric.
-    """
-
-    id: int
-    name: str
-    display_name: str
-    current_version: str
-    description: str = ""
-
-    created_at: UTCDatetime
-    updated_at: UTCDatetime
-
-    query: str
-
-    dimensions: List[str]
-
-    @classmethod
-    def parse_node(cls, node: Node) -> "Metric":
-        """
-        Parses a node into a metric.
-        """
-
-        return cls(
-            **node.dict(),
-            description=node.current.description,
-            updated_at=node.current.updated_at,
-            query=node.current.query,
-            dimensions=get_dimensions(node),
-        )
-
-
-class TranslatedSQL(SQLModel):
-    """
-    Class for SQL generated from a given metric.
-    """
-
-    database_id: int
-    sql: str
 
 
 def get_metric(session: Session, name: str) -> Node:
     """
     Return a metric node given a node name.
     """
-    statement = select(Node).where(Node.name == name)
-    try:
-        node = session.exec(statement).one()
-        if node.type != NodeType.METRIC:
-            raise HTTPException(
-                status_code=HTTPStatus.BAD_REQUEST,
-                detail=f"Not a metric node: `{name}`",
-            )
-    except NoResultFound as exc:
+    node = get_node_by_name(session, name)
+    if node.type != NodeType.METRIC:
         raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Metric node not found: `{name}`",
-        ) from exc
+            status_code=HTTPStatus.BAD_REQUEST,
+            detail=f"Not a metric node: `{name}`",
+        )
     return node
 
 
