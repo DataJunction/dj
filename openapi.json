@@ -2,12 +2,12 @@
     "openapi": "3.0.2",
     "info": {
         "title": "DJ server",
-        "description": "A DataJunction metrics repository",
+        "description": "A DataJunction metrics layer",
         "license": {
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+g9c5d385"
+        "version": "0.0.post1.dev1+ge24d408"
     },
     "paths": {
         "/catalogs/": {
