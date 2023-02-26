@@ -2,10 +2,6 @@
 DataJunction
 ------------
 
-
-    A metrics repository
-
-
 DataJunction (DJ) is a **metrics platform** to store and manage metric definitions. Metrics are defined using **ANSI SQL**, are **database agnostic** and can be computed via a **REST API** or **SQL** interface.
 
 What does that mean?
