@@ -525,6 +525,58 @@ class TestCreateOrUpdateNodes:
         # The columns should have been updated
         assert data["columns"] == [{"name": "country", "type": "STR"}]
 
+    def test_updating_node_to_invalid_draft(
+        self,
+        database: Database,  # pylint: disable=unused-argument
+        source_node: Node,  # pylint: disable=unused-argument
+        client: TestClient,
+        create_dimension_node_payload: Dict[str, Any],
+    ) -> None:
+        """
+        Test creating an invalid node in draft mode
+        """
+
+        response = client.post(
+            "/nodes/",
+            json=create_dimension_node_payload,
+        )
+        data = response.json()
+
+        assert response.status_code == 200
+        assert data["name"] == "countries"
+        assert data["display_name"] == "Countries"
+        assert data["type"] == "dimension"
+        assert data["version"] == "v1.0"
+        assert data["description"] == "Country dimension"
+        assert (
+            data["query"] == "SELECT country, COUNT(1) AS user_cnt "
+            "FROM basic.source.users GROUP BY country"
+        )
+        assert data["columns"] == [
+            {"name": "country", "type": "STR"},
+            {"name": "user_cnt", "type": "INT"},
+        ]
+
+        response = client.patch(
+            "/nodes/countries/",
+            json={"mode": "draft"},
+        )
+        assert response.status_code == 200
+
+        # Test updating the dimension node with an invalid query
+        response = client.patch(
+            "/nodes/countries/",
+            json={"query": "SELECT country FROM missing_parent GROUP BY country"},
+        )
+        assert response.status_code == 200
+
+        # Check that node is now a draft with an invalid status
+        response = client.get("/nodes/countries")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["mode"] == "draft"
+        assert data["status"] == "invalid"
+
     def test_upsert_materialization_config(  # pylint: disable=too-many-arguments
         self,
         database: Database,  # pylint: disable=unused-argument
@@ -748,7 +800,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
 
         assert response.status_code == 200
-        assert {"message": data["message"], "status": data["status"]} == {'message': 'Node `foo` is invalid', 'status': 'invalid'}
+        assert {"message": data["message"], "status": data["status"]} == {
+            "message": "Node `foo` is invalid",
+            "status": "invalid",
+        }
 
     def test_validating_invalid_sql(self, client: TestClient) -> None:
         """
@@ -1272,3 +1327,144 @@ def test_node_similarity(session: Session, client: TestClient):
         "errors": [],
         "warnings": [],
     }
+
+
+def test_resolving_downstream_status(
+    client: TestClient,
+) -> None:
+    """
+    Test creating and updating a source node
+    """
+    # Create draft transform and metric nodes with missing parents
+    transform1 = {
+        "name": "comments_by_migrated_users",
+        "description": "Comments by users who have already migrated",
+        "type": "transform",
+        "query": "SELECT id, user_id FROM comments WHERE text LIKE '%migrated%'",
+        "mode": "draft",
+    }
+
+    transform2 = {
+        "name": "comments_by_users_pending_a_migration",
+        "description": "Comments by users who have a migration pending",
+        "type": "transform",
+        "query": "SELECT id, user_id FROM comments WHERE text LIKE '%migration pending%'",
+        "mode": "draft",
+    }
+
+    transform3 = {
+        "name": "comments_by_users_partially_migrated",
+        "description": "Comments by users are partially migrated",
+        "type": "transform",
+        "query": (
+            "SELECT p.id, p.user_id FROM comments_by_users_pending_a_migration p "
+            "INNER JOIN comments_by_migrated_users m ON p.user_id = m.user_id"
+        ),
+        "mode": "draft",
+    }
+
+    transform4 = {
+        "name": "comments_by_banned_users",
+        "description": "Comments by users are partially migrated",
+        "type": "transform",
+        "query": (
+            "SELECT id, user_id FROM comments "
+            "INNER JOIN banned_users ON comments.user_id = banned_users.banned_user_id"
+        ),
+        "mode": "draft",
+    }
+
+    transform5 = {
+        "name": "comments_by_users_partially_migrated_sample",
+        "description": "Sample of comments by users are partially migrated",
+        "type": "transform",
+        "query": "SELECT id, user_id, foo FROM comments_by_users_partially_migrated",
+        "mode": "draft",
+    }
+
+    metric1 = {
+        "name": "number_of_migrated_users",
+        "description": "Number of migrated users",
+        "type": "metric",
+        "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_migrated_users",
+        "mode": "draft",
+    }
+
+    metric2 = {
+        "name": "number_of_users_with_pending_migration",
+        "description": "Number of users with a migration pending",
+        "type": "metric",
+        "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_users_pending_a_migration",
+        "mode": "draft",
+    }
+
+    metric3 = {
+        "name": "number_of_users_partially_migrated",
+        "description": "Number of users partially migrated",
+        "type": "metric",
+        "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_users_partially_migrated",
+        "mode": "draft",
+    }
+
+    for node in [
+        transform1,
+        transform2,
+        transform3,
+        transform4,
+        transform5,
+        metric1,
+        metric2,
+        metric3,
+    ]:
+        response = client.post(
+            "/nodes/",
+            json=node,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == node["name"]
+        assert data["mode"] == node["mode"]
+        assert data["status"] == "invalid"
+
+    # Add the missing parent
+    missing_parent_node = {
+        "name": "comments",
+        "description": "A fact table with comments",
+        "type": "source",
+        "columns": {
+            "id": {"type": "INT"},
+            "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
+            "timestamp": {"type": "TIMESTAMP"},
+            "text": {"type": "STR"},
+        },
+        "mode": "published",
+    }
+
+    response = client.post(
+        "/nodes/",
+        json=missing_parent_node,
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["name"] == missing_parent_node["name"]
+    assert data["mode"] == missing_parent_node["mode"]
+
+    # Check that downstream nodes have now been switched to a "valid" status
+    for node in [transform1, transform2, transform3, metric1, metric2, metric3]:
+        response = client.get(f"/nodes/{node['name']}/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == node["name"]
+        assert data["mode"] == node["mode"]  # make sure the mode hasn't been changed
+        assert (
+            data["status"] == "valid"
+        )  # make sure the node's status has been updated to valid
+
+    # Check that nodes still not valid have an invalid status
+    for node in [transform4, transform5]:
+        response = client.get(f"/nodes/{node['name']}/")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["name"] == node["name"]
+        assert data["mode"] == node["mode"]  # make sure the mode hasn't been changed
+        assert data["status"] == "invalid"

@@ -18,6 +18,7 @@ from dj.api.helpers import (
     get_downstream_nodes,
     get_engine,
     get_node_by_name,
+    propagate_valid_status,
     resolve_downstream_references,
     validate_node_data,
 )
@@ -349,8 +350,12 @@ def create_node(
     node_revision.extra_validation()
 
     session.add(node)
-    resolve_downstream_references(session=session, node=node)
     session.commit()
+    newly_valid_nodes = resolve_downstream_references(
+        session=session,
+        node_revision=node,
+    )
+    propagate_valid_status(session=session, valid_nodes=newly_valid_nodes)
     session.refresh(node.current)
     return node  # type: ignore
 
@@ -476,7 +481,7 @@ def add_tag_to_node(
     )
 
 
-def create_new_revision_from_existing(
+def create_new_revision_from_existing(  # pylint: disable=too-many-locals
     session: Session,
     old_revision: NodeRevision,
     node: Node,

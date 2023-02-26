@@ -279,10 +279,10 @@ def validate_node_data(
         try:
             column_type = get_type_of_expression(col)
             validated_node.columns.append(
-                Column(name=col.name.name, type=get_type_of_expression(col)),
+                Column(name=col.name.name, type=column_type),  # type: ignore
             )
-        except DJParseException:  # p
-            type_inference_failed_columns.append(col.name.name)
+        except DJParseException:
+            type_inference_failed_columns.append(col.name.name)  # type: ignore
             validated_node.status = NodeStatus.INVALID
 
     return (
@@ -293,30 +293,35 @@ def validate_node_data(
     )
 
 
-def resolve_downstream_references(session: Session, node: NodeRevision) -> int:
+def resolve_downstream_references(
+    session: Session,
+    node_revision: NodeRevision,
+) -> List[NodeRevision]:
     """
-    Find all nodes with missing parent references to `node` and resolve them
+    Find all node revisions with missing parent references to `node` and resolve them
     """
-    downstream_references_updated = 0
     missing_parents = session.exec(
-        select(MissingParent).where(MissingParent.name == node.name),
+        select(MissingParent).where(MissingParent.name == node_revision.name),
     ).all()
+    newly_valid_nodes = []
     for missing_parent in missing_parents:
         missing_parent_links = session.exec(
             select(NodeMissingParents).where(
                 NodeMissingParents.missing_parent_id == missing_parent.id,
             ),
         ).all()
-        downstream_node_ids = [
-            node.referencing_node_id for node in missing_parent_links
-        ]
-        for id in downstream_node_ids:  # Remove from missing parents and add to parents
+        for (
+            link
+        ) in missing_parent_links:  # Remove from missing parents and add to parents
+            downstream_node_id = link.referencing_node_id
             downstream_node_revision = (
-                session.exec(select(NodeRevision).where(NodeRevision.id == id))
+                session.exec(
+                    select(NodeRevision).where(NodeRevision.id == downstream_node_id),
+                )
                 .unique()
                 .one()
             )
-            downstream_node_revision.parents.append(node)
+            downstream_node_revision.parents.append(node_revision)
             downstream_node_revision.missing_parents.remove(missing_parent)
             (
                 _,
@@ -325,9 +330,39 @@ def resolve_downstream_references(session: Session, node: NodeRevision) -> int:
                 type_inference_failed_columns,
             ) = validate_node_data(data=downstream_node_revision, session=session)
             if not missing_parents_map and not type_inference_failed_columns:
-                downstream_node_revision.status = NodeStatus.VALID
+                newly_valid_nodes.append(downstream_node_revision)
             session.add(downstream_node_revision)
-            downstream_references_updated += 1
 
         session.delete(missing_parent)  # Remove missing parent reference to node
-    return downstream_references_updated
+    return newly_valid_nodes
+
+
+def propagate_valid_status(session: Session, valid_nodes: List[NodeRevision]) -> None:
+    """
+    Propagate a valid status by revalidating all downstream nodes
+    """
+    while valid_nodes:
+        resolved_nodes = []
+        for node_revision in valid_nodes:
+            if node_revision.status != NodeStatus.VALID:
+                raise DJException(
+                    f"Cannot propagate valid status: Node `{node_revision.name}` is not valid",
+                )
+            downstream_nodes = get_downstream_nodes(
+                session=session,
+                node_name=node_revision.name,
+            )
+            newly_valid_nodes = []
+            for node in downstream_nodes:
+                (
+                    validated_node,
+                    _,
+                    missing_parents_map,
+                    type_inference_failed_columns,
+                ) = validate_node_data(data=node.current, session=session)
+                if not missing_parents_map and not type_inference_failed_columns:
+                    node.current.columns = validated_node.columns or []
+                    node.current.status = NodeStatus.VALID
+                    newly_valid_nodes.append(node.current)
+            resolved_nodes.extend(newly_valid_nodes)
+        valid_nodes = resolved_nodes
