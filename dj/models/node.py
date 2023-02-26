@@ -1,7 +1,7 @@
 """
 Model for nodes.
 """
-
+# pylint: disable=too-many-instance-attributes
 import enum
 from collections import defaultdict
 from datetime import datetime, timezone
