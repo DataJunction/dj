@@ -17,11 +17,11 @@ class Settings(
     BaseSettings,
 ):  # pylint: disable=too-few-public-methods #pragma: no cover
     """
-    Configuration for the metric repository.
+    DataJunction configuration.
     """
 
     name: str = "DJ server"
-    description: str = "A DataJunction metrics repository"
+    description: str = "A DataJunction metrics layer"
     url: str = "http://localhost:8000/"
 
     # SQLAlchemy URI for the metadata database.

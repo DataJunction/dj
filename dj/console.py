@@ -1,5 +1,5 @@
 """
-DataJunction (DJ) is a metric repository.
+DataJunction (DJ) is a metrics layer.
 
 Usage:
     dj compile [REPOSITORY] [-f] [--loglevel=INFO] [--reload]
