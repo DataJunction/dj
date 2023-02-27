@@ -18,6 +18,8 @@ from dj.api.helpers import (
     get_downstream_nodes,
     get_engine,
     get_node_by_name,
+    propagate_valid_status,
+    resolve_downstream_references,
     validate_node_data,
 )
 from dj.api.tags import get_tag_by_name
@@ -31,6 +33,7 @@ from dj.models.node import (
     CreateNode,
     CreateSourceNode,
     MaterializationConfig,
+    MissingParent,
     Node,
     NodeMode,
     NodeOutput,
@@ -81,14 +84,23 @@ def validate_node(
     if data.type == NodeType.SOURCE:
         raise DJException(message="Source nodes cannot be validated")
 
-    node, node_revision, dependencies_map = validate_node_data(data, session)
+    (
+        validated_node,
+        dependencies_map,
+        missing_parents_map,
+        type_inference_failed_columns,
+    ) = validate_node_data(data, session)
+    if missing_parents_map or type_inference_failed_columns:
+        status = NodeStatus.INVALID
+    else:
+        status = NodeStatus.VALID
+
     return NodeValidation(
-        message=f"Node `{node.name}` is valid",
-        status=NodeStatus.VALID,
-        node=node,
-        node_revision=node_revision,
+        message=f"Node `{validated_node.name}` is {status}",
+        status=status,
+        node_revision=validated_node,
         dependencies=set(dependencies_map.keys()),
-        columns=node_revision.columns,
+        columns=validated_node.columns,
     )
 
 
@@ -209,7 +221,19 @@ def create_node_revision(
     """
 
     node_revision = NodeRevision.parse_obj(data)
-    _, node, dependencies_map = validate_node_data(node_revision, session)
+    (
+        validated_node,
+        dependencies_map,
+        missing_parents_map,
+        type_inference_failed_columns,
+    ) = validate_node_data(node_revision, session)
+    if missing_parents_map or type_inference_failed_columns:
+        node_revision.status = NodeStatus.INVALID
+    else:
+        node_revision.status = NodeStatus.VALID
+    node_revision.missing_parents = [
+        MissingParent(name=missing_parent) for missing_parent in missing_parents_map
+    ]
     new_parents = [node.name for node in dependencies_map]
     parent_refs = session.exec(
         select(Node).where(
@@ -227,7 +251,7 @@ def create_node_revision(
         node_revision.version,
         [p.name for p in node_revision.parents],
     )
-    node_revision.columns = node.columns or []
+    node_revision.columns = validated_node.columns or []
     return node_revision
 
 
@@ -301,6 +325,7 @@ def create_node(
             name=data.name,
             description=data.description,
             type=data.type,
+            status=NodeStatus.VALID,
             columns=[
                 Column(
                     name=column_name,
@@ -328,6 +353,11 @@ def create_node(
 
     session.add(node)
     session.commit()
+    newly_valid_nodes = resolve_downstream_references(
+        session=session,
+        node_revision=node,
+    )
+    propagate_valid_status(session=session, valid_nodes=newly_valid_nodes)
     session.refresh(node.current)
     return node  # type: ignore
 
@@ -474,7 +504,7 @@ def add_tag_to_node(
     )
 
 
-def create_new_revision_from_existing(
+def create_new_revision_from_existing(  # pylint: disable=too-many-locals
     session: Session,
     old_revision: NodeRevision,
     node: Node,
@@ -551,7 +581,12 @@ def create_new_revision_from_existing(
         new_revision.type != NodeType.SOURCE
         and new_revision.query != old_revision.query
     ):
-        _, validated_node, dependencies_map = validate_node_data(new_revision, session)
+        (
+            validated_node,
+            dependencies_map,
+            missing_parents_map,
+            type_inference_failed_columns,
+        ) = validate_node_data(new_revision, session)
         new_parents = [n.name for n in dependencies_map]
         parent_refs = session.exec(
             select(Node).where(
@@ -562,7 +597,13 @@ def create_new_revision_from_existing(
             ),
         ).all()
         new_revision.parents = list(parent_refs)
-
+        if missing_parents_map or type_inference_failed_columns:
+            new_revision.status = NodeStatus.INVALID
+        else:
+            new_revision.status = NodeStatus.VALID
+        new_revision.missing_parents = [
+            MissingParent(name=missing_parent) for missing_parent in missing_parents_map
+        ]
         _logger.info(
             "Parent nodes for %s (v%s): %s",
             new_revision.name,

@@ -11,6 +11,8 @@ networks:
 services:
   dj:
     container_name: dj
+    stdin_open: true
+    tty: true
     networks:
       - core
     environment:
@@ -26,19 +28,6 @@ services:
       - redis
     extra_hosts:
       - "host.docker.internal:host-gateway"
-
-  celery:
-    container_name: celery
-    networks:
-      - core
-    environment:
-      - DOTENV_FILE=.docker-env/.env
-    build: .
-    volumes:
-      - .:/code
-    depends_on:
-      - dj
-    command: celery -A dj.api.queries.celery worker --loglevel=info
 
   watchdog:
     container_name: watchdog
