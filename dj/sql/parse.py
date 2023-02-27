@@ -2,10 +2,10 @@
 SQL parsing functions.
 """
 
-from typing import Any, Dict, Iterator, Optional, Set, Tuple
+from typing import Any, Iterator, Optional, Set, Tuple
 
-from dj.sql.parsing.backends.sqloxide import parse
-from dj.sql.functions import function_registry
+from sqloxide import parse_sql
+
 from dj.typing import Expression, Projection
 
 
@@ -59,21 +59,6 @@ def get_expression_from_projection(projection: Projection) -> Expression:
     raise NotImplementedError(f"Unable to handle expression: {projection}")
 
 
-def contains_agg_function_if_any(expr: Expression) -> bool:
-    """
-    Checks if the expression contains an aggregation function.
-    """
-    while expr:
-        if not isinstance(expr, Dict):
-            break
-        head = list(expr.keys())[0]
-        if head == "Function":
-            name = expr[head]["name"][0]["value"]  # type: ignore
-            return function_registry[name].is_aggregation
-        expr = expr[head]  # type: ignore
-    return False
-
-
 def is_metric(query: Optional[str], dialect: Optional[str] = None) -> bool:
     """
     Return if a SQL query defines a metric.
@@ -81,11 +66,13 @@ def is_metric(query: Optional[str], dialect: Optional[str] = None) -> bool:
     The SQL query should have a single expression in its projections, and it should
     be an aggregation function in order for it to be considered a metric.
     """
+
+    from dj.sql.parsing.backends.sqloxide import parse  # pylint: disable=C0415
+
     if query is None:
         return False
 
     tree = parse(query, dialect=dialect)
-    
 
     # must have a single expression
     if len(tree.select.projection) != 1:

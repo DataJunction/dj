@@ -288,6 +288,26 @@ def test_raw_type_error():
     assert "Raw expects the second argument to be a ColumnType not" in str(exc)
 
 
+def test_agg_error():
+    """
+    test Raw agg exception
+    """
+    with pytest.raises(DJParseException) as exc:
+        parse("SELECT Raw('{id}', 'int', 'no')")
+    assert (
+        "Raw expects the third argument - which is optional - to be a Boolean not"
+        in str(exc)
+    )
+
+
+def test_raw_is_agg():
+    """
+    test Raw column is agg
+    """
+    tree = parse("SELECT Raw('{id}', 'int', True)")
+    assert tree.select.projection[0].is_aggregation()
+
+
 def test_raw_type_arg_error():
     """
     test Raw columntype exception
@@ -316,13 +336,16 @@ def test_raw_init_no_args_error():
     assert "Raw requires a name, string and type" in str(exc)
 
 
-def test_raw_not_2_args():
+def test_raw_not_2_or_3_args():
     """
-    test Raw not 2 args
+    test Raw not 2 or 3 args
     """
     with pytest.raises(DJParseException) as exc:
-        parse("SELECT Raw('{id}', int, int)")
-    assert "Raw expects two arguments, a string and a type in" in str(exc)
+        parse("SELECT Raw('{id}', int, True, 'what')")
+    assert (
+        "Raw expects to be of the form `Raw(EXPRESSION, COLUMNTYPE, [IS_AGGREGATION: BOOLEAN])."
+        in str(exc)
+    )
 
 
 def test_convert_function_to_raw_bad_name():
@@ -640,3 +663,21 @@ def test_alias_replace():
         replace,
     )
     assert alias.compare(replace)
+
+
+def test_is_aggregation():
+    """
+    Test some ast is aggregation method
+    """
+    query = """
+SELECT
+  CASE
+     WHEN a.x=1 THEN CAST(SUM(a.y) AS INT)
+     WHEN a.x=2 THEN COUNT(*)
+     ELSE AVG(a.y)
+  END as agg
+FROM a
+GROUP BY a.x;
+    """
+    tree = parse(query)
+    assert tree.select.projection[0].is_aggregation()
