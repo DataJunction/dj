@@ -35,7 +35,7 @@ def read_catalog(name: str, *, session: Session = Depends(get_session)) -> Catal
     return get_catalog(session, name)
 
 
-@router.post("/catalogs/", response_model=CatalogInfo)
+@router.post("/catalogs/", response_model=CatalogInfo, status_code=201)
 def add_catalog(
     data: CatalogInfo,
     *,
@@ -69,7 +69,7 @@ def add_catalog(
     return catalog
 
 
-@router.post("/catalogs/{name}/engines/", response_model=CatalogInfo)
+@router.post("/catalogs/{name}/engines/", response_model=CatalogInfo, status_code=201)
 def add_engines_to_catalog(
     name: str,
     data: List[EngineInfo],

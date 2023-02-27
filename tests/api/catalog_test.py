@@ -18,7 +18,7 @@ def test_catalog_adding_a_new_catalog(
         },
     )
     data = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 201
     assert data == {"name": "dev", "engines": []}
 
 
@@ -35,7 +35,7 @@ def test_catalog_list(
             "version": "3.3.1",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/",
@@ -49,7 +49,7 @@ def test_catalog_list(
             ],
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/",
@@ -57,7 +57,7 @@ def test_catalog_list(
             "name": "test",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/",
@@ -65,7 +65,7 @@ def test_catalog_list(
             "name": "prod",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.get("/catalogs/")
     assert response.status_code == 200
@@ -92,7 +92,7 @@ def test_catalog_get_catalog(
             "version": "3.3.1",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/",
@@ -106,7 +106,7 @@ def test_catalog_get_catalog(
             ],
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.get(
         "/catalogs/dev",
@@ -134,7 +134,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
         },
     )
     data = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/",
@@ -149,7 +149,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
         },
     )
     data = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 201
     assert data == {
         "name": "dev",
         "engines": [
@@ -177,7 +177,7 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
         },
     )
     data = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/",
@@ -185,9 +185,9 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
             "name": "dev",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
-    response = client.post(
+    client.post(
         "/catalogs/dev/engines/",
         json=[
             {
@@ -226,7 +226,7 @@ def test_catalog_adding_without_duplicating(
         },
     )
     data = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/engines/",
@@ -236,7 +236,7 @@ def test_catalog_adding_without_duplicating(
         },
     )
     data = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/engines/",
@@ -246,7 +246,7 @@ def test_catalog_adding_without_duplicating(
         },
     )
     data = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/",
@@ -254,7 +254,7 @@ def test_catalog_adding_without_duplicating(
             "name": "dev",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/dev/engines/",
@@ -273,7 +273,7 @@ def test_catalog_adding_without_duplicating(
             },
         ],
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/dev/engines/",
@@ -292,7 +292,7 @@ def test_catalog_adding_without_duplicating(
             },
         ],
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
     data = response.json()
     assert data == {
         "name": "dev",
@@ -351,7 +351,7 @@ def test_catalog_raise_on_catalog_already_exists(
             "name": "dev",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/catalogs/",
