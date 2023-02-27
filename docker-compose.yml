@@ -24,6 +24,8 @@ services:
       - db_migration
       - postgres_examples
       - redis
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   celery:
     container_name: celery
