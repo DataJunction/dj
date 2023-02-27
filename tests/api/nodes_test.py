@@ -546,7 +546,7 @@ class TestCreateOrUpdateNodes:
         )
         data = response.json()
 
-        assert response.status_code == 200
+        assert response.status_code == 201
         assert data["name"] == "countries"
         assert data["display_name"] == "Countries"
         assert data["type"] == "dimension"
@@ -1480,7 +1480,7 @@ def test_resolving_downstream_status(
             "/nodes/",
             json=node,
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert data["name"] == node["name"]
         assert data["mode"] == node["mode"]
@@ -1504,7 +1504,7 @@ def test_resolving_downstream_status(
         "/nodes/",
         json=missing_parent_node,
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
     data = response.json()
     assert data["name"] == missing_parent_node["name"]
     assert data["mode"] == missing_parent_node["mode"]
