@@ -42,12 +42,12 @@ Node Mode
 
 Nodes have a **user defined** mode of :code:`published` or :code:`draft`. When a user is creating or updating a node in :code:`published` mode,
 the server enforces a requirement that the node definition has a :code:`valid` status. In :code:`draft` mode, however, a node can be created with
-broken references to missing parent nodes or columns. This allows clients to quickly and interactively develop portions of a DJ DAG in any order,
+broken references to missing upstream nodes or columns. This allows clients to quickly and interactively develop portions of a DJ DAG in any order,
 delaying the dependency validation until the moment the nodes in the DAG are switchd from :code:`draft` mode to :code:`published` mode.
 
-Missing Parent Nodes
---------------------
+Missing Upstream Nodes
+----------------------
 
-As mentioned, one of the reasons a node may have a status of :code:`invalid` is that it contains references to nodes that do not exist. These
-broken references are known as "*missing parents*" and are tracked by a DJ server. Each time a new node is created, these missing parents are
-resolved and converted to links to the upstream node. The :code:`invalid` node is also revalidated to determine if the node's status has changed.
+As mentioned, one of the reasons a node may have a status of :code:`invalid` is that it contains references to upstream nodes that do not exist.
+These broken references are tracked by a DJ server. Each time a new node is created, these missing links to upstream nodes are resolved and converted
+to links between the two nodes. The :code:`invalid` node is also revalidated to determine if the node's status has changed.
