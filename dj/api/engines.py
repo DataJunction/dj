@@ -33,7 +33,7 @@ def list_engine(
     return get_engine(session, name, version)
 
 
-@router.post("/engines/", response_model=EngineInfo)
+@router.post("/engines/", response_model=EngineInfo, status_code=201)
 def add_engine(
     data: EngineInfo,
     *,

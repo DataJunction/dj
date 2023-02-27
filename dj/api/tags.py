@@ -72,7 +72,7 @@ def create_tag(
     tag = get_tag_by_name(session, data.name, raise_if_not_exists=False)
     if tag:
         raise DJException(
-            message=(f"A tag with name `{data.name}` already exists!"),
+            message=f"A tag with name `{data.name}` already exists!",
             http_status_code=500,
         )
     tag = Tag.from_orm(data)

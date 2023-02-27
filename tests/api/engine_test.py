@@ -19,7 +19,7 @@ def test_engine_adding_a_new_engine(
         },
     )
     data = response.json()
-    assert response.status_code == 200
+    assert response.status_code == 201
     assert data == {"name": "spark", "uri": None, "version": "3.3.1"}
 
 
@@ -36,7 +36,7 @@ def test_engine_list(
             "version": "2.4.4",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/engines/",
@@ -45,7 +45,7 @@ def test_engine_list(
             "version": "3.3.0",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/engines/",
@@ -54,7 +54,7 @@ def test_engine_list(
             "version": "3.3.1",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.get("/engines/")
     assert response.status_code == 200
@@ -91,7 +91,7 @@ def test_engine_get_engine(
             "version": "3.3.1",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.get(
         "/engines/spark/3.3.1",
@@ -114,7 +114,7 @@ def test_engine_raise_on_engine_already_exists(
             "version": "3.3.1",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/engines/",

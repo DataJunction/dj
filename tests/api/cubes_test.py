@@ -24,7 +24,7 @@ def test_read_cube(client: TestClient) -> None:
             "type": "source",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/nodes/",
@@ -40,7 +40,7 @@ def test_read_cube(client: TestClient) -> None:
             "type": "dimension",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     response = client.post(
         "/nodes/",
@@ -52,7 +52,7 @@ def test_read_cube(client: TestClient) -> None:
             "type": "metric",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
 
     # Create a cube
     response = client.post(
@@ -65,7 +65,7 @@ def test_read_cube(client: TestClient) -> None:
             "type": "cube",
         },
     )
-    assert response.status_code == 200
+    assert response.status_code == 201
     data = response.json()
     assert data["node_id"] == 4
     assert data["version"] == "v1.0"
