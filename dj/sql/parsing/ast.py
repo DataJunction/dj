@@ -29,6 +29,7 @@ from sqlmodel import Session
 from dj.models.database import Database
 from dj.models.node import NodeRevision as DJNode
 from dj.models.node import NodeType as DJNodeType
+from dj.sql.functions import function_registry
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.typing import ColumnType, ColumnTypeError
 
@@ -488,6 +489,19 @@ class Expression(Node):
 
         return get_type_of_expression(self)
 
+    def is_aggregation(self) -> bool:
+        """
+        Determines whether an Expression is an aggregation or not
+        """
+        return all(
+            [
+                child.is_aggregation()
+                for child in self.children
+                if isinstance(child, Expression)
+            ]
+            or [False],
+        )
+
 
 @dataclass(eq=False)
 class Name(Node):
@@ -689,6 +703,11 @@ class Case(Expression):
         ELSE {(self.else_result)}
     END)"""
 
+    def is_aggregation(self) -> bool:
+        return all(result.is_aggregation() for result in self.results) and (
+            self.else_result.is_aggregation() if self.else_result else True
+        )
+
 
 @dataclass(eq=False)
 class In(Expression):
@@ -776,6 +795,9 @@ class Cast(Operation):
     def __str__(self) -> str:
         return f"CAST({self.expr} AS {self.type})"
 
+    def is_aggregation(self) -> bool:
+        return self.expr.is_aggregation()
+
 
 @dataclass(eq=False)
 class Function(Named, Operation):
@@ -794,6 +816,9 @@ class Function(Named, Operation):
             f"{self.name}({distinct}{', '.join(str(arg) for arg in self.args)}){over}"
         )
 
+    def is_aggregation(self) -> bool:
+        return function_registry[self.name.name.upper()].is_aggregation
+
     def to_raw(  # pylint: disable=R0914
         self,
         parser: Callable[[str, Optional[str]], "Query"],
@@ -808,9 +833,10 @@ class Function(Named, Operation):
             )
         if self.distinct:
             raise DJParseException(f"Raw cannot include DISTINCT in {self}.")
-        if len(self.args) != 2:
+        if len(self.args) not in (2, 3):
             raise DJParseException(
-                f"Raw expects two arguments, a string and a type in {self}.",
+                "Raw expects to be of the form "
+                "`Raw(EXPRESSION, COLUMNTYPE, [IS_AGGREGATION: BOOLEAN]).",
             )
         if not isinstance(self.args[1], String):
             raise DJParseException(
@@ -824,6 +850,15 @@ class Function(Named, Operation):
                 "Raw expects the second argument to be a "
                 f"ColumnType not {self.args[1]} in {self}.",
             ) from exc
+
+        is_aggregation = False
+        if len(self.args) == 3:
+            if not isinstance(self.args[2], Boolean):
+                raise DJParseException(
+                    "Raw expects the third argument - which is optional - "
+                    f"to be a Boolean not {type(self.args[1])}.",
+                )
+            is_aggregation = self.args[2].value
 
         query = (  # pragma: no cover
             str(self.args[0]).strip(
@@ -858,7 +893,14 @@ class Function(Named, Operation):
             if col_expression_strs
             else []
         )
-        return Raw(query, type_, expressions, expression_replace_names, self.over)
+        return Raw(
+            query,
+            type_,
+            is_aggregation,
+            expressions,
+            expression_replace_names,
+            self.over,
+        )
 
 
 @dataclass(eq=False)
@@ -869,6 +911,7 @@ class Raw(Expression):
 
     expr_string: Optional[str] = None
     type_: Optional[ColumnType] = None
+    is_aggregation_: bool = False
     expressions: List[Expression] = field(default_factory=list)
     expression_replace_names: List[str] = field(default_factory=list)
     over: Optional[Over] = None
@@ -892,6 +935,9 @@ class Raw(Expression):
                 )
             },
         )  # type:ignore
+
+    def is_aggregation(self) -> bool:
+        return self.is_aggregation_
 
 
 @dataclass(eq=False)
@@ -1028,6 +1074,9 @@ class Alias(Named, Generic[AliasedType]):
 
     def __str__(self) -> str:
         return f"{self.child} AS {self.name}"
+
+    def is_aggregation(self) -> bool:
+        return isinstance(self.child, Expression) and self.child.is_aggregation()
 
 
 @dataclass(eq=False)

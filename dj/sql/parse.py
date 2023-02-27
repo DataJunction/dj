@@ -2,11 +2,10 @@
 SQL parsing functions.
 """
 
-from typing import Any, Dict, Iterator, Optional, Set, Tuple
+from typing import Any, Iterator, Optional, Set, Tuple
 
 from sqloxide import parse_sql
 
-from dj.sql.functions import function_registry
 from dj.typing import Expression, Projection
 
 
@@ -60,46 +59,23 @@ def get_expression_from_projection(projection: Projection) -> Expression:
     raise NotImplementedError(f"Unable to handle expression: {projection}")
 
 
-def contains_agg_function_if_any(expr: Expression) -> bool:
-    """
-    Checks if the expression contains an aggregation function.
-    """
-    while expr:
-        if not isinstance(expr, Dict):
-            break
-        head = list(expr.keys())[0]
-        if head == "Function":
-            name = expr[head]["name"][0]["value"]  # type: ignore
-            return function_registry[name].is_aggregation
-        expr = expr[head]  # type: ignore
-    return False
-
-
-def is_metric(query: Optional[str]) -> bool:
+def is_metric(query: Optional[str], dialect: Optional[str] = None) -> bool:
     """
     Return if a SQL query defines a metric.
 
     The SQL query should have a single expression in its projections, and it should
     be an aggregation function in order for it to be considered a metric.
     """
+
+    from dj.sql.parsing.backends.sqloxide import parse  # pylint: disable=C0415
+
     if query is None:
         return False
 
-    tree = parse_sql(query, dialect="ansi")
-    projection = next(find_nodes_by_key(tree, "projection"))
+    tree = parse(query, dialect=dialect)
 
     # must have a single expression
-    expressions = list(projection)
-    if len(expressions) != 1:
+    if len(tree.select.projection) != 1:
         return False
 
-    # must be a function
-    expression = get_expression_from_projection(expressions[0])
-
-    # must be an aggregation
-    if "Case" in expression:
-        case_when = expression["Case"]
-        return all(
-            contains_agg_function_if_any(result) for result in case_when["results"]
-        )
-    return contains_agg_function_if_any(expression)
+    return tree.select.projection[0].is_aggregation()

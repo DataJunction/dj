@@ -7,7 +7,6 @@ from sqlmodel import Session
 
 from dj.construction.inference import get_type_of_expression
 from dj.models.node import Node
-from dj.sql.parse import contains_agg_function_if_any
 from dj.sql.parsing import ast
 from dj.sql.parsing.ast import BinaryOpKind
 from dj.sql.parsing.backends.exceptions import DJParseException
@@ -209,6 +208,7 @@ def test_infer_types_complicated(construction_session: Session):
         """
       SELECT id+1-2/3*5%6&10|8^5,
       CAST('2022-01-01T12:34:56Z' AS TIMESTAMP),
+      Raw('average({id})', 'INT', True),
       Raw('aggregate(array(1, 2, {id}), 0, (acc, x) -> acc + x, acc -> acc * 10)', 'INT'),
       Raw('NOW()', 'datetime'),
       DATE_TRUNC('day', '2014-03-10'),
@@ -269,6 +269,7 @@ def test_infer_types_complicated(construction_session: Session):
         ColumnType.INT,
         ColumnType.TIMESTAMP,
         ColumnType.INT,
+        ColumnType.INT,
         ColumnType.TIMESTAMP,
         ColumnType.TIMESTAMP,
         ColumnType.TIMESTAMP,
@@ -309,7 +310,6 @@ def test_infer_bad_case_types(construction_session: Session):
     """
     Test inferring mismatched case types.
     """
-    assert not contains_agg_function_if_any({})
     with pytest.raises(Exception) as excinfo:
         query = parse(
             """
