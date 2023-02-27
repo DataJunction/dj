@@ -324,6 +324,7 @@ def create_node(
             name=data.name,
             description=data.description,
             type=data.type,
+            status=NodeStatus.VALID,
             columns=[
                 Column(
                     name=column_name,
