@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+ge24d408"
+        "version": "0.0.post1.dev1+g58128bf"
     },
     "paths": {
         "/catalogs/": {
@@ -47,7 +47,7 @@
                     "required": true
                 },
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
@@ -141,7 +141,7 @@
                     "required": true
                 },
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
@@ -224,7 +224,7 @@
                     "required": true
                 },
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
@@ -578,7 +578,7 @@
                     "required": true
                 },
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
@@ -716,7 +716,7 @@
                     "required": true
                 },
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
@@ -825,7 +825,7 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
@@ -873,7 +873,7 @@
                     "required": true
                 },
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
@@ -920,7 +920,7 @@
                     }
                 ],
                 "responses": {
-                    "200": {
+                    "201": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
@@ -2111,43 +2111,6 @@
                 },
                 "description": "Class for a metric."
             },
-            "Node": {
-                "title": "Node",
-                "required": [
-                    "name",
-                    "type"
-                ],
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "title": "Name",
-                        "type": "string"
-                    },
-                    "type": {
-                        "$ref": "#/components/schemas/NodeType"
-                    },
-                    "display_name": {
-                        "title": "Display Name",
-                        "maxLength": 100,
-                        "type": "string"
-                    },
-                    "id": {
-                        "title": "Id",
-                        "type": "integer"
-                    },
-                    "current_version": {
-                        "title": "Current Version",
-                        "type": "string",
-                        "default": "v0.1"
-                    },
-                    "created_at": {
-                        "title": "Created At",
-                        "type": "string",
-                        "format": "date-time"
-                    }
-                },
-                "description": "Node that acts as an umbrella for all node revisions"
-            },
             "NodeMode": {
                 "title": "NodeMode",
                 "enum": [
@@ -2303,6 +2266,8 @@
                     "name",
                     "display_name",
                     "version",
+                    "status",
+                    "mode",
                     "columns",
                     "tables",
                     "updated_at",
@@ -2332,6 +2297,12 @@
                     "version": {
                         "title": "Version",
                         "type": "string"
+                    },
+                    "status": {
+                        "$ref": "#/components/schemas/NodeStatus"
+                    },
+                    "mode": {
+                        "$ref": "#/components/schemas/NodeMode"
                     },
                     "description": {
                         "title": "Description",
@@ -2400,7 +2371,6 @@
                 "required": [
                     "message",
                     "status",
-                    "node",
                     "node_revision",
                     "dependencies",
                     "columns"
@@ -2413,9 +2383,6 @@
                     },
                     "status": {
                         "$ref": "#/components/schemas/NodeStatus"
-                    },
-                    "node": {
-                        "$ref": "#/components/schemas/Node"
                     },
                     "node_revision": {
                         "$ref": "#/components/schemas/NodeRevision"
