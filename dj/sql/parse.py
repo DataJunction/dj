@@ -4,8 +4,7 @@ SQL parsing functions.
 
 from typing import Any, Dict, Iterator, Optional, Set, Tuple
 
-from sqloxide import parse_sql
-
+from dj.sql.parsing.backends.sqloxide import parse
 from dj.sql.functions import function_registry
 from dj.typing import Expression, Projection
 
@@ -75,7 +74,7 @@ def contains_agg_function_if_any(expr: Expression) -> bool:
     return False
 
 
-def is_metric(query: Optional[str]) -> bool:
+def is_metric(query: Optional[str], dialect: Optional[str] = None) -> bool:
     """
     Return if a SQL query defines a metric.
 
@@ -85,21 +84,11 @@ def is_metric(query: Optional[str]) -> bool:
     if query is None:
         return False
 
-    tree = parse_sql(query, dialect="ansi")
-    projection = next(find_nodes_by_key(tree, "projection"))
+    tree = parse(query, dialect=dialect)
+    
 
     # must have a single expression
-    expressions = list(projection)
-    if len(expressions) != 1:
+    if len(tree.select.projection) != 1:
         return False
 
-    # must be a function
-    expression = get_expression_from_projection(expressions[0])
-
-    # must be an aggregation
-    if "Case" in expression:
-        case_when = expression["Case"]
-        return all(
-            contains_agg_function_if_any(result) for result in case_when["results"]
-        )
-    return contains_agg_function_if_any(expression)
+    return tree.select.projection[0].is_aggregation()
