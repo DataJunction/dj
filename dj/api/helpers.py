@@ -364,7 +364,7 @@ def propagate_valid_status(session: Session, valid_nodes: List[NodeRevision]) ->
                 if not missing_parents_map and not type_inference_failed_columns:
                     node.current.columns = validated_node.columns or []
                     node.current.status = NodeStatus.VALID
-                    session.add(node)
+                    session.add(node.current)
                     session.commit()
                     newly_valid_nodes.append(node.current)
             resolved_nodes.extend(newly_valid_nodes)
