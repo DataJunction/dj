@@ -502,7 +502,7 @@ class TestCreateOrUpdateNodes:
         )
         data = response.json()
 
-        assert response.status_code == 200
+        assert response.status_code == 201
         assert data["name"] == "countries"
         assert data["display_name"] == "Countries"
         assert data["type"] == "dimension"
@@ -967,7 +967,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "type": "source",
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
 
         response = client.post(
             "/nodes/third_party_revenue/table/",
@@ -986,7 +986,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 ],
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert data == {
             "message": "Table revenue has been successfully linked to node third_party_revenue",
@@ -1010,7 +1010,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 ],
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert data == {
             "message": (
@@ -1093,7 +1093,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "columns": [],
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert data == {
             "message": "Table ledgers has been successfully linked to node third_party_revenue",
@@ -1120,7 +1120,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "type": "source",
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
 
         response = client.post(
             "/nodes/",
@@ -1136,7 +1136,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "type": "source",
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
 
         response = client.post(
             "/nodes/",
@@ -1151,7 +1151,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "type": "dimension",
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
 
         # Attach the payment_type dimension to the payment_type column on the company_revenue node
         response = client.post(
@@ -1181,7 +1181,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "?dimension=payment_type"
             "&dimension_column=payment_type_name",
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert data["message"] == (
             "Dimension node payment_type has been successfully "
@@ -1190,7 +1190,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
 
         # Check that not including the dimension defaults it to the column name
         response = client.post("/nodes/company_revenue/columns/payment_type/")
-        assert response.status_code == 200
+        assert response.status_code == 201
         data = response.json()
         assert data["message"] == (
             "Dimension node payment_type has been successfully "
