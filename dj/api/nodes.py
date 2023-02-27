@@ -110,7 +110,7 @@ def read_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutp
     return node  # type: ignore
 
 
-@router.post("/nodes/{name}/materialization/")
+@router.post("/nodes/{name}/materialization/", status_code=201)
 def upsert_node_materialization_config(
     name: str,
     data: UpsertMaterializationConfig,
@@ -277,7 +277,7 @@ def create_cube_node_revision(
     )
 
 
-@router.post("/nodes/", response_model=NodeOutput)
+@router.post("/nodes/", response_model=NodeOutput, status_code=201)
 def create_node(
     data: Union[CreateSourceNode, CreateCubeNode, CreateNode],
     session: Session = Depends(get_session),
@@ -332,7 +332,7 @@ def create_node(
     return node  # type: ignore
 
 
-@router.post("/nodes/{name}/columns/{column}/")
+@router.post("/nodes/{name}/columns/{column}/", status_code=201)
 def add_dimension_to_node(
     name: str,
     column: str,
@@ -365,7 +365,7 @@ def add_dimension_to_node(
     session.commit()
     session.refresh(node)
     return JSONResponse(
-        status_code=200,
+        status_code=201,
         content={
             "message": (
                 f"Dimension node {dimension} has been successfully "
@@ -375,7 +375,7 @@ def add_dimension_to_node(
     )
 
 
-@router.post("/nodes/{name}/table/")
+@router.post("/nodes/{name}/table/", status_code=201)
 def add_table_to_node(
     name: str,
     data: CreateTable,
@@ -439,7 +439,7 @@ def add_table_to_node(
     session.commit()
     session.refresh(node)
     return JSONResponse(
-        status_code=200,
+        status_code=201,
         content={
             "message": (
                 f"Table {data.table} has been successfully linked to node {name}"
@@ -448,7 +448,7 @@ def add_table_to_node(
     )
 
 
-@router.post("/nodes/{name}/tag/")
+@router.post("/nodes/{name}/tag/", status_code=201)
 def add_tag_to_node(
     name: str, tag_name: str, *, session: Session = Depends(get_session)
 ) -> JSONResponse:
@@ -465,7 +465,7 @@ def add_tag_to_node(
     session.refresh(tag)
 
     return JSONResponse(
-        status_code=200,
+        status_code=201,
         content={
             "message": (
                 f"Node `{name}` has been successfully tagged with tag `{tag_name}`"

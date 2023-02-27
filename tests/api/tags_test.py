@@ -34,7 +34,7 @@ class TestTags:
                 "type": "source",
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
 
         # Add dimension node
         response = client.post(
@@ -49,7 +49,7 @@ class TestTags:
                 "type": "dimension",
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
 
         # Add metrics
         response = client.post(
@@ -62,7 +62,7 @@ class TestTags:
                 "type": "metric",
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
 
         response = client.post(
             "/nodes/",
@@ -74,7 +74,7 @@ class TestTags:
                 "type": "metric",
             },
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
         return client
 
     def create_tag(self, client: TestClient):
@@ -106,6 +106,7 @@ class TestTags:
             "name": "sales_report",
             "tag_type": "group",
         }
+        assert response.status_code == 201
         assert response.json() == expected_tag_output
 
         response = client.get("/tags/sales_report/")
@@ -256,7 +257,7 @@ class TestTags:
         response = client.post(
             "/nodes/items_sold_count/tag/?tag_name=sales_report",
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
         response_data = response.json()
         assert (
             response_data["message"]
@@ -278,7 +279,7 @@ class TestTags:
         response = client.post(
             "/nodes/total_profit/tag/?tag_name=sales_report",
         )
-        assert response.status_code == 200
+        assert response.status_code == 201
         response_data = response.json()
         assert (
             response_data["message"]
