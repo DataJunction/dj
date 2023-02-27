@@ -44,8 +44,9 @@ from dj.models.node import (
     UpsertMaterializationConfig,
 )
 from dj.models.table import CreateTable
+from dj.service_clients import QueryServiceClient
 from dj.sql.parsing.backends.sqloxide import parse
-from dj.utils import Version, VersionUpgrade, get_session
+from dj.utils import Version, VersionUpgrade, get_query_service_client, get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -376,7 +377,11 @@ def add_dimension_to_node(
 
 @router.post("/nodes/{name}/table/")
 def add_table_to_node(
-    name: str, data: CreateTable, *, session: Session = Depends(get_session)
+    name: str,
+    data: CreateTable,
+    *,
+    session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> JSONResponse:
     """
     Add a table to a node
@@ -397,21 +402,38 @@ def add_table_to_node(
                 ),
                 http_status_code=HTTPStatus.CONFLICT,
             )
+
+    # When no columns are provided, attempt to find actual table columns
+    # if a query service is set
+    columns = [
+        Column(name=column.name, type=ColumnType(column.type))
+        for column in data.columns
+    ]
+    if not columns:
+        if not query_service_client:
+            raise DJException(
+                message="No table columns were provided and no query "
+                "service is configured for table columns inference!",
+            )
+        columns = query_service_client.get_columns_for_table(
+            data.catalog_name,
+            data.schema_,  # type: ignore
+            data.table,
+        )
+
     table = Table(
         catalog_id=catalog.id,
         schema=data.schema_,
         table=data.table,
         database_id=database.id,
         cost=data.cost,
-        columns=[
-            Column(name=column.name, type=ColumnType(column.type))
-            for column in data.columns
-        ],
+        columns=columns,
     )
 
     session.add(table)
     session.commit()
     session.refresh(table)
+    node.current.columns = columns
     node.current.tables.append(table)
     session.add(node)
     session.commit()

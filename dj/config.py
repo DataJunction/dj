@@ -45,6 +45,9 @@ class Settings(
     # How long to wait when pinging databases to find out the fastest online database.
     do_ping_timeout: timedelta = timedelta(seconds=5)
 
+    # Query service
+    query_service: Optional[str] = None
+
     @property
     def celery(self) -> Celery:
         """
