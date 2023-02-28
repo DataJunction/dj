@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from djqs.api.helpers import get_engine
-from djqs.models.engine import Engine, EngineInfo
+from djqs.models.engine import BaseEngineInfo, Engine, EngineInfo
 from djqs.utils import get_session
 
 router = APIRouter()
@@ -23,22 +23,22 @@ def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]
     return list(session.exec(select(Engine)))
 
 
-@router.get("/engines/{name}/{version}/", response_model=EngineInfo)
+@router.get("/engines/{name}/{version}/", response_model=BaseEngineInfo)
 def list_engine(
     name: str, version: str, *, session: Session = Depends(get_session)
-) -> EngineInfo:
+) -> BaseEngineInfo:
     """
     Return an engine by name and version
     """
     return get_engine(session, name, version)
 
 
-@router.post("/engines/", response_model=EngineInfo, status_code=201)
+@router.post("/engines/", response_model=BaseEngineInfo, status_code=201)
 def add_engine(
     data: EngineInfo,
     *,
     session: Session = Depends(get_session),
-) -> EngineInfo:
+) -> BaseEngineInfo:
     """
     Add an Engine
     """

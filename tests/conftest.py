@@ -24,7 +24,6 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
     """
     settings = Settings(
         index="sqlite://",
-        repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
     )
 

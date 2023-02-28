@@ -3,7 +3,6 @@ Configuration for the metric repository.
 """
 
 from datetime import timedelta
-from pathlib import Path
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
@@ -22,9 +21,11 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     # SQLAlchemy URI for the metadata database.
     index: str = "sqlite:///djqs.db?check_same_thread=False"
 
-    # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
-    # "databases".
-    repository: Path = Path(".")
+    # The default engine to use for reflection
+    default_reflection_engine: str = "sqlalchemy"
+
+    # The default engine version to use for reflection
+    default_reflection_engine_version: str = ""
 
     # Where to store the results from queries.
     results_backend: BaseCache = FileSystemCache("/tmp/djqs", default_timeout=0)

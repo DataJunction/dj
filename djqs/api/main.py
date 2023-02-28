@@ -13,9 +13,8 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from djqs import __version__
-from djqs.api import catalogs, engines, queries
-from djqs.errors import DJException
-from djqs.models.query import Query
+from djqs.api import catalogs, engines, queries, tables
+from djqs.exceptions import DJException
 from djqs.utils import get_settings
 
 _logger = logging.getLogger(__name__)
@@ -34,6 +33,7 @@ app = FastAPI(
 app.include_router(catalogs.router)
 app.include_router(engines.router)
 app.include_router(queries.router)
+app.include_router(tables.router)
 
 
 @app.exception_handler(DJException)

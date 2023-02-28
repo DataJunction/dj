@@ -32,4 +32,4 @@ class EngineInfo(BaseEngineInfo):
     Class for engine creation
     """
 
-    uri: Optional[str]
+    uri: str

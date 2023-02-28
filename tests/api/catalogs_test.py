@@ -31,8 +31,9 @@ def test_catalog_list(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "version": "3.3.1",
+            "name": "foo",
+            "version": "1.0",
+            "uri": "bar",
         },
     )
     assert response.status_code == 201
@@ -43,8 +44,9 @@ def test_catalog_list(
             "name": "dev",
             "engines": [
                 {
-                    "name": "spark",
-                    "version": "3.3.1",
+                    "name": "foo",
+                    "version": "1.0",
+                    "uri": "bar",
                 },
             ],
         },
@@ -72,7 +74,7 @@ def test_catalog_list(
     assert response.json() == [
         {
             "name": "dev",
-            "engines": [{"name": "spark", "version": "3.3.1"}],
+            "engines": [{"name": "foo", "version": "1.0"}],
         },
         {"name": "test", "engines": []},
         {"name": "prod", "engines": []},
@@ -88,8 +90,9 @@ def test_catalog_get_catalog(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "version": "3.3.1",
+            "name": "foo",
+            "version": "1.0",
+            "uri": "bar",
         },
     )
     assert response.status_code == 201
@@ -100,8 +103,9 @@ def test_catalog_get_catalog(
             "name": "dev",
             "engines": [
                 {
-                    "name": "spark",
-                    "version": "3.3.1",
+                    "name": "foo",
+                    "version": "1.0",
+                    "uri": "bar",
                 },
             ],
         },
@@ -115,7 +119,7 @@ def test_catalog_get_catalog(
     data = response.json()
     assert data == {
         "name": "dev",
-        "engines": [{"name": "spark", "version": "3.3.1"}],
+        "engines": [{"name": "foo", "version": "1.0"}],
     }
 
 
@@ -128,9 +132,9 @@ def test_catalog_adding_a_new_catalog_with_engines(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "uri": None,
-            "version": "3.3.1",
+            "name": "foo",
+            "uri": "bar",
+            "version": "1.0",
         },
     )
     data = response.json()
@@ -142,8 +146,9 @@ def test_catalog_adding_a_new_catalog_with_engines(
             "name": "dev",
             "engines": [
                 {
-                    "name": "spark",
-                    "version": "3.3.1",
+                    "name": "foo",
+                    "version": "1.0",
+                    "uri": "bar",
                 },
             ],
         },
@@ -154,8 +159,8 @@ def test_catalog_adding_a_new_catalog_with_engines(
         "name": "dev",
         "engines": [
             {
-                "name": "spark",
-                "version": "3.3.1",
+                "name": "foo",
+                "version": "1.0",
             },
         ],
     }
@@ -170,9 +175,9 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "uri": None,
-            "version": "3.3.1",
+            "name": "foo",
+            "uri": "bar",
+            "version": "1.0",
         },
     )
     data = response.json()
@@ -190,8 +195,8 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
         "/catalogs/dev/engines/",
         json=[
             {
-                "name": "spark",
-                "version": "3.3.1",
+                "name": "foo",
+                "version": "1.0",
             },
         ],
     )
@@ -202,8 +207,8 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
         "name": "dev",
         "engines": [
             {
-                "name": "spark",
-                "version": "3.3.1",
+                "name": "foo",
+                "version": "1.0",
             },
         ],
     }
@@ -218,8 +223,8 @@ def test_catalog_adding_without_duplicating(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "uri": None,
+            "name": "foo",
+            "uri": "bar",
             "version": "2.4.4",
         },
     )
@@ -229,8 +234,9 @@ def test_catalog_adding_without_duplicating(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
+            "name": "foo",
             "version": "3.3.0",
+            "uri": "bar",
         },
     )
     data = response.json()
@@ -239,8 +245,9 @@ def test_catalog_adding_without_duplicating(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "version": "3.3.1",
+            "name": "foo",
+            "version": "1.0",
+            "uri": "bar",
         },
     )
     data = response.json()
@@ -258,16 +265,16 @@ def test_catalog_adding_without_duplicating(
         "/catalogs/dev/engines/",
         json=[
             {
-                "name": "spark",
+                "name": "foo",
                 "version": "2.4.4",
             },
             {
-                "name": "spark",
+                "name": "foo",
                 "version": "3.3.0",
             },
             {
-                "name": "spark",
-                "version": "3.3.1",
+                "name": "foo",
+                "version": "1.0",
             },
         ],
     )
@@ -277,16 +284,16 @@ def test_catalog_adding_without_duplicating(
         "/catalogs/dev/engines/",
         json=[
             {
-                "name": "spark",
+                "name": "foo",
                 "version": "2.4.4",
             },
             {
-                "name": "spark",
+                "name": "foo",
                 "version": "3.3.0",
             },
             {
-                "name": "spark",
-                "version": "3.3.1",
+                "name": "foo",
+                "version": "1.0",
             },
         ],
     )
@@ -296,16 +303,16 @@ def test_catalog_adding_without_duplicating(
         "name": "dev",
         "engines": [
             {
-                "name": "spark",
+                "name": "foo",
                 "version": "2.4.4",
             },
             {
-                "name": "spark",
+                "name": "foo",
                 "version": "3.3.0",
             },
             {
-                "name": "spark",
-                "version": "3.3.1",
+                "name": "foo",
+                "version": "1.0",
             },
         ],
     }
@@ -323,15 +330,15 @@ def test_catalog_raise_on_adding_a_new_catalog_with_nonexistent_engines(
             "name": "dev",
             "engines": [
                 {
-                    "name": "spark",
-                    "version": "4.0.0",
+                    "name": "foo",
+                    "version": "2.0",
                 },
             ],
         },
     )
     data = response.json()
     assert response.status_code == 404
-    assert data == {"detail": "Engine not found: `spark` version `4.0.0`"}
+    assert data == {"detail": "Engine not found: `foo` version `2.0`"}
 
 
 def test_catalog_raise_on_catalog_already_exists(

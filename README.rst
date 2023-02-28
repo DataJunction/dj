@@ -159,3 +159,61 @@ once it's completed.
       "previous": null,
       "errors": []
     }
+
+Reflection
+==========
+
+If running a [reflection service](https://github.com/DataJunction/djrs), that service can leverage the
+:code:`POST /table/{table}/columns/` endpoint of DJQS to get column names and types for a given table.
+
+.. code-block:: sh
+
+    curl -X 'GET' \
+      'http://localhost:8001/table/public.roads.repair_orders/columns/' \
+      -H 'accept: application/json'
+
+*response*
+
+.. code-block:: json
+
+    {
+      "name": "public.roads.repair_orders",
+      "columns": [
+        {
+          "name": "repair_order_id",
+          "type": "INT"
+        },
+        {
+          "name": "municipality_id",
+          "type": "STR"
+        },
+        {
+          "name": "hard_hat_id",
+          "type": "INT"
+        },
+        {
+          "name": "order_date",
+          "type": "DATE"
+        },
+        {
+          "name": "required_date",
+          "type": "DATE"
+        },
+        {
+          "name": "dispatched_date",
+          "type": "DATE"
+        },
+        {
+          "name": "dispatcher_id",
+          "type": "INT"
+        }
+      ]
+    }
+
+You can optionally include a specific engine and engine version to use for reflection.
+
+.. code-block:: sh
+
+    curl -X 'GET' \
+      'http://localhost:8001/table/public.roads.repair_orders/columns/?engine=postgres&engine_version=15.2' \
+      -H 'accept: application/json'

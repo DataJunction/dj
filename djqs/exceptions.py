@@ -205,3 +205,9 @@ class DJInternalErrorException(DJException):
 
     dbapi_exception: DBAPIExceptions = "InternalError"
     http_status_code: int = 500
+
+
+class DJInvalidTableRef(DJException):
+    """
+    Raised for invalid table values
+    """

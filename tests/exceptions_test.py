@@ -4,7 +4,7 @@ Tests errors.
 
 from http import HTTPStatus
 
-from djqs.errors import DJError, DJException, ErrorCode
+from djqs.exceptions import DJError, DJException, ErrorCode
 
 
 def test_dj_exception() -> None:

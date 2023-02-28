@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from djqs.api.engines import EngineInfo
 from djqs.api.helpers import get_catalog, get_engine
-from djqs.errors import DJException
+from djqs.exceptions import DJException
 from djqs.models.catalog import Catalog, CatalogInfo
 from djqs.models.engine import BaseEngineInfo
 from djqs.utils import get_session

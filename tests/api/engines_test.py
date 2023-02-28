@@ -14,13 +14,14 @@ def test_engine_adding_a_new_engine(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "version": "3.3.1",
+            "name": "foo",
+            "version": "1.0",
+            "uri": "bar",
         },
     )
     data = response.json()
     assert response.status_code == 201
-    assert data == {"name": "spark", "uri": None, "version": "3.3.1"}
+    assert data == {"name": "foo", "version": "1.0"}
 
 
 def test_engine_list(
@@ -31,9 +32,16 @@ def test_engine_list(
     """
     response = client.post(
         "/engines/",
+        json={"name": "foo", "version": "1.0", "uri": "bar"},
+    )
+    assert response.status_code == 201
+
+    response = client.post(
+        "/engines/",
         json={
-            "name": "spark",
-            "version": "2.4.4",
+            "name": "foo",
+            "version": "1.1",
+            "uri": "baz",
         },
     )
     assert response.status_code == 201
@@ -41,17 +49,9 @@ def test_engine_list(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "version": "3.3.0",
-        },
-    )
-    assert response.status_code == 201
-
-    response = client.post(
-        "/engines/",
-        json={
-            "name": "spark",
-            "version": "3.3.1",
+            "name": "foo",
+            "version": "1.2",
+            "uri": "qux",
         },
     )
     assert response.status_code == 201
@@ -61,19 +61,19 @@ def test_engine_list(
     data = response.json()
     assert data == [
         {
-            "name": "spark",
-            "uri": None,
-            "version": "2.4.4",
+            "name": "foo",
+            "uri": "bar",
+            "version": "1.0",
         },
         {
-            "name": "spark",
-            "uri": None,
-            "version": "3.3.0",
+            "name": "foo",
+            "uri": "baz",
+            "version": "1.1",
         },
         {
-            "name": "spark",
-            "uri": None,
-            "version": "3.3.1",
+            "name": "foo",
+            "uri": "qux",
+            "version": "1.2",
         },
     ]
 
@@ -87,18 +87,19 @@ def test_engine_get_engine(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "version": "3.3.1",
+            "name": "foo",
+            "version": "1.0",
+            "uri": "bar",
         },
     )
     assert response.status_code == 201
 
     response = client.get(
-        "/engines/spark/3.3.1",
+        "/engines/foo/1.0",
     )
     assert response.status_code == 200
     data = response.json()
-    assert data == {"name": "spark", "uri": None, "version": "3.3.1"}
+    assert data == {"name": "foo", "version": "1.0"}
 
 
 def test_engine_raise_on_engine_already_exists(
@@ -110,8 +111,9 @@ def test_engine_raise_on_engine_already_exists(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "version": "3.3.1",
+            "name": "foo",
+            "version": "1.0",
+            "uri": "bar",
         },
     )
     assert response.status_code == 201
@@ -119,10 +121,11 @@ def test_engine_raise_on_engine_already_exists(
     response = client.post(
         "/engines/",
         json={
-            "name": "spark",
-            "version": "3.3.1",
+            "name": "foo",
+            "version": "1.0",
+            "uri": "bar",
         },
     )
     assert response.status_code == 409
     data = response.json()
-    assert data == {"detail": "Engine already exists: `spark` version `3.3.1`"}
+    assert data == {"detail": "Engine already exists: `foo` version `1.0`"}
