@@ -14,8 +14,8 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     Configuration for the metric repository.
     """
 
-    name: str = "DJ query server"
-    description: str = "A DataJunction metrics repository"
+    name: str = "DJQS"
+    description: str = "A DataJunction Query Service"
     url: str = "http://localhost:8001/"
 
     # SQLAlchemy URI for the metadata database.
