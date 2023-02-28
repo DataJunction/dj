@@ -150,7 +150,7 @@ class DJException(Exception):
         """
         Convert to dict.
         """
-        return {
+        return {  # pragma: no cover
             "message": self.message,
             "errors": [error.dict() for error in self.errors],
             "warnings": [warning.dict() for warning in self.warnings],
@@ -170,7 +170,7 @@ class DJException(Exception):
         return f"{self.message}\n{errors}"
 
     def __eq__(self, other) -> bool:
-        return (
+        return (  # pragma: no cover
             isinstance(other, DJException)
             and self.message == other.message
             and self.errors == other.errors

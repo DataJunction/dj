@@ -1,140 +1,161 @@
-============
-DataJunction
-============
+==========================
+DataJunction Query Service
+==========================
 
+This repository (DJQS) is an open source implementation of a `DataJunction <https://github.com/DataJunction/dj>`_
+query service. It allows you to create catalogs and engines that represent sqlalchemy connections. Configuring
+a DJ server to use a DJQS server allows DJ to query any of the database technologies supported by sqlalchemy.
 
-    A metrics repository
+==========
+Quickstart
+==========
 
+To get started, clone this repo and start up the docker compose environment.
 
-DataJunction (DJ) is a repository of **metric definitions**. Metrics are defined using **ANSI SQL** and are **database agnostic**. Metrics can then be computed via a **REST API** or **SQL**.
+.. code-block::
 
-What does that mean?
-====================
+    git clone https://github.com/DataJunction/djqs
+    cd djqs
+    docker compose up
 
-DJ allows users to define metrics once, and reuse them in different databases. This offers a couple benefits:
+Creating Catalogs
+=================
 
-1. The same metric definition can be used in different databases, ensuring that the results are consistent. A daily pipeline might use Hive to compute metrics in batch mode, while a dashboard application might use a faster database like Druid.
-2. Users don't have to worry where or how a metric is computed -- all they need to know is the metric name. Tools can leverage the DJ semantic layer to allow users to easily filter and group metrics by any available dimensions.
+Catalogs can be created using the :code:`POST /catalogs/` endpoint.
 
-As an example, imagine that we have 2 databases, Hive and Trino. In DJ they are represented as YAML files:
+.. code-block:: sh
 
-.. code-block:: YAML
+    curl -X 'POST' \
+      'http://localhost:8001/catalogs/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "name": "public"
+    }'
 
-    # databases/hive.yaml
-    description: A (slow) Hive database
-    URI: hive://localhost:10000/default
-    read_only: false
-    cost: 10
+Creating Engines
+================
 
-.. code-block:: YAML
+Engines can be created using the :code:`POST /engines/` endpoint.
 
-    # databases/trino.yaml
-    description: A (fast) Trino database
-    URI: trino://localhost:8080/hive/default
-    read_only: false
-    cost: 1
+.. code-block:: sh
 
-Now imagine we have a table in those databases, also represented as a YAML file:
+    curl -X 'POST' \
+      'http://localhost:8001/engines/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "name": "postgres",
+      "version": "15.2",
+      "uri": "postgresql://dj:dj@postgres-roads:5432/roads"
+    }'
 
-.. code-block:: YAML
+Engines can be attached to existing catalogs using the :code:`POST /catalogs/{name}/engines/` endpoint.
 
-    # nodes/comments.yaml
-    type: source
-    description: A fact table with comments
-    tables:
-      hive:
-        - catalog: null
-          schema: default
-          table: fact_comments
-      trino:
-        - catalog: hive
-          schema: default
-          table: fact_comments
+.. code-block:: sh
 
-So far we've only described what already exists. Let's add a metric called ``num_comments``, which keeps track of how many comments have been posted so far:
+    curl -X 'POST' \
+      'http://localhost:8001/catalogs/public/engines/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '[
+      {
+        "name": "postgres",
+        "version": "15.2"
+      }
+    ]'
 
-.. code-block:: YAML
+Executing Queries
+=================
 
-    # nodes/num_comments.yaml
-    type: metric
-    description: The number of comments
-    query: SELECT COUNT(*) FROM comments
+Queries can be submitted to DJQS for a specified catalog and engine.
 
-Now we run a command to parse all the configuration files and index them in a database:
+.. code-block:: sh
 
-.. code-block:: bash
+    curl -X 'POST' \
+      'http://localhost:8001/queries/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "catalog_name": "public",
+      "engine_name": "postgres",
+      "engine_version": "15.2",
+      "submitted_query": "SELECT * from roads.repair_orders",
+      "async_": false
+    }'
 
-    $ dj compile
+Async queries can be submitted as well.
 
-And we start a development server:
+.. code-block:: sh
 
-.. code-block:: bash
+    curl -X 'POST' \
+      'http://localhost:8001/queries/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "catalog_name": "public",
+      "engine_name": "postgres",
+      "engine_version": "15.2",
+      "submitted_query": "SELECT * from roads.repair_orders",
+      "async_": true
+    }'
 
-    $ uvicorn djqs.api.main:app --host 127.0.0.1 --port 8001 --reload
+*response*
 
-Now, if we want to compute the metric in our Hive warehouse we can build a pipeline that requests the Hive SQL:
+.. code-block:: json
 
-.. code-block:: bash
-
-    % curl "http://localhost:8001/metrics/2/sql/?database_id=1"
     {
-      "database_id": 1,
-      "sql": "SELECT count('*') AS count_1 \nFROM (SELECT default.fact_comments.id AS id, default.fact_comments.user_id AS user_id, default.fact_comments.timestamp AS timestamp, default.fact_comments.text AS text \nFROM default.fact_comments) AS \"comments\""
+      "catalog_name": "public",
+      "engine_name": "postgres",
+      "engine_version": "15.2",
+      "id": "<QUERY ID HERE>",
+      "submitted_query": "SELECT * from roads.repair_orders",
+      "executed_query": null,
+      "scheduled": null,
+      "started": null,
+      "finished": null,
+      "state": "ACCEPTED",
+      "progress": 0,
+      "results": [],
+      "next": null,
+      "previous": null,
+      "errors": []
     }
 
-We can also filter and group our metric by any of its dimensions:
+The query id provided in the response can then be used to check the status of the running query and get the results
+once it's completed.
 
-.. code-block:: bash
+.. code-block:: sh
 
-    % curl http://localhost:8001/metrics/2/
+    curl -X 'GET' \
+      'http://localhost:8001/queries/<QUERY ID HERE>/' \
+      -H 'accept: application/json'
+
+*response*
+
+.. code-block:: json
+
     {
-      "id": 2,
-      "name": "num_comments",
-      "description": "A fact table with comments",
-      "created_at": "2022-01-17T19:06:09.215689",
-      "updated_at": "2022-04-04T16:27:53.374001",
-      "query": "SELECT COUNT(*) FROM comments",
-      "dimensions": [
-        "comments.id",
-        "comments.user_id",
-        "comments.timestamp",
-        "comments.text"
-      ]
+      "catalog_name": "public",
+      "engine_name": "postgres",
+      "engine_version": "15.2",
+      "id": "$QUERY_ID",
+      "submitted_query": "SELECT * from roads.repair_orders",
+      "executed_query": "SELECT * from roads.repair_orders",
+      "scheduled": "2023-02-28T07:27:55.367162",
+      "started": "2023-02-28T07:27:55.367387",
+      "finished": "2023-02-28T07:27:55.502412",
+      "state": "FINISHED",
+      "progress": 1,
+      "results": [
+        {
+          "sql": "SELECT * from roads.repair_orders",
+          "columns": [...],
+          "rows": [...],
+          "row_count": 25
+        }
+      ],
+      "next": null,
+      "previous": null,
+      "errors": []
     }
-
-For example, if we want to group the metric by the user ID, to see how many comments each user made, while filtering out non-positive user IDs:
-
-.. code-block:: bash
-
-    % curl "http://localhost:8001/metrics/2/sql/?database_id=1&d=comments.user_id&f=comments.user_id>0"
-
-If instead we want the actual data, instead of the SQL:
-
-.. code-block:: bash
-
-    % curl "http://localhost:8001/metrics/2/data/?database_id=1&d=comments.user_id&f=comments.user_id>0"
-
-And if we omit the ``database_id`` DJ will compute the data using the fastest database (ie, the one with lowest ``cost``). It's also possible to specify tables with different costs:
-
-.. code-block:: YAML
-
-    # nodes/users.yaml
-    description: A dimension table with user information
-    type: dimension
-    tables:
-      hive:
-        - catalog: null
-          schema: default
-          table: dim_users
-          cost: 10
-        - catalog: null
-          schema: default
-          table: dim_fast_users
-          cost: 1
-
-The tables ``dim_users`` and ``dim_fast_users`` can have different columns. For example, ``dim_fast_users`` could have only a subset of the columns in ``dim_users``, the ones that can be quickly populated. DJ will use the fast table if the available columns can satisfy a given query, otherwise it will fallback to the slow table.
-
-Getting started
-===============
-
-While all the functionality above currently works, DJ is still not ready for production use. Only a very small number of functions are supported, and we are still working towards a 0.1 release. If you are interested in helping take a look at the `issues marked with the "good first issue" label <https://github.com/DataJunction/djqs/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22>`_.

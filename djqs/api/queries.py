@@ -1,10 +1,8 @@
 """
 Query related APIs.
 """
-
 import json
 import logging
-import urllib.parse
 import uuid
 from http import HTTPStatus
 from typing import Any, List, Optional
@@ -24,29 +22,26 @@ from fastapi import (
 from sqlmodel import Session
 
 from djqs.config import Settings
-from djqs.constants import DJ_DATABASE_ID
 from djqs.engine import process_query
 from djqs.models.query import (
     Query,
     QueryCreate,
     QueryResults,
     QueryState,
-    QueryWithResults,
+    Results,
     StatementResults,
     decode_results,
     encode_results,
 )
-from djqs.sql.build import get_query_for_sql
 from djqs.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
-celery = get_settings().celery  # pylint: disable=invalid-name
 
 
 @router.post(
     "/queries/",
-    response_model=QueryWithResults,
+    response_model=QueryResults,
     status_code=HTTPStatus.OK,
     responses={
         200: {
@@ -80,7 +75,7 @@ async def submit_query(
     response: Response,
     background_tasks: BackgroundTasks,
     body: Any = Body(...),
-) -> QueryWithResults:
+) -> QueryResults:
     """
     Run or schedule a query.
 
@@ -103,9 +98,6 @@ async def submit_query(
             detail=f"Content type not accepted: {content_type}",
         )
     create_query = QueryCreate(**data)
-
-    if create_query.database_id == DJ_DATABASE_ID:
-        create_query = await get_query_for_sql(create_query.submitted_query)
 
     query_with_results = save_query_and_run(
         create_query,
@@ -143,7 +135,7 @@ def save_query_and_run(
     settings: Settings,
     response: Response,
     background_tasks: BackgroundTasks,
-) -> QueryWithResults:
+) -> QueryResults:
     """
     Store a new query to the DB and run it.
     """
@@ -154,37 +146,18 @@ def save_query_and_run(
     session.commit()
     session.refresh(query)
 
-    if query.database.async_:  # pylint: disable=no-member
-        if settings.celery_broker:
-            dispatch_query.delay(query.id)
-        else:
-            background_tasks.add_task(process_query, session, settings, query)
+    if query.async_:
+        background_tasks.add_task(process_query, session, settings, query)
 
         response.status_code = HTTPStatus.CREATED
-        return QueryWithResults(results=[], errors=[], **query.dict())
+        return QueryResults(results=[], errors=[], **query.dict())
 
     return process_query(session, settings, query)
-
-
-@celery.task
-def dispatch_query(query_id: uuid.UUID) -> None:
-    """
-    Celery task for processing a query.
-    """
-    session = next(get_session())
-    settings = get_settings()
-
-    query = session.get(Query, query_id)
-    if not query:
-        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Query not found")
-
-    process_query(session, settings, query).dict()
 
 
 def load_query_results(
     settings: Settings,
     key: str,
-    paginated: bool,
 ) -> List[StatementResults]:
     """
     Load results from backend, if available.
@@ -192,20 +165,10 @@ def load_query_results(
     If ``paginate`` is true we also load the results into the cache, anticipating more
     paginated queries.
     """
-    if settings.cache and settings.cache.has(key):
-        _logger.info("Reading results from cache")
-        cached = settings.cache.get(key)
-        query_results = json.loads(cached)
-    elif settings.results_backend.has(key):
+    if settings.results_backend.has(key):
         _logger.info("Reading results from results backend")
         cached = settings.results_backend.get(key)
         query_results = json.loads(cached)
-        if paginated and settings.cache:
-            settings.cache.add(
-                key,
-                cached,
-                timeout=int(settings.paginating_timeout.total_seconds()),
-            )
     else:
         _logger.warning("No results found")
         query_results = []
@@ -213,16 +176,13 @@ def load_query_results(
     return query_results
 
 
-@router.get("/queries/{query_id}/", response_model=QueryWithResults)
+@router.get("/queries/{query_id}/", response_model=QueryResults)
 def read_query(
     query_id: uuid.UUID,
-    limit: int = 0,
-    offset: int = 0,
     *,
     session: Session = Depends(get_session),
-    request: Request,
     settings: Settings = Depends(get_settings),
-) -> QueryWithResults:
+) -> QueryResults:
     """
     Fetch information about a query.
 
@@ -233,30 +193,11 @@ def read_query(
     if not query:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail="Query not found")
 
-    paginated = limit > 0 or offset > 0
-    query_results = load_query_results(settings, str(query_id), paginated)
+    query_results = load_query_results(settings, str(query_id))
 
     prev = next_ = None
-    if paginated:
-        for statement_results in query_results:
-            statement_results["rows"] = statement_results["rows"][
-                offset : offset + limit
-            ]
+    results = Results(__root__=query_results)
 
-        baseurl = request.url_for("read_query", query_id=query_id)
-        parts = list(urllib.parse.urlparse(baseurl))
-        if any(
-            statement_results["row_count"] > offset + limit
-            for statement_results in query_results
-        ):
-            parts[4] = urllib.parse.urlencode(dict(limit=limit, offset=offset + limit))
-            next_ = urllib.parse.urlunparse(parts)
-        if offset > 0:
-            parts[4] = urllib.parse.urlencode(dict(limit=limit, offset=offset - limit))
-            prev = urllib.parse.urlunparse(parts)
-
-    results = QueryResults(__root__=query_results)
-
-    return QueryWithResults(
+    return QueryResults(
         results=results, next=next_, previous=prev, errors=[], **query.dict()
     )

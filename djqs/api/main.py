@@ -13,14 +13,9 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from djqs import __version__
-from djqs.api import databases, metrics, nodes, queries
-from djqs.api.graphql.main import graphql_app
+from djqs.api import catalogs, engines, queries
 from djqs.errors import DJException
-from djqs.models.column import Column
-from djqs.models.database import Database
-from djqs.models.node import Node
 from djqs.models.query import Query
-from djqs.models.table import Table
 from djqs.utils import get_settings
 
 _logger = logging.getLogger(__name__)
@@ -36,11 +31,9 @@ app = FastAPI(
         "url": "https://mit-license.org/",
     },
 )
-app.include_router(databases.router)
+app.include_router(catalogs.router)
+app.include_router(engines.router)
 app.include_router(queries.router)
-app.include_router(metrics.router)
-app.include_router(nodes.router)
-app.include_router(graphql_app, prefix="/graphql")
 
 
 @app.exception_handler(DJException)
@@ -51,7 +44,7 @@ async def dj_exception_handler(  # pylint: disable=unused-argument
     """
     Capture errors and return JSON.
     """
-    return JSONResponse(
+    return JSONResponse(  # pragma: no cover
         status_code=exc.http_status_code,
         content=exc.to_dict(),
         headers={"X-DJ-Error": "true", "X-DBAPI-Exception": exc.dbapi_exception},

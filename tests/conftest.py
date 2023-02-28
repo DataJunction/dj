@@ -3,20 +3,18 @@ Fixtures for testing.
 """
 # pylint: disable=redefined-outer-name, invalid-name
 
-from pathlib import Path
 from typing import Iterator
 
 import pytest
 from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
-from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
 from djqs.api.main import app
 from djqs.config import Settings
-from djqs.utils import get_project_repository, get_session, get_settings
+from djqs.utils import get_session, get_settings
 
 
 @pytest.fixture
@@ -28,8 +26,6 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
         index="sqlite://",
         repository="/path/to/repository",
         results_backend=SimpleCache(default_timeout=0),
-        celery_broker=None,
-        redis_cache=None,
     )
 
     mocker.patch(
@@ -38,22 +34,6 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
     )
 
     yield settings
-
-
-@pytest.fixture
-def repository(fs: FakeFilesystem) -> Iterator[Path]:
-    """
-    Create the main repository.
-    """
-    # add the examples repository to the fake filesystem
-    repository = get_project_repository()
-    fs.add_real_directory(
-        repository / "tests/configs",
-        target_path="/path/to/repository",
-    )
-
-    path = Path("/path/to/repository")
-    yield path
 
 
 @pytest.fixture()
