@@ -47,6 +47,8 @@ fastapi==0.70.1
     # via dj
 graphql-core==3.2.3
     # via strawberry-graphql
+greenlet==2.0.2
+    # via sqlalchemy
 idna==3.4
     # via
     #   anyio
@@ -72,7 +74,7 @@ pygments==2.14.0
     # via rich
 python-dateutil==2.8.2
     # via strawberry-graphql
-python-dotenv==0.19.2
+python-dotenv==0.19.0
     # via dj
 pytz==2022.7.1
     # via celery
