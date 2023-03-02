@@ -94,6 +94,7 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
         Get all metrics from a given schema and table.
         """
         with database.get_sqla_engine_with_context() as engine:
+            print(engine)
             base_url = engine.connect().connection.base_url
 
         response = requests.get(
