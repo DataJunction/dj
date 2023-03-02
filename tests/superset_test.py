@@ -52,6 +52,15 @@ def test_get_metrics(mocker: MockerFixture, requests_mock: Mocker) -> None:
     ]
 
 
+def test_get_view_names(mocker: MockerFixture) -> None:
+    """
+    Test ``get_view_names``.
+    """
+    database = mocker.MagicMock()
+    inspector = mocker.MagicMock()
+    assert DJEngineSpec.get_view_names(database, inspector, "main") == set()
+
+
 def test_execute(mocker: MockerFixture) -> None:
     """
     Test ``execute``.
@@ -66,4 +75,3 @@ def test_execute(mocker: MockerFixture) -> None:
         cursor,
         'SELECT time AS "__timestamp" FROM table',
     )
-    print(super_.mock_calls)
