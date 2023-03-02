@@ -27,9 +27,10 @@ def test_get_metrics(mocker: MockerFixture, requests_mock: Mocker) -> None:
     Test ``get_metrics``.
     """
     database = mocker.MagicMock()
-    database.get_sqla_engine().connect().connection.base_url = URL(
-        "https://localhost:8000/0",
-    )
+    with database.get_sqla_engine_with_context() as engine:
+        engine.connect().connection.base_url = URL(
+            "https://localhost:8000/0",
+        )
     inspector = mocker.MagicMock()
 
     requests_mock.get(
