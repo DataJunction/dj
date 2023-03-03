@@ -4,7 +4,7 @@ A DB engine spec for Superset.
 
 import re
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any, List, Optional, TypedDict
+from typing import TYPE_CHECKING, Any, List, Optional, Set, TypedDict
 
 import requests
 from sqlalchemy.engine.reflection import Inspector
@@ -93,8 +93,8 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
         """
         Get all metrics from a given schema and table.
         """
-        engine = database.get_sqla_engine()
-        base_url = engine.connect().connection.base_url
+        with database.get_sqla_engine_with_context() as engine:
+            base_url = engine.connect().connection.base_url
 
         response = requests.get(
             base_url / "metrics/",
@@ -123,3 +123,15 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
         query = re.sub(r" AS (_.*?)(\b|$)", r' AS "\1"', query)
 
         return super().execute(cursor, query, **kwargs)
+
+    @classmethod
+    def get_view_names(  # pylint: disable=unused-argument
+        cls,
+        database: "Database",
+        inspector: Inspector,
+        schema: Optional[str],
+    ) -> Set[str]:
+        """
+        Return all views.
+        """
+        return set()
