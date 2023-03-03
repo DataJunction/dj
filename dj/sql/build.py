@@ -54,7 +54,7 @@ def parse_filter(filter_: str) -> Tuple[str, FilterOperator, str]:
     match = FILTER_RE.match(filter_)
     if not match:
         raise DJInvalidInputException(
-            message=f'The filter "{filter_}" is invalid',
+            title=f'The filter "{filter_}" is invalid',
             errors=[
                 DJError(
                     code=ErrorCode.INVALID_FILTER_PATTERN,

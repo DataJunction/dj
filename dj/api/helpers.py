@@ -53,7 +53,7 @@ def get_node_by_name(
     if raise_if_not_exists:
         if not node:
             raise DJException(
-                message=(
+                title=(
                     f"A {'' if not node_type else node_type + ' '}"
                     f"node with name `{name}` does not exist."
                 ),
@@ -70,7 +70,7 @@ def get_database_by_name(session: Session, name: str) -> Database:
     database = session.exec(statement).one_or_none()
     if not database:
         raise DJException(
-            message=f"Database with name `{name}` does not exist.",
+            title=f"Database with name `{name}` does not exist.",
             http_status_code=404,
         )
     return database
@@ -88,7 +88,7 @@ def get_column(node: NodeRevision, column_name: str) -> Column:
 
     if not requested_column:
         raise DJException(
-            message=f"Column {column_name} does not exist on node {node.name}",
+            title=f"Column {column_name} does not exist on node {node.name}",
             http_status_code=404,
         )
     return requested_column
@@ -102,7 +102,7 @@ def get_catalog(session: Session, name: str) -> Catalog:
     catalog = session.exec(statement).one_or_none()
     if not catalog:
         raise DJException(
-            message=f"Catalog with name `{name}` does not exist.",
+            title=f"Catalog with name `{name}` does not exist.",
             http_status_code=404,
         )
     return catalog
@@ -253,7 +253,7 @@ def validate_node_data(
             raise_=False,
         )
     except ValueError as exc:
-        raise DJException(message=str(exc)) from exc
+        raise DJException(title=str(exc)) from exc
 
     # Only raise on missing parents if the node mode is set to published
     if missing_parents_map:
@@ -261,6 +261,7 @@ def validate_node_data(
             validated_node.status = NodeStatus.INVALID
         else:
             raise DJException(
+                title="Invalid parent reference",
                 errors=[
                     DJError(
                         code=ErrorCode.MISSING_PARENT,

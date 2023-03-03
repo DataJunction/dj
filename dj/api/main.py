@@ -9,8 +9,10 @@ Main DJ server app.
 
 import logging
 
-from fastapi import FastAPI, Request
+import marko
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.templating import Jinja2Templates
 
 from dj import __version__
 from dj.api import (
@@ -26,7 +28,7 @@ from dj.api import (
     tags,
 )
 from dj.api.graphql.main import graphql_app
-from dj.errors import DJException
+from dj.errors import DJException, registry
 from dj.models.catalog import Catalog
 from dj.models.column import Column
 from dj.models.database import Database
@@ -61,6 +63,9 @@ app.include_router(cubes.router)
 app.include_router(tags.router)
 app.include_router(graphql_app, prefix="/graphql")
 
+templates = Jinja2Templates(directory="templates")
+templates.env.filters["markdown"] = marko.convert
+
 
 @app.exception_handler(DJException)
 async def dj_exception_handler(  # pylint: disable=unused-argument
@@ -68,10 +73,41 @@ async def dj_exception_handler(  # pylint: disable=unused-argument
     exc: DJException,
 ) -> JSONResponse:
     """
-    Capture errors and return JSON.
+    Capture errors and return problem detail JSON.
+
+    See https://www.rfc-editor.org/rfc/rfc7807.
     """
+    content = exc.to_dict()
+    content["type"] = app.url_path_for("error_detail", type_=exc.__class__.__name__)
+
     return JSONResponse(
         status_code=exc.http_status_code,
-        content=exc.to_dict(),
-        headers={"X-DJ-Error": "true", "X-DBAPI-Exception": exc.dbapi_exception},
+        content=content,
+        headers={
+            "Content-type": "application/problem+json",
+            "X-DJ-Error": "true",
+            "X-DBAPI-Exception": exc.dbapi_exception,
+        },
+    )
+
+
+@app.get("/error/{type_}")
+def error_detail(
+    type_: str,
+    *,
+    request: Request,
+) -> JSONResponse:
+    """
+    Return information about an error.
+    """
+    exc = registry.get(type_)
+    if exc is None:
+        raise HTTPException(status_code=404, detail="Exception not found")
+
+    return templates.TemplateResponse(
+        "error_detail.html",
+        {
+            "request": request,
+            "exception": exc,
+        },
     )

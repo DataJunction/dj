@@ -1,0 +1,11 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>{{ exception.__name__ }} </title>
+  </head>
+  <body>
+    <h1>{{ exception.__name__ }}</h1>
+    {{ exception.detail | markdown | safe }}
+  </body>
+</html>

@@ -147,7 +147,7 @@ class DateTruncNotImplementException(DJNotImplementedException):
             "#date_trunc"
         )
         super().__init__(
-            message=f'Resolution "{resolution}" not supported by dialect "{dialect}"',
+            title=f'Resolution "{resolution}" not supported by dialect "{dialect}"',
             errors=[
                 DJError(
                     code=ErrorCode.NOT_IMPLEMENTED_ERROR,
@@ -200,7 +200,7 @@ class DateTrunc(Function):
     ) -> SqlaFunction:
         if dialect is None:
             raise DJInternalErrorException(
-                message="A dialect is needed for `DATE_TRUNC`",
+                title="A dialect is needed for `DATE_TRUNC`",
             )
 
         if dialect in DATE_TRUNC_DIALECTS:
@@ -264,7 +264,7 @@ class DateTrunc(Function):
             "#date_trunc"
         )
         raise DJNotImplementedException(
-            message=f'Dialect "{dialect}" doesn\'t support `DATE_TRUNC`',
+            title=f'Dialect "{dialect}" doesn\'t support `DATE_TRUNC`',
             errors=[
                 DJError(
                     code=ErrorCode.NOT_IMPLEMENTED_ERROR,
@@ -376,7 +376,7 @@ class Coalesce(Function):
 
         if not types:
             raise DJInvalidInputException(
-                message="Wrong number of arguments to function",
+                title="Wrong number of arguments to function",
                 errors=[
                     DJError(
                         code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
@@ -387,7 +387,7 @@ class Coalesce(Function):
 
         if len(set(types)) > 1:
             raise DJInvalidInputException(
-                message="All arguments MUST have the same type",
+                title="All arguments MUST have the same type",
                 errors=[
                     DJError(
                         code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
@@ -411,7 +411,7 @@ class Coalesce(Function):
 
         if not types:  # pragma: no cover
             raise DJInvalidInputException(
-                message="Wrong number of arguments to function",
+                title="Wrong number of arguments to function",
                 errors=[
                     DJError(
                         code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
@@ -499,7 +499,7 @@ class FunctionRegistry:  # pylint: disable=too-few-public-methods
         docs_url = "https://github.com/DataJunction/dj/blob/main/docs/functions.rst"
 
         raise DJNotImplementedException(
-            message=f"The function `{name}` hasn't been implemented yet",
+            title=f"The function `{name}` hasn't been implemented yet",
             errors=[
                 DJError(
                     code=ErrorCode.NOT_IMPLEMENTED_ERROR,

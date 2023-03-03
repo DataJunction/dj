@@ -47,15 +47,21 @@ fastapi==0.70.1
     # via dj
 graphql-core==3.2.3
     # via strawberry-graphql
+greenlet==2.0.2
+    # via sqlalchemy
 idna==3.4
     # via
     #   anyio
     #   requests
     #   yarl
+jinja2==3.1.2
+    # via dj
 kombu==5.2.4
     # via celery
 markdown-it-py==2.1.0
     # via rich
+markupsafe==2.1.2
+    # via jinja2
 mdurl==0.1.2
     # via markdown-it-py
 msgpack==1.0.4

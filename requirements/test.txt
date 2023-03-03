@@ -72,6 +72,8 @@ freezegun==1.2.2
     # via dj
 graphql-core==3.2.3
     # via strawberry-graphql
+greenlet==2.0.2
+    # via sqlalchemy
 identify==2.5.15
     # via pre-commit
 idna==3.4
@@ -83,6 +85,8 @@ iniconfig==2.0.0
     # via pytest
 isort==5.11.4
     # via pylint
+jinja2==3.1.2
+    # via dj
 kombu==5.2.4
     # via celery
 lazy-object-proxy==1.9.0
@@ -92,7 +96,9 @@ mako==1.2.4
 markdown-it-py==2.1.0
     # via rich
 markupsafe==2.1.2
-    # via mako
+    # via
+    #   jinja2
+    #   mako
 mccabe==0.7.0
     # via pylint
 mdurl==0.1.2
@@ -211,6 +217,7 @@ typing-extensions==4.4.0
     #   astroid
     #   dj
     #   pydantic
+    #   pylint
     #   sqlalchemy2-stubs
     #   strawberry-graphql
 urllib3==1.26.14
