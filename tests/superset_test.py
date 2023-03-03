@@ -27,9 +27,10 @@ def test_get_metrics(mocker: MockerFixture, requests_mock: Mocker) -> None:
     Test ``get_metrics``.
     """
     database = mocker.MagicMock()
-    database.get_sqla_engine().connect().connection.base_url = URL(
-        "https://localhost:8000/0",
-    )
+    with database.get_sqla_engine_with_context() as engine:
+        engine.connect().connection.base_url = URL(
+            "https://localhost:8000/0",
+        )
     inspector = mocker.MagicMock()
 
     requests_mock.get(
@@ -51,6 +52,15 @@ def test_get_metrics(mocker: MockerFixture, requests_mock: Mocker) -> None:
     ]
 
 
+def test_get_view_names(mocker: MockerFixture) -> None:
+    """
+    Test ``get_view_names``.
+    """
+    database = mocker.MagicMock()
+    inspector = mocker.MagicMock()
+    assert DJEngineSpec.get_view_names(database, inspector, "main") == set()
+
+
 def test_execute(mocker: MockerFixture) -> None:
     """
     Test ``execute``.
@@ -65,4 +75,3 @@ def test_execute(mocker: MockerFixture) -> None:
         cursor,
         'SELECT time AS "__timestamp" FROM table',
     )
-    print(super_.mock_calls)
