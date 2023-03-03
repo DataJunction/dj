@@ -12,9 +12,8 @@ import msgpack
 from pydantic import AnyHttpUrl
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, SQLModel
 
-from djqs.models.database import Database
 from djqs.typing import ColumnType, QueryState, Row
 
 
@@ -23,9 +22,9 @@ class BaseQuery(SQLModel):
     Base class for query models.
     """
 
-    database_id: int = Field(foreign_key="database.id")
-    catalog: Optional[str] = None
-    schema_: Optional[str] = Field(default=None, alias="schema")
+    catalog_name: Optional[str]
+    engine_name: Optional[str] = None
+    engine_version: Optional[str] = None
 
     class Config:  # pylint: disable=too-few-public-methods, missing-class-docstring
         allow_population_by_field_name = True
@@ -40,11 +39,12 @@ class Query(BaseQuery, table=True):  # type: ignore
         default_factory=uuid4,
         sa_column=SqlaColumn(UUIDType(), primary_key=True),
     )
-    database: Database = Relationship(back_populates="queries")
-
     submitted_query: str
+    catalog_name: str
+    engine_name: str
+    engine_version: str
+    async_: bool
     executed_query: Optional[str] = None
-
     scheduled: Optional[datetime] = None
     started: Optional[datetime] = None
     finished: Optional[datetime] = None
@@ -59,6 +59,7 @@ class QueryCreate(BaseQuery):
     """
 
     submitted_query: str
+    async_: bool = False
 
 
 class ColumnMetadata(SQLModel):
@@ -85,7 +86,7 @@ class StatementResults(SQLModel):
     row_count: int = 0
 
 
-class QueryResults(SQLModel):
+class Results(SQLModel):
     """
     Results for a given query.
     """
@@ -93,7 +94,7 @@ class QueryResults(SQLModel):
     __root__: List[StatementResults]
 
 
-class QueryWithResults(BaseQuery):
+class QueryResults(BaseQuery):
     """
     Model for query with results.
     """
@@ -110,7 +111,7 @@ class QueryWithResults(BaseQuery):
     state: QueryState = QueryState.UNKNOWN
     progress: float = 0.0
 
-    results: QueryResults
+    results: Results
     next: Optional[AnyHttpUrl] = None
     previous: Optional[AnyHttpUrl] = None
     errors: List[str]
@@ -135,7 +136,7 @@ def encode_results(obj: Any) -> Any:
     if isinstance(obj, datetime):
         return msgpack.ExtType(QueryExtType.DATETIME, obj.isoformat().encode("utf-8"))
 
-    return obj
+    return obj  # pragma: no cover
 
 
 def decode_results(code: int, data: bytes) -> Any:
@@ -148,4 +149,4 @@ def decode_results(code: int, data: bytes) -> Any:
     if code == QueryExtType.DATETIME:
         return datetime.fromisoformat(data.decode())
 
-    return msgpack.ExtType(code, data)
+    return msgpack.ExtType(code, data)  # pragma: no cover

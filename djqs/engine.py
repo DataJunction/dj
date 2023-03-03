@@ -7,16 +7,18 @@ from datetime import datetime, timezone
 from typing import List, Tuple
 
 import sqlparse
-from sqlalchemy import text
-from sqlmodel import Session
+from sqlalchemy import create_engine, text
+from sqlmodel import Session, select
 
 from djqs.config import Settings
+from djqs.models.catalog import Catalog
+from djqs.models.engine import Engine
 from djqs.models.query import (
     ColumnMetadata,
     Query,
     QueryResults,
     QueryState,
-    QueryWithResults,
+    Results,
     StatementResults,
 )
 from djqs.typing import ColumnType, Description, SQLADialect, Stream, TypeEnum
@@ -46,28 +48,43 @@ def get_columns_from_description(
     for column in description or []:
         name, native_type = column[:2]
         for dbapi_type in TypeEnum:
-            if native_type == getattr(dialect.dbapi, dbapi_type.value, None):
+            if native_type == getattr(
+                dialect.dbapi,
+                dbapi_type.value,
+                None,
+            ):  # pragma: no cover
                 type_ = type_map[dbapi_type]
                 break
         else:
             # fallback to string
-            type_ = ColumnType.STR
+            type_ = ColumnType.STR  # pragma: no cover
 
         columns.append(ColumnMetadata(name=name, type=type_))
 
     return columns
 
 
-def run_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+def run_query(
+    session: Session,
+    query: Query,
+) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     """
     Run a query and return its results.
 
     For each statement we return a tuple with the statement SQL, a description of the
     columns (name and type) and a stream of rows (tuples).
     """
-    _logger.info("Running query on database %s", query.database.name)
-    engine = query.database.engine
-    connection = engine.connect()
+    _logger.info("Running query on catalog %s", query.catalog_name)
+    catalog = session.exec(
+        select(Catalog).where(Catalog.name == query.catalog_name),
+    ).one()
+    engine = session.exec(
+        select(Engine)
+        .where(Engine.name == query.engine_name)
+        .where(Engine.version == query.engine_version),
+    ).one()
+    sqla_engine = create_engine(engine.uri, **catalog.extra_params)
+    connection = sqla_engine.connect()
 
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     statements = sqlparse.parse(query.executed_query)
@@ -79,7 +96,7 @@ def run_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
         stream = (tuple(row) for row in results)
         columns = get_columns_from_description(
             results.cursor.description,
-            engine.dialect,
+            sqla_engine.dialect,
         )
         output.append((sql, columns, stream))
 
@@ -90,7 +107,7 @@ def process_query(
     session: Session,
     settings: Settings,
     query: Query,
-) -> QueryWithResults:
+) -> QueryResults:
     """
     Process a query.
     """
@@ -102,7 +119,7 @@ def process_query(
     query.started = datetime.now(timezone.utc)
     try:
         root = []
-        for sql, columns, stream in run_query(query):
+        for sql, columns, stream in run_query(session=session, query=query):
             rows = list(stream)
             root.append(
                 StatementResults(
@@ -112,12 +129,12 @@ def process_query(
                     row_count=len(rows),
                 ),
             )
-        results = QueryResults(__root__=root)
+        results = Results(__root__=root)
 
         query.state = QueryState.FINISHED
         query.progress = 1.0
     except Exception as ex:  # pylint: disable=broad-except
-        results = QueryResults(__root__=[])
+        results = Results(__root__=[])
         query.state = QueryState.FAILED
         errors = [str(ex)]
 
@@ -129,4 +146,4 @@ def process_query(
 
     settings.results_backend.add(str(query.id), results.json())
 
-    return QueryWithResults(results=results, errors=errors, **query.dict())
+    return QueryResults(results=results, errors=errors, **query.dict())

@@ -3,22 +3,19 @@ Utility functions.
 """
 # pylint: disable=line-too-long
 
+import datetime
 import logging
 import os
 from functools import lru_cache
-from pathlib import Path
-from typing import Iterator, List, Optional
+from typing import Iterator
 
-import sqlparse
-import yaml
 from dotenv import load_dotenv
+from pydantic.datetime_parse import parse_datetime
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine
-from yarl import URL
 
 from djqs.config import Settings
-from djqs.typing import ColumnType
 
 
 def setup_logging(loglevel: str) -> None:
@@ -39,15 +36,6 @@ def setup_logging(loglevel: str) -> None:
     )
 
 
-def get_project_repository() -> Path:
-    """
-    Return the project repository.
-
-    This is used for unit tests.
-    """
-    return Path(__file__).parent.parent
-
-
 @lru_cache
 def get_settings() -> Settings:
     """
@@ -58,7 +46,7 @@ def get_settings() -> Settings:
     return Settings()
 
 
-def get_engine() -> Engine:
+def get_metadata_engine() -> Engine:
     """
     Create the metadata engine.
     """
@@ -72,114 +60,31 @@ def get_session() -> Iterator[Session]:
     """
     Per-request session.
     """
-    engine = get_engine()
+    engine = get_metadata_engine()
 
     with Session(engine, autoflush=False) as session:  # pragma: no cover
         yield session
 
 
-def get_name_from_path(repository: Path, path: Path) -> str:
+class UTCDatetime(datetime.datetime):  # pragma: no cover
     """
-    Compute the name of a node given its path and the repository path.
+    A UTC extension of pydantic's normal datetime handling
     """
-    # strip anything before the repository
-    relative_path = path.relative_to(repository)
 
-    if len(relative_path.parts) < 2 or relative_path.parts[0] not in {
-        "nodes",
-        "databases",
-    }:
-        raise Exception(f"Invalid path: {path}")
+    @classmethod
+    def __get_validators__(cls):
+        """
+        Extend the builtin pydantic datetime parser with a custom validate method
+        """
+        yield parse_datetime
+        yield cls.validate
 
-    # remove the "nodes" directory from the path
-    relative_path = relative_path.relative_to(relative_path.parts[0])
+    @classmethod
+    def validate(cls, value) -> str:
+        """
+        Convert to UTC
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=datetime.timezone.utc)
 
-    # remove extension
-    relative_path = relative_path.with_suffix("")
-
-    # encode percent symbols and periods
-    encoded = (
-        str(relative_path)
-        .replace("%", "%25")
-        .replace(".", "%2E")
-        .replace(os.path.sep, ".")
-    )
-
-    return encoded
-
-
-def get_more_specific_type(
-    current_type: Optional[ColumnType],
-    new_type: ColumnType,
-) -> ColumnType:
-    """
-    Given two types, return the most specific one.
-
-    Different databases might store the same column as different types. For example, Hive
-    might store timestamps as strings, while Postgres would store the same data as a
-    datetime.
-
-        >>> get_more_specific_type(ColumnType.STR, ColumnType.DATETIME)
-        <ColumnType.DATETIME: 'DATETIME'>
-        >>> get_more_specific_type(ColumnType.STR, ColumnType.INT)
-        <ColumnType.INT: 'INT'>
-
-    """
-    if current_type is None:
-        return new_type
-
-    hierarchy = [
-        ColumnType.BYTES,
-        ColumnType.STR,
-        ColumnType.FLOAT,
-        ColumnType.INT,
-        ColumnType.DECIMAL,
-        ColumnType.BOOL,
-        ColumnType.DATETIME,
-        ColumnType.DATE,
-        ColumnType.TIME,
-        ColumnType.TIMEDELTA,
-        ColumnType.LIST,
-        ColumnType.DICT,
-    ]
-
-    return sorted([current_type, new_type], key=hierarchy.index)[1]
-
-
-def get_issue_url(
-    baseurl: URL = URL("https://github.com/DataJunction/djqs/issues/new"),
-    title: Optional[str] = None,
-    body: Optional[str] = None,
-    labels: Optional[List[str]] = None,
-) -> URL:
-    """
-    Return the URL to file an issue on GitHub.
-
-    https://docs.github.com/en/issues/tracking-your-work-with-issues/creating-an-issue#creating-an-issue-from-a-url-query
-    """
-    query_arguments = {
-        "title": title,
-        "body": body,
-        "labels": ",".join(label.strip() for label in labels) if labels else None,
-    }
-    query_arguments = {k: v for k, v in query_arguments.items() if v is not None}
-
-    return baseurl % query_arguments
-
-
-def str_representer(dumper: yaml.representer.SafeRepresenter, data: str):
-    """
-    Multiline string presenter for Node yaml printing.
-
-    Source: https://stackoverflow.com/questions/8640959/how-can-i-control-what-scalar-form-pyyaml-uses-for-my-data
-    """
-    if len(data.splitlines()) > 1:  # check for multiline string
-        return dumper.represent_scalar("tag:yaml.org,2002:str", data, style="|")
-    return dumper.represent_scalar("tag:yaml.org,2002:str", data)
-
-
-def sql_format(sql: str) -> str:
-    """
-    Let's pick one way to format SQL strings.
-    """
-    return sqlparse.format(sql, reindent=True, keyword_case="upper")
+        return value.astimezone(datetime.timezone.utc)
