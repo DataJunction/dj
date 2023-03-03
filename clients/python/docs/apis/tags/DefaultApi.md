@@ -233,17 +233,17 @@ Type | Description  | Notes
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#add_catalog_catalogs_post.ApiResponseFor200) | Successful Response
+201 | [ApiResponseFor201](#add_catalog_catalogs_post.ApiResponseFor201) | Successful Response
 422 | [ApiResponseFor422](#add_catalog_catalogs_post.ApiResponseFor422) | Validation Error
 
-#### add_catalog_catalogs_post.ApiResponseFor200
+#### add_catalog_catalogs_post.ApiResponseFor201
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
 headers | Unset | headers were not defined |
 
-# SchemaFor200ResponseBodyApplicationJson
+# SchemaFor201ResponseBodyApplicationJson
 Type | Description  | Notes
 ------------- | ------------- | -------------
 [**CatalogInfo**](../../models/CatalogInfo.md) |  | 
@@ -391,17 +391,17 @@ str,  | str,  |  |
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#add_dimension_to_node_nodes_name_columns_column_post.ApiResponseFor200) | Successful Response
+201 | [ApiResponseFor201](#add_dimension_to_node_nodes_name_columns_column_post.ApiResponseFor201) | Successful Response
 422 | [ApiResponseFor422](#add_dimension_to_node_nodes_name_columns_column_post.ApiResponseFor422) | Validation Error
 
-#### add_dimension_to_node_nodes_name_columns_column_post.ApiResponseFor200
+#### add_dimension_to_node_nodes_name_columns_column_post.ApiResponseFor201
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
 headers | Unset | headers were not defined |
 
-# SchemaFor200ResponseBodyApplicationJson
+# SchemaFor201ResponseBodyApplicationJson
 
 ## Model Type Info
 Input Type | Accessed Type | Description | Notes
@@ -493,17 +493,17 @@ Type | Description  | Notes
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#add_engine_engines_post.ApiResponseFor200) | Successful Response
+201 | [ApiResponseFor201](#add_engine_engines_post.ApiResponseFor201) | Successful Response
 422 | [ApiResponseFor422](#add_engine_engines_post.ApiResponseFor422) | Validation Error
 
-#### add_engine_engines_post.ApiResponseFor200
+#### add_engine_engines_post.ApiResponseFor201
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
 headers | Unset | headers were not defined |
 
-# SchemaFor200ResponseBodyApplicationJson
+# SchemaFor201ResponseBodyApplicationJson
 Type | Description  | Notes
 ------------- | ------------- | -------------
 [**EngineInfo**](../../models/EngineInfo.md) |  | 
@@ -622,17 +622,17 @@ str,  | str,  |  |
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#add_engines_to_catalog_catalogs_name_engines_post.ApiResponseFor200) | Successful Response
+201 | [ApiResponseFor201](#add_engines_to_catalog_catalogs_name_engines_post.ApiResponseFor201) | Successful Response
 422 | [ApiResponseFor422](#add_engines_to_catalog_catalogs_name_engines_post.ApiResponseFor422) | Validation Error
 
-#### add_engines_to_catalog_catalogs_name_engines_post.ApiResponseFor200
+#### add_engines_to_catalog_catalogs_name_engines_post.ApiResponseFor201
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
 headers | Unset | headers were not defined |
 
-# SchemaFor200ResponseBodyApplicationJson
+# SchemaFor201ResponseBodyApplicationJson
 Type | Description  | Notes
 ------------- | ------------- | -------------
 [**CatalogInfo**](../../models/CatalogInfo.md) |  | 
@@ -750,17 +750,17 @@ str,  | str,  |  |
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#add_table_to_node_nodes_name_table_post.ApiResponseFor200) | Successful Response
+201 | [ApiResponseFor201](#add_table_to_node_nodes_name_table_post.ApiResponseFor201) | Successful Response
 422 | [ApiResponseFor422](#add_table_to_node_nodes_name_table_post.ApiResponseFor422) | Validation Error
 
-#### add_table_to_node_nodes_name_table_post.ApiResponseFor200
+#### add_table_to_node_nodes_name_table_post.ApiResponseFor201
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
 headers | Unset | headers were not defined |
 
-# SchemaFor200ResponseBodyApplicationJson
+# SchemaFor201ResponseBodyApplicationJson
 
 ## Model Type Info
 Input Type | Accessed Type | Description | Notes
@@ -874,17 +874,17 @@ str,  | str,  |  |
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#add_tag_to_node_nodes_name_tag_post.ApiResponseFor200) | Successful Response
+201 | [ApiResponseFor201](#add_tag_to_node_nodes_name_tag_post.ApiResponseFor201) | Successful Response
 422 | [ApiResponseFor422](#add_tag_to_node_nodes_name_tag_post.ApiResponseFor422) | Validation Error
 
-#### add_tag_to_node_nodes_name_tag_post.ApiResponseFor200
+#### add_tag_to_node_nodes_name_tag_post.ApiResponseFor201
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
 headers | Unset | headers were not defined |
 
-# SchemaFor200ResponseBodyApplicationJson
+# SchemaFor201ResponseBodyApplicationJson
 
 ## Model Type Info
 Input Type | Accessed Type | Description | Notes
@@ -984,17 +984,17 @@ Class Name | Input Type | Accessed Type | Description | Notes
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#create_node_nodes_post.ApiResponseFor200) | Successful Response
+201 | [ApiResponseFor201](#create_node_nodes_post.ApiResponseFor201) | Successful Response
 422 | [ApiResponseFor422](#create_node_nodes_post.ApiResponseFor422) | Validation Error
 
-#### create_node_nodes_post.ApiResponseFor200
+#### create_node_nodes_post.ApiResponseFor201
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
 headers | Unset | headers were not defined |
 
-# SchemaFor200ResponseBodyApplicationJson
+# SchemaFor201ResponseBodyApplicationJson
 Type | Description  | Notes
 ------------- | ------------- | -------------
 [**NodeOutput**](../../models/NodeOutput.md) |  | 
@@ -3536,17 +3536,17 @@ str,  | str,  |  |
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#upsert_node_materialization_config_nodes_name_materialization_post.ApiResponseFor200) | Successful Response
+201 | [ApiResponseFor201](#upsert_node_materialization_config_nodes_name_materialization_post.ApiResponseFor201) | Successful Response
 422 | [ApiResponseFor422](#upsert_node_materialization_config_nodes_name_materialization_post.ApiResponseFor422) | Validation Error
 
-#### upsert_node_materialization_config_nodes_name_materialization_post.ApiResponseFor200
+#### upsert_node_materialization_config_nodes_name_materialization_post.ApiResponseFor201
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
 headers | Unset | headers were not defined |
 
-# SchemaFor200ResponseBodyApplicationJson
+# SchemaFor201ResponseBodyApplicationJson
 
 ## Model Type Info
 Input Type | Accessed Type | Description | Notes
