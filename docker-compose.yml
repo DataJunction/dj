@@ -42,7 +42,7 @@ services:
     restart: on-failure
 
   postgres-roads:
-    container_name: postgres_roads
+    container_name: postgres-roads
     networks:
       - djqs-network
     image: postgres:latest

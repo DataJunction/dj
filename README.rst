@@ -30,7 +30,7 @@ Catalogs can be created using the :code:`POST /catalogs/` endpoint.
       -H 'accept: application/json' \
       -H 'Content-Type: application/json' \
       -d '{
-      "name": "public"
+      "name": "djdb"
     }'
 
 Creating Engines
@@ -47,7 +47,7 @@ Engines can be created using the :code:`POST /engines/` endpoint.
       -d '{
       "name": "postgres",
       "version": "15.2",
-      "uri": "postgresql://dj:dj@postgres-roads:5432/roads"
+      "uri": "postgresql://dj:dj@postgres-roads:5432/djdb"
     }'
 
 Engines can be attached to existing catalogs using the :code:`POST /catalogs/{name}/engines/` endpoint.
@@ -55,7 +55,7 @@ Engines can be attached to existing catalogs using the :code:`POST /catalogs/{na
 .. code-block:: sh
 
     curl -X 'POST' \
-      'http://localhost:8001/catalogs/public/engines/' \
+      'http://localhost:8001/catalogs/djdb/engines/' \
       -H 'accept: application/json' \
       -H 'Content-Type: application/json' \
       -d '[
@@ -77,7 +77,7 @@ Queries can be submitted to DJQS for a specified catalog and engine.
       -H 'accept: application/json' \
       -H 'Content-Type: application/json' \
       -d '{
-      "catalog_name": "public",
+      "catalog_name": "djdb",
       "engine_name": "postgres",
       "engine_version": "15.2",
       "submitted_query": "SELECT * from roads.repair_orders",
@@ -93,7 +93,7 @@ Async queries can be submitted as well.
       -H 'accept: application/json' \
       -H 'Content-Type: application/json' \
       -d '{
-      "catalog_name": "public",
+      "catalog_name": "djdb",
       "engine_name": "postgres",
       "engine_version": "15.2",
       "submitted_query": "SELECT * from roads.repair_orders",
@@ -105,7 +105,7 @@ Async queries can be submitted as well.
 .. code-block:: json
 
     {
-      "catalog_name": "public",
+      "catalog_name": "djdb",
       "engine_name": "postgres",
       "engine_version": "15.2",
       "id": "<QUERY ID HERE>",
@@ -136,7 +136,7 @@ once it's completed.
 .. code-block:: json
 
     {
-      "catalog_name": "public",
+      "catalog_name": "djdb",
       "engine_name": "postgres",
       "engine_version": "15.2",
       "id": "$QUERY_ID",
@@ -169,7 +169,7 @@ If running a [reflection service](https://github.com/DataJunction/djrs), that se
 .. code-block:: sh
 
     curl -X 'GET' \
-      'http://localhost:8001/table/public.roads.repair_orders/columns/' \
+      'http://localhost:8001/table/djdb.roads.repair_orders/columns/?engine=postgres&engine_version=15.2' \
       -H 'accept: application/json'
 
 *response*
@@ -177,7 +177,7 @@ If running a [reflection service](https://github.com/DataJunction/djrs), that se
 .. code-block:: json
 
     {
-      "name": "public.roads.repair_orders",
+      "name": "djdb.roads.repair_orders",
       "columns": [
         {
           "name": "repair_order_id",
@@ -209,11 +209,3 @@ If running a [reflection service](https://github.com/DataJunction/djrs), that se
         }
       ]
     }
-
-You can optionally include a specific engine and engine version to use for reflection.
-
-.. code-block:: sh
-
-    curl -X 'GET' \
-      'http://localhost:8001/table/public.roads.repair_orders/columns/?engine=postgres&engine_version=15.2' \
-      -H 'accept: application/json'

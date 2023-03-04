@@ -22,7 +22,7 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     index: str = "sqlite:///djqs.db?check_same_thread=False"
 
     # The default engine to use for reflection
-    default_reflection_engine: str = "sqlalchemy"
+    default_reflection_engine: str = "default"
 
     # The default engine version to use for reflection
     default_reflection_engine_version: str = ""

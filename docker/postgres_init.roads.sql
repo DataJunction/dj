@@ -1,3 +1,8 @@
+DROP DATABASE IF EXISTS djdb;
+CREATE DATABASE djdb;
+
+\connect djdb;
+
 CREATE SCHEMA IF NOT EXISTS roads;
 
 DROP TABLE IF EXISTS roads.municipality_municipality_type;

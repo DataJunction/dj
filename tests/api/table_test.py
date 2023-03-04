@@ -10,7 +10,7 @@ def test_table_columns(client: TestClient, mocker):
     """
     response = client.post(
         "/engines/",
-        json={"name": "sqlalchemy", "version": "", "uri": "sqlite://"},
+        json={"name": "default", "version": "", "uri": "sqlite://"},
     )
     assert response.status_code == 201
     columns = [
