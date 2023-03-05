@@ -32,7 +32,6 @@ from djclient.model.health_check import HealthCheck
 from djclient.model.healthcheck_status import HealthcheckStatus
 from djclient.model.materialization_config_output import MaterializationConfigOutput
 from djclient.model.metric import Metric
-from djclient.model.node import Node
 from djclient.model.node_mode import NodeMode
 from djclient.model.node_output import NodeOutput
 from djclient.model.node_revision import NodeRevision

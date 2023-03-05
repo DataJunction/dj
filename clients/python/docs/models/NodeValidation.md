@@ -10,7 +10,6 @@ dict, frozendict.frozendict,  | frozendict.frozendict,  | A validation of a prov
 ### Dictionary Keys
 Key | Input Type | Accessed Type | Description | Notes
 ------------ | ------------- | ------------- | ------------- | -------------
-**node** | [**Node**](Node.md) | [**Node**](Node.md) |  | 
 **node_revision** | [**NodeRevision**](NodeRevision.md) | [**NodeRevision**](NodeRevision.md) |  | 
 **[columns](#columns)** | list, tuple,  | tuple,  |  | 
 **message** | str,  | str,  |  | 
