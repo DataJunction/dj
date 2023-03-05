@@ -10,6 +10,7 @@ dict, frozendict.frozendict,  | frozendict.frozendict,  | Output for a node revi
 ### Dictionary Keys
 Key | Input Type | Accessed Type | Description | Notes
 ------------ | ------------- | ------------- | ------------- | -------------
+**mode** | [**NodeMode**](NodeMode.md) | [**NodeMode**](NodeMode.md) |  | 
 **node_revision_id** | decimal.Decimal, int,  | decimal.Decimal,  |  | 
 **[tables](#tables)** | list, tuple,  | tuple,  |  | 
 **updated_at** | str, datetime,  | str,  |  | value must conform to RFC-3339 date-time
@@ -20,6 +21,7 @@ Key | Input Type | Accessed Type | Description | Notes
 **version** | str,  | str,  |  | 
 **[materialization_configs](#materialization_configs)** | list, tuple,  | tuple,  |  | 
 **node_id** | decimal.Decimal, int,  | decimal.Decimal,  |  | 
+**status** | [**NodeStatus**](NodeStatus.md) | [**NodeStatus**](NodeStatus.md) |  | 
 **description** | str,  | str,  |  | [optional] if omitted the server will use the default value of ""
 **query** | str,  | str,  |  | [optional] 
 **availability** | [**AvailabilityState**](AvailabilityState.md) | [**AvailabilityState**](AvailabilityState.md) |  | [optional] 

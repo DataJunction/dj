@@ -67,23 +67,23 @@ request_body_upsert_materialization_config = api_client.RequestBody(
     },
     required=True,
 )
-SchemaFor200ResponseBodyApplicationJson = schemas.AnyTypeSchema
+SchemaFor201ResponseBodyApplicationJson = schemas.AnyTypeSchema
 
 
 @dataclass
-class ApiResponseFor200(api_client.ApiResponse):
+class ApiResponseFor201(api_client.ApiResponse):
     response: urllib3.HTTPResponse
     body: typing.Union[
-        SchemaFor200ResponseBodyApplicationJson,
+        SchemaFor201ResponseBodyApplicationJson,
     ]
     headers: schemas.Unset = schemas.unset
 
 
-_response_for_200 = api_client.OpenApiResponse(
-    response_cls=ApiResponseFor200,
+_response_for_201 = api_client.OpenApiResponse(
+    response_cls=ApiResponseFor201,
     content={
         'application/json': api_client.MediaType(
-            schema=SchemaFor200ResponseBodyApplicationJson),
+            schema=SchemaFor201ResponseBodyApplicationJson),
     },
 )
 SchemaFor422ResponseBodyApplicationJson = HTTPValidationError
@@ -106,7 +106,7 @@ _response_for_422 = api_client.OpenApiResponse(
     },
 )
 _status_code_to_response = {
-    '200': _response_for_200,
+    '201': _response_for_201,
     '422': _response_for_422,
 }
 _all_accept_content_types = (
@@ -126,7 +126,7 @@ class BaseApi(api_client.Api):
         timeout: typing.Optional[typing.Union[int, typing.Tuple]] = None,
         skip_deserialization: typing_extensions.Literal[False] = ...,
     ) -> typing.Union[
-        ApiResponseFor200,
+        ApiResponseFor201,
     ]: ...
 
     @typing.overload
@@ -140,7 +140,7 @@ class BaseApi(api_client.Api):
         timeout: typing.Optional[typing.Union[int, typing.Tuple]] = None,
         skip_deserialization: typing_extensions.Literal[False] = ...,
     ) -> typing.Union[
-        ApiResponseFor200,
+        ApiResponseFor201,
     ]: ...
 
 
@@ -167,7 +167,7 @@ class BaseApi(api_client.Api):
         timeout: typing.Optional[typing.Union[int, typing.Tuple]] = None,
         skip_deserialization: bool = ...,
     ) -> typing.Union[
-        ApiResponseFor200,
+        ApiResponseFor201,
         api_client.ApiResponseWithoutDeserialization,
     ]: ...
 
@@ -263,7 +263,7 @@ class UpsertNodeMaterializationConfigNodesNameMaterializationPost(BaseApi):
         timeout: typing.Optional[typing.Union[int, typing.Tuple]] = None,
         skip_deserialization: typing_extensions.Literal[False] = ...,
     ) -> typing.Union[
-        ApiResponseFor200,
+        ApiResponseFor201,
     ]: ...
 
     @typing.overload
@@ -277,7 +277,7 @@ class UpsertNodeMaterializationConfigNodesNameMaterializationPost(BaseApi):
         timeout: typing.Optional[typing.Union[int, typing.Tuple]] = None,
         skip_deserialization: typing_extensions.Literal[False] = ...,
     ) -> typing.Union[
-        ApiResponseFor200,
+        ApiResponseFor201,
     ]: ...
 
 
@@ -304,7 +304,7 @@ class UpsertNodeMaterializationConfigNodesNameMaterializationPost(BaseApi):
         timeout: typing.Optional[typing.Union[int, typing.Tuple]] = None,
         skip_deserialization: bool = ...,
     ) -> typing.Union[
-        ApiResponseFor200,
+        ApiResponseFor201,
         api_client.ApiResponseWithoutDeserialization,
     ]: ...
 
@@ -343,7 +343,7 @@ class ApiForpost(BaseApi):
         timeout: typing.Optional[typing.Union[int, typing.Tuple]] = None,
         skip_deserialization: typing_extensions.Literal[False] = ...,
     ) -> typing.Union[
-        ApiResponseFor200,
+        ApiResponseFor201,
     ]: ...
 
     @typing.overload
@@ -357,7 +357,7 @@ class ApiForpost(BaseApi):
         timeout: typing.Optional[typing.Union[int, typing.Tuple]] = None,
         skip_deserialization: typing_extensions.Literal[False] = ...,
     ) -> typing.Union[
-        ApiResponseFor200,
+        ApiResponseFor201,
     ]: ...
 
 
@@ -384,7 +384,7 @@ class ApiForpost(BaseApi):
         timeout: typing.Optional[typing.Union[int, typing.Tuple]] = None,
         skip_deserialization: bool = ...,
     ) -> typing.Union[
-        ApiResponseFor200,
+        ApiResponseFor201,
         api_client.ApiResponseWithoutDeserialization,
     ]: ...
 
