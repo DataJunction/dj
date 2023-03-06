@@ -80,20 +80,29 @@ def test_nested_types():
     )
     assert (
         ColumnType._validate_type(  # pylint: disable=W0212
-            "ROW[ARRAY[STR], MAP[STR, STR], STR, INT, MAP[STR, MAP[FLOAT, STR]]]",
+            "ROW[ARRAY[STR] fruits, MAP[STR, STR] vegetables, "
+            "STR grains, INT, MAP[STR, MAP[FLOAT, STR]]]",
         )
-        == "ROW[ARRAY[STR], MAP[STR, STR], STR, INT, MAP[STR, MAP[FLOAT, STR]]]"
+        == "ROW[ARRAY[STR] fruits, MAP[STR, STR] vegetables, "
+        "STR grains, INT, MAP[STR, MAP[FLOAT, STR]]]"
     )
     assert (
         ColumnType._validate_type(  # pylint: disable=W0212
             "ROW[MAP[STR, ARRAY[STR]], STR name]",
         )
-        == "ROW[MAP[STR, ARRAY[STR]], STR]"
+        == "ROW[MAP[STR, ARRAY[STR]], STR name]"
     )
 
     assert (
         ColumnType._validate_type("MAP[STR, MAP[STR, STR]]")  # pylint: disable=W0212
         == "MAP[STR, MAP[STR, STR]]"
+    )
+
+    assert (
+        ColumnType._validate_type(  # pylint: disable=W0212
+            "ROW[STR name, ROW[STR uuid, int id] devices]",
+        )
+        == "ROW[STR name, ROW[STR uuid, INT id] devices]"
     )
 
 
