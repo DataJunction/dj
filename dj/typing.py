@@ -84,7 +84,7 @@ def process_array_args(*args: str) -> Tuple["ColumnType"]:
     """
     if len(args) != 1:
         raise ColumnTypeError(
-            f"{', '.join(args)} is not an acceptable type for ARRAY"
+            f"{', '.join(arg.upper() for arg in args)} is not an acceptable type for ARRAY"
             if args
             else "ARRAY needs subtype defined.",
         )
@@ -105,17 +105,17 @@ def process_map_args(*args: str) -> Tuple["ColumnType", "ColumnType"]:
     key_args, value_args = args[0], args[1]
 
     map_key_type = (
-        ColumnType(key_args[0], "key")[key_args[1]]
+        ColumnType(key_args[0])[key_args[1]]
         if isinstance(key_args, list)
-        else ColumnType(key_args, "key")
+        else ColumnType(key_args)
     )
     if map_key_type not in PRIMITIVE_TYPES - {"WILDCARD", "NULL"}:
         raise ColumnTypeError(f"`{map_key_type}` is not an acceptable MAP key type.")
 
     map_value_type = (
-        ColumnType(value_args[0], "value")[value_args[1]]
+        ColumnType(value_args[0])[value_args[1]]
         if isinstance(value_args, list)
-        else ColumnType(value_args, "value")
+        else ColumnType(value_args)
     )
     return map_key_type, map_value_type
 
@@ -128,9 +128,14 @@ def process_row_args(*args: str) -> Tuple["ColumnType", ...]:
     for arg in args:
         if not isinstance(arg, list):
             type_, name, *_ = (*arg.split(), None)
-            ret.append(ColumnType(type_, name and name.strip("\"' ")))
+            ret.append(ColumnType(type_.upper(), name and name.strip("\"' ")))
         else:
-            ret.append(ColumnType(arg[0])[arg[1]])
+            if len(arg) == 3:
+                type_, type_complex, name = arg
+                ret.append(ColumnType(type_.upper(), name.strip("\"' "))[type_complex])
+            else:
+                type_, type_complex = arg
+                ret.append(ColumnType(type_.upper())[type_complex])
     return tuple(ret)
 
 
@@ -189,7 +194,7 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
         'INT'
 
         >>> ColumnType.Row[ColumnType.STR, "INT id", ColumnType.ARRAY[ColumnType.bytes]]
-        'ROW[STR, INT, ARRAY[BYTES]]'
+        'ROW[STR, INT id, ARRAY[BYTES]]'
 
         >>> ColumnType.Row['int "number"'].args[0].name
         'number'
@@ -204,11 +209,11 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
 
         if isinstance(type_, ColumnType):
             return type_
-        type_ = type_.upper().strip()
-        if type_ in COMPLEX_TYPES or type_ in PRIMITIVE_TYPES:
-            obj = str.__new__(cls, type_)
-        elif type_ in ALIASES:
-            obj = str.__new__(cls, ALIASES[type_])
+        type_ = type_.strip()
+        if type_.upper() in COMPLEX_TYPES or type_ in PRIMITIVE_TYPES:
+            obj = str.__new__(cls, type_.upper())
+        elif type_.upper() in ALIASES:
+            obj = str.__new__(cls, ALIASES[type_.upper()])
         else:
             obj = cls._validate_type(type_)
         obj.name = name
@@ -244,24 +249,29 @@ class ColumnType(str, metaclass=ColumnTypeMeta):
 
         args = COMPLEX_TYPES[self](*keys)
         # need to add check if args are acceptable types for the generic
+        args_with_names = [
+            f"{arg}{(' ' + arg.name) if arg.name else ''}" for arg in args
+        ]
         obj = str.__new__(
             self.__class__,
-            self + "[" + ", ".join(arg for arg in args) + "]",
+            f"{self}[{', '.join(args_with_names)}]",
         )
         obj.args = args
+        obj.name = self.name
         return obj
 
     @classmethod
     def _validate_type(cls, type_: str):
         nested = parse_nested_type(type_)[0]
         if isinstance(nested, list) and len(nested) > 1:
-            if nested[0] not in COMPLEX_TYPES:
-                raise ColumnTypeError(f"{nested[0]} is not a known complex type.")
-            return ColumnType(nested[0])[nested[1]]
+            complex_type, type_fields = nested[0].upper(), nested[1]
+            if complex_type not in COMPLEX_TYPES:
+                raise ColumnTypeError(f"{complex_type} is not a known complex type.")
+            return ColumnType(complex_type)[type_fields]
         type_ = ALIASES.get(type_, type_)
-        if type_ not in PRIMITIVE_TYPES:
-            raise ColumnTypeError(f"{type_} is not an acceptable type.")
-        return ColumnType(type_)
+        if type_.upper() not in PRIMITIVE_TYPES:
+            raise ColumnTypeError(f"{type_.upper()} is not an acceptable type.")
+        return ColumnType(type_.upper())
 
 
 def parse_nested_type(expr: str) -> List:
@@ -270,12 +280,15 @@ def parse_nested_type(expr: str) -> List:
     """
     tokenizer = re.compile(r"\s*([\[\]\,])\s*").split
     tokens = list(filter(None, tokenizer(expr)))
-
     stack = collections.deque()  # type: ignore
     top = items = []  # type: ignore
+    skip_next = False
 
     for i, token in enumerate(tokens):
         next_token = tokens[i + 1] if i + 1 < len(tokens) else None
+        if skip_next:
+            skip_next = False
+            continue
         if token == "[":
             stack.append(items)
             items.append([])
@@ -283,7 +296,10 @@ def parse_nested_type(expr: str) -> List:
         elif token == "]":
             if not stack:
                 raise ColumnTypeError(f"Unbalanced parentheses: {expr}")
-            stack.pop()
+            first = stack.pop()
+            if next_token not in {",", "]"}:
+                first.append(next_token)
+                skip_next = True
             items = stack.pop()
         elif token.upper() in COMPLEX_TYPES or next_token == "[":
             stack.append(items)
@@ -292,7 +308,7 @@ def parse_nested_type(expr: str) -> List:
         elif token != ",":
             items.append(token)
     if stack:
-        raise ColumnTypeError("Missing type definition for complex type!")
+        raise ColumnTypeError(f"Missing type definition for complex type! {expr}")
     return top
 
 
