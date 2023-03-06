@@ -6,11 +6,14 @@ from http import HTTPStatus
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
 from dj.api.helpers import get_node_by_name, get_query
+from dj.errors import DJError, DJException, ErrorCode
 from dj.models.metric import Metric, TranslatedSQL
 from dj.models.node import Node, NodeType
+from dj.sql.dag import get_dimensions
 from dj.utils import get_session
 
 router = APIRouter()
@@ -56,8 +59,8 @@ def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric
 @router.get("/metrics/{name}/sql/", response_model=TranslatedSQL)
 async def read_metrics_sql(
     name: str,
-    dimensions: List[str] = Query([]),  # pylint: disable=invalid-name
-    filters: List[str] = Query([]),  # pylint: disable=invalid-name
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
     database_name: Optional[str] = None,
     check_database_online: bool = True,
     *,
@@ -81,3 +84,46 @@ async def read_metrics_sql(
         database_id=optimal_database.id,
         sql=str(query_ast),
     )
+
+
+@router.get("/metrics/common/dimensions/", response_model=List[str])
+async def common_dimensions(
+    metric: List[str] = Query(
+        title="List of metrics to find common dimensions for",
+        default=[],
+    ),
+    session: Session = Depends(get_session),
+) -> List[str]:
+    """
+    Return common dimensions for a set of metrics.
+    """
+    metric_nodes = []
+    errors = []
+    for node_name in metric:
+        statement = select(Node).where(Node.name == node_name)
+        try:
+            node = session.exec(statement).one()
+            if node.type != NodeType.METRIC:
+                errors.append(
+                    DJError(
+                        message=f"Not a metric node: {node_name}",
+                        code=ErrorCode.NODE_TYPE_ERROR,
+                    ),
+                )
+            metric_nodes.append(node)
+        except NoResultFound:
+            errors.append(
+                DJError(
+                    message=f"Metric node not found: {node_name}",
+                    code=ErrorCode.UNKNOWN_NODE,
+                ),
+            )
+
+    if errors:
+        raise DJException(errors=errors)
+
+    common = set(get_dimensions(metric_nodes[0]))
+    for node in set(metric_nodes[1:]):
+        common.intersection_update(get_dimensions(node))
+
+    return list(common)

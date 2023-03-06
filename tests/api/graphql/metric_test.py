@@ -52,7 +52,44 @@ def test_read_metrics(session: Session, client: TestClient):
     response = client.post("/graphql", json={"query": query})
     assert response.json() == {
         "data": {
-            "readMetrics": [{"id": 3, "name": "a-metric", "displayName": "A-Metric"}],
+            "readMetrics": [
+                {
+                    "name": "num_repair_orders",
+                    "displayName": "Num Repair Orders",
+                    "id": 20,
+                },
+                {
+                    "name": "avg_repair_price",
+                    "displayName": "Avg Repair Price",
+                    "id": 21,
+                },
+                {
+                    "name": "total_repair_cost",
+                    "displayName": "Total Repair Cost",
+                    "id": 22,
+                },
+                {
+                    "name": "avg_length_of_employment",
+                    "displayName": "Avg Length Of Employment",
+                    "id": 23,
+                },
+                {
+                    "name": "total_repair_order_discounts",
+                    "displayName": "Total Repair Order Discounts",
+                    "id": 24,
+                },
+                {
+                    "name": "avg_repair_order_discounts",
+                    "displayName": "Avg Repair Order Discounts",
+                    "id": 25,
+                },
+                {
+                    "name": "avg_time_to_dispatch",
+                    "displayName": "Avg Time To Dispatch",
+                    "id": 26,
+                },
+                {"name": "a-metric", "displayName": "A-Metric", "id": 29},
+            ],
         },
     }
 
@@ -98,7 +135,7 @@ def test_read_metric(session: Session, client: TestClient):
     response = client.post("/graphql", json={"query": query})
     assert response.json() == {
         "data": {
-            "readMetric": {"id": 3, "name": "a-metric", "displayName": "A-Metric"},
+            "readMetric": {"id": 29, "name": "a-metric", "displayName": "A-Metric"},
         },
     }
 

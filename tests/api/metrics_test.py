@@ -53,9 +53,12 @@ def test_read_metrics(session: Session, client: TestClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert len(data) == 1
-    assert data[0]["name"] == "a-metric"
-    assert data[0]["query"] == "SELECT COUNT(*) FROM my_table"
+    assert len(data) == 8
+    assert data[0]["name"] == "num_repair_orders"
+    assert (
+        data[0]["query"]
+        == "SELECT count(repair_order_id) as num_repair_orders FROM repair_orders"
+    )
 
 
 def test_read_metric(session: Session, client: TestClient) -> None:
@@ -192,3 +195,85 @@ def test_read_metrics_sql(
 
     response = client.get("/metrics/a-metric/sql/?check_database_online=true")
     assert response.json()["message"] == "No active database was found"
+
+
+def test_common_dimensions(
+    client: TestClient,
+) -> None:
+    """
+    Test ``GET /metrics/common/dimensions``.
+    """
+    response = client.get(
+        "/metrics/common/dimensions?metric=total_repair_order_discounts&metric=total_repair_cost",
+    )
+    assert response.status_code == 200
+    assert set(response.json()) == set(
+        [
+            "repair_order_details.discount",
+            "repair_order_details.repair_type_id",
+            "repair_order_details.repair_order_id",
+            "repair_order.dispatched_date",
+            "repair_order.order_date",
+            "repair_order.required_date",
+            "repair_order.dispatcher_id",
+            "repair_order.municipality_id",
+            "repair_order_details.quantity",
+            "repair_order.repair_order_id",
+            "repair_order.hard_hat_id",
+            "repair_order_details.price",
+        ],
+    )
+
+
+def test_raise_common_dimensions_not_a_metric_node(
+    client: TestClient,
+) -> None:
+    """
+    Test raising ``GET /metrics/common/dimensions`` when not a metric node
+    """
+    response = client.get(
+        "/metrics/common/dimensions?metric=total_repair_order_discounts&metric=local_hard_hats",
+    )
+    assert response.status_code == 500
+    assert response.json() == {
+        "message": "Not a metric node: local_hard_hats",
+        "errors": [
+            {
+                "code": 204,
+                "message": "Not a metric node: local_hard_hats",
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
+
+
+def test_raise_common_dimensions_metric_not_found(
+    client: TestClient,
+) -> None:
+    """
+    Test raising ``GET /metrics/common/dimensions`` when metric not found
+    """
+    response = client.get(
+        "/metrics/common/dimensions?metric=foo&metric=bar",
+    )
+    assert response.status_code == 500
+    assert response.json() == {
+        "message": "Metric node not found: foo\nMetric node not found: bar",
+        "errors": [
+            {
+                "code": 203,
+                "message": "Metric node not found: foo",
+                "debug": None,
+                "context": "",
+            },
+            {
+                "code": 203,
+                "message": "Metric node not found: bar",
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
