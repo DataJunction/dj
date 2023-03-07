@@ -69,7 +69,7 @@ def test_get_nodes(session: Session, client: TestClient) -> None:
     response = client.post("/graphql", json={"query": query})
     data = response.json()["data"]["getNodes"]
 
-    assert len(data) == 3
+    assert len(data) == 29
 
     nodes = {node["name"]: node for node in data}
 
