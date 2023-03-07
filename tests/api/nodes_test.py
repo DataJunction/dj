@@ -111,6 +111,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
         {
             "name": "answer",
             "type": "INT",
+            "attributes": [],
         },
     ]
 
@@ -120,6 +121,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
         {
             "name": "_col0",
             "type": "INT",
+            "attributes": [],
         },
     ]
 
@@ -272,10 +274,10 @@ class TestCreateOrUpdateNodes:
         assert data["description"] == "A fact table with comments"
         assert data["query"] is None
         assert data["columns"] == [
-            {"name": "id", "type": "INT"},
-            {"name": "user_id", "type": "INT"},
-            {"name": "timestamp", "type": "TIMESTAMP"},
-            {"name": "text", "type": "STR"},
+            {"name": "id", "type": "INT", "attributes": []},
+            {"name": "user_id", "type": "INT", "attributes": []},
+            {"name": "timestamp", "type": "TIMESTAMP", "attributes": []},
+            {"name": "text", "type": "STR", "attributes": []},
         ]
 
         # Trying to create it again should fail
@@ -327,10 +329,10 @@ class TestCreateOrUpdateNodes:
         data = response.json()
         assert data["version"] == "v2.0"
         assert data["columns"] == [
-            {"name": "id", "type": "INT"},
-            {"name": "user_id", "type": "INT"},
-            {"name": "timestamp", "type": "TIMESTAMP"},
-            {"name": "text_v2", "type": "STR"},
+            {"name": "id", "type": "INT", "attributes": []},
+            {"name": "user_id", "type": "INT", "attributes": []},
+            {"name": "timestamp", "type": "TIMESTAMP", "attributes": []},
+            {"name": "text_v2", "type": "STR", "attributes": []},
         ]
 
     def test_update_nonexistent_node(
@@ -397,8 +399,8 @@ class TestCreateOrUpdateNodes:
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "STR"},
-            {"name": "num_users", "type": "INT"},
+            {"name": "country", "type": "STR", "attributes": []},
+            {"name": "num_users", "type": "INT", "attributes": []},
         ]
         assert data["tables"] == []
 
@@ -450,9 +452,9 @@ class TestCreateOrUpdateNodes:
             "COUNT(*) AS num_entries FROM basic.source.users"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "STR"},
-            {"name": "num_users", "type": "INT"},
-            {"name": "num_entries", "type": "INT"},
+            {"name": "country", "type": "STR", "attributes": []},
+            {"name": "num_users", "type": "INT", "attributes": []},
+            {"name": "num_entries", "type": "INT", "attributes": []},
         ]
 
         # Verify that asking for revisions for a non-existent transform fails
@@ -471,17 +473,17 @@ class TestCreateOrUpdateNodes:
         }
         assert {rev["version"]: rev["columns"] for rev in data} == {
             "v1.0": [
-                {"name": "country", "type": "STR"},
-                {"name": "num_users", "type": "INT"},
+                {"name": "country", "type": "STR", "attributes": []},
+                {"name": "num_users", "type": "INT", "attributes": []},
             ],
             "v1.1": [
-                {"name": "country", "type": "STR"},
-                {"name": "num_users", "type": "INT"},
+                {"name": "country", "type": "STR", "attributes": []},
+                {"name": "num_users", "type": "INT", "attributes": []},
             ],
             "v2.0": [
-                {"name": "country", "type": "STR"},
-                {"name": "num_users", "type": "INT"},
-                {"name": "num_entries", "type": "INT"},
+                {"name": "country", "type": "STR", "attributes": []},
+                {"name": "num_users", "type": "INT", "attributes": []},
+                {"name": "num_entries", "type": "INT", "attributes": []},
             ],
         }
 
@@ -513,8 +515,8 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "STR"},
-            {"name": "user_cnt", "type": "INT"},
+            {"name": "country", "type": "STR", "attributes": []},
+            {"name": "user_cnt", "type": "INT", "attributes": []},
         ]
 
         # Test updating the dimension node with a new query
@@ -527,7 +529,9 @@ class TestCreateOrUpdateNodes:
         assert data["version"] == "v2.0"
 
         # The columns should have been updated
-        assert data["columns"] == [{"name": "country", "type": "STR"}]
+        assert data["columns"] == [
+            {"name": "country", "type": "STR", "attributes": []},
+        ]
 
     def test_updating_node_to_invalid_draft(
         self,
@@ -557,8 +561,8 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "STR"},
-            {"name": "user_cnt", "type": "INT"},
+            {"name": "country", "type": "STR", "attributes": []},
+            {"name": "user_cnt", "type": "INT", "attributes": []},
         ]
 
         response = client.patch(
@@ -668,6 +672,297 @@ class TestCreateOrUpdateNodes:
             == "The same materialization config provided already exists for node "
             "`country_agg` so no update was performed."
         )
+
+
+class TestNodeColumnsAttributes:
+    """
+    Test ``POST /nodes/{name}/attributes/``.
+    """
+
+    @pytest.fixture
+    def create_source_node_payload(self) -> Dict[str, Any]:
+        """
+        Payload for creating a source node.
+        """
+
+        return {
+            "name": "comments",
+            "description": "A fact table with comments",
+            "type": "source",
+            "columns": {
+                "id": {"type": "INT"},
+                "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
+                "event_timestamp": {"type": "TIMESTAMP"},
+                "post_processing_timestamp": {"type": "TIMESTAMP"},
+                "text": {"type": "STR"},
+            },
+            "mode": "published",
+        }
+
+    @pytest.fixture
+    def database(self, session: Session) -> Database:
+        """
+        A database fixture.
+        """
+
+        database = Database(name="postgres", URI="postgres://")
+        session.add(database)
+        session.commit()
+        return database
+
+    @pytest.fixture
+    def source_node(self, session: Session, database: Database) -> Node:
+        """
+        A source node fixture.
+        """
+
+        table = Table(
+            database=database,
+            table="A",
+            columns=[
+                Column(name="ds", type=ColumnType.STR),
+                Column(name="user_id", type=ColumnType.INT),
+            ],
+        )
+        node = Node(
+            name="basic.source.users",
+            type=NodeType.SOURCE,
+            current_version="1",
+        )
+        node_revision = NodeRevision(
+            node=node,
+            name=node.name,
+            type=node.type,
+            version="1",
+            tables=[table],
+            columns=[
+                Column(name="id", type=ColumnType.INT),
+                Column(name="created_at", type=ColumnType.TIMESTAMP),
+                Column(name="full_name", type=ColumnType.STR),
+                Column(name="age", type=ColumnType.INT),
+                Column(name="country", type=ColumnType.STR),
+                Column(name="gender", type=ColumnType.STR),
+                Column(name="preferred_language", type=ColumnType.STR),
+            ],
+        )
+        session.add(node_revision)
+        session.commit()
+        return node
+
+    def test_set_columns_attributes(
+        self,
+        client: TestClient,
+        database: Database,  # pylint: disable=unused-argument
+        create_source_node_payload: Dict[str, Any],
+        source_node: Node,  # pylint: disable=unused-argument
+    ):
+        """
+        Validate that setting column attributes on the node works.
+        """
+        client.post(
+            "/nodes/",
+            json=create_source_node_payload,
+        )
+        response = client.post(
+            "/nodes/comments/attributes/",
+            json=[
+                {
+                    "attribute_type_namespace": "system",
+                    "attribute_type_name": "primary_key",
+                    "column_name": "id",
+                },
+            ],
+        )
+        data = response.json()
+        assert data == [
+            {
+                "name": "id",
+                "type": "INT",
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+            },
+        ]
+
+        # Create dimension node
+        client.post(
+            "/nodes/",
+            json={
+                "name": "basic.dim.users",
+                "mode": "published",
+                "description": "",
+                "query": "select id, created_at, full_name, age, "
+                "country, gender from basic.source.users",
+                "type": "dimension",
+            },
+        )
+        # Set columns attributes
+        response = client.post(
+            "/nodes/basic.dim.users/attributes/",
+            json=[
+                {
+                    "attribute_type_namespace": "system",
+                    "attribute_type_name": "primary_key",
+                    "column_name": "id",
+                },
+                {
+                    "attribute_type_name": "effective_time",
+                    "column_name": "created_at",
+                },
+            ],
+        )
+        data = response.json()
+        assert data == [
+            {
+                "name": "id",
+                "type": "INT",
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+            },
+            {
+                "name": "created_at",
+                "type": "TIMESTAMP",
+                "attributes": [
+                    {
+                        "attribute_type": {
+                            "name": "effective_time",
+                            "namespace": "system",
+                        },
+                    },
+                ],
+            },
+        ]
+
+    def test_set_columns_attributes_failed(
+        self,
+        client: TestClient,
+        database: Database,  # pylint: disable=unused-argument
+        create_source_node_payload: Dict[str, Any],
+    ):
+        """
+        Test setting column attributes with different failure modes.
+        """
+        client.post(
+            "/nodes/",
+            json=create_source_node_payload,
+        )
+        response = client.post(
+            "/nodes/comments/attributes/",
+            json=[
+                {
+                    "attribute_type_name": "effective_time",
+                    "column_name": "event_timestamp",
+                },
+            ],
+        )
+        data = response.json()
+        assert response.status_code == 500
+        assert (
+            data["message"]
+            == "Attribute type `system.effective_time` not allowed on node type `source`!"
+        )
+
+        response = client.get(
+            "/nodes/comments/",
+        )
+
+        response = client.post(
+            "/nodes/comments/attributes/",
+            json=[
+                {
+                    "attribute_type_name": "primary_key",
+                    "column_name": "nonexistent_col",
+                },
+            ],
+        )
+        assert response.status_code == 404
+        data = response.json()
+        assert data == {
+            "message": "Column `nonexistent_col` does not exist on node `comments`!",
+            "errors": [],
+            "warnings": [],
+        }
+
+        response = client.post(
+            "/nodes/comments/attributes/",
+            json=[
+                {
+                    "attribute_type_name": "nonexistent_attribute",
+                    "column_name": "id",
+                },
+            ],
+        )
+        assert response.status_code == 404
+        data = response.json()
+        assert data == {
+            "message": "Attribute type `system.nonexistent_attribute` does not exist!",
+            "errors": [],
+            "warnings": [],
+        }
+
+        response = client.post(
+            "/nodes/comments/attributes/",
+            json=[
+                {
+                    "attribute_type_name": "primary_key",
+                    "column_name": "user_id",
+                },
+            ],
+        )
+        assert response.status_code == 201
+        data = response.json()
+        assert data == [
+            {
+                "name": "user_id",
+                "type": "INT",
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+            },
+        ]
+
+        response = client.post(
+            "/nodes/comments/attributes/",
+            json=[
+                {
+                    "attribute_type_name": "event_time",
+                    "column_name": "event_timestamp",
+                },
+                {
+                    "attribute_type_name": "event_time",
+                    "column_name": "post_processing_timestamp",
+                },
+            ],
+        )
+        data = response.json()
+        assert data == {
+            "message": "The column attribute `event_time` is scoped to be unique to the "
+            "`['node', 'column_type']` level, but there is more than one column"
+            " tagged with it: `event_timestamp, post_processing_timestamp`",
+            "errors": [],
+            "warnings": [],
+        }
+
+        response = client.get("/nodes/comments/")
+        data = response.json()
+        assert data["columns"] == [
+            {"attributes": [], "name": "id", "type": "INT"},
+            {
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "name": "user_id",
+                "type": "INT",
+            },
+            {"attributes": [], "name": "event_timestamp", "type": "TIMESTAMP"},
+            {
+                "attributes": [],
+                "name": "post_processing_timestamp",
+                "type": "TIMESTAMP",
+            },
+            {"attributes": [], "name": "text", "type": "STR"},
+        ]
 
 
 class TestValidateNodes:  # pylint: disable=too-many-public-methods

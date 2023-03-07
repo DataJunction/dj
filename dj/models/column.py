@@ -1,8 +1,7 @@
 """
 Models for columns.
 """
-
-from typing import TYPE_CHECKING, Optional, Tuple, TypedDict
+from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import Field, Relationship
@@ -11,7 +10,8 @@ from dj.models.base import BaseSQLModel
 from dj.typing import ColumnType, ColumnTypeDecorator
 
 if TYPE_CHECKING:
-    from dj.models.node import Node, NodeRevision
+    from dj.models.attribute import ColumnAttribute
+    from dj.models.node import Node
 
 
 class ColumnYAML(TypedDict, total=False):
@@ -39,6 +39,13 @@ class Column(BaseSQLModel, table=True):  # type: ignore
     dimension: "Node" = Relationship()
     dimension_column: Optional[str] = None
 
+    attributes: List["ColumnAttribute"] = Relationship(
+        back_populates="column",
+        sa_relationship_kwargs={
+            "lazy": "joined",
+        },
+    )
+
     def to_yaml(self) -> ColumnYAML:
         """
         Serialize the column for YAML.
@@ -55,3 +62,13 @@ class Column(BaseSQLModel, table=True):  # type: ignore
 
     def __hash__(self) -> int:
         return hash(self.id)
+
+
+class ColumnAttributeInput(BaseSQLModel):
+    """
+    A column attribute input
+    """
+
+    attribute_type_namespace: Optional[str] = "system"
+    attribute_type_name: str
+    column_name: str

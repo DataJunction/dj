@@ -217,3 +217,21 @@ class DJInternalErrorException(DJException):
 
     dbapi_exception: DBAPIExceptions = "InternalError"
     http_status_code: int = 500
+
+
+class DJAlreadyExistsException(DJException):
+    """
+    Exception raised when trying to create an entity that already exists.
+    """
+
+    dbapi_exception: DBAPIExceptions = "DataError"
+    http_status_code: int = 500
+
+
+class DJDoesNotExistException(DJException):
+    """
+    Exception raised when an entity doesn't exist.
+    """
+
+    dbapi_exception: DBAPIExceptions = "DataError"
+    http_status_code: int = 404
