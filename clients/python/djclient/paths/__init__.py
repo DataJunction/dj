@@ -15,6 +15,7 @@ class PathValues(str, enum.Enum):
     METRICS_ = "/metrics/"
     METRICS_NAME_ = "/metrics/{name}/"
     METRICS_NAME_SQL_ = "/metrics/{name}/sql/"
+    METRICS_COMMON_DIMENSIONS_ = "/metrics/common/dimensions/"
     QUERY_VALIDATE = "/query/validate"
     NODES_VALIDATE_ = "/nodes/validate/"
     NODES_ = "/nodes/"
