@@ -12,6 +12,7 @@ Method | HTTP request | Description
 [**add_engines_to_catalog_catalogs_name_engines_post**](#add_engines_to_catalog_catalogs_name_engines_post) | **post** /catalogs/{name}/engines/ | Add Engines To Catalog
 [**add_table_to_node_nodes_name_table_post**](#add_table_to_node_nodes_name_table_post) | **post** /nodes/{name}/table/ | Add Table To Node
 [**add_tag_to_node_nodes_name_tag_post**](#add_tag_to_node_nodes_name_tag_post) | **post** /nodes/{name}/tag/ | Add Tag To Node
+[**common_dimensions_metrics_common_dimensions_get**](#common_dimensions_metrics_common_dimensions_get) | **get** /metrics/common/dimensions/ | Common Dimensions
 [**create_node_nodes_post**](#create_node_nodes_post) | **post** /nodes/ | Create Node
 [**create_tag_tags_post**](#create_tag_tags_post) | **post** /tags/ | Create Tag
 [**downstream_nodes_nodes_name_downstream_get**](#downstream_nodes_nodes_name_downstream_get) | **get** /nodes/{name}/downstream/ | Downstream Nodes
@@ -892,6 +893,121 @@ Input Type | Accessed Type | Description | Notes
 dict, frozendict.frozendict, str, date, datetime, uuid.UUID, int, float, decimal.Decimal, bool, None, list, tuple, bytes, io.FileIO, io.BufferedReader,  | frozendict.frozendict, str, decimal.Decimal, BoolClass, NoneClass, tuple, bytes, FileIO |  | 
 
 #### add_tag_to_node_nodes_name_tag_post.ApiResponseFor422
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor422ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor422ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**HTTPValidationError**](../../models/HTTPValidationError.md) |  | 
+
+
+### Authorization
+
+No authorization required
+
+[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
+
+# **common_dimensions_metrics_common_dimensions_get**
+<a name="common_dimensions_metrics_common_dimensions_get"></a>
+> [str] common_dimensions_metrics_common_dimensions_get()
+
+Common Dimensions
+
+Return common dimensions for a set of metrics.
+
+### Example
+
+```python
+import djclient
+from djclient.apis.tags import default_api
+from djclient.model.http_validation_error import HTTPValidationError
+from pprint import pprint
+# Defining the host is optional and defaults to http://localhost
+# See configuration.py for a list of all supported configuration parameters.
+configuration = djclient.Configuration(
+    host = "http://localhost"
+)
+
+# Enter a context with an instance of the API client
+with djclient.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = default_api.DefaultApi(api_client)
+
+    # example passing only optional values
+    query_params = {
+        'metric': [],
+    }
+    try:
+        # Common Dimensions
+        api_response = api_instance.common_dimensions_metrics_common_dimensions_get(
+            query_params=query_params,
+        )
+        pprint(api_response)
+    except djclient.ApiException as e:
+        print("Exception when calling DefaultApi->common_dimensions_metrics_common_dimensions_get: %s\n" % e)
+```
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+query_params | RequestQueryParams | |
+accept_content_types | typing.Tuple[str] | default is ('application/json', ) | Tells the server the content type(s) that are accepted by the client
+stream | bool | default is False | if True then the response.content will be streamed and loaded from a file like object. When downloading a file, set this to True to force the code to deserialize the content to a FileSchema file
+timeout | typing.Optional[typing.Union[int, typing.Tuple]] | default is None | the timeout used by the rest client
+skip_deserialization | bool | default is False | when True, headers and body will be unset and an instance of api_client.ApiResponseWithoutDeserialization will be returned
+
+### query_params
+#### RequestQueryParams
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+metric | MetricSchema | | optional
+
+
+# MetricSchema
+
+## Model Type Info
+Input Type | Accessed Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+list, tuple,  | tuple,  |  | 
+
+### Tuple Items
+Class Name | Input Type | Accessed Type | Description | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+items | str,  | str,  |  | 
+
+### Return Types, Responses
+
+Code | Class | Description
+------------- | ------------- | -------------
+n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
+200 | [ApiResponseFor200](#common_dimensions_metrics_common_dimensions_get.ApiResponseFor200) | Successful Response
+422 | [ApiResponseFor422](#common_dimensions_metrics_common_dimensions_get.ApiResponseFor422) | Validation Error
+
+#### common_dimensions_metrics_common_dimensions_get.ApiResponseFor200
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor200ResponseBodyApplicationJson
+
+## Model Type Info
+Input Type | Accessed Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+list, tuple,  | tuple,  |  | 
+
+### Tuple Items
+Class Name | Input Type | Accessed Type | Description | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+items | str,  | str,  |  | 
+
+#### common_dimensions_metrics_common_dimensions_get.ApiResponseFor422
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
