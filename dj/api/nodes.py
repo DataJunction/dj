@@ -3,6 +3,7 @@ Node related APIs.
 """
 import http.client
 import logging
+from collections import defaultdict
 from http import HTTPStatus
 from typing import List, Optional, Union
 
@@ -12,6 +13,7 @@ from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from dj.api.helpers import (
+    get_attribute_type,
     get_catalog,
     get_column,
     get_database_by_name,
@@ -23,12 +25,15 @@ from dj.api.helpers import (
     validate_node_data,
 )
 from dj.api.tags import get_tag_by_name
-from dj.errors import DJException
-from dj.models import Table
-from dj.models.column import Column, ColumnType
+from dj.errors import DJDoesNotExistException, DJException
+from dj.models import ColumnAttribute, Table
+from dj.models.attribute import UniquenessScope
+from dj.models.base import generate_display_name
+from dj.models.column import Column, ColumnAttributeInput, ColumnType
 from dj.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
+    ColumnOutput,
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
@@ -102,6 +107,108 @@ def validate_node(
         dependencies=set(dependencies_map.keys()),
         columns=validated_node.columns,
     )
+
+
+def validate_and_build_attribute(
+    session: Session,
+    attribute_input: ColumnAttributeInput,
+    node: Node,
+) -> ColumnAttribute:
+    """
+    Run some validation and build column attribute.
+    """
+    column_map = {column.name: column for column in node.current.columns}
+    if attribute_input.column_name not in column_map:
+        raise DJDoesNotExistException(
+            message=f"Column `{attribute_input.column_name}` "
+            f"does not exist on node `{node.name}`!",
+        )
+    column = column_map[attribute_input.column_name]
+
+    # Verify attribute type exists
+    attribute_type = get_attribute_type(
+        session,
+        attribute_input.attribute_type_name,
+        attribute_input.attribute_type_namespace,
+    )
+    if not attribute_type:
+        raise DJDoesNotExistException(
+            message=f"Attribute type `{attribute_input.attribute_type_namespace}"
+            f".{attribute_input.attribute_type_name}` "
+            f"does not exist!",
+        )
+
+    # Verify that the attribute type is allowed for this node
+    if node.type not in attribute_type.allowed_node_types:
+        raise DJException(
+            message=f"Attribute type `{attribute_input.attribute_type_namespace}."
+            f"{attribute_type.name}` not allowed on node "
+            f"type `{node.type}`!",
+        )
+
+    return ColumnAttribute(
+        attribute_type=attribute_type,
+        column=column,
+    )
+
+
+@router.post(
+    "/nodes/{node_name}/attributes/",
+    response_model=List[ColumnOutput],
+    status_code=201,
+)
+def set_column_attributes(
+    node_name: str,
+    attributes: List[ColumnAttributeInput],
+    *,
+    session: Session = Depends(get_session),
+) -> List[ColumnOutput]:
+    """
+    Set column attributes for the node.
+    """
+    node = get_node_by_name(session, node_name)
+    modified_columns_map = {}
+    for attribute_input in attributes:
+        new_attribute = validate_and_build_attribute(session, attribute_input, node)
+        # pylint: disable=no-member
+        modified_columns_map[new_attribute.column.name] = new_attribute.column
+
+    # Validate column attributes by building mapping between
+    # attribute scope and columns
+    attributes_columns_map = defaultdict(list)
+    modified_columns = modified_columns_map.values()
+    for column in modified_columns:
+        for attribute in column.attributes:
+            scopes_map = {
+                UniquenessScope.NODE: attribute.attribute_type,
+                UniquenessScope.COLUMN_TYPE: column.type,
+            }
+            attributes_columns_map[
+                (  # type: ignore
+                    attribute.attribute_type,
+                    tuple(
+                        scopes_map[item]
+                        for item in attribute.attribute_type.uniqueness_scope
+                    ),
+                )
+            ].append(column)
+
+    for (attribute, _), columns in attributes_columns_map.items():
+        if len(columns) > 1:
+            for col in columns:
+                col.attributes = []
+            raise DJException(
+                message=f"The column attribute `{attribute.name}` is scoped to be "
+                f"unique to the `{attribute.uniqueness_scope}` level, but there "
+                "is more than one column tagged with it: "
+                f"`{', '.join([col.name for col in columns])}`",
+            )
+
+    session.add_all(modified_columns)
+    session.commit()
+    for col in modified_columns:
+        session.refresh(col)
+    return list(modified_columns)
 
 
 @router.get("/nodes/", response_model=List[NodeOutput])
@@ -323,6 +430,9 @@ def create_node(
     if data.type == NodeType.SOURCE:
         node_revision = NodeRevision(
             name=data.name,
+            display_name=data.display_name
+            if data.display_name
+            else generate_display_name(data.name),
             description=data.description,
             type=data.type,
             status=NodeStatus.VALID,

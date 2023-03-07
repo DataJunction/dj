@@ -22,6 +22,16 @@ class BaseSQLModel(SQLModel):
     metadata = SQLModel.metadata
     metadata.naming_convention = NAMING_CONVENTION
 
+    def update(self, data: dict) -> "BaseSQLModel":
+        """
+        Helper method that updates the current model with new data and validates.
+        """
+        update = self.dict()
+        update.update(data)
+        for key, value in self.validate(update).dict(exclude_defaults=True).items():
+            setattr(self, key, value)
+        return self
+
 
 def labelize(value: str) -> str:
     """

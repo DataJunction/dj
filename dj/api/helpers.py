@@ -14,7 +14,8 @@ from dj.construction.dj_query import build_dj_metric_query
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, ErrorCode
-from dj.models import Catalog, Column, Database, Engine
+from dj.models import AttributeType, Catalog, Column, Database, Engine
+from dj.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from dj.models.node import (
     MissingParent,
     Node,
@@ -92,6 +93,22 @@ def get_column(node: NodeRevision, column_name: str) -> Column:
             http_status_code=404,
         )
     return requested_column
+
+
+def get_attribute_type(
+    session: Session,
+    name: str,
+    namespace: Optional[str] = RESERVED_ATTRIBUTE_NAMESPACE,
+) -> Optional[AttributeType]:
+    """
+    Gets an attribute type by name.
+    """
+    statement = (
+        select(AttributeType)
+        .where(AttributeType.name == name)
+        .where(AttributeType.namespace == namespace)
+    )
+    return session.exec(statement).one_or_none()
 
 
 def get_catalog(session: Session, name: str) -> Catalog:
