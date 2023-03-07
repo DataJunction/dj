@@ -36,8 +36,8 @@ def test_read_node(session: Session, client: TestClient) -> None:
 
     assert response.status_code == 200
     assert data["version"] == "1"
-    assert data["node_id"] == 1
-    assert data["node_revision_id"] == 1
+    assert data["node_id"] == 27
+    assert data["node_revision_id"] == 27
     assert data["type"] == "source"
 
     response = client.get("/nodes/nothing/")
@@ -97,7 +97,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert len(data) == 3
+    assert len(data) == 29
 
     nodes = {node["name"]: node for node in data}
     assert nodes["not-a-metric"]["query"] is None
@@ -268,7 +268,7 @@ class TestCreateOrUpdateNodes:
         assert data["type"] == "source"
         assert data["display_name"] == "Comments"
         assert data["version"] == "v1.0"
-        assert data["node_id"] == 1
+        assert data["node_id"] == 27
         assert data["description"] == "A fact table with comments"
         assert data["query"] is None
         assert data["columns"] == [
@@ -301,7 +301,7 @@ class TestCreateOrUpdateNodes:
         assert data["display_name"] == "Comments facts"
         assert data["type"] == "source"
         assert data["version"] == "v1.1"
-        assert data["node_id"] == 1
+        assert data["node_id"] == 27
         assert data["description"] == "New description"
 
         # Try to update node with no changes

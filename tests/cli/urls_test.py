@@ -27,6 +27,7 @@ http://localhost:8000/engines/{name}/{version}/: Return an engine by name and ve
 http://localhost:8000/metrics/: List all available metrics.
 http://localhost:8000/metrics/{name}/: Return a metric by name.
 http://localhost:8000/metrics/{name}/sql/: Return SQL for a metric.
+http://localhost:8000/metrics/common/dimensions/: Return common dimensions for a set of metrics.
 http://localhost:8000/query/validate: Return SQL for a DJ Query.
 http://localhost:8000/nodes/validate/: Validate a node.
 http://localhost:8000/nodes/: List the available nodes.
