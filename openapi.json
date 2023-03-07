@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+gd8cb070"
+        "version": "0.0.post1.dev1+g0f458e3"
     },
     "paths": {
         "/catalogs/": {
@@ -427,6 +427,54 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/TranslatedSQL"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics/common/dimensions/": {
+            "get": {
+                "summary": "Common Dimensions",
+                "description": "Return common dimensions for a set of metrics.",
+                "operationId": "common_dimensions_metrics_common_dimensions__get",
+                "parameters": [
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "List of metrics to find common dimensions for",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "metric",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response Common Dimensions Metrics Common Dimensions  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
                                 }
                             }
                         }
