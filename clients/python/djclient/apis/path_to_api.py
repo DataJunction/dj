@@ -10,6 +10,7 @@ from djclient.apis.paths.engines_name_version_ import EnginesNameVersion
 from djclient.apis.paths.metrics_ import Metrics
 from djclient.apis.paths.metrics_name_ import MetricsName
 from djclient.apis.paths.metrics_name_sql_ import MetricsNameSql
+from djclient.apis.paths.metrics_common_dimensions_ import MetricsCommonDimensions
 from djclient.apis.paths.query_validate import QueryValidate
 from djclient.apis.paths.nodes_validate_ import NodesValidate
 from djclient.apis.paths.nodes_ import Nodes
@@ -41,6 +42,7 @@ PathToApi = typing_extensions.TypedDict(
         PathValues.METRICS_: Metrics,
         PathValues.METRICS_NAME_: MetricsName,
         PathValues.METRICS_NAME_SQL_: MetricsNameSql,
+        PathValues.METRICS_COMMON_DIMENSIONS_: MetricsCommonDimensions,
         PathValues.QUERY_VALIDATE: QueryValidate,
         PathValues.NODES_VALIDATE_: NodesValidate,
         PathValues.NODES_: Nodes,
@@ -73,6 +75,7 @@ path_to_api = PathToApi(
         PathValues.METRICS_: Metrics,
         PathValues.METRICS_NAME_: MetricsName,
         PathValues.METRICS_NAME_SQL_: MetricsNameSql,
+        PathValues.METRICS_COMMON_DIMENSIONS_: MetricsCommonDimensions,
         PathValues.QUERY_VALIDATE: QueryValidate,
         PathValues.NODES_VALIDATE_: NodesValidate,
         PathValues.NODES_: Nodes,
