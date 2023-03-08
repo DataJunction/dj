@@ -3,7 +3,6 @@ Tests for ``dj.utils``.
 """
 
 import logging
-from pathlib import Path
 
 import pytest
 from pytest_mock import MockerFixture
@@ -12,13 +11,10 @@ from yarl import URL
 
 from dj.config import Settings
 from dj.errors import DJException
-from dj.typing import ColumnType
 from dj.utils import (
     Version,
     get_engine,
     get_issue_url,
-    get_more_specific_type,
-    get_name_from_path,
     get_query_service_client,
     get_session,
     get_settings,
@@ -62,73 +58,6 @@ def test_get_settings(mocker: MockerFixture) -> None:
     # should be already cached, since it's called by the Celery app
     get_settings()
     Settings.assert_not_called()
-
-
-def test_get_name_from_path() -> None:
-    """
-    Test ``get_name_from_path``.
-    """
-    with pytest.raises(Exception) as excinfo:
-        get_name_from_path(Path("/path/to/repository"), Path("/path/to/repository"))
-    assert str(excinfo.value) == "Invalid path: /path/to/repository"
-
-    with pytest.raises(Exception) as excinfo:
-        get_name_from_path(
-            Path("/path/to/repository"),
-            Path("/path/to/repository/nodes"),
-        )
-    assert str(excinfo.value) == "Invalid path: /path/to/repository/nodes"
-
-    with pytest.raises(Exception) as excinfo:
-        get_name_from_path(
-            Path("/path/to/repository"),
-            Path("/path/to/repository/invalid/test.yaml"),
-        )
-    assert str(excinfo.value) == "Invalid path: /path/to/repository/invalid/test.yaml"
-
-    assert (
-        get_name_from_path(
-            Path("/path/to/repository"),
-            Path("/path/to/repository/nodes/test.yaml"),
-        )
-        == "test"
-    )
-
-    assert (
-        get_name_from_path(
-            Path("/path/to/repository"),
-            Path("/path/to/repository/nodes/core/test.yaml"),
-        )
-        == "core.test"
-    )
-
-    assert (
-        get_name_from_path(
-            Path("/path/to/repository"),
-            Path("/path/to/repository/nodes/dev.nodes/test.yaml"),
-        )
-        == "dev%2Enodes.test"
-    )
-
-    assert (
-        get_name_from_path(
-            Path("/path/to/repository"),
-            Path("/path/to/repository/nodes/5%_nodes/test.yaml"),
-        )
-        == "5%25_nodes.test"
-    )
-
-
-def test_get_more_specific_type() -> None:
-    """
-    Test ``get_more_specific_type``.
-    """
-    assert (
-        get_more_specific_type(ColumnType.STR, ColumnType.TIMESTAMP)
-        == ColumnType.TIMESTAMP
-    )
-    assert get_more_specific_type(ColumnType.STR, ColumnType.INT) == ColumnType.INT
-    assert get_more_specific_type(None, ColumnType.INT) == ColumnType.INT
 
 
 def test_get_issue_url() -> None:

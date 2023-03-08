@@ -1,5 +1,6 @@
 """fixtures for testing construction"""
 # noqa: W191,E101
+# pylint: disable=line-too-long
 
 from typing import Dict, List, Optional, Tuple
 
@@ -25,12 +26,7 @@ BUILD_NODE_NAMES: List[str] = [
 ]
 
 BUILD_EXPECTATION_PARAMETERS: List[Tuple[str, Optional[int]]] = list(
-    zip(
-        BUILD_NODE_NAMES * 3,
-        [None] * len(BUILD_NODE_NAMES)
-        + [1] * len(BUILD_NODE_NAMES)  # type: ignore
-        + [2] * len(BUILD_NODE_NAMES),  # type: ignore
-    ),
+    zip(BUILD_NODE_NAMES * 3, [None] * len(BUILD_NODE_NAMES)),
 )
 
 
@@ -43,25 +39,9 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 False,
                 """Node has no query. Cannot generate a build plan without a query.""",
             ),
-            1: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
-            ),
-            2: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
-            ),
         },
         """basic.source.comments""": {
             None: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
-            ),
-            1: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
-            ),
-            2: (
                 False,
                 """Node has no query. Cannot generate a build plan without a query.""",
             ),
@@ -69,36 +49,14 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
         """basic.dimension.users""": {
             None: (
                 True,
-                """SELECT  basic.comments.id,
-    basic.comments.full_name,
-    basic.comments.age,
-    basic.comments.country,
-    basic.comments.gender,
-    basic.comments.preferred_language,
-    basic.comments.secret_number
- FROM basic.comments""",
-            ),
-            1: (
-                True,
-                """SELECT  basic.comments.id,
-    basic.comments.full_name,
-    basic.comments.age,
-    basic.comments.country,
-    basic.comments.gender,
-    basic.comments.preferred_language,
-    basic.comments.secret_number
- FROM basic.comments""",
-            ),
-            2: (
-                True,
-                """SELECT  comments.id,
-    comments.full_name,
-    comments.age,
-    comments.country,
-    comments.gender,
-    comments.preferred_language,
-    comments.secret_number
- FROM comments""",
+                """SELECT  basic_DOT_source_DOT_users.id,
+    basic_DOT_source_DOT_users.full_name,
+    basic_DOT_source_DOT_users.age,
+    basic_DOT_source_DOT_users.country,
+    basic_DOT_source_DOT_users.gender,
+    basic_DOT_source_DOT_users.preferred_language,
+    basic_DOT_source_DOT_users.secret_number
+ FROM "basic.source.users" AS basic_DOT_source_DOT_users""",
             ),
         },
         """dbt.source.jaffle_shop.orders""": {
@@ -106,42 +64,18 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 False,
                 """Node has no query. Cannot generate a build plan without a query.""",
             ),
-            1: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
-            ),
-            2: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
-            ),
         },
         """dbt.dimension.customers""": {
             None: (
                 True,
-                """SELECT  jaffle_shop.customers.id,
-    jaffle_shop.customers.first_name,
-    jaffle_shop.customers.last_name
- FROM jaffle_shop.customers""",
+                """SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
+    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
+    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name
+ FROM "dbt.source.jaffle_shop.customers" AS dbt_DOT_source_DOT_jaffle_shop_DOT_customers""",
             ),
-            1: (
-                True,
-                """SELECT  jaffle_shop.customers.id,
-    jaffle_shop.customers.first_name,
-    jaffle_shop.customers.last_name
- FROM jaffle_shop.customers""",
-            ),
-            2: (False, """The requested database with id 2 cannot run this query."""),
         },
         """dbt.source.jaffle_shop.customers""": {
             None: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
-            ),
-            1: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
-            ),
-            2: (
                 False,
                 """Node has no query. Cannot generate a build plan without a query.""",
             ),
@@ -151,48 +85,14 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 True,
                 """SELECT  basic_DOT_dimension_DOT_users.country,
     COUNT(1) AS user_cnt
- FROM (SELECT  basic.comments.id,
-    basic.comments.full_name,
-    basic.comments.age,
-    basic.comments.country,
-    basic.comments.gender,
-    basic.comments.preferred_language,
-    basic.comments.secret_number
- FROM basic.comments
-
-) AS basic_DOT_dimension_DOT_users
-
- GROUP BY  basic_DOT_dimension_DOT_users.country""",
-            ),
-            1: (
-                True,
-                """SELECT  basic_DOT_dimension_DOT_users.country,
-    COUNT(1) AS user_cnt
- FROM (SELECT  basic.comments.id,
-    basic.comments.full_name,
-    basic.comments.age,
-    basic.comments.country,
-    basic.comments.gender,
-    basic.comments.preferred_language,
-    basic.comments.secret_number
- FROM basic.comments
-
-) AS basic_DOT_dimension_DOT_users
-
- GROUP BY  basic_DOT_dimension_DOT_users.country""",
-            ),
-            2: (
-                True,
-                """SELECT  basic_DOT_dimension_DOT_users.country,
-    COUNT(1) AS user_cnt
- FROM (SELECT  comments.id,
-    comments.full_name,
-    comments.age,
-    comments.country,
-    comments.gender,
-    comments.preferred_language,
-    comments.secret_number
- FROM comments
+ FROM (SELECT  basic_DOT_source_DOT_users.id,
+    basic_DOT_source_DOT_users.full_name,
+    basic_DOT_source_DOT_users.age,
+    basic_DOT_source_DOT_users.country,
+    basic_DOT_source_DOT_users.gender,
+    basic_DOT_source_DOT_users.preferred_language,
+    basic_DOT_source_DOT_users.secret_number
+ FROM "basic.source.users" AS basic_DOT_source_DOT_users
 
 ) AS basic_DOT_dimension_DOT_users
 
@@ -202,99 +102,43 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
         """basic.transform.country_agg""": {
             None: (
                 True,
-                """SELECT  basic.comments.country,
-    COUNT(DISTINCT basic.comments.id) AS num_users
- FROM basic.comments
+                """SELECT  basic_DOT_source_DOT_users.country,
+    COUNT(DISTINCT basic_DOT_source_DOT_users.id) AS num_users
+ FROM "basic.source.users" AS basic_DOT_source_DOT_users
 
- GROUP BY  basic.comments.country""",
-            ),
-            1: (
-                True,
-                """SELECT  basic.comments.country,
-    COUNT(DISTINCT basic.comments.id) AS num_users
- FROM basic.comments
-
- GROUP BY  basic.comments.country""",
-            ),
-            2: (
-                True,
-                """SELECT  comments.country,
-    COUNT(DISTINCT comments.id) AS num_users
- FROM comments
-
- GROUP BY  comments.country""",
+ GROUP BY  basic_DOT_source_DOT_users.country""",
             ),
         },
         """basic.num_comments""": {
             None: (
                 True,
                 """SELECT  COUNT(1) AS cnt
- FROM basic.comments""",
-            ),
-            1: (
-                True,
-                """SELECT  COUNT(1) AS cnt
- FROM basic.comments""",
-            ),
-            2: (
-                True,
-                """SELECT  COUNT(1) AS cnt
- FROM comments""",
+ FROM "basic.source.comments" AS basic_DOT_source_DOT_comments""",
             ),
         },
         """basic.num_users""": {
             None: (
                 True,
                 """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users) AS col0
- FROM (SELECT  basic.comments.country,
-    COUNT(DISTINCT basic.comments.id) AS num_users
- FROM basic.comments
+ FROM (SELECT  basic_DOT_source_DOT_users.country,
+    COUNT(DISTINCT basic_DOT_source_DOT_users.id) AS num_users
+ FROM "basic.source.users" AS basic_DOT_source_DOT_users
 
- GROUP BY  basic.comments.country) AS basic_DOT_transform_DOT_country_agg""",
-            ),
-            1: (
-                True,
-                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users) AS col0
- FROM (SELECT  basic.comments.country,
-    COUNT(DISTINCT basic.comments.id) AS num_users
- FROM basic.comments
-
- GROUP BY  basic.comments.country) AS basic_DOT_transform_DOT_country_agg""",
-            ),
-            2: (
-                True,
-                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users) AS col0
- FROM (SELECT  comments.country,
-    COUNT(DISTINCT comments.id) AS num_users
- FROM comments
-
- GROUP BY  comments.country) AS basic_DOT_transform_DOT_country_agg""",
+ GROUP BY  basic_DOT_source_DOT_users.country) AS basic_DOT_transform_DOT_country_agg""",
             ),
         },
         """dbt.transform.customer_agg""": {
             None: (
                 True,
-                """SELECT  c.id,
-    c.first_name,
-    c.last_name,
+                """SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
+    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
+    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name,
     COUNT(1) AS order_cnt
- FROM jaffle_shop.orders AS o
-INNER JOIN jaffle_shop.customers AS c
-        ON o.user_id = c.id
- GROUP BY  c.id, c.first_name, c.last_name""",
+ FROM "dbt.source.jaffle_shop.orders" AS dbt_DOT_source_DOT_jaffle_shop_DOT_orders
+INNER JOIN "dbt.source.jaffle_shop.customers" AS dbt_DOT_source_DOT_jaffle_shop_DOT_customers
+    ON dbt_DOT_source_DOT_jaffle_shop_DOT_orders.user_id = dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id
+ GROUP BY  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id, dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name, dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name""",
             ),
-            1: (
-                True,
-                """SELECT  c.id,
-    c.first_name,
-    c.last_name,
-    COUNT(1) AS order_cnt
- FROM jaffle_shop.orders AS o
-INNER JOIN jaffle_shop.customers AS c
-        ON o.user_id = c.id
- GROUP BY  c.id, c.first_name, c.last_name""",
-            ),
-            2: (False, """The requested database with id 2 cannot run this query."""),
         },
     }
 

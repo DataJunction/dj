@@ -16,7 +16,6 @@ from dj.api.helpers import (
     get_attribute_type,
     get_catalog,
     get_column,
-    get_database_by_name,
     get_downstream_nodes,
     get_engine,
     get_node_by_name,
@@ -25,8 +24,8 @@ from dj.api.helpers import (
     validate_node_data,
 )
 from dj.api.tags import get_tag_by_name
-from dj.errors import DJDoesNotExistException, DJException
-from dj.models import ColumnAttribute, Table
+from dj.errors import DJDoesNotExistException, DJException, DJInvalidInputException
+from dj.models import ColumnAttribute
 from dj.models.attribute import UniquenessScope
 from dj.models.base import generate_display_name
 from dj.models.column import Column, ColumnAttributeInput, ColumnType
@@ -51,10 +50,8 @@ from dj.models.node import (
     UpdateNode,
     UpsertMaterializationConfig,
 )
-from dj.models.table import CreateTable
-from dj.service_clients import QueryServiceClient
-from dj.sql.parsing.backends.sqloxide import parse
-from dj.utils import Version, VersionUpgrade, get_query_service_client, get_session
+from dj.sql.parsing import parse
+from dj.utils import Version, VersionUpgrade, get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -320,13 +317,12 @@ def list_node_revisions(
 
 
 def create_node_revision(
-    data: Union[CreateNode],
+    data: CreateNode,
     session: Session,
 ) -> NodeRevision:
     """
     Create a non-source node revision.
     """
-
     node_revision = NodeRevision.parse_obj(data)
     (
         validated_node,
@@ -342,6 +338,12 @@ def create_node_revision(
         MissingParent(name=missing_parent) for missing_parent in missing_parents_map
     ]
     new_parents = [node.name for node in dependencies_map]
+    catalog_ids = [node.catalog_id for node in dependencies_map]
+    if node_revision.mode == NodeMode.PUBLISHED and not len(set(catalog_ids)) == 1:
+        raise DJException(
+            f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
+        )
+    catalog_id = next(iter(catalog_ids), "draft")
     parent_refs = session.exec(
         select(Node).where(
             # pylint: disable=no-member
@@ -359,12 +361,13 @@ def create_node_revision(
         [p.name for p in node_revision.parents],
     )
     node_revision.columns = validated_node.columns or []
+    node_revision.catalog_id = catalog_id
     return node_revision
 
 
 def create_cube_node_revision(
     session: Session,
-    data: Union[CreateCubeNode],
+    data: CreateCubeNode,
 ) -> NodeRevision:
     """
     Create a cube node revision.
@@ -376,8 +379,10 @@ def create_cube_node_revision(
         )
     metrics = []
     dimensions = []
+    catalogs = []
     for node_name in data.cube_elements:
         cube_element = get_node_by_name(session=session, name=node_name)
+        catalogs.append(cube_element.current.catalog.name)
         if cube_element.type == NodeType.METRIC:
             metrics.append(cube_element)
         elif cube_element.type == NodeType.DIMENSION:
@@ -399,6 +404,12 @@ def create_cube_node_revision(
         raise DJException(
             message=("At least one dimension is required to create a cube node"),
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
+        )
+    if len(set(catalogs)) != 1:
+        raise DJException(
+            message=(
+                f"Cannot create cube using nodes from multiple catalogs: {catalogs}"
+            ),
         )
     return NodeRevision(
         name=data.name,
@@ -428,6 +439,12 @@ def create_node(
     raise_on_query_not_allowed(data)
 
     if data.type == NodeType.SOURCE:
+        if not data.schema_ or not data.table or not data.catalog:
+            raise DJInvalidInputException(
+                f"Nodes of type `{NodeType.SOURCE}` must have `catalog`, "
+                "`schema_`, and `table` set",
+            )
+        catalog = get_catalog(session=session, name=data.catalog)
         node_revision = NodeRevision(
             name=data.name,
             display_name=data.display_name
@@ -436,6 +453,9 @@ def create_node(
             description=data.description,
             type=data.type,
             status=NodeStatus.VALID,
+            catalog_id=catalog.id,
+            schema_=data.schema_,
+            table=data.table,
             columns=[
                 Column(
                     name=column_name,
@@ -467,7 +487,11 @@ def create_node(
         session=session,
         node_revision=node,
     )
-    propagate_valid_status(session=session, valid_nodes=newly_valid_nodes)
+    propagate_valid_status(
+        session=session,
+        valid_nodes=newly_valid_nodes,
+        catalog_id=node.current.catalog_id,  # pylint: disable=no-member
+    )
     session.refresh(node.current)
     return node  # type: ignore
 
@@ -492,7 +516,13 @@ def add_dimension_to_node(
         name=dimension,
         node_type=NodeType.DIMENSION,
     )
-
+    if node.current.catalog.name != dimension_node.current.catalog.name:
+        raise DJException(
+            message=(
+                "Cannot add dimension to column, catalogs do not match: "
+                f"{node.current.catalog.name}, {dimension_node.current.catalog.name}"
+            ),
+        )
     if dimension_column:  # Check that the column exists before linking
         get_column(dimension_node.current, dimension_column)
 
@@ -510,79 +540,6 @@ def add_dimension_to_node(
             "message": (
                 f"Dimension node {dimension} has been successfully "
                 f"linked to column {column} on node {name}"
-            ),
-        },
-    )
-
-
-@router.post("/nodes/{name}/table/", status_code=201)
-def add_table_to_node(
-    name: str,
-    data: CreateTable,
-    *,
-    session: Session = Depends(get_session),
-    query_service_client: QueryServiceClient = Depends(get_query_service_client),
-) -> JSONResponse:
-    """
-    Add a table to a node
-    """
-    node = get_node_by_name(session=session, name=name)
-    database = get_database_by_name(session=session, name=data.database_name)
-    catalog = get_catalog(session=session, name=data.catalog_name)
-    for existing_table in node.current.tables:
-        if (
-            existing_table.database == database
-            and existing_table.catalog == catalog
-            and existing_table.table == data.table
-        ):
-            raise DJException(
-                message=(
-                    f"Table {data.table} in database {database.name} in "
-                    f"catalog {catalog.name} already exists for node {name}"
-                ),
-                http_status_code=HTTPStatus.CONFLICT,
-            )
-
-    # When no columns are provided, attempt to find actual table columns
-    # if a query service is set
-    columns = [
-        Column(name=column.name, type=ColumnType(column.type))
-        for column in data.columns
-    ]
-    if not columns:
-        if not query_service_client:
-            raise DJException(
-                message="No table columns were provided and no query "
-                "service is configured for table columns inference!",
-            )
-        columns = query_service_client.get_columns_for_table(
-            data.catalog_name,
-            data.schema_,  # type: ignore
-            data.table,
-        )
-
-    table = Table(
-        catalog_id=catalog.id,
-        schema=data.schema_,
-        table=data.table,
-        database_id=database.id,
-        cost=data.cost,
-        columns=columns,
-    )
-
-    session.add(table)
-    session.commit()
-    session.refresh(table)
-    node.current.columns = columns
-    node.current.tables.append(table)
-    session.add(node)
-    session.commit()
-    session.refresh(node)
-    return JSONResponse(
-        status_code=201,
-        content={
-            "message": (
-                f"Table {data.table} has been successfully linked to node {name}"
             ),
         },
     )
@@ -680,7 +637,9 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
         ]
         if data and data.columns
         else old_revision.columns,
-        tables=old_revision.tables,
+        catalog=old_revision.catalog,
+        schema_=old_revision.schema_,
+        table=old_revision.table,
         parents=[],
         mode=data.mode if data and data.mode else old_revision.mode,
         materialization_configs=old_revision.materialization_configs,

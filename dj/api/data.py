@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
-from dj.api.helpers import get_catalog, get_node_by_name
+from dj.api.helpers import get_node_by_name
 from dj.errors import DJException
 from dj.models.node import AvailabilityState, AvailabilityStateBase, NodeType
 from dj.utils import get_session
@@ -27,59 +27,57 @@ def add_availability(
     """
     Add an availability state to a node
     """
-    new_availability = data
-
-    existing_node = get_node_by_name(session, node_name)
-    catalog = get_catalog(session=session, name=new_availability.catalog)
+    node = get_node_by_name(session, node_name)
 
     # Source nodes require that any availability states set are for one of the defined tables
-    existing_node_revision = existing_node.current
-    if existing_node.type == NodeType.SOURCE:
-        matches = False
-        for table in existing_node_revision.tables:
-            if (
-                table.catalog.name == catalog.name  # type: ignore
-                and table.schema_ == new_availability.schema_
-                and table.table == new_availability.table
-            ):
-                matches = True
-        if not matches:
+    node_revision = node.current
+    if data.catalog != node_revision.catalog.name:
+        raise DJException(
+            "Cannot set availability state in different catalog: "
+            f"{data.catalog}, {node_revision.catalog}",
+        )
+    if node.current.type == NodeType.SOURCE:
+        if node_revision.schema_ != data.schema_ or node_revision.table != data.table:
             raise DJException(
                 message=(
                     "Cannot set availability state, "
                     "source nodes require availability "
-                    "states match an existing table: "
-                    f"{new_availability.catalog}."
-                    f"{new_availability.schema_}."
-                    f"{new_availability.table}"
+                    "states match the set table: "
+                    f"{data.catalog}."
+                    f"{data.schema_}."
+                    f"{data.table} "
+                    "does not match "
+                    f"{node_revision.catalog.name}."
+                    f"{node_revision.schema_}."
+                    f"{node_revision.table} "
                 ),
             )
 
     # Merge the new availability state with the current availability state if one exists
     if (
-        existing_node_revision.availability
-        and existing_node_revision.availability.catalog == catalog.name
-        and existing_node_revision.availability.schema_ == new_availability.schema_
-        and existing_node_revision.availability.table == new_availability.table
+        node_revision.availability
+        and node_revision.availability.catalog == node.current.catalog.name
+        and node_revision.availability.schema_ == data.schema_
+        and node_revision.availability.table == data.table
     ):
         # Currently, we do not consider type information. We should eventually check the type of
         # the partition values in order to cast them before sorting.
-        new_availability.max_partition = max(
+        data.max_partition = max(
             (
-                existing_node_revision.availability.max_partition,
-                new_availability.max_partition,
+                node_revision.availability.max_partition,
+                data.max_partition,
             ),
         )
-        new_availability.min_partition = min(
+        data.min_partition = min(
             (
-                existing_node_revision.availability.min_partition,
-                new_availability.min_partition,
+                node_revision.availability.min_partition,
+                data.min_partition,
             ),
         )
 
-    db_new_availability = AvailabilityState.from_orm(new_availability)
-    existing_node_revision.availability = db_new_availability
-    session.add(existing_node_revision)
+    db_new_availability = AvailabilityState.from_orm(data)
+    node_revision.availability = db_new_availability
+    session.add(node_revision)
     session.commit()
     return JSONResponse(
         status_code=200,

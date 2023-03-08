@@ -12,11 +12,11 @@ class TestTags:
     """
 
     @pytest.fixture
-    def client(self, client: TestClient) -> TestClient:
+    def client(self, client: TestClient, load_examples) -> TestClient:
         """
         Add nodes to facilitate testing of tags endpoints.
         """
-
+        load_examples(client)
         # Add source node
         response = client.post(
             "/nodes/",
@@ -31,6 +31,9 @@ class TestTags:
                 "description": "A source table for sales",
                 "mode": "published",
                 "name": "sales",
+                "catalog": "default",
+                "schema_": "revenue",
+                "table": "sales",
                 "type": "source",
             },
         )

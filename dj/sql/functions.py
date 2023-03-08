@@ -138,7 +138,7 @@ class DateTruncNotImplementException(DJNotImplementedException):
     Custom exception for resolutions not implemented in ``DATE_TRUNC``.
     """
 
-    def __init__(self, dialect: str, resolution: str):
+    def __init__(self, dialect: str, resolution: str):  # pragma: no cover
         issue_url = str(
             get_issue_url(title=f"Resolution missing for {dialect}: {resolution}"),
         )
@@ -172,7 +172,7 @@ class DateTruncNotImplementException(DJNotImplementedException):
         )
 
 
-class DateTrunc(Function):
+class DateTrunc(Function):  # pragma: no cover
     """
     The ``DATE_TRUNC`` function.
 

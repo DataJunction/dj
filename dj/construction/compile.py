@@ -10,9 +10,8 @@ from sqlmodel import Session, select
 from dj.construction.exceptions import CompoundBuildException
 from dj.construction.utils import get_dj_node, make_name
 from dj.errors import DJError, DJException, ErrorCode
-from dj.models.node import Node, NodeRevision, NodeType
-from dj.sql.parsing import ast
-from dj.sql.parsing.backends.sqloxide import parse
+from dj.models.node import NodeRevision, NodeType
+from dj.sql.parsing import ast, parse
 
 
 def _check_col(
@@ -96,7 +95,7 @@ def _tables_to_namespaces(
     table: ast.TableExpression,
 ) -> Tuple[
     Dict[str, ast.TableExpression],
-    Tuple[Set[NodeRevision], Set[Node], Set[Node]],
+    Tuple[Set[NodeRevision], Set[NodeRevision], Set[NodeRevision]],
 ]:
     """
     Get all usable namespaces and columns from tables
@@ -297,6 +296,9 @@ def _validate_columns(
 def _compile_select_ast(
     session: Session,
     select: ast.Select,  # pylint: disable= W0621
+    external_namespaces: Optional[
+        Dict[str, Dict[str, Union[ast.Expression, ast.Column]]]
+    ] = None,
 ):
     """
     Get all dj node dependencies from a sql select while validating
@@ -310,7 +312,9 @@ def _compile_select_ast(
     tables = select.from_.tables + [join.table for join in select.from_.joins]
 
     # namespaces track the namespace: list of columns that can be had from it
-    namespaces: Dict[str, Dict[str, Union[ast.Expression, ast.Column]]] = {}
+    namespaces: Dict[str, Dict[str, Union[ast.Expression, ast.Column]]] = (
+        external_namespaces or {}
+    )
 
     # namespace: ast node defining namespace
     table_nodes: Dict[str, ast.TableExpression] = {}
@@ -382,7 +386,7 @@ def _compile_select_ast(
                     ),
                     context=str(select.from_),
                 ),
-                message="Cannot extract dependencies from SELECT",
+                message="Cannot compile SELECT",
             )
     subqueries = cast(
         Iterator[ast.Select],
@@ -392,7 +396,7 @@ def _compile_select_ast(
         ),
     )
     for subquery in subqueries:
-        _compile_select_ast(session, subquery)
+        _compile_select_ast(session, subquery)  # , namespaces)
 
 
 def compile_node(

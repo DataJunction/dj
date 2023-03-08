@@ -25,4 +25,5 @@ def trivial_query():
             distinct=False,
         ),
         ctes=[],
+        dialect="ansi",
     )

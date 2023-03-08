@@ -1,23 +1,14 @@
 """Functions to add to an ast DJ node queries"""
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
-from functools import reduce
-from typing import Dict, List, Optional, Set, Tuple, cast
+from typing import Dict, List, Optional, Union, cast
 
 from sqlmodel import Session
 
-from dj.construction.build_planning import (
-    BuildPlan,
-    generate_build_plan_from_query,
-    optimize_level_by_cost,
-    optimize_level_by_database_id,
-)
 from dj.construction.utils import amenable_name
 from dj.errors import DJException
 from dj.models.column import Column
-from dj.models.database import Database
-from dj.models.node import NodeRevision, NodeType
-from dj.sql.parsing import ast
-from dj.sql.parsing.backends.sqloxide import parse
+from dj.models.node import BuildCriteria, NodeRevision, NodeType
+from dj.sql.parsing import ast, parse
 
 
 def _get_tables_from_select(select: ast.Select) -> Dict[NodeRevision, List[ast.Table]]:
@@ -53,10 +44,8 @@ def _get_dim_cols_from_select(
 def _build_dimensions_on_select(
     session: Session,
     dimension_columns: Dict[NodeRevision, List[ast.Column]],
-    build_plan_lookup: Dict[NodeRevision, Tuple[Set[Database], BuildPlan]],
-    build_plan_depth: int,
-    database: Database,
     dialect: Optional[str] = None,
+    build_criteria: Optional[BuildCriteria] = None,
 ):
     """
     Add all filter and agg dimensions to a select
@@ -87,40 +76,25 @@ def _build_dimensions_on_select(
                             join_dim_cols.append(col)
 
                     join_info[table_node] = join_dim_cols
-                if build_plan_depth > 0:  # continue following build plan
-                    alias = amenable_name(dim_node.node.name)
-
-                    _, dim_build_plan = build_plan_lookup[dim_node]
-                    dim_ast = dim_build_plan[0]
-                    dim_ast.build(
+                dim_table = cast(
+                    Optional[ast.Table],
+                    _get_node_table(dim_node, build_criteria),
+                )  # got a materialization
+                if (
+                    dim_table is None
+                ):  # no materialization - recurse to build dimension first  # pragma: no cover
+                    dim_query = parse(cast(str, dim_node.query), dialect)
+                    dim_table = build_ast(  # type: ignore  # noqa
                         session,
-                        dim_build_plan,
-                        build_plan_depth - 1,
-                        database,
-                        dialect,
-                    )
+                        dim_query,
+                        build_criteria,
+                    ).to_select()
 
-                    dim_select = dim_ast.select
-                    dim_ast = ast.Alias(
-                        ast.Name(alias),
-                        child=dim_select,
-                    )  # type:ignore
-                else:  # pragma: no cover
-                    dim_table = [
-                        table
-                        for table in dim_node.tables
-                        if table.database.id == database.id
-                    ][0]
-                    dim_ast = ast.Table(  # type: ignore
-                        ast.Name(dim_table.table),
-                        namespace=ast.Namespace(
-                            [
-                                ast.Name(s)
-                                for s in (dim_table.catalog, dim_table.schema_)
-                                if s
-                            ],
-                        ),
-                    )
+                alias = amenable_name(dim_node.node.name)
+                dim_ast = ast.Alias(  # type: ignore
+                    ast.Name(alias),
+                    child=dim_table,
+                )
 
                 for (
                     dim_col
@@ -133,8 +107,7 @@ def _build_dimensions_on_select(
                     for table in ast_tables:
                         for col in cols:
                             join_on.append(
-                                ast.BinaryOp(
-                                    ast.BinaryOpKind.Eq,
+                                ast.BinaryOp.Eq(
                                     ast.Column(ast.Name(col.name), _table=table),
                                     ast.Column(
                                         ast.Name(col.dimension_column or "id"),
@@ -148,14 +121,7 @@ def _build_dimensions_on_select(
                             ast.Join(
                                 ast.JoinKind.LeftOuter,
                                 dim_ast,  # type: ignore
-                                reduce(
-                                    lambda left, right: ast.BinaryOp(
-                                        ast.BinaryOpKind.And,
-                                        left,
-                                        right,
-                                    ),
-                                    join_on,
-                                ),
+                                ast.BinaryOp.And(*join_on),  # pylint: disable=E1120
                             ),
                         )
 
@@ -164,48 +130,28 @@ def _build_tables_on_select(
     session: Session,
     select: ast.Select,
     tables: Dict[NodeRevision, List[ast.Table]],
-    build_plan_lookup: Dict[NodeRevision, Tuple[Set[Database], BuildPlan]],
-    build_plan_depth: int,
-    database: Database,
     dialect: Optional[str] = None,
+    build_criteria: Optional[BuildCriteria] = None,
 ):
     """
     Add all nodes not agg or filter dimensions to the select
     """
     for node, tbls in tables.items():
 
-        if (
-            node.node.type != NodeType.SOURCE and build_plan_depth > 0
-        ):  # continue following build plan
-            _, node_build_plan = build_plan_lookup[node]
-            node_ast = node_build_plan[0]
-            node_ast.build(
+        node_table = cast(
+            Optional[ast.Table],
+            _get_node_table(node, build_criteria),
+        )  # got a materialization
+        if node_table is None:  # no materialization - recurse to node first
+            node_query = parse(cast(str, node.query), dialect)
+            node_table = build_ast(  # type: ignore
                 session,
-                node_build_plan,
-                build_plan_depth - 1,
-                database,
-                dialect,
-            )
-            alias = amenable_name(node.node.name)
-            node_select = node_ast.select
-            node_ast = ast.Alias(ast.Name(alias), child=node_select)  # type: ignore
-            for tbl in tbls:
-                select.replace(tbl, node_ast)
-        else:
-            node_table = [
-                table for table in node.tables if table.database.id == database.id
-            ][0]
-            node_ast = ast.Table(  # type: ignore
-                ast.Name(node_table.table),
-                namespace=ast.Namespace(
-                    [
-                        ast.Name(s)
-                        for s in (node_table.catalog, node_table.schema_)
-                        if s
-                    ],
-                ),
-            )
+                node_query,
+                build_criteria,
+            ).to_select()  # pylint: disable=W0212
 
+        alias = amenable_name(node.node.name)
+        node_ast = ast.Alias(ast.Name(alias), child=node_table)  # type: ignore
         for tbl in tbls:
             select.replace(tbl, node_ast)
 
@@ -214,41 +160,22 @@ def _build_tables_on_select(
 def _build_select_ast(
     session: Session,
     select: ast.Select,
-    build_plan: BuildPlan,
-    build_plan_depth: int,
-    database: Database,
     dialect: Optional[str] = None,
+    build_criteria: Optional[BuildCriteria] = None,
 ):
     """
     Transforms a select ast by replacing dj node references with their asts
     """
 
-    _, build_plan_lookup = build_plan
-
     dimension_columns = _get_dim_cols_from_select(select)
     tables = _get_tables_from_select(select)
 
-    _build_dimensions_on_select(
-        session,
-        dimension_columns,
-        build_plan_lookup,
-        build_plan_depth,
-        database,
-        dialect,
-    )
+    _build_dimensions_on_select(session, dimension_columns, dialect, build_criteria)
 
-    _build_tables_on_select(
-        session,
-        select,
-        tables,
-        build_plan_lookup,
-        build_plan_depth,
-        database,
-        dialect,
-    )
+    _build_tables_on_select(session, select, tables, dialect, build_criteria)
 
 
-def add_filters_and_aggs_to_query_ast(
+def add_filters_and_dimensions_to_query_ast(
     query: ast.Query,
     dialect: Optional[str] = None,
     filters: Optional[List[str]] = None,
@@ -270,14 +197,7 @@ def add_filters_and_aggs_to_query_ast(
                 temp_select.where,  # type:ignore
             )
             projection_addition += list(temp_select.find_all(ast.Column))
-        query.select.where = reduce(
-            lambda left, right: ast.BinaryOp(
-                ast.BinaryOpKind.And,
-                left,
-                right,
-            ),
-            filter_asts,
-        )
+        query.select.where = ast.BinaryOp.And(*filter_asts)
 
     if dimensions:
         for agg in dimensions:
@@ -292,74 +212,83 @@ def add_filters_and_aggs_to_query_ast(
     ]
 
 
-async def build_node_for_database(  # pylint: disable=too-many-arguments
+def _get_node_table(
+    node: NodeRevision,
+    build_criteria: Optional[BuildCriteria],
+    as_select: bool = False,
+) -> Optional[Union[ast.Select, ast.Table]]:
+    """
+    If a node is available, return a table for the available state
+    """
+    table = None
+    if node.type == NodeType.SOURCE:
+        namespace = None
+        if node.table:
+            name = ast.Name(node.table, '"')
+            namespace = (
+                ast.Namespace([ast.Name(node.schema_, '"')])
+                if node.schema_
+                else ast.Namespace([])
+            )
+        else:
+            name = ast.Name(node.name, '"')
+        table = ast.Table(name, namespace, _dj_node=node)
+    elif node.availability and node.availability.is_available(
+        criteria=build_criteria,
+    ):  # pragma: no cover
+        namespace = (
+            ast.Namespace([ast.Name(node.availability.schema_, '"')])
+            if node.availability.schema_
+            else ast.Namespace([])
+        )
+        table = ast.Table(
+            ast.Name(node.availability.table, '"'),
+            namespace,
+            _dj_node=node,
+        )
+    if table and as_select:  # pragma: no cover
+        return ast.Select(projection=[ast.Wildcard()], from_=ast.From(tables=[table]))
+    print(table)
+    return table
+
+
+def build_node(  # pylint: disable=too-many-arguments
     session: Session,
     node: NodeRevision,
     dialect: Optional[str] = None,
-    database_id: Optional[int] = None,
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
-    check_database_online: bool = True,
-) -> Tuple[ast.Query, Database]:
+    build_criteria: Optional[BuildCriteria] = None,
+) -> ast.Query:
     """
-    Determines the optimal database to run the query in and builds the node appropriately
+    Determines the optimal way to build the Node and does so
     """
-    if node.query is None:
+    if node.query is None:  # pragma: no cover
         raise Exception(
-            "Node has no query. Cannot generate a build plan without a query.",
+            "Node has no query. Cannot build a node without a query.",
         )
+    # if no dimensions need to be added then we can see if the node is directly materialized
+    if not (filters or dimensions):
+        if select := cast(
+            ast.Select,
+            _get_node_table(node, build_criteria, as_select=True),
+        ):
+            return ast.Query(select=select)  # pragma: no cover
+
     query = parse(node.query, dialect)
-    top_dbs: Set[Database] = set()
-    if filters or dimensions:
-        add_filters_and_aggs_to_query_ast(query, dialect, filters, dimensions)
-    else:  # if not dimensions then we can see if the node is directly materialized
-        top_dbs = {table.database for table in node.tables}
+    add_filters_and_dimensions_to_query_ast(query, dialect, filters, dimensions)
 
-    return await build_ast_for_database(
-        session,
-        query,
-        dialect,
-        database_id,
-        top_dbs,
-        check_database_online,
-    )
+    return build_ast(session, query, build_criteria)
 
 
-async def build_ast_for_database(  # pylint: disable=too-many-arguments
+def build_ast(  # pylint: disable=too-many-arguments
     session: Session,
     query: ast.Query,
-    dialect: Optional[str] = None,
-    database_id: Optional[int] = None,
-    top_dbs: Optional[Set[Database]] = None,
-    check_database_online: bool = True,
-) -> Tuple[ast.Query, Database]:
+    build_criteria: Optional[BuildCriteria] = None,
+) -> ast.Query:
     """
-    Determines the optimal database to run the query in and builds the query AST appropriately
+    Determines the optimal way to build the query AST and does so
     """
-    top_dbs = top_dbs or set()
-    build_plan = generate_build_plan_from_query(session, query, dialect)
-    if database_id is not None:
-        for top_db in top_dbs:
-            if top_db.id == database_id:  # pragma: no cover
-                return query, top_db
-
-        build_plan_depth, database = await optimize_level_by_database_id(
-            build_plan,
-            database_id,
-        )
-
-    else:
-        build_plan_depth, database = await optimize_level_by_cost(  # type: ignore
-            build_plan,
-            check_database_online=check_database_online,
-        )
-        for top_db in top_dbs:
-            if top_db.cost <= database.cost:  # pragma: no cover
-                return query, top_db
-
-    query = build_plan[0]
-    query.build(session, build_plan, build_plan_depth, database, dialect)
-    return (
-        query,
-        database,
-    )
+    query.compile(session)
+    query.build(session, build_criteria)
+    return query
