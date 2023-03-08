@@ -26,8 +26,8 @@ from dj.models.engine import Engine, EngineInfo
 # from dj.models.table import Table, TableNodeRevision, TableYAML
 from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parse import is_metric
-from dj.typing import ColumnType
-from dj.utils import UTCDatetime, Version
+from dj.typing import ColumnType, UTCDatetime
+from dj.utils import Version
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
 DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)

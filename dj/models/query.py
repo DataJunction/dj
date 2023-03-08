@@ -9,7 +9,7 @@ from typing import Any, List, Optional
 from uuid import UUID, uuid4
 
 import msgpack
-from pydantic import AnyHttpUrl
+from pydantic import AnyHttpUrl, validator
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, Relationship
@@ -115,6 +115,27 @@ class QueryWithResults(BaseQuery):
     next: Optional[AnyHttpUrl] = None
     previous: Optional[AnyHttpUrl] = None
     errors: List[str]
+
+    @validator("scheduled", pre=True)
+    def parse_scheduled_date_string(cls, value):  # pylint: disable=no-self-argument
+        """
+        Convert string date values to datetime
+        """
+        return datetime.fromisoformat(value) if isinstance(value, str) else value
+
+    @validator("started", pre=True)
+    def parse_started_date_string(cls, value):  # pylint: disable=no-self-argument
+        """
+        Convert string date values to datetime
+        """
+        return datetime.fromisoformat(value) if isinstance(value, str) else value
+
+    @validator("finished", pre=True)
+    def parse_finisheddate_string(cls, value):  # pylint: disable=no-self-argument
+        """
+        Convert string date values to datetime
+        """
+        return datetime.fromisoformat(value) if isinstance(value, str) else value
 
 
 class QueryExtType(int, Enum):

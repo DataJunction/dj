@@ -8,7 +8,7 @@ from pydantic import Field
 from sqlmodel import SQLModel
 
 from dj.models.node import AvailabilityState, NodeType
-from dj.utils import UTCDatetime
+from dj.typing import UTCDatetime
 
 
 class CubeElementMetadata(SQLModel):

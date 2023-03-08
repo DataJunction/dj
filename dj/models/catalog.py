@@ -13,7 +13,7 @@ from sqlmodel import JSON, Field, Relationship, SQLModel
 
 from dj.models.base import BaseSQLModel
 from dj.models.engine import Engine, EngineInfo
-from dj.utils import UTCDatetime
+from dj.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from dj.models import NodeRevision, Table
