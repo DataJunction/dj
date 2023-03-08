@@ -112,6 +112,7 @@ def test_parse_cast():
     )
 
 
+@pytest.mark.skipif("not config.getoption('tpcds')")
 @pytest.mark.parametrize("query_name", TPCDS_QUERY_SET)
 def test_parse_tpcds(request, query_name):
     """

@@ -3,7 +3,7 @@ Metric related APIs.
 """
 
 from http import HTTPStatus
-from typing import List, Optional
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
@@ -57,12 +57,10 @@ def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric
 
 
 @router.get("/metrics/{name}/sql/", response_model=TranslatedSQL)
-async def read_metrics_sql(
+def read_metrics_sql(
     name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
-    database_name: Optional[str] = None,
-    check_database_online: bool = True,
     *,
     session: Session = Depends(get_session),
 ) -> TranslatedSQL:
@@ -72,16 +70,13 @@ async def read_metrics_sql(
     A database can be optionally specified. If no database is specified the optimal one
     will be used.
     """
-    query_ast, optimal_database = await get_query(
+    query_ast = get_query(
         session=session,
         metric=name,
         dimensions=dimensions,
         filters=filters,
-        database_name=database_name,
-        check_database_online=check_database_online,
     )
     return TranslatedSQL(
-        database_id=optimal_database.id,
         sql=str(query_ast),
     )
 

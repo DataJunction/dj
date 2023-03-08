@@ -8,9 +8,9 @@ from abc import ABC, abstractmethod
 from copy import deepcopy
 from dataclasses import dataclass, field, fields
 from enum import Enum
+from functools import reduce
 from itertools import chain, zip_longest
 from typing import (
-    TYPE_CHECKING,
     Any,
     Callable,
     Generic,
@@ -26,15 +26,12 @@ from typing import (
 
 from sqlmodel import Session
 
-from dj.models.database import Database
+from dj.models.node import BuildCriteria
 from dj.models.node import NodeRevision as DJNode
 from dj.models.node import NodeType as DJNodeType
 from dj.sql.functions import function_registry
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.typing import ColumnType, ColumnTypeError
-
-if TYPE_CHECKING:
-    from dj.construction.build_planning import BuildPlan  # type:ignore
 
 PRIMITIVES = {int, float, str, bool, type(None)}
 
@@ -663,6 +660,40 @@ class BinaryOp(Operation):
     op: BinaryOpKind  # pylint: disable=C0103
     left: Expression
     right: Expression
+
+    @classmethod
+    def And(  # pylint: disable=invalid-name,keyword-arg-before-vararg
+        cls,
+        left: Expression,
+        right: Optional[Expression] = None,
+        *rest: Expression,
+    ) -> Union["BinaryOp", Expression]:
+        """
+        Create a BinaryOp of kind BinaryOpKind.Eq rolling up all expressions
+        """
+        if right is None:  # pragma: no cover
+            return left
+        return reduce(
+            lambda left, right: BinaryOp(
+                BinaryOpKind.And,
+                left,
+                right,
+            ),
+            (left, right, *rest),
+        )
+
+    @classmethod
+    def Eq(  # pylint: disable=invalid-name
+        cls,
+        left: Expression,
+        right: Optional[Expression],
+    ) -> Union["BinaryOp", Expression]:
+        """
+        Create a BinaryOp of kind BinaryOpKind.Eq
+        """
+        if right is None:  # pragma: no cover
+            return left
+        return BinaryOp(BinaryOpKind.Eq, left, right)
 
     def __str__(self) -> str:
         return f"{self.left} {self.op.value} {self.right}"
@@ -1391,8 +1422,9 @@ class Query(Expression):
 
     select: "Select"
     ctes: List[Alias["Select"]] = field(default_factory=list)
+    dialect: Optional[str] = None
 
-    def _to_select(self) -> Select:
+    def to_select(self) -> Select:
         """
         Compile ctes into the select and return the select
 
@@ -1413,31 +1445,21 @@ class Query(Expression):
         """
         from dj.construction.compile import _compile_select_ast
 
-        select = self._to_select()  # pylint: disable=W0212
+        select = self.to_select()  # pylint: disable=W0212
         _compile_select_ast(session, select)
 
     def build(  # pylint: disable=R0913,C0415
         self,
         session: Session,
-        build_plan: "BuildPlan",
-        build_plan_depth: int,
-        database: Database,
-        dialect: Optional[str] = None,
+        build_criteria: Optional[BuildCriteria] = None,
     ):
         """
         Transforms a query ast by replacing dj node references with their asts
         """
         from dj.construction.build import _build_select_ast
 
-        select = self._to_select()  # pylint: disable=W0212
-        _build_select_ast(
-            session,
-            select,
-            build_plan,
-            build_plan_depth,
-            database,
-            dialect,
-        )
+        select = self.to_select()  # pylint: disable=W0212
+        _build_select_ast(session, select, self.dialect, build_criteria)
         select.add_aliases_to_unnamed_columns()
 
     def __str__(self) -> str:

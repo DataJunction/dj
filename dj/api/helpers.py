@@ -9,12 +9,12 @@ from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
-from dj.construction.build import build_node_for_database
+from dj.construction.build import build_node
 from dj.construction.dj_query import build_dj_metric_query
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, ErrorCode
-from dj.models import AttributeType, Catalog, Column, Database, Engine
+from dj.models import AttributeType, Catalog, Column, Engine
 from dj.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from dj.models.node import (
     MissingParent,
@@ -61,20 +61,6 @@ def get_node_by_name(
                 http_status_code=404,
             )
     return node
-
-
-def get_database_by_name(session: Session, name: str) -> Database:
-    """
-    Get a database by name
-    """
-    statement = select(Database).where(Database.name == name)
-    database = session.exec(statement).one_or_none()
-    if not database:
-        raise DJException(
-            message=f"Database with name `{name}` does not exist.",
-            http_status_code=404,
-        )
-    return database
 
 
 def get_column(node: NodeRevision, column_name: str) -> Column:
@@ -125,53 +111,41 @@ def get_catalog(session: Session, name: str) -> Catalog:
     return catalog
 
 
-async def get_query(  # pylint: disable=too-many-arguments
+def get_query(  # pylint: disable=too-many-arguments
     session: Session,
     metric: str,
     dimensions: List[str],
     filters: List[str],
-    database_name: Optional[str] = None,
-    check_database_online: bool = True,
-) -> Tuple[ast.Query, Database]:
+) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
     """
     metric = get_node_by_name(session=session, name=metric, node_type=NodeType.METRIC)
-    database_id = (
-        get_database_by_name(session=session, name=database_name).id
-        if database_name
-        else None
-    )
-    query_ast, optimal_database = await build_node_for_database(
+
+    query_ast = build_node(
         session=session,
         node=metric.current,
-        database_id=database_id,
-        dimensions=dimensions,
+        dialect=None,
         filters=filters,
-        check_database_online=check_database_online,
+        dimensions=dimensions,
+        build_criteria=None,
     )
-    return query_ast, optimal_database
+    return query_ast
 
 
-async def get_dj_query(
+def get_dj_query(
     session: Session,
     query: str,
-    database_name: Optional[str] = None,
-) -> Tuple[ast.Query, Database]:
+) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
     """
-    database_id = (
-        get_database_by_name(session=session, name=database_name).id
-        if database_name
-        else None
-    )
-    query_ast, optimal_database = await build_dj_metric_query(
+
+    query_ast = build_dj_metric_query(
         session=session,
         query=query,
-        database_id=database_id,
     )
-    return query_ast, optimal_database
+    return query_ast
 
 
 def get_engine(session: Session, name: str, version: str) -> Engine:
@@ -267,7 +241,6 @@ def validate_node_data(
         ) = extract_dependencies_from_node(
             session=session,
             node=validated_node,
-            raise_=False,
         )
     except ValueError as exc:
         raise DJException(message=str(exc)) from exc
@@ -355,7 +328,11 @@ def resolve_downstream_references(
     return newly_valid_nodes
 
 
-def propagate_valid_status(session: Session, valid_nodes: List[NodeRevision]) -> None:
+def propagate_valid_status(
+    session: Session,
+    valid_nodes: List[NodeRevision],
+    catalog_id: int,
+) -> None:
     """
     Propagate a valid status by revalidating all downstream nodes
     """
@@ -381,6 +358,7 @@ def propagate_valid_status(session: Session, valid_nodes: List[NodeRevision]) ->
                 if not missing_parents_map and not type_inference_failed_columns:
                     node.current.columns = validated_node.columns or []
                     node.current.status = NodeStatus.VALID
+                    node.current.catalog_id = catalog_id
                     session.add(node.current)
                     session.commit()
                     newly_valid_nodes.append(node.current)

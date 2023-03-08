@@ -139,7 +139,7 @@ def parse_expression(  # pylint: disable=R0911,R0912
         if match_keys(parse_tree, {"IsNull"}, {"IsNotNull"}):
             if "IsNull" in parse_tree:
                 return ast.IsNull(parse_expression(parse_tree["IsNull"]))
-            return ast.UnaryOp(
+            return ast.UnaryOp(  # pragma: no cover
                 ast.UnaryOpKind.Not,
                 ast.IsNull(
                     parse_expression(parse_tree["IsNotNull"]),
@@ -156,7 +156,7 @@ def parse_expression(  # pylint: disable=R0911,R0912
         if match_keys(parse_tree, {"Subquery"}):
             return parse_query(  # pylint: disable=W0212
                 parse_tree["Subquery"],
-            )._to_select()
+            ).to_select()
 
         if match_keys(parse_tree, {"MapAccess"}):
             subtree = parse_tree["MapAccess"]
@@ -258,7 +258,7 @@ def parse_in(parse_tree: dict) -> ast.In:
         )
     if match_keys(parse_tree, {"expr", "subquery", "negated"}):
         subquery: dict = parse_tree["subquery"]
-        subquery_select = parse_query(subquery)._to_select()  # pylint: disable=W0212
+        subquery_select = parse_query(subquery).to_select()  # pylint: disable=W0212
         return ast.In(
             parse_expression(parse_tree["expr"]),
             subquery_select,
@@ -445,4 +445,6 @@ def parse(
                     func,
                     func.to_raw(lambda sub_sql, _: parse(sub_sql, dialect, False)),
                 )
+
+    query_ast.dialect = dialect
     return query_ast
