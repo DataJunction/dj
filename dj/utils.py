@@ -1,7 +1,6 @@
 """
 Utility functions.
 """
-import datetime
 import logging
 import os
 import re
@@ -12,7 +11,6 @@ from functools import lru_cache
 from typing import Iterator, List, Optional
 
 from dotenv import load_dotenv
-from pydantic.datetime_parse import parse_datetime
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine
@@ -100,30 +98,6 @@ def get_issue_url(
     query_arguments = {k: v for k, v in query_arguments.items() if v is not None}
 
     return baseurl % query_arguments
-
-
-class UTCDatetime(datetime.datetime):
-    """
-    A UTC extension of pydantic's normal datetime handling
-    """
-
-    @classmethod
-    def __get_validators__(cls):
-        """
-        Extend the builtin pydantic datetime parser with a custom validate method
-        """
-        yield parse_datetime
-        yield cls.validate
-
-    @classmethod
-    def validate(cls, value) -> str:
-        """
-        Convert to UTC
-        """
-        if value.tzinfo is None:
-            return value.replace(tzinfo=datetime.timezone.utc)
-
-        return value.astimezone(datetime.timezone.utc)
 
 
 class VersionUpgrade(str, Enum):

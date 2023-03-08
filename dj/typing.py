@@ -7,11 +7,13 @@ Custom types for annotations.
 from __future__ import annotations
 
 import collections
+import datetime
 import re
 from enum import Enum
 from types import ModuleType
 from typing import Any, Iterator, List, Literal, Optional, Tuple, TypedDict, Union
 
+from pydantic.datetime_parse import parse_datetime
 from sqlalchemy.types import Text, TypeDecorator
 from typing_extensions import Protocol
 
@@ -582,3 +584,27 @@ class Statement(TypedDict):
 
 # A parse tree, result of ``sqloxide.parse_sql``.
 ParseTree = List[Statement]  # type: ignore
+
+
+class UTCDatetime(datetime.datetime):
+    """
+    A UTC extension of pydantic's normal datetime handling
+    """
+
+    @classmethod
+    def __get_validators__(cls):
+        """
+        Extend the builtin pydantic datetime parser with a custom validate method
+        """
+        yield parse_datetime
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, value) -> str:
+        """
+        Convert to UTC
+        """
+        if value.tzinfo is None:
+            return value.replace(tzinfo=datetime.timezone.utc)
+
+        return value.astimezone(datetime.timezone.utc)

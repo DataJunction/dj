@@ -13,7 +13,7 @@ from sqlalchemy_utils import UUIDType
 from sqlmodel import JSON, Field, Relationship
 
 from dj.models.base import BaseSQLModel
-from dj.utils import UTCDatetime
+from dj.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from dj.models.catalog import Catalog
