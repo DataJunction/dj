@@ -194,12 +194,22 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "/queries/ef209eef-c31a-4089-aae6-833259a08e22/",
         )
 
-    def test_query_service_client_raising_error(self) -> None:
+    def test_query_service_client_raising_error(self, mocker: MockerFixture) -> None:
         """
         Test handling an error response from the query service client
         """
         mock_response = MagicMock()
         mock_response.status_code = 500
+
+        mocker.patch(
+            "dj.service_clients.RequestsSessionWithEndpoint.get",
+            return_value=mock_response,
+        )
+        mocker.patch(
+            "dj.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
         query_service_client = QueryServiceClient(uri=self.endpoint)
 
         with pytest.raises(DJException) as exc_info:
