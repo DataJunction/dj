@@ -5,6 +5,7 @@ All URIs are relative to *http://localhost*
 
 Method | HTTP request | Description
 ------------- | ------------- | -------------
+[**add_attribute_type_attributes_post**](#add_attribute_type_attributes_post) | **post** /attributes/ | Add Attribute Type
 [**add_availability_data_availability_node_name_post**](#add_availability_data_availability_node_name_post) | **post** /data/availability/{node_name}/ | Add Availability
 [**add_catalog_catalogs_post**](#add_catalog_catalogs_post) | **post** /catalogs/ | Add Catalog
 [**add_dimension_to_node_nodes_name_columns_column_post**](#add_dimension_to_node_nodes_name_columns_column_post) | **post** /nodes/{name}/columns/{column}/ | Add Dimension To Node
@@ -20,6 +21,7 @@ Method | HTTP request | Description
 [**handle_http_get_graphql_get**](#handle_http_get_graphql_get) | **get** /graphql | Handle Http Get
 [**handle_http_post_graphql_post**](#handle_http_post_graphql_post) | **post** /graphql | Handle Http Post
 [**health_health_get**](#health_health_get) | **get** /health/ | Health
+[**list_attributes_attributes_get**](#list_attributes_attributes_get) | **get** /attributes/ | List Attributes
 [**list_catalogs_catalogs_get**](#list_catalogs_catalogs_get) | **get** /catalogs/ | List Catalogs
 [**list_engine_engines_name_version_get**](#list_engine_engines_name_version_get) | **get** /engines/{name}/{version}/ | List Engine
 [**list_engines_engines_get**](#list_engines_engines_get) | **get** /engines/ | List Engines
@@ -36,10 +38,116 @@ Method | HTTP request | Description
 [**read_node_nodes_name_get**](#read_node_nodes_name_get) | **get** /nodes/{name}/ | Read Node
 [**read_nodes_nodes_get**](#read_nodes_nodes_get) | **get** /nodes/ | Read Nodes
 [**read_tag_tags_name_get**](#read_tag_tags_name_get) | **get** /tags/{name}/ | Read Tag
+[**set_column_attributes_nodes_node_name_attributes_post**](#set_column_attributes_nodes_node_name_attributes_post) | **post** /nodes/{node_name}/attributes/ | Set Column Attributes
 [**update_node_nodes_name_patch**](#update_node_nodes_name_patch) | **patch** /nodes/{name}/ | Update Node
 [**update_tag_tags_name_patch**](#update_tag_tags_name_patch) | **patch** /tags/{name}/ | Update Tag
 [**upsert_node_materialization_config_nodes_name_materialization_post**](#upsert_node_materialization_config_nodes_name_materialization_post) | **post** /nodes/{name}/materialization/ | Upsert Node Materialization Config
 [**validate_node_nodes_validate_post**](#validate_node_nodes_validate_post) | **post** /nodes/validate/ | Validate Node
+
+# **add_attribute_type_attributes_post**
+<a name="add_attribute_type_attributes_post"></a>
+> AttributeType add_attribute_type_attributes_post(mutable_attribute_type_fields)
+
+Add Attribute Type
+
+Add a new attribute type
+
+### Example
+
+```python
+import djclient
+from djclient.apis.tags import default_api
+from djclient.model.mutable_attribute_type_fields import MutableAttributeTypeFields
+from djclient.model.attribute_type import AttributeType
+from djclient.model.http_validation_error import HTTPValidationError
+from pprint import pprint
+# Defining the host is optional and defaults to http://localhost
+# See configuration.py for a list of all supported configuration parameters.
+configuration = djclient.Configuration(
+    host = "http://localhost"
+)
+
+# Enter a context with an instance of the API client
+with djclient.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = default_api.DefaultApi(api_client)
+
+    # example passing only required values which don't have defaults set
+    body = MutableAttributeTypeFields(
+        namespace="namespace_example",
+        name="name_example",
+        description="description_example",
+        allowed_node_types=[
+            NodeType("source")
+        ],
+    )
+    try:
+        # Add Attribute Type
+        api_response = api_instance.add_attribute_type_attributes_post(
+            body=body,
+        )
+        pprint(api_response)
+    except djclient.ApiException as e:
+        print("Exception when calling DefaultApi->add_attribute_type_attributes_post: %s\n" % e)
+```
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+body | typing.Union[SchemaForRequestBodyApplicationJson] | required |
+content_type | str | optional, default is 'application/json' | Selects the schema and serialization of the request body
+accept_content_types | typing.Tuple[str] | default is ('application/json', ) | Tells the server the content type(s) that are accepted by the client
+stream | bool | default is False | if True then the response.content will be streamed and loaded from a file like object. When downloading a file, set this to True to force the code to deserialize the content to a FileSchema file
+timeout | typing.Optional[typing.Union[int, typing.Tuple]] | default is None | the timeout used by the rest client
+skip_deserialization | bool | default is False | when True, headers and body will be unset and an instance of api_client.ApiResponseWithoutDeserialization will be returned
+
+### body
+
+# SchemaForRequestBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**MutableAttributeTypeFields**](../../models/MutableAttributeTypeFields.md) |  | 
+
+
+### Return Types, Responses
+
+Code | Class | Description
+------------- | ------------- | -------------
+n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
+201 | [ApiResponseFor201](#add_attribute_type_attributes_post.ApiResponseFor201) | Successful Response
+422 | [ApiResponseFor422](#add_attribute_type_attributes_post.ApiResponseFor422) | Validation Error
+
+#### add_attribute_type_attributes_post.ApiResponseFor201
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor201ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**AttributeType**](../../models/AttributeType.md) |  | 
+
+
+#### add_attribute_type_attributes_post.ApiResponseFor422
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor422ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor422ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**HTTPValidationError**](../../models/HTTPValidationError.md) |  | 
+
+
+### Authorization
+
+No authorization required
+
+[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
 
 # **add_availability_data_availability_node_name_post**
 <a name="add_availability_data_availability_node_name_post"></a>
@@ -1729,6 +1837,75 @@ No authorization required
 
 [[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
 
+# **list_attributes_attributes_get**
+<a name="list_attributes_attributes_get"></a>
+> [AttributeType] list_attributes_attributes_get()
+
+List Attributes
+
+List all available attribute types.
+
+### Example
+
+```python
+import djclient
+from djclient.apis.tags import default_api
+from djclient.model.attribute_type import AttributeType
+from pprint import pprint
+# Defining the host is optional and defaults to http://localhost
+# See configuration.py for a list of all supported configuration parameters.
+configuration = djclient.Configuration(
+    host = "http://localhost"
+)
+
+# Enter a context with an instance of the API client
+with djclient.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = default_api.DefaultApi(api_client)
+
+    # example, this endpoint has no required or optional parameters
+    try:
+        # List Attributes
+        api_response = api_instance.list_attributes_attributes_get()
+        pprint(api_response)
+    except djclient.ApiException as e:
+        print("Exception when calling DefaultApi->list_attributes_attributes_get: %s\n" % e)
+```
+### Parameters
+This endpoint does not need any parameter.
+
+### Return Types, Responses
+
+Code | Class | Description
+------------- | ------------- | -------------
+n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
+200 | [ApiResponseFor200](#list_attributes_attributes_get.ApiResponseFor200) | Successful Response
+
+#### list_attributes_attributes_get.ApiResponseFor200
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor200ResponseBodyApplicationJson
+
+## Model Type Info
+Input Type | Accessed Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+list, tuple,  | tuple,  |  | 
+
+### Tuple Items
+Class Name | Input Type | Accessed Type | Description | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+[**AttributeType**]({{complexTypePrefix}}AttributeType.md) | [**AttributeType**]({{complexTypePrefix}}AttributeType.md) | [**AttributeType**]({{complexTypePrefix}}AttributeType.md) |  | 
+
+### Authorization
+
+No authorization required
+
+[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
+
 # **list_catalogs_catalogs_get**
 <a name="list_catalogs_catalogs_get"></a>
 > [CatalogInfo] list_catalogs_catalogs_get()
@@ -3301,6 +3478,141 @@ Type | Description  | Notes
 
 
 #### read_tag_tags_name_get.ApiResponseFor422
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor422ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor422ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**HTTPValidationError**](../../models/HTTPValidationError.md) |  | 
+
+
+### Authorization
+
+No authorization required
+
+[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
+
+# **set_column_attributes_nodes_node_name_attributes_post**
+<a name="set_column_attributes_nodes_node_name_attributes_post"></a>
+> [ColumnOutput] set_column_attributes_nodes_node_name_attributes_post(node_namecolumn_attribute_input)
+
+Set Column Attributes
+
+Set column attributes for the node.
+
+### Example
+
+```python
+import djclient
+from djclient.apis.tags import default_api
+from djclient.model.column_output import ColumnOutput
+from djclient.model.column_attribute_input import ColumnAttributeInput
+from djclient.model.http_validation_error import HTTPValidationError
+from pprint import pprint
+# Defining the host is optional and defaults to http://localhost
+# See configuration.py for a list of all supported configuration parameters.
+configuration = djclient.Configuration(
+    host = "http://localhost"
+)
+
+# Enter a context with an instance of the API client
+with djclient.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = default_api.DefaultApi(api_client)
+
+    # example passing only required values which don't have defaults set
+    path_params = {
+        'node_name': "node_name_example",
+    }
+    body = [
+        ColumnAttributeInput(
+            attribute_type_namespace="system",
+            attribute_type_name="attribute_type_name_example",
+            column_name="column_name_example",
+        )
+    ]
+    try:
+        # Set Column Attributes
+        api_response = api_instance.set_column_attributes_nodes_node_name_attributes_post(
+            path_params=path_params,
+            body=body,
+        )
+        pprint(api_response)
+    except djclient.ApiException as e:
+        print("Exception when calling DefaultApi->set_column_attributes_nodes_node_name_attributes_post: %s\n" % e)
+```
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+body | typing.Union[SchemaForRequestBodyApplicationJson] | required |
+path_params | RequestPathParams | |
+content_type | str | optional, default is 'application/json' | Selects the schema and serialization of the request body
+accept_content_types | typing.Tuple[str] | default is ('application/json', ) | Tells the server the content type(s) that are accepted by the client
+stream | bool | default is False | if True then the response.content will be streamed and loaded from a file like object. When downloading a file, set this to True to force the code to deserialize the content to a FileSchema file
+timeout | typing.Optional[typing.Union[int, typing.Tuple]] | default is None | the timeout used by the rest client
+skip_deserialization | bool | default is False | when True, headers and body will be unset and an instance of api_client.ApiResponseWithoutDeserialization will be returned
+
+### body
+
+# SchemaForRequestBodyApplicationJson
+
+## Model Type Info
+Input Type | Accessed Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+list, tuple,  | tuple,  |  | 
+
+### Tuple Items
+Class Name | Input Type | Accessed Type | Description | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+[**ColumnAttributeInput**]({{complexTypePrefix}}ColumnAttributeInput.md) | [**ColumnAttributeInput**]({{complexTypePrefix}}ColumnAttributeInput.md) | [**ColumnAttributeInput**]({{complexTypePrefix}}ColumnAttributeInput.md) |  | 
+
+### path_params
+#### RequestPathParams
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+node_name | NodeNameSchema | | 
+
+# NodeNameSchema
+
+## Model Type Info
+Input Type | Accessed Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+str,  | str,  |  | 
+
+### Return Types, Responses
+
+Code | Class | Description
+------------- | ------------- | -------------
+n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
+201 | [ApiResponseFor201](#set_column_attributes_nodes_node_name_attributes_post.ApiResponseFor201) | Successful Response
+422 | [ApiResponseFor422](#set_column_attributes_nodes_node_name_attributes_post.ApiResponseFor422) | Validation Error
+
+#### set_column_attributes_nodes_node_name_attributes_post.ApiResponseFor201
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor201ResponseBodyApplicationJson
+
+## Model Type Info
+Input Type | Accessed Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+list, tuple,  | tuple,  |  | 
+
+### Tuple Items
+Class Name | Input Type | Accessed Type | Description | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+[**ColumnOutput**]({{complexTypePrefix}}ColumnOutput.md) | [**ColumnOutput**]({{complexTypePrefix}}ColumnOutput.md) | [**ColumnOutput**]({{complexTypePrefix}}ColumnOutput.md) |  | 
+
+#### set_column_attributes_nodes_node_name_attributes_post.ApiResponseFor422
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |

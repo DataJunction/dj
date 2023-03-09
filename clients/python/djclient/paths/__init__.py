@@ -18,6 +18,7 @@ class PathValues(str, enum.Enum):
     METRICS_COMMON_DIMENSIONS_ = "/metrics/common/dimensions/"
     QUERY_VALIDATE = "/query/validate"
     NODES_VALIDATE_ = "/nodes/validate/"
+    NODES_NODE_NAME_ATTRIBUTES_ = "/nodes/{node_name}/attributes/"
     NODES_ = "/nodes/"
     NODES_NAME_ = "/nodes/{name}/"
     NODES_NAME_MATERIALIZATION_ = "/nodes/{name}/materialization/"
@@ -33,4 +34,5 @@ class PathValues(str, enum.Enum):
     TAGS_ = "/tags/"
     TAGS_NAME_ = "/tags/{name}/"
     TAGS_NAME_NODES_ = "/tags/{name}/nodes/"
+    ATTRIBUTES_ = "/attributes/"
     GRAPHQL = "/graphql"

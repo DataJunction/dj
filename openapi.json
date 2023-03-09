@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+g0f458e3"
+        "version": "0.0.post1.dev1+g4e49348"
     },
     "paths": {
         "/catalogs/": {
@@ -561,6 +561,64 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/NodeValidation"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/{node_name}/attributes/": {
+            "post": {
+                "summary": "Set Column Attributes",
+                "description": "Set column attributes for the node.",
+                "operationId": "set_column_attributes_nodes__node_name__attributes__post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node Name",
+                            "type": "string"
+                        },
+                        "name": "node_name",
+                        "in": "path"
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "title": "Attributes",
+                                "type": "array",
+                                "items": {
+                                    "$ref": "#/components/schemas/ColumnAttributeInput"
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response Set Column Attributes Nodes  Node Name  Attributes  Post",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/ColumnOutput"
+                                    }
                                 }
                             }
                         }
@@ -1420,6 +1478,66 @@
                 }
             }
         },
+        "/attributes/": {
+            "get": {
+                "summary": "List Attributes",
+                "description": "List all available attribute types.",
+                "operationId": "list_attributes_attributes__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response List Attributes Attributes  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/AttributeType"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Add Attribute Type",
+                "description": "Add a new attribute type",
+                "operationId": "add_attribute_type_attributes__post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/MutableAttributeTypeFields"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AttributeType"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/graphql": {
             "get": {
                 "summary": "Handle Http Get",
@@ -1456,6 +1574,80 @@
     },
     "components": {
         "schemas": {
+            "AttributeOutput": {
+                "title": "AttributeOutput",
+                "required": [
+                    "attribute_type"
+                ],
+                "type": "object",
+                "properties": {
+                    "attribute_type": {
+                        "$ref": "#/components/schemas/AttributeTypeName"
+                    }
+                },
+                "description": "Column attribute output."
+            },
+            "AttributeType": {
+                "title": "AttributeType",
+                "required": [
+                    "namespace",
+                    "name",
+                    "description",
+                    "allowed_node_types"
+                ],
+                "type": "object",
+                "properties": {
+                    "uniqueness_scope": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/UniquenessScope"
+                        },
+                        "default": []
+                    },
+                    "namespace": {
+                        "title": "Namespace",
+                        "type": "string"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string"
+                    },
+                    "allowed_node_types": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/NodeType"
+                        }
+                    },
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    }
+                },
+                "description": "Available attribute types for column metadata."
+            },
+            "AttributeTypeName": {
+                "title": "AttributeTypeName",
+                "required": [
+                    "namespace",
+                    "name"
+                ],
+                "type": "object",
+                "properties": {
+                    "namespace": {
+                        "title": "Namespace",
+                        "type": "string"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    }
+                },
+                "description": "Attribute type name."
+            },
             "AvailabilityState": {
                 "title": "AvailabilityState",
                 "required": [
@@ -1643,6 +1835,57 @@
                     }
                 },
                 "description": "A column.\n\nColumns can be physical (associated with ``Table`` objects) or abstract (associated\nwith ``Node`` objects)."
+            },
+            "ColumnAttributeInput": {
+                "title": "ColumnAttributeInput",
+                "required": [
+                    "attribute_type_name",
+                    "column_name"
+                ],
+                "type": "object",
+                "properties": {
+                    "attribute_type_namespace": {
+                        "title": "Attribute Type Namespace",
+                        "type": "string",
+                        "default": "system"
+                    },
+                    "attribute_type_name": {
+                        "title": "Attribute Type Name",
+                        "type": "string"
+                    },
+                    "column_name": {
+                        "title": "Column Name",
+                        "type": "string"
+                    }
+                },
+                "description": "A column attribute input"
+            },
+            "ColumnOutput": {
+                "title": "ColumnOutput",
+                "required": [
+                    "name",
+                    "type",
+                    "attributes"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "title": "Type",
+                        "type": "string"
+                    },
+                    "attributes": {
+                        "title": "Attributes",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AttributeOutput"
+                        }
+                    }
+                },
+                "description": "A simplified column schema, without ID or dimensions."
             },
             "CreateColumn": {
                 "title": "CreateColumn",
@@ -2159,6 +2402,37 @@
                 },
                 "description": "Class for a metric."
             },
+            "MutableAttributeTypeFields": {
+                "title": "MutableAttributeTypeFields",
+                "required": [
+                    "namespace",
+                    "name",
+                    "description",
+                    "allowed_node_types"
+                ],
+                "type": "object",
+                "properties": {
+                    "namespace": {
+                        "title": "Namespace",
+                        "type": "string"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string"
+                    },
+                    "allowed_node_types": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/NodeType"
+                        }
+                    }
+                },
+                "description": "Fields on attribute types that users can set."
+            },
             "NodeMode": {
                 "title": "NodeMode",
                 "enum": [
@@ -2368,7 +2642,7 @@
                         "title": "Columns",
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/SimpleColumn"
+                            "$ref": "#/components/schemas/ColumnOutput"
                         }
                     },
                     "tables": {
@@ -2451,25 +2725,6 @@
                     }
                 },
                 "description": "A validation of a provided node definition"
-            },
-            "SimpleColumn": {
-                "title": "SimpleColumn",
-                "required": [
-                    "name",
-                    "type"
-                ],
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "title": "Name",
-                        "type": "string"
-                    },
-                    "type": {
-                        "title": "Type",
-                        "type": "string"
-                    }
-                },
-                "description": "A simplified column schema, without ID or dimensions."
             },
             "SourceNodeColumnType": {
                 "title": "SourceNodeColumnType",
@@ -2599,6 +2854,15 @@
                     }
                 },
                 "description": "Class for SQL generated from a given metric."
+            },
+            "UniquenessScope": {
+                "title": "UniquenessScope",
+                "enum": [
+                    "node",
+                    "column_type"
+                ],
+                "type": "string",
+                "description": "The scope at which this attribute needs to be unique."
             },
             "UpdateNode": {
                 "title": "UpdateNode",
