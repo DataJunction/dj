@@ -2,7 +2,8 @@ name: Generate Clients
 on:
   push:
     branches:
-      - main, fix_client
+      - main
+      - fix_client
     paths:
       - openapi.json
 jobs:
