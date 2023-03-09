@@ -37,7 +37,7 @@ list, tuple,  | tuple,  |  |
 ### Tuple Items
 Class Name | Input Type | Accessed Type | Description | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
-[**SimpleColumn**](SimpleColumn.md) | [**SimpleColumn**](SimpleColumn.md) | [**SimpleColumn**](SimpleColumn.md) |  | 
+[**ColumnOutput**](ColumnOutput.md) | [**ColumnOutput**](ColumnOutput.md) | [**ColumnOutput**](ColumnOutput.md) |  | 
 
 # tables
 
