@@ -2,7 +2,7 @@ name: Update OpenAPI Spec
 on:
   push:
     branches:
-      - main
+      - main, fix_client
     paths:
       - dj/**
 jobs:
