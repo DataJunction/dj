@@ -1,6 +1,5 @@
 """
 Package version and name.
-blah
 """
 
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
