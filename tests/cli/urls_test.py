@@ -30,6 +30,7 @@ http://localhost:8000/metrics/{name}/sql/: Return SQL for a metric.
 http://localhost:8000/metrics/common/dimensions/: Return common dimensions for a set of metrics.
 http://localhost:8000/query/validate: Return SQL for a DJ Query.
 http://localhost:8000/nodes/validate/: Validate a node.
+http://localhost:8000/nodes/{node_name}/attributes/: Set column attributes for the node.
 http://localhost:8000/nodes/: List the available nodes.
 http://localhost:8000/nodes/{name}/: Show the active version of the specified node.
 http://localhost:8000/nodes/{name}/materialization/: Update materialization config of the specified node.
@@ -45,6 +46,7 @@ http://localhost:8000/cubes/{name}/: Get information on a cube
 http://localhost:8000/tags/: List all available tags.
 http://localhost:8000/tags/{name}/: Return a tag by name.
 http://localhost:8000/tags/{name}/nodes/: Find nodes tagged with the tag, filterable by node type.
+http://localhost:8000/attributes/: List all available attribute types.
 http://localhost:8000/graphql: GraphQL endpoint.
 """
     )

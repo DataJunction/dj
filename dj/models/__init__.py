@@ -3,6 +3,8 @@ All models.
 """
 
 __all__ = [
+    "AttributeType",
+    "ColumnAttribute",
     "Catalog",
     "Column",
     "Database",
@@ -14,6 +16,7 @@ __all__ = [
     "Tag",
 ]
 
+from dj.models.attribute import AttributeType, ColumnAttribute
 from dj.models.catalog import Catalog
 from dj.models.column import Column
 from dj.models.database import Database
