@@ -7,7 +7,7 @@ import pytest
 from pytest_mock import MockerFixture
 from requests import Request
 
-from dj.errors import DJException
+from dj.errors import DJQueryServiceClientException
 from dj.service_clients import QueryServiceClient, RequestsSessionWithEndpoint
 
 
@@ -199,7 +199,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         Test handling an error response from the query service client
         """
         mock_response = MagicMock()
-        mock_response.status_code = 500
+        mock_response.ok = False
 
         mocker.patch(
             "dj.service_clients.RequestsSessionWithEndpoint.get",
@@ -212,11 +212,11 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
 
-        with pytest.raises(DJException) as exc_info:
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.get_query("ef209eef-c31a-4089-aae6-833259a08e22")
         assert "Error response from query service" in str(exc_info.value)
 
-        with pytest.raises(DJException) as exc_info:
+        with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.submit_query(
                 engine="postgres",
                 engine_version="15.2",

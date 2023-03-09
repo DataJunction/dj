@@ -6,7 +6,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
-from dj.errors import DJException
+from dj.errors import DJQueryServiceClientException
 from dj.models.column import Column
 from dj.models.query import QueryWithResults
 from dj.typing import ColumnType
@@ -106,8 +106,8 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
                 "async_": async_,
             },
         )
-        if response.status_code >= 400:
-            raise DJException(
+        if not response.ok:
+            raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response.text}",
             )
         query_info = response.json()
@@ -122,7 +122,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         response = self.requests_session.get(f"/queries/{query_id}/")
         if not response.ok:
-            raise DJException(
+            raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response.text}",
             )
         query_info = response.json()
