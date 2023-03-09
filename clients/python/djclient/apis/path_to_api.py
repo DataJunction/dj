@@ -13,6 +13,7 @@ from djclient.apis.paths.metrics_name_sql_ import MetricsNameSql
 from djclient.apis.paths.metrics_common_dimensions_ import MetricsCommonDimensions
 from djclient.apis.paths.query_validate import QueryValidate
 from djclient.apis.paths.nodes_validate_ import NodesValidate
+from djclient.apis.paths.nodes_node_name_attributes_ import NodesNodeNameAttributes
 from djclient.apis.paths.nodes_ import Nodes
 from djclient.apis.paths.nodes_name_ import NodesName
 from djclient.apis.paths.nodes_name_materialization_ import NodesNameMaterialization
@@ -28,6 +29,7 @@ from djclient.apis.paths.cubes_name_ import CubesName
 from djclient.apis.paths.tags_ import Tags
 from djclient.apis.paths.tags_name_ import TagsName
 from djclient.apis.paths.tags_name_nodes_ import TagsNameNodes
+from djclient.apis.paths.attributes_ import Attributes
 from djclient.apis.paths.graphql import Graphql
 
 PathToApi = typing_extensions.TypedDict(
@@ -45,6 +47,7 @@ PathToApi = typing_extensions.TypedDict(
         PathValues.METRICS_COMMON_DIMENSIONS_: MetricsCommonDimensions,
         PathValues.QUERY_VALIDATE: QueryValidate,
         PathValues.NODES_VALIDATE_: NodesValidate,
+        PathValues.NODES_NODE_NAME_ATTRIBUTES_: NodesNodeNameAttributes,
         PathValues.NODES_: Nodes,
         PathValues.NODES_NAME_: NodesName,
         PathValues.NODES_NAME_MATERIALIZATION_: NodesNameMaterialization,
@@ -60,6 +63,7 @@ PathToApi = typing_extensions.TypedDict(
         PathValues.TAGS_: Tags,
         PathValues.TAGS_NAME_: TagsName,
         PathValues.TAGS_NAME_NODES_: TagsNameNodes,
+        PathValues.ATTRIBUTES_: Attributes,
         PathValues.GRAPHQL: Graphql,
     }
 )
@@ -78,6 +82,7 @@ path_to_api = PathToApi(
         PathValues.METRICS_COMMON_DIMENSIONS_: MetricsCommonDimensions,
         PathValues.QUERY_VALIDATE: QueryValidate,
         PathValues.NODES_VALIDATE_: NodesValidate,
+        PathValues.NODES_NODE_NAME_ATTRIBUTES_: NodesNodeNameAttributes,
         PathValues.NODES_: Nodes,
         PathValues.NODES_NAME_: NodesName,
         PathValues.NODES_NAME_MATERIALIZATION_: NodesNameMaterialization,
@@ -93,6 +98,7 @@ path_to_api = PathToApi(
         PathValues.TAGS_: Tags,
         PathValues.TAGS_NAME_: TagsName,
         PathValues.TAGS_NAME_NODES_: TagsNameNodes,
+        PathValues.ATTRIBUTES_: Attributes,
         PathValues.GRAPHQL: Graphql,
     }
 )
