@@ -121,7 +121,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         Get a previously submitted query
         """
         response = self.requests_session.get(f"/queries/{query_id}/")
-        if response.status_code >= 400:
+        if not response.ok:
             raise DJException(
                 message=f"Error response from query service: {response.text}",
             )
