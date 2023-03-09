@@ -92,7 +92,6 @@ def update_tag(
     Update a tag.
     """
     tag = get_tag_by_name(session, name, raise_if_not_exists=True, for_update=True)
-    print("data update", data)
 
     if data.description:
         tag.description = data.description

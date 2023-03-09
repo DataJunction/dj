@@ -594,13 +594,31 @@ class OutputModel(BaseModel):
                 yield dict_key, value
 
 
-class SimpleColumn(SQLModel):
+class AttributeTypeName(BaseSQLModel):
+    """
+    Attribute type name.
+    """
+
+    namespace: str
+    name: str
+
+
+class AttributeOutput(BaseSQLModel):
+    """
+    Column attribute output.
+    """
+
+    attribute_type: AttributeTypeName
+
+
+class ColumnOutput(SQLModel):
     """
     A simplified column schema, without ID or dimensions.
     """
 
     name: str
     type: ColumnType
+    attributes: List[AttributeOutput]
 
 
 class TableOutput(SQLModel):
@@ -640,7 +658,7 @@ class NodeRevisionOutput(SQLModel):
     description: str = ""
     query: Optional[str] = None
     availability: Optional[AvailabilityState] = None
-    columns: List[SimpleColumn]
+    columns: List[ColumnOutput]
     tables: List[TableOutput]
     updated_at: UTCDatetime
     materialization_configs: List[MaterializationConfigOutput]

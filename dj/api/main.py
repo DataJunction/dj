@@ -9,11 +9,12 @@ Main DJ server app.
 
 import logging
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from dj import __version__
 from dj.api import (
+    attributes,
     catalogs,
     cubes,
     data,
@@ -25,6 +26,7 @@ from dj.api import (
     query,
     tags,
 )
+from dj.api.attributes import default_attribute_types
 from dj.api.graphql.main import graphql_app
 from dj.errors import DJException
 from dj.models.catalog import Catalog
@@ -48,6 +50,7 @@ app = FastAPI(
         "name": "MIT License",
         "url": "https://mit-license.org/",
     },
+    dependencies=[Depends(default_attribute_types)],
 )
 app.include_router(catalogs.router)
 app.include_router(databases.router)
@@ -59,6 +62,7 @@ app.include_router(data.router)
 app.include_router(health.router)
 app.include_router(cubes.router)
 app.include_router(tags.router)
+app.include_router(attributes.router)
 app.include_router(graphql_app, prefix="/graphql")
 
 
