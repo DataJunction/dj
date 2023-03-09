@@ -11,8 +11,8 @@ pyenv: .python-version
 	touch .python-version
 
 docker-build:
-	docker build .
-	docker compose build
+	DOCKER_DEFAULT_PLATFORM=linux/amd64 docker build .
+	DOCKER_DEFAULT_PLATFORM=linux/amd64 docker compose build
 
 docker-run:
 	docker compose up

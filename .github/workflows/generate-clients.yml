@@ -1,10 +1,10 @@
-name: Update OpenAPI Spec and Generate Clients
+name: Generate Clients
 on:
   push:
     branches:
-      - main
+      - main, fix_client
     paths:
-      - dj/**
+      - openapi.json
 jobs:
   generate-python-client:
     runs-on: ubuntu-latest
@@ -18,23 +18,10 @@ jobs:
         with:
           python-version: "3.10"
 
-      - name: Install DJ
-        run: |
-          python -m pip install --upgrade pip
-          pip install .
-
-      - name: Generate OpenAPI Spec
-        run: ./scripts/generate-openapi.py -o openapi.json
-
       - name: Configure Git
         run: |
           git config user.name "GitHub Actions Bot"
           git config user.email "<>"
-
-      - name: Commit OpenAPI Spec
-        run: |
-          git add openapi.json
-          git commit -m "Updating OpenAPI Spec"
 
       - name: Generate Python client
         uses: openapi-generators/openapitools-generator-action@v1.4.0
@@ -44,10 +31,11 @@ jobs:
           config-file: ./.github/files/python-client-gen.yml
           command-args: --skip-validate-spec
 
-      - name: Move client to right directory
+      - name: Move client to right repository
         run: |
-          mkdir -p ./clients/python
-          cp -r python-client/* ./clients/python/
+          git clone https://.:${{ secrets.GITHUB_TOKEN }}@github.com/dj-clients ./
+          mkdir -p ./dj-clients/clients/python
+          cp -r python-client/* ./dj-clients/clients/python/
           rm -rf python-client
 
       - name: Set short sha
@@ -56,7 +44,8 @@ jobs:
 
       - name: Commit generated files
         run: |
-          git add clients/python/
+          cd ./dj-clients/
+          git add ./clients/python/
           git commit -m "Update DJ Python client"
           git checkout -b ci-pr/python-client-${{ steps.sha.outputs.short_sha }}
           git push --set-upstream origin ci-pr/python-client-${{ steps.sha.outputs.short_sha }}
