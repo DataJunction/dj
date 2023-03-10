@@ -248,7 +248,6 @@ def _get_node_table(
         )
     if table and as_select:  # pragma: no cover
         return ast.Select(projection=[ast.Wildcard()], from_=ast.From(tables=[table]))
-    print(table)
     return table
 
 
