@@ -26,7 +26,8 @@ services:
     depends_on:
       - db_migration
       - postgres_examples
-    command: "/bin/sh /code/docker-dj-jupyter.sh"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   db_migration:
     container_name: db_migration
