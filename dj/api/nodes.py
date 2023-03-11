@@ -50,8 +50,9 @@ from dj.models.node import (
     UpdateNode,
     UpsertMaterializationConfig,
 )
+from dj.service_clients import QueryServiceClient
 from dj.sql.parsing import parse
-from dj.utils import Version, VersionUpgrade, get_session
+from dj.utils import Version, VersionUpgrade, get_session, get_query_service_client
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -323,7 +324,16 @@ def create_node_revision(
     """
     Create a non-source node revision.
     """
-    node_revision = NodeRevision.parse_obj(data)
+    node_revision = NodeRevision(
+        name=data.name,
+        display_name=data.display_name
+        if data.display_name
+        else generate_display_name(data.name),
+        description=data.description,
+        type=data.type,
+        status=NodeStatus.VALID,
+        query=data.query,
+    )
     (
         validated_node,
         dependencies_map,
@@ -427,6 +437,7 @@ def create_cube_node_revision(
 def create_node(
     data: Union[CreateSourceNode, CreateCubeNode, CreateNode],
     session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
     """
     Create a node.
@@ -449,6 +460,28 @@ def create_node(
                 "`schema_`, and `table` set",
             )
         catalog = get_catalog(session=session, name=data.catalog)
+
+        # When no columns are provided, attempt to find actual table columns
+        # if a query service is set
+        columns = [
+            Column(
+                name=column_name,
+                type=ColumnType[column_data["type"]],
+            )
+            for column_name, column_data in data.columns.items()
+        ] if data.columns else None
+        if not columns:
+            if not query_service_client:
+                raise DJException(
+                    message="No table columns were provided and no query "
+                            "service is configured for table columns inference!",
+                )
+            columns = query_service_client.get_columns_for_table(
+                data.catalog,
+                data.schema_,  # type: ignore
+                data.table,
+            )
+
         node_revision = NodeRevision(
             name=data.name,
             display_name=data.display_name
@@ -460,13 +493,7 @@ def create_node(
             catalog_id=catalog.id,
             schema_=data.schema_,
             table=data.table,
-            columns=[
-                Column(
-                    name=column_name,
-                    type=ColumnType[column_data["type"]],
-                )
-                for column_name, column_data in data.columns.items()
-            ],
+            columns=columns,
             parents=[],
         )
     elif data.type == NodeType.CUBE:

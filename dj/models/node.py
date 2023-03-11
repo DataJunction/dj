@@ -26,8 +26,8 @@ from dj.models.engine import Engine, EngineInfo
 # from dj.models.table import Table, TableNodeRevision, TableYAML
 from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parse import is_metric
-from dj.typing import ColumnType, UTCDatetime
-from dj.utils import Version
+from dj.typing import ColumnType
+from dj.utils import UTCDatetime, Version
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
 DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
@@ -71,8 +71,6 @@ class CubeRelationship(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for many-to-many relationships between cube nodes and metric/dimension nodes.
     """
-
-    __tablename__ = "cube"
 
     cube_id: Optional[int] = Field(
         default=None,
@@ -495,7 +493,7 @@ class SourceNodeFields(BaseSQLModel):
     catalog: Optional[str] = None
     schema_: Optional[str] = None
     table: Optional[str] = None
-    columns: Dict[str, SourceNodeColumnType]
+    columns: Optional[Dict[str, SourceNodeColumnType]]
 
 
 class CubeNodeFields(BaseSQLModel):
