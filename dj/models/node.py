@@ -493,7 +493,7 @@ class SourceNodeFields(BaseSQLModel):
     catalog: Optional[str] = ""
     schema_: Optional[str] = ""
     table: Optional[str] = ""
-    columns: Dict[str, SourceNodeColumnType]
+    columns: Optional[Dict[str, SourceNodeColumnType]]
 
 
 class CubeNodeFields(BaseSQLModel):
