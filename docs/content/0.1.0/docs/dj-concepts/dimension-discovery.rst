@@ -32,7 +32,7 @@ table.
 
 The :code:`repair_orders` table contains an ID of the dispatcher who's responsible for coordinating the work. In order to
 pull in more information about the dispatcher, a join must be performed to the :code:`dispatchers` dimension table which has a :code:`dispatcher_id`
-column that serves as it's primary key. As you can see, this requires knowledge of the table's layout and the proper dimension table to join to.
+column that serves as its primary key. As you can see, this requires knowledge of the table's layout and the proper dimension table to join to.
 It's not uncommon for a request for particular datasets to be "enriched" in this way to go through multiple channels until a data professional
 most familiar with the data model performs this join and stores the result in a new table.
 
