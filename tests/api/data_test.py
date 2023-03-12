@@ -15,7 +15,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     """
 
     @pytest.fixture
-    def client(self, client: TestClient, load_examples) -> TestClient:
+    def client_with_examples(self, client: TestClient, load_examples) -> TestClient:
         """
         load examples
         """
@@ -25,12 +25,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     def test_setting_availability_state(
         self,
         session: Session,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test adding an availability state
         """
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
                 "catalog": "default",
@@ -64,12 +64,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
     def test_raising_if_availability_catalog_mismatch(
         self,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test raising when the catalog does not match
         """
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
                 "catalog": "public",
@@ -90,12 +90,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     def test_setting_availability_state_multiple_times(
         self,
         session: Session,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test adding multiple availability states
         """
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
                 "catalog": "default",
@@ -111,7 +111,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
                 "catalog": "default",
@@ -127,7 +127,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
                 "catalog": "default",
@@ -162,12 +162,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     def test_that_update_at_timestamp_is_being_updated(
         self,
         session: Session,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test that the `updated_at` attribute is being updated
         """
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
                 "catalog": "default",
@@ -189,7 +189,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             ]
         )
 
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_and_business_only/",
             json={
                 "catalog": "default",
@@ -213,12 +213,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
     def test_raising_when_node_does_not_exist(
         self,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test raising when setting availability state on non-existent node
         """
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/nonexistentnode/",
             json={
                 "catalog": "default",
@@ -241,12 +241,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     def test_merging_in_a_higher_max_partition(
         self,
         session: Session,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test that the higher max_partition value is used when merging in an availability state
         """
-        client.post(
+        client_with_examples.post(
             "/data/availability/large_revenue_payments_only/",
             json={
                 "catalog": "default",
@@ -257,7 +257,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "min_partition": ["2022", "01", "01"],
             },
         )
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_only/",
             json={
                 "catalog": "default",
@@ -300,12 +300,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     def test_merging_in_a_lower_min_partition(
         self,
         session: Session,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test that the lower min_partition value is used when merging in an availability state
         """
-        client.post(
+        client_with_examples.post(
             "/data/availability/large_revenue_payments_only/",
             json={
                 "catalog": "default",
@@ -316,7 +316,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "min_partition": ["2022", "01", "01"],
             },
         )
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_only/",
             json={
                 "catalog": "default",
@@ -359,12 +359,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     def test_moving_back_valid_through_ts(
         self,
         session: Session,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test that the valid through timestamp can be moved backwards
         """
-        client.post(
+        client_with_examples.post(
             "/data/availability/large_revenue_payments_only/",
             json={
                 "catalog": "default",
@@ -375,7 +375,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "min_partition": ["2022", "01", "01"],
             },
         )
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/large_revenue_payments_only/",
             json={
                 "catalog": "default",
@@ -418,12 +418,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     def test_setting_availablity_state_on_a_source_node(
         self,
         session: Session,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test setting the availability state on a source node
         """
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/revenue/",
             json={
                 "catalog": "default",
@@ -457,12 +457,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
     def test_raise_on_setting_invalid_availability_state_on_a_source_node(
         self,
-        client: TestClient,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test raising availability state doesn't match existing source node table
         """
-        response = client.post(
+        response = client_with_examples.post(
             "/data/availability/revenue/",
             json={
                 "catalog": "default",
