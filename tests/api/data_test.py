@@ -2,7 +2,6 @@
 Tests for the data API.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -13,14 +12,6 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     """
     Test ``POST /data/availability/{node_name}/``.
     """
-
-    @pytest.fixture
-    def client_with_examples(self, client: TestClient, load_examples) -> TestClient:
-        """
-        load examples
-        """
-        load_examples(client)
-        return client
 
     def test_setting_availability_state(
         self,

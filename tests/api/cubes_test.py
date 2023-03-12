@@ -5,13 +5,12 @@ Tests for the cubes API.
 from fastapi.testclient import TestClient
 
 
-def test_read_cube(client: TestClient, load_examples) -> None:
+def test_read_cube(client_with_examples: TestClient) -> None:
     """
     Test ``GET /cubes/{name}``.
     """
-    load_examples(client)
     # Create a cube
-    response = client.post(
+    response = client_with_examples.post(
         "/nodes/",
         json={
             "cube_elements": ["number_of_account_types", "account_type"],
@@ -30,7 +29,7 @@ def test_read_cube(client: TestClient, load_examples) -> None:
     assert data["query"] is None
 
     # Read the cube
-    response = client.get("/cubes/number_of_accounts_by_account_type")
+    response = client_with_examples.get("/cubes/number_of_accounts_by_account_type")
     assert response.status_code == 200
     data = response.json()
     assert data["type"] == "cube"
@@ -39,7 +38,7 @@ def test_read_cube(client: TestClient, load_examples) -> None:
     assert data["version"] == "v1.0"
     assert data["description"] == "A cube of number of accounts grouped by account type"
     # Check that creating a cube with a query fails appropriately
-    response = client.post(
+    response = client_with_examples.post(
         "/nodes/",
         json={
             "description": "A cube of number of accounts grouped by account type",
@@ -58,7 +57,7 @@ def test_read_cube(client: TestClient, load_examples) -> None:
     }
 
     # Check that creating a cube with no cube elements fails appropriately
-    response = client.post(
+    response = client_with_examples.post(
         "/nodes/",
         json={
             "cube_elements": [],
@@ -77,7 +76,7 @@ def test_read_cube(client: TestClient, load_examples) -> None:
     }
 
     # Check that creating a cube with incompatible nodes fails appropriately
-    response = client.post(
+    response = client_with_examples.post(
         "/nodes/",
         json={
             "cube_elements": ["number_of_account_types", "account_type_table"],
@@ -96,7 +95,7 @@ def test_read_cube(client: TestClient, load_examples) -> None:
     }
 
     # Check that creating a cube with no metric nodes fails appropriately
-    response = client.post(
+    response = client_with_examples.post(
         "/nodes/",
         json={
             "cube_elements": ["account_type"],
@@ -115,7 +114,7 @@ def test_read_cube(client: TestClient, load_examples) -> None:
     }
 
     # Check that creating a cube with no dimension nodes fails appropriately
-    response = client.post(
+    response = client_with_examples.post(
         "/nodes/",
         json={
             "cube_elements": ["number_of_account_types"],
@@ -135,15 +134,13 @@ def test_read_cube(client: TestClient, load_examples) -> None:
 
 
 def test_raise_on_cube_with_multiple_catalogs(
-    client: TestClient,
-    load_examples,
+    client_with_examples: TestClient,
 ) -> None:
     """
     Test raising when creating a cube with multiple catalogs
     """
-    load_examples(client)
     # Create a cube
-    response = client.post(
+    response = client_with_examples.post(
         "/nodes/",
         json={
             "cube_elements": ["account_type", "basic.num_comments"],

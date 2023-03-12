@@ -2,7 +2,6 @@
 Tests for tags.
 """
 
-import pytest
 from fastapi.testclient import TestClient
 
 
@@ -11,80 +10,11 @@ class TestTags:
     Test tags API endpoints.
     """
 
-    @pytest.fixture
-    def client(self, client: TestClient, load_examples) -> TestClient:
-        """
-        Add nodes to facilitate testing of tags endpoints.
-        """
-        load_examples(client)
-        # Add source node
-        response = client.post(
-            "/nodes/",
-            json={
-                "columns": {
-                    "id": {"type": "INT"},
-                    "item_name": {"type": "STR"},
-                    "sold_count": {"type": "INT"},
-                    "price_per_unit": {"type": "FLOAT"},
-                    "psp": {"type": "STR"},
-                },
-                "description": "A source table for sales",
-                "mode": "published",
-                "name": "sales",
-                "catalog": "default",
-                "schema_": "revenue",
-                "table": "sales",
-                "type": "source",
-            },
-        )
-        assert response.status_code == 201
-
-        # Add dimension node
-        response = client.post(
-            "/nodes/",
-            json={
-                "description": "Item dimension",
-                "query": (
-                    "SELECT item_name " "account_type_classification FROM " "sales"
-                ),
-                "mode": "published",
-                "name": "items",
-                "type": "dimension",
-            },
-        )
-        assert response.status_code == 201
-
-        # Add metrics
-        response = client.post(
-            "/nodes/",
-            json={
-                "description": "Total units sold",
-                "query": "SELECT SUM(sold_count) as num_sold FROM sales",
-                "mode": "published",
-                "name": "items_sold_count",
-                "type": "metric",
-            },
-        )
-        assert response.status_code == 201
-
-        response = client.post(
-            "/nodes/",
-            json={
-                "description": "Total profit",
-                "query": "SELECT SUM(sold_count * price_per_unit) as num_sold FROM sales",
-                "mode": "published",
-                "name": "total_profit",
-                "type": "metric",
-            },
-        )
-        assert response.status_code == 201
-        return client
-
-    def create_tag(self, client: TestClient):
+    def create_tag(self, client_with_examples: TestClient):
         """
         Creates a tag.
         """
-        response = client.post(
+        response = client_with_examples.post(
             "/tags/",
             json={
                 "name": "sales_report",
@@ -96,11 +26,11 @@ class TestTags:
         )
         return response
 
-    def test_create_and_read_tag(self, client: TestClient) -> None:
+    def test_create_and_read_tag(self, client_with_examples: TestClient) -> None:
         """
         Test ``POST /tags`` and ``GET /tags/{name}``
         """
-        response = self.create_tag(client)
+        response = self.create_tag(client_with_examples)
         expected_tag_output = {
             "tag_metadata": {},
             "display_name": "Sales Report",
@@ -112,26 +42,26 @@ class TestTags:
         assert response.status_code == 201
         assert response.json() == expected_tag_output
 
-        response = client.get("/tags/sales_report/")
+        response = client_with_examples.get("/tags/sales_report/")
         assert response.status_code == 200
         assert response.json() == expected_tag_output
 
         # Creating it again should raise an exception
-        response = self.create_tag(client)
+        response = self.create_tag(client_with_examples)
         response_data = response.json()
         assert (
             response_data["message"] == "A tag with name `sales_report` already exists!"
         )
 
-    def test_update_tag(self, client: TestClient) -> None:
+    def test_update_tag(self, client_with_examples: TestClient) -> None:
         """
         Tests updating a tag.
         """
-        response = self.create_tag(client)
+        response = self.create_tag(client_with_examples)
         assert response.status_code == 201
 
         # Trying updating the tag
-        response = client.patch(
+        response = client_with_examples.patch(
             "/tags/sales_report/",
             json={
                 "description": "Helpful sales metrics",
@@ -150,7 +80,7 @@ class TestTags:
         }
 
         # Trying updating the tag
-        response = client.patch(
+        response = client_with_examples.patch(
             "/tags/sales_report/",
             json={},
         )
@@ -163,14 +93,14 @@ class TestTags:
             "tag_type": "group",
         }
 
-    def test_list_tags(self, client: TestClient) -> None:
+    def test_list_tags(self, client_with_examples: TestClient) -> None:
         """
         Test ``GET /tags``
         """
-        response = self.create_tag(client)
+        response = self.create_tag(client_with_examples)
         assert response.status_code == 201
 
-        response = client.get("/tags/")
+        response = client_with_examples.get("/tags/")
         assert response.status_code == 200
         response_data = response.json()
 
@@ -184,7 +114,7 @@ class TestTags:
             },
         ]
 
-        client.post(
+        client_with_examples.post(
             "/tags/",
             json={
                 "name": "impressions_report",
@@ -195,7 +125,7 @@ class TestTags:
             },
         )
 
-        client.post(
+        client_with_examples.post(
             "/tags/",
             json={
                 "name": "rotors",
@@ -206,7 +136,7 @@ class TestTags:
             },
         )
 
-        response = client.get("/tags/?tag_type=group")
+        response = client_with_examples.get("/tags/?tag_type=group")
         assert response.status_code == 200
         response_data = response.json()
         assert response_data == [
@@ -226,7 +156,7 @@ class TestTags:
             },
         ]
 
-        response = client.get("/tags/?tag_type=business_area")
+        response = client_with_examples.get("/tags/?tag_type=business_area")
         assert response.status_code == 200
         response_data = response.json()
         assert response_data == [
@@ -239,15 +169,15 @@ class TestTags:
             },
         ]
 
-    def test_add_tag_to_node(self, client: TestClient) -> None:
+    def test_add_tag_to_node(self, client_with_examples: TestClient) -> None:
         """
         Test ``POST /tags`` and ``GET /tags/{name}``
         """
-        response = self.create_tag(client)
+        response = self.create_tag(client_with_examples)
         assert response.status_code == 201
 
         # Trying tag a node with a nonexistent tag should fail
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/items_sold_count/tag/?tag_name=random_tag",
         )
         assert response.status_code == 404
@@ -257,7 +187,7 @@ class TestTags:
         )
 
         # Trying tag a node with an existing tag should succeed
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/items_sold_count/tag/?tag_name=sales_report",
         )
         assert response.status_code == 201
@@ -268,7 +198,7 @@ class TestTags:
         )
 
         # Test finding all nodes for that tag
-        response = client.get(
+        response = client_with_examples.get(
             "/tags/sales_report/nodes/",
         )
         assert response.status_code == 200
@@ -279,7 +209,7 @@ class TestTags:
         ]
 
         # Tag a second node
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/total_profit/tag/?tag_name=sales_report",
         )
         assert response.status_code == 201
@@ -290,7 +220,7 @@ class TestTags:
         )
 
         # Check finding nodes for tag
-        response = client.get(
+        response = client_with_examples.get(
             "/tags/sales_report/nodes/",
         )
         assert response.status_code == 200
@@ -302,7 +232,7 @@ class TestTags:
         ]
 
         # Check finding nodes for tag
-        response = client.get(
+        response = client_with_examples.get(
             "/tags/random_tag/nodes/",
         )
         assert response.status_code == 404
@@ -312,7 +242,7 @@ class TestTags:
         )
 
         # Check finding nodes for tag
-        response = client.get(
+        response = client_with_examples.get(
             "/tags/sales_report/nodes/?node_type=transform",
         )
         assert response.status_code == 200
