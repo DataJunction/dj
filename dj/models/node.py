@@ -72,6 +72,8 @@ class CubeRelationship(BaseSQLModel, table=True):  # type: ignore
     Join table for many-to-many relationships between cube nodes and metric/dimension nodes.
     """
 
+    __tablename__ = "cube"
+
     cube_id: Optional[int] = Field(
         default=None,
         foreign_key="noderevision.id",

@@ -1,8 +1,8 @@
 """Initial migration
 
-Revision ID: 143a068da0ed
+Revision ID: e3fc8f2f003f
 Revises:
-Create Date: 2023-03-10 03:31:52.227486+00:00
+Create Date: 2023-03-12 01:58:32.569011+00:00
 
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
@@ -14,7 +14,7 @@ import sqlmodel
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "143a068da0ed"
+revision = "e3fc8f2f003f"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -286,24 +286,20 @@ def upgrade():
         ),
     )
     op.create_table(
-        "cuberelationship",
+        "cube",
         sa.Column("cube_id", sa.Integer(), nullable=False),
         sa.Column("cube_element_id", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(
             ["cube_element_id"],
             ["node.id"],
-            name=op.f("fk_cuberelationship_cube_element_id_node"),
+            name=op.f("fk_cube_cube_element_id_node"),
         ),
         sa.ForeignKeyConstraint(
             ["cube_id"],
             ["noderevision.id"],
-            name=op.f("fk_cuberelationship_cube_id_noderevision"),
+            name=op.f("fk_cube_cube_id_noderevision"),
         ),
-        sa.PrimaryKeyConstraint(
-            "cube_id",
-            "cube_element_id",
-            name=op.f("pk_cuberelationship"),
-        ),
+        sa.PrimaryKeyConstraint("cube_id", "cube_element_id", name=op.f("pk_cube")),
     )
     op.create_table(
         "materializationconfig",
@@ -430,7 +426,7 @@ def downgrade():
     op.drop_table("nodecolumns")
     op.drop_table("nodeavailabilitystate")
     op.drop_table("materializationconfig")
-    op.drop_table("cuberelationship")
+    op.drop_table("cube")
     op.drop_table("columnattribute")
     op.drop_table("tagnoderelationship")
     op.drop_table("table")
