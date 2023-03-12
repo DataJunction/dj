@@ -21,16 +21,12 @@ from djclient.model.catalog_info import CatalogInfo
 from djclient.model.column import Column
 from djclient.model.column_attribute_input import ColumnAttributeInput
 from djclient.model.column_output import ColumnOutput
-from djclient.model.create_column import CreateColumn
 from djclient.model.create_cube_node import CreateCubeNode
 from djclient.model.create_node import CreateNode
 from djclient.model.create_source_node import CreateSourceNode
-from djclient.model.create_table import CreateTable
 from djclient.model.create_tag import CreateTag
 from djclient.model.cube_element_metadata import CubeElementMetadata
 from djclient.model.cube_revision_metadata import CubeRevisionMetadata
-from djclient.model.djsql import DJSQL
-from djclient.model.database import Database
 from djclient.model.engine_info import EngineInfo
 from djclient.model.http_validation_error import HTTPValidationError
 from djclient.model.health_check import HealthCheck
@@ -47,7 +43,6 @@ from djclient.model.node_status import NodeStatus
 from djclient.model.node_type import NodeType
 from djclient.model.node_validation import NodeValidation
 from djclient.model.source_node_column_type import SourceNodeColumnType
-from djclient.model.table_output import TableOutput
 from djclient.model.tag import Tag
 from djclient.model.tag_output import TagOutput
 from djclient.model.translated_sql import TranslatedSQL

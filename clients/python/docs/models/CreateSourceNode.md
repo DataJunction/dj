@@ -15,6 +15,9 @@ Key | Input Type | Accessed Type | Description | Notes
 **name** | str,  | str,  |  | 
 **description** | str,  | str,  |  | 
 **type** | [**NodeType**](NodeType.md) | [**NodeType**](NodeType.md) |  | 
+**catalog** | str,  | str,  |  | [optional] 
+**schema_** | str,  | str,  |  | [optional] 
+**table** | str,  | str,  |  | [optional] 
 **display_name** | str,  | str,  |  | [optional] 
 **query** | str,  | str,  |  | [optional] 
 **any_string_name** | dict, frozendict.frozendict, str, date, datetime, int, float, bool, decimal.Decimal, None, list, tuple, bytes, io.FileIO, io.BufferedReader | frozendict.frozendict, str, BoolClass, decimal.Decimal, NoneClass, tuple, bytes, FileIO | any string name can be used but the value must be the correct type | [optional]
