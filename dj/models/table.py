@@ -53,23 +53,6 @@ class TableBase(BaseSQLModel):
     cost: float = 1.0
 
 
-# class TableNodeRevision(BaseSQLModel, table=True):  # type: ignore
-#     """
-#     Link between a table and a node revision.
-#     """
-
-#     table_id: Optional[int] = Field(
-#         default=None,
-#         foreign_key="table.id",
-#         primary_key=True,
-#     )
-#     node_revision_id: Optional[int] = Field(
-#         default=None,
-#         foreign_key="noderevision.id",
-#         primary_key=True,
-#     )
-
-
 class Table(TableBase, table=True):  # type: ignore
     """
     A table with data.

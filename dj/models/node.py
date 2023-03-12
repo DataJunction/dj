@@ -492,9 +492,9 @@ class SourceNodeFields(BaseSQLModel):
     Source node fields that can be changed.
     """
 
-    catalog: Optional[str] = ""
-    schema_: Optional[str] = ""
-    table: Optional[str] = ""
+    catalog: Optional[str] = None
+    schema_: Optional[str] = None
+    table: Optional[str] = None
     columns: Dict[str, SourceNodeColumnType]
 
 
