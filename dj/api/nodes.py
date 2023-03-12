@@ -405,13 +405,13 @@ def create_cube_node_revision(
             message=("At least one dimension is required to create a cube node"),
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
         )
-    if len(set(catalogs)) > 1:  # pragma: no cover
+    if len(set(catalogs)) > 1:
         raise DJException(
             message=(
                 f"Cannot create cube using nodes from multiple catalogs: {catalogs}"
             ),
         )
-    if len(set(catalogs)) < 1:
+    if len(set(catalogs)) < 1:  # pragma: no cover
         raise DJException(
             message=("Cube elements must contain a common catalog"),
         )
