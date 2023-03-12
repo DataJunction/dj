@@ -3,10 +3,10 @@ Model for nodes.
 """
 # pylint: disable=too-many-instance-attributes
 import enum
-from collections import defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Dict, List, Optional, cast
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
@@ -22,7 +22,8 @@ from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
 from dj.models.engine import Engine, EngineInfo
-from dj.models.table import Table, TableNodeRevision, TableYAML
+
+# from dj.models.table import Table, TableNodeRevision, TableYAML
 from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parse import is_metric
 from dj.typing import ColumnType
@@ -30,6 +31,16 @@ from dj.utils import UTCDatetime, Version
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
 DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
+
+
+@dataclass(frozen=True)
+class BuildCriteria:
+    """
+    Criterion used for building
+        - used to deterimine whether to use an availability state
+    """
+
+    timestamp: Optional[UTCDatetime] = None
 
 
 class NodeRelationship(BaseSQLModel, table=True):  # type: ignore
@@ -60,6 +71,8 @@ class CubeRelationship(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for many-to-many relationships between cube nodes and metric/dimension nodes.
     """
+
+    __tablename__ = "cube"
 
     cube_id: Optional[int] = Field(
         default=None,
@@ -149,7 +162,6 @@ class NodeYAML(TypedDict, total=False):
     type: NodeType
     query: str
     columns: Dict[str, ColumnYAML]
-    tables: Dict[str, List[TableYAML]]
 
 
 class NodeBase(BaseSQLModel):
@@ -245,6 +257,16 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
         default_factory=partial(datetime.now, timezone.utc),
     )
 
+    def is_available(
+        self,
+        criteria: Optional[BuildCriteria] = None,  # pylint: disable=unused-argument
+    ) -> bool:  # pragma: no cover
+        """
+        Determine whether an availability state is useable given criteria
+        """
+        # Criteria to determine if an availability state should be used needs to be added
+        return True
+
 
 class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
     """
@@ -336,6 +358,10 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     version: Optional[str] = Field(default=str(DEFAULT_DRAFT_VERSION))
     node_id: Optional[int] = Field(foreign_key="node.id")
     node: Node = Relationship(back_populates="revisions")
+    catalog_id: int = Field(default=None, foreign_key="catalog.id")
+    catalog: Catalog = Relationship(back_populates="node_revisions")
+    schema_: Optional[str] = None
+    table: Optional[str] = None
     cube_elements: List["Node"] = Relationship(  # Only used by cube nodes
         back_populates="cubes",
         link_model=CubeRelationship,
@@ -349,16 +375,6 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     updated_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
-    )
-
-    tables: List[Table] = Relationship(
-        back_populates="node",
-        link_model=TableNodeRevision,
-        sa_relationship_kwargs={
-            "primaryjoin": "NodeRevision.id==TableNodeRevision.node_revision_id",
-            "secondaryjoin": "Table.id==TableNodeRevision.table_id",
-            "cascade": "all, delete",
-        },
     )
 
     parents: List["Node"] = Relationship(
@@ -408,31 +424,6 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     materialization_configs: List[MaterializationConfig] = Relationship(
         back_populates="node_revision",
     )
-
-    def to_yaml(self) -> NodeYAML:
-        """
-        Serialize the node for YAML.
-
-        This is used to update the original configuration with information about columns.
-        """
-        tables = defaultdict(list)
-        for table in self.tables:  # pylint: disable=not-an-iterable
-            tables[table.database.name].append(table.to_yaml())
-
-        data = {
-            "description": self.description,
-            "display_name": self.display_name,
-            "type": self.type.value,  # pylint: disable=no-member
-            "query": self.query,
-            "columns": {
-                column.name: column.to_yaml()
-                for column in self.columns  # pylint: disable=not-an-iterable
-            },
-            "tables": dict(tables),
-        }
-        filtered = {key: value for key, value in data.items() if value}
-
-        return cast(NodeYAML, filtered)
 
     def __hash__(self) -> int:
         return hash(self.id)
@@ -501,6 +492,9 @@ class SourceNodeFields(BaseSQLModel):
     Source node fields that can be changed.
     """
 
+    catalog: Optional[str] = None
+    schema_: Optional[str] = None
+    table: Optional[str] = None
     columns: Dict[str, SourceNodeColumnType]
 
 
@@ -655,11 +649,13 @@ class NodeRevisionOutput(SQLModel):
     version: str
     status: NodeStatus
     mode: NodeMode
+    catalog: Optional[Catalog]
+    schema_: Optional[str]
+    table: Optional[str]
     description: str = ""
     query: Optional[str] = None
     availability: Optional[AvailabilityState] = None
     columns: List[ColumnOutput]
-    tables: List[TableOutput]
     updated_at: UTCDatetime
     materialization_configs: List[MaterializationConfigOutput]
 

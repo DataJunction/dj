@@ -61,6 +61,7 @@ def test_trivial_diff(trivial_query):
                 from_=From(tables=[Table(Name(name="b"))]),
                 projection=[Column(Name("a"))],
             ),
+            dialect="ansi",
         ),
     ) == [
         (Name(name="a", quote_style=""), Name(name="b", quote_style="")),
@@ -81,6 +82,7 @@ def test_trivial_similarity_different(trivial_query):
                     from_=From(tables=[Table(Name(name="b"))]),
                     projection=[Column(Name("a"))],
                 ),
+                dialect="ansi",
             ),
         )
         == 5 / 8
@@ -129,6 +131,7 @@ def test_flatten_trivial(trivial_query):
                 limit=None,
             ),
             ctes=[],
+            dialect="ansi",
         ),
         Select(
             distinct=False,
@@ -499,7 +502,7 @@ def test_map_subscripts():
 
 def test_query_to_select(cte_query):
     """test converting a query to a select"""
-    assert cte_query._to_select().compare(  # pylint: disable=W0212
+    assert cte_query.to_select().compare(  # pylint: disable=W0212
         Select(
             from_=From(
                 tables=[

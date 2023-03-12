@@ -53,23 +53,6 @@ class TableBase(BaseSQLModel):
     cost: float = 1.0
 
 
-class TableNodeRevision(BaseSQLModel, table=True):  # type: ignore
-    """
-    Link between a table and a node revision.
-    """
-
-    table_id: Optional[int] = Field(
-        default=None,
-        foreign_key="table.id",
-        primary_key=True,
-    )
-    node_revision_id: Optional[int] = Field(
-        default=None,
-        foreign_key="noderevision.id",
-        primary_key=True,
-    )
-
-
 class Table(TableBase, table=True):  # type: ignore
     """
     A table with data.
@@ -78,18 +61,6 @@ class Table(TableBase, table=True):  # type: ignore
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
-
-    node: "NodeRevision" = Relationship(
-        back_populates="tables",
-        link_model=TableNodeRevision,
-        sa_relationship_kwargs={
-            "primaryjoin": "Table.id==TableNodeRevision.table_id",
-            "secondaryjoin": "NodeRevision.id==TableNodeRevision.node_revision_id",
-        },
-    )
-
-    catalog_id: Optional[int] = Field(foreign_key="catalog.id")
-    catalog: Optional["Catalog"] = Relationship(back_populates="tables")
 
     database_id: int = Field(foreign_key="database.id")
     database: "Database" = Relationship(back_populates="tables")
@@ -102,17 +73,6 @@ class Table(TableBase, table=True):  # type: ignore
             "cascade": "all, delete",
         },
     )
-
-    def to_yaml(self) -> TableYAML:
-        """
-        Serialize the table for YAML.
-        """
-        return {
-            "catalog": self.catalog,
-            "schema": self.schema_,
-            "table": self.table,
-            "cost": self.cost,
-        }
 
     def identifier(
         self,

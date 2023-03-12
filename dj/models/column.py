@@ -46,14 +46,6 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         },
     )
 
-    def to_yaml(self) -> ColumnYAML:
-        """
-        Serialize the column for YAML.
-        """
-        return {
-            "type": str(self.type),  # pylint: disable=no-member
-        }
-
     def identifier(self) -> Tuple[str, ColumnType]:
         """
         Unique identifier for this column.

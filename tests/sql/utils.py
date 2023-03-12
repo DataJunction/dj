@@ -5,7 +5,7 @@ import os
 
 from sqlalchemy.sql import Select
 
-from dj.sql.parsing.backends.sqloxide import parse
+from dj.sql.parsing import parse
 from dj.sql.parsing.frontends.string import sql
 
 TPCDS_QUERY_SET = ["tpcds_q01", "tpcds_q99"]

@@ -71,10 +71,6 @@ def test_catalog_list(
     assert response.status_code == 200
     assert response.json() == [
         {
-            "name": "public",
-            "engines": [{"name": "spark", "version": "3.1.1", "uri": None}],
-        },
-        {
             "name": "dev",
             "engines": [{"name": "spark", "version": "3.3.1", "uri": None}],
         },

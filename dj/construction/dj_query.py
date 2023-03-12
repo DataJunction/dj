@@ -2,15 +2,13 @@
 Functions for making queries directly against DJ
 """
 
-from functools import reduce
-from typing import List, Optional, Set, Tuple, cast
+from typing import List, Optional, Set, cast
 
 from sqlmodel import Session
 
-from dj.construction.build import build_ast_for_database
+from dj.construction.build import build_ast
 from dj.construction.utils import amenable_name, get_dj_node, make_name
 from dj.errors import DJException
-from dj.models.database import Database
 from dj.models.node import NodeRevision, NodeType
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.exceptions import DJParseException
@@ -74,7 +72,7 @@ def _resolve_metric_nodes(session, col):
         metric_name = amenable_name(metric_node.name)
         metric_select = parse(  # pylint: disable=W0212
             cast(str, metric_node.query),
-        )._to_select()
+        ).to_select()
         tables = metric_select.from_.tables + [
             join.table for join in metric_select.from_.joins
         ]
@@ -139,21 +137,16 @@ def _hoist_metric_source_tables(
         # that will hoist the source up
         ons = []
         for src_col in source_cols:
-            ons += _source_column_join_on_expression(src_col, metric_table_expression)
+            ons.append(
+                _source_column_join_on_expression(src_col, metric_table_expression),
+            )
         # make the join
         if ons:  # pragma: no cover
             joins.append(
                 ast.Join(
                     ast.JoinKind.LeftOuter,
                     table.alias_or_self().copy(),
-                    on=reduce(
-                        lambda left, right: ast.BinaryOp(
-                            ast.BinaryOpKind.And,
-                            left,
-                            right,
-                        ),
-                        ons,
-                    ),
+                    on=ast.BinaryOp.And(*ons),  # type: ignore  # pylint: disable=no-value-for-parameter
                 ),
             )
     return joins
@@ -180,18 +173,13 @@ def _source_column_join_on_expression(
     """
     Make the part of the ON for the source column
     """
-    ons = []
-    ons.append(
-        ast.BinaryOp(
-            ast.BinaryOpKind.Eq,
-            ast.Column(
-                ast.Name(src_col.name.name),
-                _table=metric_table_expression,
-            ),
-            src_col.child.copy(),
+    return ast.BinaryOp.Eq(  # type: ignore
+        ast.Column(
+            ast.Name(src_col.name.name),
+            _table=metric_table_expression,
         ),
+        src_col.child.copy(),
     )
-    return ons
 
 
 def _label_dimension_nodes(session, col):
@@ -203,17 +191,16 @@ def _label_dimension_nodes(session, col):
         col.set_api_column(True)
 
 
-async def build_dj_metric_query(  # pylint: disable=R0914,R0912
+def build_dj_metric_query(  # pylint: disable=R0914,R0912
     session: Session,
     query: str,
     dialect: Optional[str] = None,
-    database_id: Optional[int] = None,
-) -> Tuple[ast.Query, Database]:
+) -> ast.Query:
     """
     Build a dj query in SQL that may include dj metrics
     """
     query_ast = parse(query, dialect)
-    select = query_ast._to_select()  # pylint: disable=W0212
+    select = query_ast.to_select()  # pylint: disable=W0212
     # we check all columns looking for metric nodes
     for col in select.find_all(ast.Column):
         _resolve_metric_nodes(session, col)
@@ -223,9 +210,8 @@ async def build_dj_metric_query(  # pylint: disable=R0914,R0912
     for col in select.find_all(ast.Column):
         _label_dimension_nodes(session, col)
 
-    return await build_ast_for_database(
+    return build_ast(
         session,
         query=ast.Query(select),
-        dialect=dialect,
-        database_id=database_id,
+        build_criteria=None,
     )

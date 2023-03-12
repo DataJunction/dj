@@ -95,4 +95,5 @@ def derived_subquery():
             distinct=False,
         ),
         ctes=[],
+        dialect="ansi",
     )

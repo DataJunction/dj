@@ -6,9 +6,9 @@ import pytest
 from sqlalchemy import select
 from sqlmodel import Session
 
-from dj.construction.build import amenable_name, build_node_for_database
+from dj.construction.build import amenable_name, build_node
 from dj.errors import DJException
-from dj.models import Column, Database, NodeRevision, Table
+from dj.models import Column, NodeRevision
 from dj.models.node import Node, NodeType
 from dj.typing import ColumnType
 
@@ -18,11 +18,10 @@ from .fixtures import BUILD_EXPECTATION_PARAMETERS
 
 @pytest.mark.parametrize("node_name,db_id", BUILD_EXPECTATION_PARAMETERS)
 @pytest.mark.asyncio
-async def test_build_node_for_database(node_name: str, db_id: int, mocker, request):
+async def test_build_node(node_name: str, db_id: int, request):
     """
     Test building a node
     """
-    mocker.patch("dj.models.database.Database.do_ping", return_value=True)
     construction_session: Session = request.getfixturevalue("construction_session")
     build_expectation: Dict[
         str,
@@ -36,90 +35,46 @@ async def test_build_node_for_database(node_name: str, db_id: int, mocker, reque
     )[0]
 
     if succeeds:
-        ast, _ = await build_node_for_database(
+        ast = build_node(
             construction_session,
             node.current,
-            database_id=db_id,
         )
         assert compare_query_strings(str(ast), expected)
     else:
         with pytest.raises(Exception) as exc:
-            await build_node_for_database(
+            build_node(
                 construction_session,
                 node.current,
-                database_id=db_id,
             )
             assert expected in str(exc)
 
 
 @pytest.mark.asyncio
-async def test_build_metric_with_dimensions_aggs(mocker, request):
+async def test_build_metric_with_dimensions_aggs(request):
     """
     Test building metric with dimensions
     """
-    mocker.patch("dj.models.database.Database.do_ping", return_value=True)
-
     construction_session: Session = request.getfixturevalue("construction_session")
     num_comments_mtc: Node = next(
         construction_session.exec(
             select(Node).filter(Node.name == "basic.num_comments"),
         ),
     )[0]
-    query, _ = await build_node_for_database(
+    query = build_node(
         construction_session,
         num_comments_mtc.current,
         dimensions=["basic.dimension.users.country", "basic.dimension.users.gender"],
     )
-
-    expecteds = (
-        """
-    SELECT  COUNT(1) AS cnt,
-    basic_DOT_dimension_DOT_users.gender,
-    basic_DOT_dimension_DOT_users.country
-    FROM basic.comments
-    LEFT JOIN (SELECT  basic.comments.id,
-        basic.comments.full_name,
-        basic.comments.age,
-        basic.comments.country,
-        basic.comments.gender,
-        basic.comments.preferred_language,
-        basic.comments.secret_number
-    FROM basic.comments
-
-    ) AS basic_DOT_dimension_DOT_users
-            ON basic.comments.user_id = basic_DOT_dimension_DOT_users.id
-    GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
-    """,
-        """
-    SELECT  COUNT(1) AS cnt,
-    basic_DOT_dimension_DOT_users.country,
-    basic_DOT_dimension_DOT_users.gender
-    FROM basic.comments
-    LEFT JOIN (SELECT  basic.comments.id,
-        basic.comments.full_name,
-        basic.comments.age,
-        basic.comments.country,
-        basic.comments.gender,
-        basic.comments.preferred_language,
-        basic.comments.secret_number
-    FROM basic.comments
-
-    ) AS basic_DOT_dimension_DOT_users
-            ON basic.comments.user_id = basic_DOT_dimension_DOT_users.id
-    GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
-    """,
-    )
-    str_query = str(query)
-    assert any(compare_query_strings(str_query, expected) for expected in expecteds)
+    assert 'FROM "basic.source.users" AS basic_DOT_source_DOT_users' in str(query)
+    assert "basic_DOT_dimension_DOT_users.gender" in str(query)
+    assert "basic_DOT_dimension_DOT_users.country" in str(query)
 
 
 @pytest.mark.asyncio
-async def test_raise_on_build_without_required_dimension_column(mocker, request):
+async def test_raise_on_build_without_required_dimension_column(request):
     """
     Test building a node that has a dimension reference without a column and no default `id`
     """
-    mocker.patch("dj.models.database.Database.do_ping", return_value=True)
-
     construction_session: Session = request.getfixturevalue("construction_session")
     country_dim: Node = next(
         construction_session.exec(
@@ -158,7 +113,7 @@ async def test_raise_on_build_without_required_dimension_column(mocker, request)
         ],
     )
     with pytest.raises(DJException) as exc_info:
-        await build_node_for_database(
+        build_node(
             construction_session,
             node_bar,
         )
@@ -171,100 +126,46 @@ async def test_raise_on_build_without_required_dimension_column(mocker, request)
 
 
 @pytest.mark.asyncio
-async def test_build_metric_with_dimensions_filters(mocker, request):
+async def test_build_metric_with_dimensions_filters(request):
     """
     Test building metric with dimension filters
     """
-    mocker.patch("dj.models.database.Database.do_ping", return_value=True)
-
     construction_session: Session = request.getfixturevalue("construction_session")
     num_comments_mtc: Node = next(
         construction_session.exec(
             select(Node).filter(Node.name == "basic.num_comments"),
         ),
     )[0]
-    query, _ = await build_node_for_database(
+    query = build_node(
         construction_session,
         num_comments_mtc.current,
         filters=["basic.dimension.users.age>=25", "basic.dimension.users.age<50"],
     )
 
-    expected = """
-    SELECT  COUNT(1) AS cnt,
-    basic_DOT_dimension_DOT_users.age
-    FROM basic.comments
-    LEFT JOIN (SELECT  basic.comments.id,
-        basic.comments.full_name,
-        basic.comments.age,
-        basic.comments.country,
-        basic.comments.gender,
-        basic.comments.preferred_language,
-        basic.comments.secret_number
-    FROM basic.comments
+    expected = """SELECT  COUNT(1) AS cnt,
+        basic_DOT_dimension_DOT_users.age
+ FROM "basic.source.comments" AS basic_DOT_source_DOT_comments
+LEFT JOIN (SELECT  basic_DOT_source_DOT_users.id,
+        basic_DOT_source_DOT_users.full_name,
+        basic_DOT_source_DOT_users.age,
+        basic_DOT_source_DOT_users.country,
+        basic_DOT_source_DOT_users.gender,
+        basic_DOT_source_DOT_users.preferred_language,
+        basic_DOT_source_DOT_users.secret_number
+ FROM "basic.source.users" AS basic_DOT_source_DOT_users
 
-    ) AS basic_DOT_dimension_DOT_users
-            ON basic.comments.user_id = basic_DOT_dimension_DOT_users.id
-    WHERE  basic_DOT_dimension_DOT_users.age >= 25 AND basic_DOT_dimension_DOT_users.age < 50
-    """
+) AS basic_DOT_dimension_DOT_users
+        ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+ WHERE  basic_DOT_dimension_DOT_users.age >= 25 AND basic_DOT_dimension_DOT_users.age < 50"""
 
     assert compare_query_strings(str(query), expected)
 
 
 @pytest.mark.asyncio
-async def test_build_metric_with_database_id_specified(mocker, request):
-    """
-    Test building metric with a specific database selected equivalent to the most optimal database
-    """
-    mocker.patch("dj.models.database.Database.do_ping", return_value=True)
-
-    construction_session: Session = request.getfixturevalue("construction_session")
-    node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version="1")
-    node_foo = NodeRevision(
-        node=node_foo_ref,
-        version="1",
-        query="""SELECT num_users FROM basic.transform.country_agg""",
-        columns=[
-            Column(name="num_users", type=ColumnType.STR),
-        ],
-        tables=[
-            Table(
-                node_id=4254,
-                schema="test",
-                table="foo",
-                columns=[
-                    Column(name="num_users", type=ColumnType.STR),
-                ],
-                cost=10.0,
-                database=Database(name="postgres", URI="", cost=10, id=1),
-                database_id=1,
-            ),
-            Table(
-                node_id=4254,
-                schema="slowtest",
-                table="foo",
-                columns=[
-                    Column(name="num_users", type=ColumnType.STR),
-                ],
-                cost=10.0,
-                database=Database(name="postgres", URI="", cost=100, id=1),
-                database_id=2,
-            ),
-        ],
-    )
-    await build_node_for_database(construction_session, node_foo, database_id=1)
-    await build_node_for_database(  # Also test when no database_id is set
-        construction_session,
-        node_foo,
-    )
-
-
-@pytest.mark.asyncio
-async def test_build_node_for_database_with_unnamed_column(mocker, request):
+async def test_build_node_with_unnamed_column(request):
     """
     Test building a node that has an unnamed column (so defaults to col<n>)
     """
-    mocker.patch("dj.models.database.Database.do_ping", return_value=True)
-
     construction_session: Session = request.getfixturevalue("construction_session")
     node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version="1")
     node_foo = NodeRevision(
@@ -275,7 +176,7 @@ async def test_build_node_for_database_with_unnamed_column(mocker, request):
             Column(name="col1", type=ColumnType.INT),
         ],
     )
-    await build_node_for_database(
+    build_node(
         construction_session,
         node_foo,
     )
@@ -283,4 +184,4 @@ async def test_build_node_for_database_with_unnamed_column(mocker, request):
 
 def test_amenable_name():
     """testing for making an amenable name"""
-    assert amenable_name("hello.名") == "hello_DOT__UNK_"
+    assert amenable_name("hello.名") == "hello_DOT__UNK"

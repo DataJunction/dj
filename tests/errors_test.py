@@ -42,3 +42,5 @@ The following errors happened:
 - Error 1 (error code: 0)
 - Error 2 (error code: 0)"""
     )
+
+    assert DJException("Message") == DJException("Message")
