@@ -52,6 +52,6 @@ services:
     environment:
       - POSTGRES_PASSWORD=dj
       - POSTGRES_USER=dj
-      - POSTGRES_DB=roads
+      - POSTGRES_DB=djdb
     ports:
       - "5435:5432"
