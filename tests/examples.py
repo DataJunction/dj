@@ -922,4 +922,53 @@ EXAMPLES = (  # type: ignore
             "type": "transform",
         },
     ),
+    (
+        "/nodes/",
+        {
+            "columns": {
+                "id": {"type": "INT"},
+                "item_name": {"type": "STR"},
+                "sold_count": {"type": "INT"},
+                "price_per_unit": {"type": "FLOAT"},
+                "psp": {"type": "STR"},
+            },
+            "description": "A source table for sales",
+            "mode": "published",
+            "name": "sales",
+            "catalog": "default",
+            "schema_": "revenue",
+            "table": "sales",
+            "type": "source",
+        },
+    ),
+    (
+        "/nodes/",
+        {
+            "description": "Item dimension",
+            "query": ("SELECT item_name " "account_type_classification FROM " "sales"),
+            "mode": "published",
+            "name": "items",
+            "type": "dimension",
+        },
+    ),
+    (
+        "/nodes/",
+        {
+            "description": "Total units sold",
+            "query": "SELECT SUM(sold_count) as num_sold FROM sales",
+            "mode": "published",
+            "name": "items_sold_count",
+            "type": "metric",
+        },
+    ),
+    (
+        "/nodes/",
+        {
+            "description": "Total profit",
+            "query": "SELECT SUM(sold_count * price_per_unit) as num_sold FROM sales",
+            "mode": "published",
+            "name": "total_profit",
+            "type": "metric",
+        },
+    ),
 )

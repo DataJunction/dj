@@ -102,19 +102,13 @@ def post_and_raise_if_error(client: TestClient, endpoint: str, json: dict):
 
 
 @pytest.fixture
-def load_examples():
+def client_with_examples(client: TestClient) -> TestClient:
     """
-    Fixture function for loading all node examples to a client
+    load examples
     """
-
-    def load_examples_fn(client: TestClient):
-        """
-        Load all node examples to a client
-        """
-        for endpoint, json in EXAMPLES:
-            post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
-
-    return load_examples_fn
+    for endpoint, json in EXAMPLES:
+        post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
+    return client
 
 
 def pytest_addoption(parser):

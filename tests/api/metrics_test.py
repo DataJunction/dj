@@ -13,12 +13,11 @@ from dj.models.table import Table
 from dj.typing import ColumnType
 
 
-def test_read_metrics(client: TestClient, load_examples) -> None:
+def test_read_metrics(client_with_examples: TestClient) -> None:
     """
     Test ``GET /metrics/``.
     """
-    load_examples(client)
-    response = client.get("/metrics/")
+    response = client_with_examples.get("/metrics/")
     data = response.json()
 
     assert response.status_code == 200
@@ -152,14 +151,12 @@ def test_read_metrics_sql(
 
 
 def test_common_dimensions(
-    client: TestClient,
-    load_examples,
+    client_with_examples: TestClient,
 ) -> None:
     """
     Test ``GET /metrics/common/dimensions``.
     """
-    load_examples(client)
-    response = client.get(
+    response = client_with_examples.get(
         "/metrics/common/dimensions?metric=total_repair_order_discounts&metric=total_repair_cost",
     )
     assert response.status_code == 200
@@ -182,14 +179,12 @@ def test_common_dimensions(
 
 
 def test_raise_common_dimensions_not_a_metric_node(
-    client: TestClient,
-    load_examples,
+    client_with_examples: TestClient,
 ) -> None:
     """
     Test raising ``GET /metrics/common/dimensions`` when not a metric node
     """
-    load_examples(client)
-    response = client.get(
+    response = client_with_examples.get(
         "/metrics/common/dimensions?metric=total_repair_order_discounts&metric=payment_type",
     )
     assert response.status_code == 500
@@ -197,12 +192,12 @@ def test_raise_common_dimensions_not_a_metric_node(
 
 
 def test_raise_common_dimensions_metric_not_found(
-    client: TestClient,
+    client_with_examples: TestClient,
 ) -> None:
     """
     Test raising ``GET /metrics/common/dimensions`` when metric not found
     """
-    response = client.get(
+    response = client_with_examples.get(
         "/metrics/common/dimensions?metric=foo&metric=bar",
     )
     assert response.status_code == 500

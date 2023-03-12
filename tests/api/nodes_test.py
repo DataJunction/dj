@@ -13,13 +13,11 @@ from dj.models.column import Column, ColumnType
 from dj.models.node import Node, NodeRevision, NodeType
 
 
-def test_read_node(client: TestClient, load_examples) -> None:
+def test_read_node(client_with_examples: TestClient) -> None:
     """
     Test ``GET /nodes/{node_id}``.
     """
-    load_examples(client)
-
-    response = client.get("/nodes/repair_orders/")
+    response = client_with_examples.get("/nodes/repair_orders/")
     data = response.json()
 
     assert response.status_code == 200
@@ -28,7 +26,7 @@ def test_read_node(client: TestClient, load_examples) -> None:
     assert data["node_revision_id"] == 1
     assert data["type"] == "source"
 
-    response = client.get("/nodes/nothing/")
+    response = client_with_examples.get("/nodes/nothing/")
     data = response.json()
 
     assert response.status_code == 404
@@ -221,13 +219,11 @@ class TestCreateOrUpdateNodes:
 
     def test_create_update_source_node(
         self,
-        client: TestClient,
-        load_examples,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test creating and updating a source node
         """
-        load_examples(client)
         basic_source_comments = {
             "name": "basic.source.comments",
             "description": "A fact table with comments",
@@ -245,7 +241,7 @@ class TestCreateOrUpdateNodes:
         }
 
         # Trying to create it again should fail
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/",
             json=basic_source_comments,
         )
@@ -257,7 +253,7 @@ class TestCreateOrUpdateNodes:
         assert response.status_code == 409
 
         # Update node with a new description should create a new revision
-        response = client.patch(
+        response = client_with_examples.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={
                 "description": "New description",
@@ -273,7 +269,7 @@ class TestCreateOrUpdateNodes:
         assert data["description"] == "New description"
 
         # Try to update node with no changes
-        response = client.patch(
+        response = client_with_examples.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={"description": "New description", "display_name": "Comments facts"},
         )
@@ -281,7 +277,7 @@ class TestCreateOrUpdateNodes:
         assert data == new_data
 
         # Try to update a node with a table that has different columns
-        response = client.patch(
+        response = client_with_examples.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={
                 "columns": {
@@ -525,12 +521,11 @@ class TestCreateOrUpdateNodes:
             {"name": "country", "type": "STR", "attributes": []},
         ]
 
-    def test_raise_on_multi_catalog_node(self, client: TestClient, load_examples):
+    def test_raise_on_multi_catalog_node(self, client_with_examples: TestClient):
         """
         Test raising when trying to select from multiple catalogs
         """
-        load_examples(client)
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/",
             json={
                 "query": (
@@ -602,15 +597,13 @@ class TestCreateOrUpdateNodes:
 
     def test_upsert_materialization_config(  # pylint: disable=too-many-arguments
         self,
-        client: TestClient,
-        load_examples,
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test creating & updating materialization config for a node.
         """
-        load_examples(client)
         # Setting the materialization config for a source node should fail
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.source.comments/materialization/",
             json={"engine_name": "spark", "engine_version": "2.4.4", "config": "{}"},
         )
@@ -621,7 +614,7 @@ class TestCreateOrUpdateNodes:
         )
 
         # Setting the materialization config for an engine that doesn't exist should fail
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={"engine_name": "spark", "engine_version": "2.4.4", "config": "{}"},
         )
@@ -630,15 +623,18 @@ class TestCreateOrUpdateNodes:
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
         # Create the engine and check the existing transform node
-        client.post("/engines/", json={"name": "spark", "version": "2.4.4"})
+        client_with_examples.post(
+            "/engines/",
+            json={"name": "spark", "version": "2.4.4"},
+        )
 
-        response = client.get("/nodes/basic.transform.country_agg/")
+        response = client_with_examples.get("/nodes/basic.transform.country_agg/")
         old_node_data = response.json()
         assert old_node_data["version"] == "v1.0"
         assert old_node_data["materialization_configs"] == []
 
         # Setting the materialization config should succeed with a new node revision created.
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
                 "engine_name": "spark",
@@ -654,7 +650,7 @@ class TestCreateOrUpdateNodes:
         )
 
         # Reading the node should yield the materialization config and new revision.
-        response = client.get("/nodes/basic.transform.country_agg/")
+        response = client_with_examples.get("/nodes/basic.transform.country_agg/")
         data = response.json()
         assert data["version"] == "v2.0"
         assert data["materialization_configs"] == [
@@ -666,7 +662,7 @@ class TestCreateOrUpdateNodes:
         assert old_node_data["node_revision_id"] < data["node_revision_id"]
 
         # Setting the same config should yield a message indicating so.
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
                 "engine_name": "spark",
@@ -761,14 +757,12 @@ class TestNodeColumnsAttributes:
 
     def test_set_columns_attributes(
         self,
-        client: TestClient,
-        load_examples,
+        client_with_examples: TestClient,
     ):
         """
         Validate that setting column attributes on the node works.
         """
-        load_examples(client)
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -790,7 +784,7 @@ class TestNodeColumnsAttributes:
         ]
 
         # Set columns attributes
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.dimension.users/attributes/",
             json=[
                 {
@@ -827,12 +821,11 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-    def test_set_columns_attributes_failed(self, client: TestClient, load_examples):
+    def test_set_columns_attributes_failed(self, client_with_examples: TestClient):
         """
         Test setting column attributes with different failure modes.
         """
-        load_examples(client)
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -848,11 +841,11 @@ class TestNodeColumnsAttributes:
             == "Attribute type `system.effective_time` not allowed on node type `source`!"
         )
 
-        response = client.get(
+        response = client_with_examples.get(
             "/nodes/basic.source.comments/",
         )
 
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -869,7 +862,7 @@ class TestNodeColumnsAttributes:
             "warnings": [],
         }
 
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -886,7 +879,7 @@ class TestNodeColumnsAttributes:
             "warnings": [],
         }
 
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -907,7 +900,7 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -929,7 +922,7 @@ class TestNodeColumnsAttributes:
             "warnings": [],
         }
 
-        response = client.get("/nodes/basic.source.comments/")
+        response = client_with_examples.get("/nodes/basic.source.comments/")
         data = response.json()
         assert data["columns"] == [
             {"name": "id", "type": "INT", "attributes": []},
@@ -957,12 +950,11 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
     Test ``POST /nodes/validate/``.
     """
 
-    def test_validating_a_valid_node(self, client: TestClient, load_examples) -> None:
+    def test_validating_a_valid_node(self, client_with_examples: TestClient) -> None:
         """
         Test validating a valid node
         """
-        load_examples(client)
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -1141,13 +1133,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "warnings": [],
         }
 
-    def test_adding_dimensions_to_node_columns(self, client: TestClient, load_examples):
+    def test_adding_dimensions_to_node_columns(self, client_with_examples: TestClient):
         """
         Test adding tables to existing nodes
         """
-        load_examples(client)
         # Attach the payment_type dimension to the payment_type column on the revenue node
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/revenue/columns/payment_type/?dimension=payment_type",
         )
         data = response.json()
@@ -1159,7 +1150,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         }
 
         # Check that the proper error is raised when the column doesn't exist
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/revenue/columns/non_existent_column/?dimension=payment_type",
         )
         assert response.status_code == 404
@@ -1169,7 +1160,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
 
         # Add a dimension including a specific dimension column name
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/revenue/columns/payment_type/"
             "?dimension=payment_type"
             "&dimension_column=payment_type_name",
@@ -1181,7 +1172,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "linked to column payment_type on node revenue"
         )
 
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/revenue/columns/payment_type/?dimension=basic.dimension.users",
         )
         data = response.json()
@@ -1190,7 +1181,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
 
         # Check that not including the dimension defaults it to the column name
-        response = client.post("/nodes/revenue/columns/payment_type/")
+        response = client_with_examples.post("/nodes/revenue/columns/payment_type/")
         assert response.status_code == 201
         data = response.json()
         assert data["message"] == (
@@ -1198,27 +1189,32 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "linked to column payment_type on node revenue"
         )
 
-    def test_node_downstreams(self, client: TestClient, load_examples):
+    def test_node_downstreams(self, client_with_examples: TestClient):
         """
         Test getting downstream nodes of different node types.
         """
-        load_examples(client)
-        response = client.get("/nodes/event_source/downstream/?node_type=metric")
+        response = client_with_examples.get(
+            "/nodes/event_source/downstream/?node_type=metric",
+        )
         data = response.json()
         assert {node["name"] for node in data} == {
             "long_events_distinct_countries",
             "device_ids_count",
         }
 
-        response = client.get("/nodes/event_source/downstream/?node_type=transform")
+        response = client_with_examples.get(
+            "/nodes/event_source/downstream/?node_type=transform",
+        )
         data = response.json()
         assert {node["name"] for node in data} == {"long_events"}
 
-        response = client.get("/nodes/event_source/downstream/?node_type=dimension")
+        response = client_with_examples.get(
+            "/nodes/event_source/downstream/?node_type=dimension",
+        )
         data = response.json()
         assert {node["name"] for node in data} == {"country_dim"}
 
-        response = client.get("/nodes/event_source/downstream/")
+        response = client_with_examples.get("/nodes/event_source/downstream/")
         data = response.json()
         assert {node["name"] for node in data} == {
             "long_events_distinct_countries",
@@ -1227,11 +1223,11 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "country_dim",
         }
 
-        response = client.get("/nodes/device_ids_count/downstream/")
+        response = client_with_examples.get("/nodes/device_ids_count/downstream/")
         data = response.json()
         assert data == []
 
-        response = client.get("/nodes/long_events/downstream/")
+        response = client_with_examples.get("/nodes/long_events/downstream/")
         data = response.json()
         assert {node["name"] for node in data} == {"long_events_distinct_countries"}
 
@@ -1328,12 +1324,11 @@ def test_node_similarity(session: Session, client: TestClient):
     }
 
 
-def test_resolving_downstream_status(client: TestClient, load_examples) -> None:
+def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     """
     Test creating and updating a source node
     """
     # Create draft transform and metric nodes with missing parents
-    load_examples(client)
     transform1 = {
         "name": "comments_by_migrated_users",
         "description": "Comments by users who have already migrated",
@@ -1414,7 +1409,7 @@ def test_resolving_downstream_status(client: TestClient, load_examples) -> None:
         metric2,
         metric3,
     ]:
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/",
             json=node,
         )
@@ -1441,7 +1436,7 @@ def test_resolving_downstream_status(client: TestClient, load_examples) -> None:
         "table": "comments",
     }
 
-    response = client.post(
+    response = client_with_examples.post(
         "/nodes/",
         json=missing_parent_node,
     )
@@ -1452,7 +1447,7 @@ def test_resolving_downstream_status(client: TestClient, load_examples) -> None:
 
     # Check that downstream nodes have now been switched to a "valid" status
     for node in [transform1, transform2, transform3, metric1, metric2, metric3]:
-        response = client.get(f"/nodes/{node['name']}/")
+        response = client_with_examples.get(f"/nodes/{node['name']}/")
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == node["name"]
@@ -1463,7 +1458,7 @@ def test_resolving_downstream_status(client: TestClient, load_examples) -> None:
 
     # Check that nodes still not valid have an invalid status
     for node in [transform4, transform5]:
-        response = client.get(f"/nodes/{node['name']}/")
+        response = client_with_examples.get(f"/nodes/{node['name']}/")
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == node["name"]

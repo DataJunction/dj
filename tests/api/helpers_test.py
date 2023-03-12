@@ -12,11 +12,13 @@ from dj.models import NodeRevision
 from dj.models.node import NodeStatus
 
 
-def test_get_dj_query(session: Session, client: TestClient, load_examples):
+def test_get_dj_query(
+    session: Session,
+    client_with_examples: TestClient,
+):  # pylint: disable=unused-argument
     """
     Test helpers.get_dj_query
     """
-    load_examples(client)
     helpers.get_dj_query(session=session, query="SELECT num_repair_orders FROM metrics")
 
 
