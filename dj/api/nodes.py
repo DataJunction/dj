@@ -22,6 +22,7 @@ from dj.api.helpers import (
     get_engine,
     get_node_by_name,
     propagate_valid_status,
+    raise_if_node_exists,
     resolve_downstream_references,
     validate_node_data,
 )
@@ -458,12 +459,7 @@ def create_source_node(
     Create a source node. If columns are not provided, the source node's schema
     will be inferred using the configured query service.
     """
-    get_node_by_name(
-        session,
-        data.name,
-        raise_if_not_exists=False,
-        raise_if_exists=True,
-    )
+    raise_if_node_exists(session, data.name)
     node = Node(name=data.name, type=NodeType.SOURCE, current_version=0)
     catalog = get_catalog(session=session, name=data.catalog)
 
@@ -525,12 +521,7 @@ def create_node(
     Create a node.
     """
     node_type = NodeType(os.path.basename(os.path.normpath(request.url.path)))
-    get_node_by_name(
-        session,
-        data.name,
-        raise_if_not_exists=False,
-        raise_if_exists=True,
-    )
+    raise_if_node_exists(session, data.name)
     node = Node(name=data.name, type=NodeType(node_type), current_version=0)
     node_revision = create_node_revision(data, node_type, session)
     save_node(session, node_revision, node, data.mode)
@@ -545,12 +536,7 @@ def create_cube_node(
     """
     Create a node.
     """
-    get_node_by_name(
-        session,
-        data.name,
-        raise_if_not_exists=False,
-        raise_if_exists=True,
-    )
+    raise_if_node_exists(session, data.name)
     node = Node(name=data.name, type=NodeType.CUBE, current_version=0)
     node_revision = create_cube_node_revision(session=session, data=data)
     save_node(session, node_revision, node, data.mode)

@@ -37,7 +37,6 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
     raise_if_not_exists: bool = True,
-    raise_if_exists: bool = False,
 ) -> Node:
     """
     Get a node by name
@@ -50,8 +49,6 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
         node = session.exec(statement).unique().one_or_none()
     else:
         node = session.exec(statement).one_or_none()
-
-    # Only raise an error for non-existent nodes if this flag is set
     if raise_if_not_exists:
         if not node:
             raise DJException(
@@ -61,13 +58,19 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
                 ),
                 http_status_code=404,
             )
-    if raise_if_exists:
-        if node:
-            raise DJException(
-                message=f"A node with name `{name}` already exists.",
-                http_status_code=HTTPStatus.CONFLICT,
-            )
     return node
+
+
+def raise_if_node_exists(session: Session, name: str) -> None:
+    """
+    Raise an error if the node with the given name already exists.
+    """
+    node = get_node_by_name(session, name, raise_if_not_exists=False)
+    if node:
+        raise DJException(
+            message=f"A node with name `{name}` already exists.",
+            http_status_code=HTTPStatus.CONFLICT,
+        )
 
 
 def get_column(node: NodeRevision, column_name: str) -> Column:
