@@ -26,8 +26,8 @@ from dj.models.engine import Engine, EngineInfo
 # from dj.models.table import Table, TableNodeRevision, TableYAML
 from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parse import is_metric
-from dj.typing import ColumnType
-from dj.utils import UTCDatetime, Version
+from dj.typing import ColumnType, UTCDatetime
+from dj.utils import Version
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
 DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
@@ -71,6 +71,8 @@ class CubeRelationship(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for many-to-many relationships between cube nodes and metric/dimension nodes.
     """
+
+    __tablename__ = "cube"
 
     cube_id: Optional[int] = Field(
         default=None,
@@ -462,7 +464,6 @@ class ImmutableNodeFields(BaseSQLModel):
     """
 
     name: str
-    type: NodeType
 
 
 class MutableNodeFields(BaseSQLModel):
@@ -472,8 +473,15 @@ class MutableNodeFields(BaseSQLModel):
 
     display_name: Optional[str]
     description: str
-    query: Optional[str]
     mode: NodeMode
+
+
+class MutableNodeQueryField(BaseSQLModel):
+    """
+    Query field for node.
+    """
+
+    query: str
 
 
 class SourceNodeColumnType(TypedDict, total=False):
@@ -490,9 +498,9 @@ class SourceNodeFields(BaseSQLModel):
     Source node fields that can be changed.
     """
 
-    catalog: Optional[str] = None
-    schema_: Optional[str] = None
-    table: Optional[str] = None
+    catalog: str
+    schema_: str
+    table: str
     columns: Optional[Dict[str, SourceNodeColumnType]]
 
 
@@ -512,7 +520,7 @@ class CubeNodeFields(BaseSQLModel):
 #
 
 
-class CreateNode(ImmutableNodeFields, MutableNodeFields):
+class CreateNode(ImmutableNodeFields, MutableNodeFields, MutableNodeQueryField):
     """
     Create non-source node object.
     """
@@ -529,6 +537,13 @@ class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
     A create object for cube nodes
     """
 
+    class Config:  # pylint: disable=too-few-public-methods
+        """
+        Do not allow extra fields in input
+        """
+
+        extra = Extra.forbid
+
 
 class UpdateNode(MutableNodeFields, SourceNodeFields):
     """
@@ -540,6 +555,7 @@ class UpdateNode(MutableNodeFields, SourceNodeFields):
         for k, v in {
             **SourceNodeFields.__annotations__,  # pylint: disable=E1101
             **MutableNodeFields.__annotations__,  # pylint: disable=E1101
+            **MutableNodeQueryField.__annotations__,  # pylint: disable=E1101
         }.items()
     }
 

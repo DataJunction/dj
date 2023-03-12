@@ -31,12 +31,13 @@ from dj.sql.parsing import ast
 from dj.sql.parsing.backends.exceptions import DJParseException
 
 
-def get_node_by_name(
+def get_node_by_name(  # pylint: disable=too-many-arguments
     session: Session,
     name: str,
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
     raise_if_not_exists: bool = True,
+    raise_if_exists: bool = False,
 ) -> Node:
     """
     Get a node by name
@@ -59,6 +60,12 @@ def get_node_by_name(
                     f"node with name `{name}` does not exist."
                 ),
                 http_status_code=404,
+            )
+    if raise_if_exists:
+        if node:
+            raise DJException(
+                message=f"A node with name `{name}` already exists.",
+                http_status_code=HTTPStatus.CONFLICT,
             )
     return node
 
@@ -311,7 +318,7 @@ def resolve_downstream_references(
                 .unique()
                 .one()
             )
-            downstream_node_revision.parents.append(node_revision)
+            downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
             (
                 _,

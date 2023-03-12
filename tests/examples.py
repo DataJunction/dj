@@ -1,6 +1,8 @@
 """
 Post requests for all example entities
 """
+from dj.models import Column
+from dj.typing import ColumnType
 
 EXAMPLES = (  # type: ignore
     (
@@ -32,7 +34,7 @@ EXAMPLES = (  # type: ignore
         [{"name": "postgres", "version": "15.2"}],
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "repair_order_id": {"type": "INT"},
@@ -46,14 +48,13 @@ EXAMPLES = (  # type: ignore
             "description": "All repair orders",
             "mode": "published",
             "name": "repair_orders",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "repair_orders",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "repair_order_id": {"type": "INT"},
@@ -65,14 +66,13 @@ EXAMPLES = (  # type: ignore
             "description": "Details on repair orders",
             "mode": "published",
             "name": "repair_order_details",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "repair_order_details",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "repair_type_id": {"type": "INT"},
@@ -82,14 +82,13 @@ EXAMPLES = (  # type: ignore
             "description": "Information on types of repairs",
             "mode": "published",
             "name": "repair_type",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "repair_type",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "contractor_id": {"type": "INT"},
@@ -106,14 +105,13 @@ EXAMPLES = (  # type: ignore
             "description": "Information on contractors",
             "mode": "published",
             "name": "contractors",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "contractors",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "municipality_id": {"type": "STR"},
@@ -122,14 +120,13 @@ EXAMPLES = (  # type: ignore
             "description": "Lookup table for municipality and municipality types",
             "mode": "published",
             "name": "municipality_municipality_type",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "municipality_municipality_type",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "municipality_type_id": {"type": "STR"},
@@ -138,14 +135,13 @@ EXAMPLES = (  # type: ignore
             "description": "Information on municipality types",
             "mode": "published",
             "name": "municipality_type",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "municipality_type",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "municipality_id": {"type": "STR"},
@@ -158,14 +154,13 @@ EXAMPLES = (  # type: ignore
             "description": "Information on municipalities",
             "mode": "published",
             "name": "municipality",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "municipality",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "dispatcher_id": {"type": "INT"},
@@ -175,14 +170,13 @@ EXAMPLES = (  # type: ignore
             "description": "Information on dispatchers",
             "mode": "published",
             "name": "dispatchers",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "dispatchers",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "hard_hat_id": {"type": "INT"},
@@ -202,14 +196,13 @@ EXAMPLES = (  # type: ignore
             "description": "Information on employees",
             "mode": "published",
             "name": "hard_hats",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "hard_hats",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "hard_hat_id": {"type": "INT"},
@@ -218,14 +211,13 @@ EXAMPLES = (  # type: ignore
             "description": "Lookup table for employee's current state",
             "mode": "published",
             "name": "hard_hat_state",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "hard_hat_state",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "state_id": {"type": "INT"},
@@ -236,14 +228,13 @@ EXAMPLES = (  # type: ignore
             "description": "Information on different types of repairs",
             "mode": "published",
             "name": "us_states",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "us_states",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "us_region_id": {"type": "INT"},
@@ -252,14 +243,13 @@ EXAMPLES = (  # type: ignore
             "description": "Information on US regions",
             "mode": "published",
             "name": "us_region",
-            "type": "source",
             "catalog": "default",
             "schema_": "roads",
             "table": "us_region",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Repair order dimension",
             "query": """
@@ -275,11 +265,10 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "repair_order",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Contractor dimension",
             "query": """
@@ -298,11 +287,10 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "contractor",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Hard hat dimension",
             "query": """
@@ -324,11 +312,10 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "hard_hat",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Hard hat dimension",
             "query": """
@@ -354,11 +341,10 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "local_hard_hats",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "US state dimension",
             "query": """
@@ -374,11 +360,10 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "us_state",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Dispatcher dimension",
             "query": """
@@ -390,11 +375,10 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "dispatcher",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Municipality dimension",
             "query": """
@@ -415,11 +399,10 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "municipality_dim",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Number of repair orders",
             "query": (
@@ -428,31 +411,28 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "num_repair_orders",
-            "type": "metric",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Average repair price",
             "query": "SELECT avg(price) as avg_repair_price FROM repair_order_details",
             "mode": "published",
             "name": "avg_repair_price",
-            "type": "metric",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Total repair cost",
             "query": "SELECT sum(price) as total_repair_cost FROM repair_order_details",
             "mode": "published",
             "name": "total_repair_cost",
-            "type": "metric",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Average length of employment",
             "query": (
@@ -461,11 +441,10 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "avg_length_of_employment",
-            "type": "metric",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Total repair order discounts",
             "query": (
@@ -474,11 +453,10 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "total_repair_order_discounts",
-            "type": "metric",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Total repair order discounts",
             "query": (
@@ -487,11 +465,10 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "avg_repair_order_discounts",
-            "type": "metric",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Average time to dispatch a repair order",
             "query": (
@@ -500,7 +477,6 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "avg_time_to_dispatch",
-            "type": "metric",
         },
     ),
     (
@@ -546,7 +522,7 @@ EXAMPLES = (  # type: ignore
         {},
     ),
     (  # Accounts/Revenue examples begin
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "id": {"type": "INT"},
@@ -557,14 +533,13 @@ EXAMPLES = (  # type: ignore
             "description": "A source table for account type data",
             "mode": "published",
             "name": "account_type_table",
-            "type": "source",
             "catalog": "default",
             "schema_": "accounting",
             "table": "account_type_table",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "id": {"type": "INT"},
@@ -574,14 +549,13 @@ EXAMPLES = (  # type: ignore
             "description": "A source table for different types of payments",
             "mode": "published",
             "name": "payment_type_table",
-            "type": "source",
             "catalog": "default",
             "schema_": "accounting",
             "table": "payment_type_table",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "payment_id": {"type": "INT"},
@@ -593,14 +567,13 @@ EXAMPLES = (  # type: ignore
             "description": "All repair orders",
             "mode": "published",
             "name": "revenue",
-            "type": "source",
             "catalog": "default",
             "schema_": "accounting",
             "table": "revenue",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Payment type dimensions",
             "query": (
@@ -609,11 +582,10 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "payment_type",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Account type dimension",
             "query": (
@@ -623,11 +595,10 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "account_type",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/transform/",
         {
             "query": (
                 "SELECT payment_id, payment_amount, customer_id, account_type "
@@ -636,11 +607,10 @@ EXAMPLES = (  # type: ignore
             "description": "Only large revenue payments",
             "mode": "published",
             "name": "large_revenue_payments_only",
-            "type": "transform",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/transform/",
         {
             "query": (
                 "SELECT payment_id, payment_amount, customer_id, account_type "
@@ -651,25 +621,22 @@ EXAMPLES = (  # type: ignore
             "description": "Only large revenue payments from business accounts",
             "mode": "published",
             "name": "large_revenue_payments_and_business_only",
-            "type": "transform",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Total number of account types",
             "query": "SELECT count(id) as num_accounts FROM account_type",
             "mode": "published",
             "name": "number_of_account_types",
-            "type": "metric",
         },
     ),
     (  # Basic namespace
-        "/nodes/",
+        "/nodes/source/",
         {
             "name": "basic.source.comments",
             "description": "A fact table with comments",
-            "type": "source",
             "columns": {
                 "id": {"type": "INT"},
                 "user_id": {
@@ -689,11 +656,10 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "name": "basic.source.users",
             "description": "A user table",
-            "type": "source",
             "columns": {
                 "id": {"type": "INT"},
                 "full_name": {"type": "STR"},
@@ -712,10 +678,9 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Country dimension",
-            "type": "dimension",
             "query": "SELECT country, COUNT(1) AS user_cnt "
             "FROM basic.source.users GROUP BY country",
             "mode": "published",
@@ -723,10 +688,9 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "User dimension",
-            "type": "dimension",
             "query": (
                 "SELECT id, full_name, age, country, gender, preferred_language, "
                 "secret_number, created_at, post_processing_timestamp "
@@ -737,10 +701,9 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
-        "/nodes/",
+        "/nodes/transform/",
         {
             "description": "Country level agg table",
-            "type": "transform",
             "query": (
                 "SELECT country, COUNT(DISTINCT id) AS num_users "
                 "FROM basic.source.users GROUP BY 1"
@@ -750,17 +713,16 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Number of comments",
-            "type": "metric",
             "query": ("SELECT COUNT(1) AS cnt " "FROM basic.source.comments"),
             "mode": "published",
             "name": "basic.num_comments",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Number of users.",
             "type": "metric",
@@ -770,11 +732,10 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (  # Event examples
-        "/nodes/",
+        "/nodes/source/",
         {
             "name": "event_source",
             "description": "Events",
-            "type": "source",
             "columns": {
                 "event_id": {"type": "INT"},
                 "event_latency": {"type": "INT"},
@@ -788,49 +749,45 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
-        "/nodes/",
+        "/nodes/transform/",
         {
             "name": "long_events",
             "description": "High-Latency Events",
-            "type": "transform",
             "query": "SELECT event_id, event_latency, device_id, country "
             "FROM event_source WHERE event_latency > 1000000",
             "mode": "published",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "name": "country_dim",
             "description": "Country Dimension",
-            "type": "dimension",
             "query": "SELECT country, COUNT(DISTINCT event_id) AS events_cnt "
             "FROM event_source GROUP BY country",
             "mode": "published",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "name": "device_ids_count",
             "description": "Number of Distinct Devices",
-            "type": "metric",
             "query": "SELECT COUNT(DISTINCT device_id) " "FROM event_source",
             "mode": "published",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "name": "long_events_distinct_countries",
             "description": "Number of Distinct Countries for Long Events",
-            "type": "metric",
             "query": "SELECT COUNT(DISTINCT country) " "FROM long_events",
             "mode": "published",
         },
     ),
     (  # DBT examples
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "id": {"type": "INT"},
@@ -840,14 +797,13 @@ EXAMPLES = (  # type: ignore
             "description": "Customer table",
             "mode": "published",
             "name": "dbt.source.jaffle_shop.customers",
-            "type": "source",
             "catalog": "public",
             "schema_": "jaffle_shop",
             "table": "customers",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "User dimension",
             "query": (
@@ -856,11 +812,10 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "dbt.dimension.customers",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "id": {"type": "INT"},
@@ -875,14 +830,13 @@ EXAMPLES = (  # type: ignore
             "description": "Orders fact table",
             "mode": "published",
             "name": "dbt.source.jaffle_shop.orders",
-            "type": "source",
             "catalog": "public",
             "schema_": "jaffle_shop",
             "table": "orders",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "id": {"type": "INT"},
@@ -896,14 +850,13 @@ EXAMPLES = (  # type: ignore
             "description": "Payments fact table.",
             "mode": "published",
             "name": "dbt.source.stripe.payments",
-            "type": "source",
             "catalog": "public",
             "schema_": "stripe",
             "table": "payments",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/transform/",
         {
             "query": (
                 'SELECT "dbt.source.jaffle_shop.customers".id, '
@@ -919,11 +872,10 @@ EXAMPLES = (  # type: ignore
             "description": "Country level agg table",
             "mode": "published",
             "name": "dbt.transform.customer_agg",
-            "type": "transform",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/source/",
         {
             "columns": {
                 "id": {"type": "INT"},
@@ -938,37 +890,43 @@ EXAMPLES = (  # type: ignore
             "catalog": "default",
             "schema_": "revenue",
             "table": "sales",
-            "type": "source",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/dimension/",
         {
             "description": "Item dimension",
             "query": ("SELECT item_name " "account_type_classification FROM " "sales"),
             "mode": "published",
             "name": "items",
-            "type": "dimension",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Total units sold",
             "query": "SELECT SUM(sold_count) as num_sold FROM sales",
             "mode": "published",
             "name": "items_sold_count",
-            "type": "metric",
         },
     ),
     (
-        "/nodes/",
+        "/nodes/metric/",
         {
             "description": "Total profit",
             "query": "SELECT SUM(sold_count * price_per_unit) as num_sold FROM sales",
             "mode": "published",
             "name": "total_profit",
-            "type": "metric",
         },
     ),
 )
+
+
+COLUMN_MAPPINGS = {
+    "public.basic.comments": [
+        Column(name="id", type=ColumnType("INT")),
+        Column(name="user_id", type=ColumnType("INT")),
+        Column(name="timestamp", type=ColumnType("TIMESTAMP")),
+        Column(name="text", type=ColumnType("STR")),
+    ],
+}
