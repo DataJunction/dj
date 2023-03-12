@@ -77,8 +77,6 @@ class FiltersSchema(
 
     def __getitem__(self, i: int) -> MetaOapg.items:
         return super().__getitem__(i)
-DatabaseNameSchema = schemas.StrSchema
-CheckDatabaseOnlineSchema = schemas.BoolSchema
 RequestRequiredQueryParams = typing_extensions.TypedDict(
     'RequestRequiredQueryParams',
     {
@@ -89,8 +87,6 @@ RequestOptionalQueryParams = typing_extensions.TypedDict(
     {
         'dimensions': typing.Union[DimensionsSchema, list, tuple, ],
         'filters': typing.Union[FiltersSchema, list, tuple, ],
-        'database_name': typing.Union[DatabaseNameSchema, str, ],
-        'check_database_online': typing.Union[CheckDatabaseOnlineSchema, bool, ],
     },
     total=False
 )
@@ -110,18 +106,6 @@ request_query_filters = api_client.QueryParameter(
     name="filters",
     style=api_client.ParameterStyle.FORM,
     schema=FiltersSchema,
-    explode=True,
-)
-request_query_database_name = api_client.QueryParameter(
-    name="database_name",
-    style=api_client.ParameterStyle.FORM,
-    schema=DatabaseNameSchema,
-    explode=True,
-)
-request_query_check_database_online = api_client.QueryParameter(
-    name="check_database_online",
-    style=api_client.ParameterStyle.FORM,
-    schema=CheckDatabaseOnlineSchema,
     explode=True,
 )
 # Path params
@@ -272,8 +256,6 @@ class BaseApi(api_client.Api):
         for parameter in (
             request_query_dimensions,
             request_query_filters,
-            request_query_database_name,
-            request_query_check_database_online,
         ):
             parameter_data = query_params.get(parameter.name, schemas.unset)
             if parameter_data is schemas.unset:

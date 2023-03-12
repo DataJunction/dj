@@ -10,6 +10,9 @@ dict, frozendict.frozendict,  | frozendict.frozendict,  | Update node object whe
 ### Dictionary Keys
 Key | Input Type | Accessed Type | Description | Notes
 ------------ | ------------- | ------------- | ------------- | -------------
+**catalog** | str,  | str,  |  | [optional] 
+**schema_** | str,  | str,  |  | [optional] 
+**table** | str,  | str,  |  | [optional] 
 **[columns](#columns)** | dict, frozendict.frozendict,  | frozendict.frozendict,  |  | [optional] 
 **display_name** | str,  | str,  |  | [optional] 
 **description** | str,  | str,  |  | [optional] 
