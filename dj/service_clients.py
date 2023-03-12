@@ -1,12 +1,14 @@
 """Clients for various configurable services."""
-from typing import List
+from typing import List, Optional
 from urllib.parse import urljoin
 
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3 import Retry
 
+from dj.errors import DJQueryServiceClientException
 from dj.models.column import Column
+from dj.models.query import QueryWithResults
 from dj.typing import ColumnType
 
 
@@ -82,3 +84,46 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             Column(name=column["name"], type=ColumnType(column["type"]))
             for column in table_columns
         ]
+
+    def submit_query(  # pylint: disable=too-many-arguments
+        self,
+        engine: str,
+        engine_version: str,
+        submitted_query: str,
+        catalog: Optional[str] = "default",
+        async_: Optional[bool] = False,
+    ) -> QueryWithResults:
+        """
+        Submit a query to the query service
+        """
+        response = self.requests_session.post(
+            "/queries/",
+            json={
+                "engine": engine,
+                "engine_version": engine_version,
+                "submitted_query": submitted_query,
+                "catalog_name": catalog,
+                "async_": async_,
+            },
+        )
+        if not response.ok:
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+            )
+        query_info = response.json()
+        return QueryWithResults(**query_info)
+
+    def get_query(
+        self,
+        query_id: str,
+    ) -> QueryWithResults:
+        """
+        Get a previously submitted query
+        """
+        response = self.requests_session.get(f"/queries/{query_id}/")
+        if not response.ok:
+            raise DJQueryServiceClientException(
+                message=f"Error response from query service: {response.text}",
+            )
+        query_info = response.json()
+        return QueryWithResults(**query_info)

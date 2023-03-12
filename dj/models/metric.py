@@ -7,7 +7,7 @@ from sqlmodel import SQLModel
 
 from dj.models.node import Node
 from dj.sql.dag import get_dimensions
-from dj.utils import UTCDatetime
+from dj.typing import UTCDatetime
 
 
 class Metric(SQLModel):
