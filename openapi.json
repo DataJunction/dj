@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+g4e49348"
+        "version": "0.0.post1.dev1+g5d0aa56"
     },
     "paths": {
         "/catalogs/": {
@@ -157,29 +157,6 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/databases/": {
-            "get": {
-                "summary": "Read Databases",
-                "description": "List the available databases.",
-                "operationId": "read_databases_databases__get",
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Response Read Databases Databases  Get",
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/Database"
-                                    }
                                 }
                             }
                         }
@@ -399,25 +376,6 @@
                         },
                         "name": "filters",
                         "in": "query"
-                    },
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "Database Name",
-                            "type": "string"
-                        },
-                        "name": "database_name",
-                        "in": "query"
-                    },
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "Check Database Online",
-                            "type": "boolean",
-                            "default": true
-                        },
-                        "name": "check_database_online",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -492,21 +450,22 @@
                 }
             }
         },
-        "/query/validate": {
-            "post": {
+        "/query/{sql}": {
+            "get": {
                 "summary": "Read Metrics Sql",
                 "description": "Return SQL for a DJ Query.\n\nA database can be optionally specified. If no database is specified the optimal one\nwill be used.",
-                "operationId": "read_metrics_sql_query_validate_post",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/DJSQL"
-                            }
-                        }
-                    },
-                    "required": true
-                },
+                "operationId": "read_metrics_sql_query__sql__get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Sql",
+                            "type": "string"
+                        },
+                        "name": "sql",
+                        "in": "path"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "Successful Response",
@@ -930,54 +889,6 @@
                         "in": "query"
                     }
                 ],
-                "responses": {
-                    "201": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/nodes/{name}/table/": {
-            "post": {
-                "summary": "Add Table To Node",
-                "description": "Add a table to a node",
-                "operationId": "add_table_to_node_nodes__name__table__post",
-                "parameters": [
-                    {
-                        "required": true,
-                        "schema": {
-                            "title": "Name",
-                            "type": "string"
-                        },
-                        "name": "name",
-                        "in": "path"
-                    }
-                ],
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "$ref": "#/components/schemas/CreateTable"
-                            }
-                        }
-                    },
-                    "required": true
-                },
                 "responses": {
                     "201": {
                         "description": "Successful Response",
@@ -1537,39 +1448,6 @@
                     }
                 }
             }
-        },
-        "/graphql": {
-            "get": {
-                "summary": "Handle Http Get",
-                "operationId": "handle_http_get_graphql_get",
-                "responses": {
-                    "200": {
-                        "description": "The GraphiQL integrated development environment.",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    },
-                    "404": {
-                        "description": "Not found if GraphiQL is not enabled."
-                    }
-                }
-            },
-            "post": {
-                "summary": "Handle Http Post",
-                "operationId": "handle_http_post_graphql_post",
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    }
-                }
-            }
         }
     },
     "components": {
@@ -1887,25 +1765,6 @@
                 },
                 "description": "A simplified column schema, without ID or dimensions."
             },
-            "CreateColumn": {
-                "title": "CreateColumn",
-                "required": [
-                    "name",
-                    "type"
-                ],
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "title": "Name",
-                        "type": "string"
-                    },
-                    "type": {
-                        "title": "Type",
-                        "type": "string"
-                    }
-                },
-                "description": "A column creation request"
-            },
             "CreateCubeNode": {
                 "title": "CreateCubeNode",
                 "required": [
@@ -1991,6 +1850,18 @@
                 ],
                 "type": "object",
                 "properties": {
+                    "catalog": {
+                        "title": "Catalog",
+                        "type": "string"
+                    },
+                    "schema_": {
+                        "title": "Schema ",
+                        "type": "string"
+                    },
+                    "table": {
+                        "title": "Table",
+                        "type": "string"
+                    },
                     "columns": {
                         "title": "Columns",
                         "type": "object",
@@ -2022,47 +1893,6 @@
                     }
                 },
                 "description": "A create object for source nodes"
-            },
-            "CreateTable": {
-                "title": "CreateTable",
-                "required": [
-                    "table",
-                    "database_name",
-                    "catalog_name",
-                    "columns"
-                ],
-                "type": "object",
-                "properties": {
-                    "schema": {
-                        "title": "Schema",
-                        "type": "string"
-                    },
-                    "table": {
-                        "title": "Table",
-                        "type": "string"
-                    },
-                    "cost": {
-                        "title": "Cost",
-                        "type": "number",
-                        "default": 1.0
-                    },
-                    "database_name": {
-                        "title": "Database Name",
-                        "type": "string"
-                    },
-                    "catalog_name": {
-                        "title": "Catalog Name",
-                        "type": "string"
-                    },
-                    "columns": {
-                        "title": "Columns",
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/CreateColumn"
-                        }
-                    }
-                },
-                "description": "Create table input"
             },
             "CreateTag": {
                 "title": "CreateTag",
@@ -2180,87 +2010,6 @@
                     }
                 },
                 "description": "Metadata for a cube node"
-            },
-            "DJSQL": {
-                "title": "DJSQL",
-                "required": [
-                    "sql"
-                ],
-                "type": "object",
-                "properties": {
-                    "database_name": {
-                        "title": "Database Name",
-                        "type": "string"
-                    },
-                    "sql": {
-                        "title": "Sql",
-                        "type": "string"
-                    }
-                },
-                "description": "Class for DJ SQL request."
-            },
-            "Database": {
-                "title": "Database",
-                "required": [
-                    "name",
-                    "URI"
-                ],
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "title": "Id",
-                        "type": "integer"
-                    },
-                    "uuid": {
-                        "title": "Uuid",
-                        "type": "string",
-                        "format": "uuid"
-                    },
-                    "name": {
-                        "title": "Name",
-                        "type": "string"
-                    },
-                    "description": {
-                        "title": "Description",
-                        "type": "string",
-                        "default": ""
-                    },
-                    "URI": {
-                        "title": "Uri",
-                        "type": "string"
-                    },
-                    "extra_params": {
-                        "title": "Extra Params",
-                        "type": "object",
-                        "default": {}
-                    },
-                    "read_only": {
-                        "title": "Read Only",
-                        "type": "boolean",
-                        "default": true
-                    },
-                    "async_": {
-                        "title": "Async ",
-                        "type": "boolean",
-                        "default": false
-                    },
-                    "cost": {
-                        "title": "Cost",
-                        "type": "number",
-                        "default": 1.0
-                    },
-                    "created_at": {
-                        "title": "Created At",
-                        "type": "string",
-                        "format": "date-time"
-                    },
-                    "updated_at": {
-                        "title": "Updated At",
-                        "type": "string",
-                        "format": "date-time"
-                    }
-                },
-                "description": "A database.\n\nA simple example:\n\n    name: druid\n    description: An Apache Druid database\n    URI: druid://localhost:8082/druid/v2/sql/\n    read-only: true\n    async_: false\n    cost: 1.0"
             },
             "EngineInfo": {
                 "title": "EngineInfo",
@@ -2524,6 +2273,18 @@
                         "title": "Node Id",
                         "type": "integer"
                     },
+                    "catalog_id": {
+                        "title": "Catalog Id",
+                        "type": "integer"
+                    },
+                    "schema_": {
+                        "title": "Schema ",
+                        "type": "string"
+                    },
+                    "table": {
+                        "title": "Table",
+                        "type": "string"
+                    },
                     "status": {
                         "allOf": [
                             {
@@ -2591,7 +2352,6 @@
                     "status",
                     "mode",
                     "columns",
-                    "tables",
                     "updated_at",
                     "materialization_configs"
                 ],
@@ -2626,6 +2386,17 @@
                     "mode": {
                         "$ref": "#/components/schemas/NodeMode"
                     },
+                    "catalog": {
+                        "$ref": "#/components/schemas/Catalog"
+                    },
+                    "schema_": {
+                        "title": "Schema ",
+                        "type": "string"
+                    },
+                    "table": {
+                        "title": "Table",
+                        "type": "string"
+                    },
                     "description": {
                         "title": "Description",
                         "type": "string",
@@ -2643,13 +2414,6 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/ColumnOutput"
-                        }
-                    },
-                    "tables": {
-                        "title": "Tables",
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/TableOutput"
                         }
                     },
                     "updated_at": {
@@ -2741,31 +2505,6 @@
                 },
                 "additionalProperties": false
             },
-            "TableOutput": {
-                "title": "TableOutput",
-                "type": "object",
-                "properties": {
-                    "id": {
-                        "title": "Id",
-                        "type": "integer"
-                    },
-                    "catalog": {
-                        "$ref": "#/components/schemas/Catalog"
-                    },
-                    "schema_": {
-                        "title": "Schema ",
-                        "type": "string"
-                    },
-                    "table": {
-                        "title": "Table",
-                        "type": "string"
-                    },
-                    "database": {
-                        "$ref": "#/components/schemas/Database"
-                    }
-                },
-                "description": "Output for table information."
-            },
             "Tag": {
                 "title": "Tag",
                 "required": [
@@ -2839,15 +2578,10 @@
             "TranslatedSQL": {
                 "title": "TranslatedSQL",
                 "required": [
-                    "database_id",
                     "sql"
                 ],
                 "type": "object",
                 "properties": {
-                    "database_id": {
-                        "title": "Database Id",
-                        "type": "integer"
-                    },
                     "sql": {
                         "title": "Sql",
                         "type": "string"
@@ -2868,6 +2602,18 @@
                 "title": "UpdateNode",
                 "type": "object",
                 "properties": {
+                    "catalog": {
+                        "title": "Catalog",
+                        "type": "string"
+                    },
+                    "schema_": {
+                        "title": "Schema ",
+                        "type": "string"
+                    },
+                    "table": {
+                        "title": "Table",
+                        "type": "string"
+                    },
                     "columns": {
                         "title": "Columns",
                         "type": "object",
