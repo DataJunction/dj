@@ -114,4 +114,11 @@ def test_list_attributes(
             "given fact related node. Used to facilitate proper joins with "
             "dimension node to match the desired effect.",
         },
+        "dimension": {
+            "namespace": "system",
+            "uniqueness_scope": [],
+            "allowed_node_types": ["source", "transform"],
+            "name": "dimension",
+            "description": "Points to a dimension attribute column",
+        },
     }

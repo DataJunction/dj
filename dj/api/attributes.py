@@ -97,6 +97,13 @@ def default_attribute_types(session: Session = Depends(get_session)):
             uniqueness_scope=["node", "column_type"],
             allowed_node_types=[NodeType.DIMENSION],
         ),
+        AttributeType(
+            namespace=RESERVED_ATTRIBUTE_NAMESPACE,
+            name="dimension",
+            description="Points to a dimension attribute column",
+            uniqueness_scope=[],
+            allowed_node_types=[NodeType.SOURCE, NodeType.TRANSFORM],
+        ),
     ]
     default_attribute_type_names = {type_.name: type_ for type_ in defaults}
 
