@@ -3,21 +3,25 @@ Data related APIs.
 """
 
 import logging
+from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
-from dj.api.helpers import get_node_by_name
-from dj.errors import DJException
+from dj.api.helpers import get_node_by_name, get_query
+from dj.errors import DJException, DJInvalidInputException
+from dj.models.metric import TranslatedSQL
 from dj.models.node import AvailabilityState, AvailabilityStateBase, NodeType
-from dj.utils import get_session
+from dj.models.query import QueryWithResults
+from dj.service_clients import QueryServiceClient
+from dj.utils import get_query_service_client, get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/data/availability/{node_name}/")
+@router.post("/data/{node_name}/availability/")
 def add_availability(
     node_name: str,
     data: AvailabilityStateBase,
@@ -83,3 +87,44 @@ def add_availability(
         status_code=200,
         content={"message": "Availability state successfully posted"},
     )
+
+
+@router.get("/data/{node_name}/")
+def data_for_node(
+    node_name: str,
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
+    *,
+    session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> QueryWithResults:
+    """
+    Gets data for a node
+    """
+    node = get_node_by_name(session, node_name)
+    if node.type not in (NodeType.METRIC, NodeType.CUBE, NodeType.DIMENSION):
+        raise DJException(message=f"Can't get data for node type {node.type}!")
+
+    if node.type == NodeType.DIMENSION:
+        if dimensions or filters:
+            raise DJInvalidInputException(
+                message=f"Cannot set filters or dimensions for node type {node.type}!",
+            )
+
+    query_ast = get_query(
+        session=session,
+        metric=node_name,
+        dimensions=dimensions,
+        filters=filters,
+    )
+    query = TranslatedSQL(sql=str(query_ast))
+    available_engines = node.current.catalog.engines
+
+    result = query_service_client.submit_query(
+        engine_name=available_engines[0].name,
+        engine_version=available_engines[0].version,
+        catalog_name=node.current.catalog.name,
+        query=query.sql,
+        async_=False,
+    )
+    return result
