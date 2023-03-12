@@ -235,3 +235,12 @@ class DJDoesNotExistException(DJException):
 
     dbapi_exception: DBAPIExceptions = "DataError"
     http_status_code: int = 404
+
+
+class DJQueryServiceClientException(DJException):
+    """
+    Exception raised when the query service returns an error
+    """
+
+    dbapi_exception: DBAPIExceptions = "InterfaceError"
+    http_status_code: int = 500
