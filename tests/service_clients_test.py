@@ -104,21 +104,17 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "engine_name": "postgres",
             "engine_version": "15.2",
             "id": "ef209eef-c31a-4089-aae6-833259a08e22",
-            "submitted_query": "SELECT 1 as num",
+            "query": "SELECT 1 as num",
             "executed_query": "SELECT 1 as num",
             "scheduled": "2023-01-01T00:00:00.000000",
             "started": "2023-01-01T00:00:00.000000",
             "finished": "2023-01-01T00:00:00.000001",
             "state": "FINISHED",
             "progress": 1,
-            "results": [
-                {
-                    "sql": "SELECT 1 as num",
-                    "columns": [{"name": "num", "type": "INT"}],
-                    "rows": [[1]],
-                    "row_count": 1,
-                },
-            ],
+            "results": {
+                "columns": [{"name": "num", "type": "INT"}],
+                "rows": [[1]],
+            },
             "next": None,
             "previous": None,
             "errors": [],
@@ -132,20 +128,19 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
         query_service_client.submit_query(
-            engine="postgres",
+            engine_name="postgres",
             engine_version="15.2",
-            submitted_query="SELECT 1",
-            catalog="public",
+            query="SELECT 1",
             async_=False,
         )
 
         mock_request.assert_called_with(
             "/queries/",
             json={
-                "catalog_name": "public",
-                "engine": "postgres",
+                "catalog_name": "default",
+                "engine_name": "postgres",
                 "engine_version": "15.2",
-                "submitted_query": "SELECT 1",
+                "query": "SELECT 1",
                 "async_": False,
             },
         )
@@ -161,21 +156,17 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "engine_name": "postgres",
             "engine_version": "15.2",
             "id": "ef209eef-c31a-4089-aae6-833259a08e22",
-            "submitted_query": "SELECT 1 as num",
+            "query": "SELECT 1 as num",
             "executed_query": "SELECT 1 as num",
             "scheduled": "2023-01-01T00:00:00.000000",
             "started": "2023-01-01T00:00:00.000000",
             "finished": "2023-01-01T00:00:00.000001",
             "state": "FINISHED",
             "progress": 1,
-            "results": [
-                {
-                    "sql": "SELECT 1 as num",
-                    "columns": [{"name": "num", "type": "INT"}],
-                    "rows": [[1]],
-                    "row_count": 1,
-                },
-            ],
+            "results": {
+                "columns": [{"name": "num", "type": "INT"}],
+                "rows": [[1]],
+            },
             "next": None,
             "previous": None,
             "errors": [],
@@ -218,10 +209,9 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
         with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.submit_query(
-                engine="postgres",
+                engine_name="postgres",
                 engine_version="15.2",
-                submitted_query="SELECT 1",
-                catalog="public",
+                query="SELECT 1",
                 async_=False,
             )
         assert "Error response from query service" in str(exc_info.value)

@@ -1,6 +1,7 @@
 """Clients for various configurable services."""
 from typing import List, Optional
 from urllib.parse import urljoin
+from uuid import UUID
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -87,10 +88,10 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
 
     def submit_query(  # pylint: disable=too-many-arguments
         self,
-        engine: str,
+        engine_name: str,
         engine_version: str,
-        submitted_query: str,
-        catalog: Optional[str] = "default",
+        query: str,
+        catalog_name: Optional[str] = "default",
         async_: Optional[bool] = False,
     ) -> QueryWithResults:
         """
@@ -99,18 +100,20 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         response = self.requests_session.post(
             "/queries/",
             json={
-                "engine": engine,
+                "engine_name": engine_name,
+                "catalog_name": catalog_name,
                 "engine_version": engine_version,
-                "submitted_query": submitted_query,
-                "catalog_name": catalog,
+                "query": query,
                 "async_": async_,
             },
         )
+        response_data = response.json()
         if not response.ok:
             raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response.text}",
+                message=f"Error response from query service: {response_data['message']}",
             )
         query_info = response.json()
+        query_info["id"] = UUID(query_info["id"])
         return QueryWithResults(**query_info)
 
     def get_query(

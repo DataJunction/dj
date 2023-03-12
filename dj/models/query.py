@@ -5,7 +5,7 @@ Models for queries.
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, List, Optional
+from typing import Any, List, Optional, Union
 from uuid import UUID, uuid4
 
 import msgpack
@@ -94,29 +94,50 @@ class QueryResults(BaseSQLModel):
     __root__: List[StatementResults]
 
 
-class QueryWithResults(BaseQuery):
+class TableRef(BaseSQLModel):
+    """
+    Table reference
+    """
+
+    catalog: str
+    schema_: str = Field(alias="schema")
+    table: str
+
+
+class QueryExecutionResult(BaseSQLModel):
+    """
+    Query execution job response
+    """
+
+    columns: List[ColumnMetadata]
+    rows: Union[List[Row], bytes]
+
+
+class QueryWithResults(BaseSQLModel):
     """
     Model for query with results.
     """
 
-    id: uuid.UUID
+    id: uuid.UUID  # execution ref
 
-    submitted_query: str
-    executed_query: Optional[str] = None
+    engine_name: Optional[str] = None
+    engine_version: Optional[str] = None
 
-    scheduled: Optional[datetime] = None
+    query: str
+
+    created: Optional[datetime] = None
     started: Optional[datetime] = None
     finished: Optional[datetime] = None
 
     state: QueryState = QueryState.UNKNOWN
-    progress: float = 0.0
 
-    results: QueryResults
+    output_table: Optional[TableRef]
+    results: QueryExecutionResult
     next: Optional[AnyHttpUrl] = None
     previous: Optional[AnyHttpUrl] = None
     errors: List[str]
 
-    @validator("scheduled", pre=True)
+    @validator("created", pre=True)
     def parse_scheduled_date_string(cls, value):  # pylint: disable=no-self-argument
         """
         Convert string date values to datetime

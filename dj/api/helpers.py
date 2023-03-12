@@ -130,11 +130,11 @@ def get_query(  # pylint: disable=too-many-arguments
     """
     Get a query for a metric, dimensions, and filters
     """
-    metric = get_node_by_name(session=session, name=metric, node_type=NodeType.METRIC)
+    node = get_node_by_name(session=session, name=metric)
 
     query_ast = build_node(
         session=session,
-        node=metric.current,
+        node=node.current,
         dialect=None,
         filters=filters,
         dimensions=dimensions,

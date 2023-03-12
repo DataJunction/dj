@@ -3,7 +3,7 @@ Fixtures for testing.
 """
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 
-from typing import Iterator, List
+from typing import Collection, Iterator, List, Optional
 
 import pytest
 from cachelib.simple import SimpleCache
@@ -20,7 +20,7 @@ from dj.service_clients import QueryServiceClient
 from dj.utils import get_query_service_client, get_session, get_settings
 
 from .construction.fixtures import build_expectation, construction_session
-from .examples import COLUMN_MAPPINGS, EXAMPLES
+from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS
 from .sql.parsing.queries import (
     case_when_null,
     cte_query,
@@ -88,6 +88,21 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         qs_client,
         "get_columns_for_table",
         mock_get_columns_for_table,
+    )
+
+    def mock_submit_query(
+        engine_name: str,  # pylint: disable=unused-argument
+        engine_version: str,  # pylint: disable=unused-argument
+        query: str,
+        catalog_name: str,  # pylint: disable=unused-argument
+        async_: Optional[bool] = False,  # pylint: disable=unused-argument
+    ) -> Collection[Collection[str]]:
+        return QUERY_DATA_MAPPINGS[query]
+
+    mocker.patch.object(
+        qs_client,
+        "submit_query",
+        mock_submit_query,
     )
 
     yield qs_client
