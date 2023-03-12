@@ -1186,7 +1186,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert data["message"] == (
-            "Cannot add dimension to column, catalogs do not match: default, public"
+            "Cannot add dimension to column, because catalogs do not match: default, public"
         )
 
         # Check that not including the dimension defaults it to the column name
