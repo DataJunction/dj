@@ -42,7 +42,7 @@ def add_availability(
                 message=(
                     "Cannot set availability state, "
                     "source nodes require availability "
-                    "states match the set table: "
+                    "states to match the set table: "
                     f"{data.catalog}."
                     f"{data.schema_}."
                     f"{data.table} "

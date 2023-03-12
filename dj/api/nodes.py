@@ -405,11 +405,15 @@ def create_cube_node_revision(
             message=("At least one dimension is required to create a cube node"),
             http_status_code=http.client.UNPROCESSABLE_ENTITY,
         )
-    if len(set(catalogs)) != 1:
+    if len(set(catalogs)) > 1:  # pragma: no cover
         raise DJException(
             message=(
                 f"Cannot create cube using nodes from multiple catalogs: {catalogs}"
             ),
+        )
+    if len(set(catalogs)) < 1:
+        raise DJException(
+            message=("Cube elements must contain a common catalog"),
         )
     return NodeRevision(
         name=data.name,
@@ -519,7 +523,7 @@ def add_dimension_to_node(
     if node.current.catalog.name != dimension_node.current.catalog.name:
         raise DJException(
             message=(
-                "Cannot add dimension to column, catalogs do not match: "
+                "Cannot add dimension to column, because catalogs do not match: "
                 f"{node.current.catalog.name}, {dimension_node.current.catalog.name}"
             ),
         )

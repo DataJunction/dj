@@ -479,7 +479,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {
             "message": (
                 "Cannot set availability state, source nodes require availability states "
-                "match the set table: default.accounting.large_pmts does not match "
+                "to match the set table: default.accounting.large_pmts does not match "
                 "default.accounting.revenue "
             ),
             "errors": [],

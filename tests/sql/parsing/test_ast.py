@@ -500,7 +500,7 @@ def test_map_subscripts():
     assert compare_query_strings('SELECT some_map["x"] FROM a', str(query))
 
 
-def test_queryto_select(cte_query):
+def test_query_to_select(cte_query):
     """test converting a query to a select"""
     assert cte_query.to_select().compare(  # pylint: disable=W0212
         Select(
