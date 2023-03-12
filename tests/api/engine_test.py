@@ -63,11 +63,6 @@ def test_engine_list(
         {
             "name": "spark",
             "uri": None,
-            "version": "3.1.1",
-        },
-        {
-            "name": "spark",
-            "uri": None,
             "version": "2.4.4",
         },
         {

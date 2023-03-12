@@ -18,7 +18,6 @@ from dj.api import (
     catalogs,
     cubes,
     data,
-    databases,
     engines,
     health,
     metrics,
@@ -27,7 +26,6 @@ from dj.api import (
     tags,
 )
 from dj.api.attributes import default_attribute_types
-from dj.api.graphql.main import graphql_app
 from dj.errors import DJException
 from dj.models.catalog import Catalog
 from dj.models.column import Column
@@ -53,7 +51,6 @@ app = FastAPI(
     dependencies=[Depends(default_attribute_types)],
 )
 app.include_router(catalogs.router)
-app.include_router(databases.router)
 app.include_router(engines.router)
 app.include_router(metrics.router)
 app.include_router(query.router)
@@ -63,7 +60,6 @@ app.include_router(health.router)
 app.include_router(cubes.router)
 app.include_router(tags.router)
 app.include_router(attributes.router)
-app.include_router(graphql_app, prefix="/graphql")
 
 
 @app.exception_handler(DJException)

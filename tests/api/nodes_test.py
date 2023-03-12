@@ -6,41 +6,27 @@ from typing import Any, Dict
 
 import pytest
 from fastapi.testclient import TestClient
-from pytest_mock import MockerFixture
 from sqlmodel import Session
 
-from dj.api.main import app
-from dj.models import Catalog, Database, Table
+from dj.models import Database, Table
 from dj.models.column import Column, ColumnType
 from dj.models.node import Node, NodeRevision, NodeType
-from dj.service_clients import QueryServiceClient
-from dj.utils import get_query_service_client
 
 
-def test_read_node(session: Session, client: TestClient) -> None:
+def test_read_node(client_with_examples: TestClient) -> None:
     """
     Test ``GET /nodes/{node_id}``.
     """
-    node = Node(name="something", type=NodeType.SOURCE, current_version="1")
-    node_revision = NodeRevision(
-        name=node.name,
-        type=node.type,
-        node=node,
-        version="1",
-    )
-    session.add(node_revision)
-    session.commit()
-
-    response = client.get("/nodes/something/")
+    response = client_with_examples.get("/nodes/repair_orders/")
     data = response.json()
 
     assert response.status_code == 200
-    assert data["version"] == "1"
-    assert data["node_id"] == 27
-    assert data["node_revision_id"] == 27
+    assert data["version"] == "v1.0"
+    assert data["node_id"] == 1
+    assert data["node_revision_id"] == 1
     assert data["type"] == "source"
 
-    response = client.get("/nodes/nothing/")
+    response = client_with_examples.get("/nodes/nothing/")
     data = response.json()
 
     assert response.status_code == 404
@@ -97,7 +83,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     data = response.json()
 
     assert response.status_code == 200
-    assert len(data) == 29
+    assert len(data) == 3
 
     nodes = {node["name"]: node for node in data}
     assert nodes["not-a-metric"]["query"] is None
@@ -130,25 +116,6 @@ class TestCreateOrUpdateNodes:
     """
     Test ``POST /nodes/`` and ``PUT /nodes/{name}``.
     """
-
-    @pytest.fixture
-    def create_source_node_payload(self) -> Dict[str, Any]:
-        """
-        Payload for creating a source node.
-        """
-
-        return {
-            "name": "comments",
-            "description": "A fact table with comments",
-            "type": "source",
-            "columns": {
-                "id": {"type": "INT"},
-                "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
-                "timestamp": {"type": "TIMESTAMP"},
-                "text": {"type": "STR"},
-            },
-            "mode": "published",
-        }
 
     @pytest.fixture
     def create_dimension_node_payload(self) -> Dict[str, Any]:
@@ -252,46 +219,42 @@ class TestCreateOrUpdateNodes:
 
     def test_create_update_source_node(
         self,
-        client: TestClient,
-        database: Database,  # pylint: disable=unused-argument
-        create_source_node_payload: Dict[str, Any],
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test creating and updating a source node
         """
-
-        response = client.post(
-            "/nodes/",
-            json=create_source_node_payload,
-        )
-        data = response.json()
-
-        assert data["name"] == "comments"
-        assert data["type"] == "source"
-        assert data["display_name"] == "Comments"
-        assert data["version"] == "v1.0"
-        assert data["node_id"] == 27
-        assert data["description"] == "A fact table with comments"
-        assert data["query"] is None
-        assert data["columns"] == [
-            {"name": "id", "type": "INT", "attributes": []},
-            {"name": "user_id", "type": "INT", "attributes": []},
-            {"name": "timestamp", "type": "TIMESTAMP", "attributes": []},
-            {"name": "text", "type": "STR", "attributes": []},
-        ]
+        basic_source_comments = {
+            "name": "basic.source.comments",
+            "description": "A fact table with comments",
+            "type": "source",
+            "columns": {
+                "id": {"type": "INT"},
+                "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
+                "timestamp": {"type": "TIMESTAMP"},
+                "text": {"type": "STR"},
+            },
+            "mode": "published",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "comments",
+        }
 
         # Trying to create it again should fail
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/",
-            json=create_source_node_payload,
+            json=basic_source_comments,
         )
         data = response.json()
-        assert data["message"] == "A node with name `comments` already exists."
+        assert (
+            data["message"]
+            == "A node with name `basic.source.comments` already exists."
+        )
         assert response.status_code == 409
 
         # Update node with a new description should create a new revision
-        response = client.patch(
-            f"/nodes/{create_source_node_payload['name']}/",
+        response = client_with_examples.patch(
+            f"/nodes/{basic_source_comments['name']}/",
             json={
                 "description": "New description",
                 "display_name": "Comments facts",
@@ -299,24 +262,23 @@ class TestCreateOrUpdateNodes:
         )
         data = response.json()
 
-        assert data["name"] == "comments"
+        assert data["name"] == "basic.source.comments"
         assert data["display_name"] == "Comments facts"
         assert data["type"] == "source"
         assert data["version"] == "v1.1"
-        assert data["node_id"] == 27
         assert data["description"] == "New description"
 
         # Try to update node with no changes
-        response = client.patch(
-            f"/nodes/{create_source_node_payload['name']}/",
+        response = client_with_examples.patch(
+            f"/nodes/{basic_source_comments['name']}/",
             json={"description": "New description", "display_name": "Comments facts"},
         )
         new_data = response.json()
         assert data == new_data
 
         # Try to update a node with a table that has different columns
-        response = client.patch(
-            f"/nodes/{create_source_node_payload['name']}/",
+        response = client_with_examples.patch(
+            f"/nodes/{basic_source_comments['name']}/",
             json={
                 "columns": {
                     "id": {"type": "INT"},
@@ -350,6 +312,34 @@ class TestCreateOrUpdateNodes:
         data = response.json()
         assert response.status_code == 404
         assert data["message"] == "A node with name `something` does not exist."
+
+    def test_raise_on_source_node_with_no_catalog(
+        self,
+        client: TestClient,
+    ) -> None:
+        """
+        Test raise on source node with no catalog
+        """
+        response = client.post(
+            "/nodes/",
+            json={
+                "name": "basic.source.comments",
+                "description": "A fact table with comments",
+                "type": "source",
+                "columns": {
+                    "id": {"type": "INT"},
+                    "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
+                    "timestamp": {"type": "TIMESTAMP"},
+                    "text": {"type": "STR"},
+                },
+                "mode": "published",
+            },
+        )
+        assert not response.ok
+        assert (
+            "Nodes of type `source` must have `catalog`, `schema_`, and `table` set"
+            in response.json()["message"]
+        )
 
     def test_create_invalid_transform_node(
         self,
@@ -402,7 +392,6 @@ class TestCreateOrUpdateNodes:
             {"name": "country", "type": "STR", "attributes": []},
             {"name": "num_users", "type": "INT", "attributes": []},
         ]
-        assert data["tables"] == []
 
         # Update the transform node with two minor changes
         response = client.patch(
@@ -422,7 +411,6 @@ class TestCreateOrUpdateNodes:
             data["query"]
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
-        assert data["tables"] == []
 
         # Try to update with a new query that references a non-existent source
         response = client.patch(
@@ -533,6 +521,28 @@ class TestCreateOrUpdateNodes:
             {"name": "country", "type": "STR", "attributes": []},
         ]
 
+    def test_raise_on_multi_catalog_node(self, client_with_examples: TestClient):
+        """
+        Test raising when trying to select from multiple catalogs
+        """
+        response = client_with_examples.post(
+            "/nodes/",
+            json={
+                "query": (
+                    "SELECT payment_id, payment_amount, customer_id, account_type "
+                    "FROM revenue r LEFT JOIN basic.source.comments b on r.id = b.id"
+                ),
+                "description": "Multicatalog",
+                "mode": "published",
+                "name": "multicatalog",
+                "type": "transform",
+            },
+        )
+        assert (
+            "Cannot create nodes with multi-catalog dependencies"
+            in response.json()["message"]
+        )
+
     def test_updating_node_to_invalid_draft(
         self,
         database: Database,  # pylint: disable=unused-argument
@@ -587,32 +597,25 @@ class TestCreateOrUpdateNodes:
 
     def test_upsert_materialization_config(  # pylint: disable=too-many-arguments
         self,
-        database: Database,  # pylint: disable=unused-argument
-        source_node: Node,  # pylint: disable=unused-argument
-        client: TestClient,
-        create_source_node_payload: Dict[str, Any],
-        create_transform_node_payload: Dict[str, Any],
+        client_with_examples: TestClient,
     ) -> None:
         """
         Test creating & updating materialization config for a node.
         """
-
         # Setting the materialization config for a source node should fail
-        client.post("/nodes/", json=create_source_node_payload)
-        response = client.post(
-            "/nodes/comments/materialization/",
+        response = client_with_examples.post(
+            "/nodes/basic.source.comments/materialization/",
             json={"engine_name": "spark", "engine_version": "2.4.4", "config": "{}"},
         )
         assert response.status_code == 400
         assert (
             response.json()["message"]
-            == "Cannot set materialization config for source node `comments`!"
+            == "Cannot set materialization config for source node `basic.source.comments`!"
         )
 
         # Setting the materialization config for an engine that doesn't exist should fail
-        client.post("/nodes/", json=create_transform_node_payload)
-        response = client.post(
-            "/nodes/country_agg/materialization/",
+        response = client_with_examples.post(
+            "/nodes/basic.transform.country_agg/materialization/",
             json={"engine_name": "spark", "engine_version": "2.4.4", "config": "{}"},
         )
         assert response.status_code == 404
@@ -620,16 +623,19 @@ class TestCreateOrUpdateNodes:
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
         # Create the engine and check the existing transform node
-        client.post("/engines/", json={"name": "spark", "version": "2.4.4"})
+        client_with_examples.post(
+            "/engines/",
+            json={"name": "spark", "version": "2.4.4"},
+        )
 
-        response = client.get("/nodes/country_agg/")
+        response = client_with_examples.get("/nodes/basic.transform.country_agg/")
         old_node_data = response.json()
         assert old_node_data["version"] == "v1.0"
         assert old_node_data["materialization_configs"] == []
 
         # Setting the materialization config should succeed with a new node revision created.
-        response = client.post(
-            "/nodes/country_agg/materialization/",
+        response = client_with_examples.post(
+            "/nodes/basic.transform.country_agg/materialization/",
             json={
                 "engine_name": "spark",
                 "engine_version": "2.4.4",
@@ -639,12 +645,12 @@ class TestCreateOrUpdateNodes:
         data = response.json()
         assert (
             data["message"]
-            == "Successfully updated materialization config for node `country_agg`"
+            == "Successfully updated materialization config for node `basic.transform.country_agg`"
             " and engine `spark`."
         )
 
         # Reading the node should yield the materialization config and new revision.
-        response = client.get("/nodes/country_agg/")
+        response = client_with_examples.get("/nodes/basic.transform.country_agg/")
         data = response.json()
         assert data["version"] == "v2.0"
         assert data["materialization_configs"] == [
@@ -656,8 +662,8 @@ class TestCreateOrUpdateNodes:
         assert old_node_data["node_revision_id"] < data["node_revision_id"]
 
         # Setting the same config should yield a message indicating so.
-        response = client.post(
-            "/nodes/country_agg/materialization/",
+        response = client_with_examples.post(
+            "/nodes/basic.transform.country_agg/materialization/",
             json={
                 "engine_name": "spark",
                 "engine_version": "2.4.4",
@@ -670,7 +676,7 @@ class TestCreateOrUpdateNodes:
         assert (
             data["message"]
             == "The same materialization config provided already exists for node "
-            "`country_agg` so no update was performed."
+            "`basic.transform.country_agg` so no update was performed."
         )
 
 
@@ -751,20 +757,13 @@ class TestNodeColumnsAttributes:
 
     def test_set_columns_attributes(
         self,
-        client: TestClient,
-        database: Database,  # pylint: disable=unused-argument
-        create_source_node_payload: Dict[str, Any],
-        source_node: Node,  # pylint: disable=unused-argument
+        client_with_examples: TestClient,
     ):
         """
         Validate that setting column attributes on the node works.
         """
-        client.post(
-            "/nodes/",
-            json=create_source_node_payload,
-        )
-        response = client.post(
-            "/nodes/comments/attributes/",
+        response = client_with_examples.post(
+            "/nodes/basic.source.comments/attributes/",
             json=[
                 {
                     "attribute_type_namespace": "system",
@@ -784,21 +783,9 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-        # Create dimension node
-        client.post(
-            "/nodes/",
-            json={
-                "name": "basic.dim.users",
-                "mode": "published",
-                "description": "",
-                "query": "select id, created_at, full_name, age, "
-                "country, gender from basic.source.users",
-                "type": "dimension",
-            },
-        )
         # Set columns attributes
-        response = client.post(
-            "/nodes/basic.dim.users/attributes/",
+        response = client_with_examples.post(
+            "/nodes/basic.dimension.users/attributes/",
             json=[
                 {
                     "attribute_type_namespace": "system",
@@ -834,21 +821,12 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-    def test_set_columns_attributes_failed(
-        self,
-        client: TestClient,
-        database: Database,  # pylint: disable=unused-argument
-        create_source_node_payload: Dict[str, Any],
-    ):
+    def test_set_columns_attributes_failed(self, client_with_examples: TestClient):
         """
         Test setting column attributes with different failure modes.
         """
-        client.post(
-            "/nodes/",
-            json=create_source_node_payload,
-        )
-        response = client.post(
-            "/nodes/comments/attributes/",
+        response = client_with_examples.post(
+            "/nodes/basic.source.comments/attributes/",
             json=[
                 {
                     "attribute_type_name": "effective_time",
@@ -863,12 +841,12 @@ class TestNodeColumnsAttributes:
             == "Attribute type `system.effective_time` not allowed on node type `source`!"
         )
 
-        response = client.get(
-            "/nodes/comments/",
+        response = client_with_examples.get(
+            "/nodes/basic.source.comments/",
         )
 
-        response = client.post(
-            "/nodes/comments/attributes/",
+        response = client_with_examples.post(
+            "/nodes/basic.source.comments/attributes/",
             json=[
                 {
                     "attribute_type_name": "primary_key",
@@ -879,13 +857,13 @@ class TestNodeColumnsAttributes:
         assert response.status_code == 404
         data = response.json()
         assert data == {
-            "message": "Column `nonexistent_col` does not exist on node `comments`!",
+            "message": "Column `nonexistent_col` does not exist on node `basic.source.comments`!",
             "errors": [],
             "warnings": [],
         }
 
-        response = client.post(
-            "/nodes/comments/attributes/",
+        response = client_with_examples.post(
+            "/nodes/basic.source.comments/attributes/",
             json=[
                 {
                     "attribute_type_name": "nonexistent_attribute",
@@ -901,8 +879,8 @@ class TestNodeColumnsAttributes:
             "warnings": [],
         }
 
-        response = client.post(
-            "/nodes/comments/attributes/",
+        response = client_with_examples.post(
+            "/nodes/basic.source.comments/attributes/",
             json=[
                 {
                     "attribute_type_name": "primary_key",
@@ -922,8 +900,8 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-        response = client.post(
-            "/nodes/comments/attributes/",
+        response = client_with_examples.post(
+            "/nodes/basic.source.comments/attributes/",
             json=[
                 {
                     "attribute_type_name": "event_time",
@@ -944,24 +922,26 @@ class TestNodeColumnsAttributes:
             "warnings": [],
         }
 
-        response = client.get("/nodes/comments/")
+        response = client_with_examples.get("/nodes/basic.source.comments/")
         data = response.json()
         assert data["columns"] == [
-            {"attributes": [], "name": "id", "type": "INT"},
+            {"name": "id", "type": "INT", "attributes": []},
             {
-                "attributes": [
-                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
-                ],
                 "name": "user_id",
                 "type": "INT",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
             },
-            {"attributes": [], "name": "event_timestamp", "type": "TIMESTAMP"},
+            {"name": "timestamp", "type": "TIMESTAMP", "attributes": []},
+            {"name": "text", "type": "STR", "attributes": []},
+            {"name": "event_timestamp", "type": "TIMESTAMP", "attributes": []},
+            {"name": "created_at", "type": "TIMESTAMP", "attributes": []},
             {
-                "attributes": [],
                 "name": "post_processing_timestamp",
                 "type": "TIMESTAMP",
+                "attributes": [],
             },
-            {"attributes": [], "name": "text", "type": "STR"},
         ]
 
 
@@ -970,85 +950,11 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
     Test ``POST /nodes/validate/``.
     """
 
-    @pytest.fixture
-    def session(self, session: Session) -> Session:
-        """
-        Add nodes to facilitate testing of the validation route
-        """
-
-        node1 = Node(
-            name="revenue_source",
-            type=NodeType.SOURCE,
-            current_version="1",
-        )
-        node_rev1 = NodeRevision(
-            name=node1.name,
-            type=node1.type,
-            node=node1,
-            version="1",
-            columns=[
-                Column(name="payment_id", type=ColumnType.INT),
-                Column(name="payment_amount", type=ColumnType.FLOAT),
-                Column(name="customer_id", type=ColumnType.INT),
-                Column(name="account_type", type=ColumnType.STR),
-            ],
-        )
-        node2 = Node(
-            name="large_revenue_payments_only",
-            type=NodeType.TRANSFORM,
-            current_version="1",
-        )
-        node_rev2 = NodeRevision(
-            node=node2,
-            name=node2.name,
-            type=node2.type,
-            version="1",
-            query=(
-                "SELECT payment_id, payment_amount, customer_id, account_type "
-                "FROM revenue_source WHERE payment_amount > 1000000"
-            ),
-            columns=[
-                Column(name="payment_id", type=ColumnType.INT),
-                Column(name="payment_amount", type=ColumnType.FLOAT),
-                Column(name="customer_id", type=ColumnType.INT),
-                Column(name="account_type", type=ColumnType.STR),
-            ],
-        )
-
-        node3 = Node(
-            name="large_revenue_payments_and_business_only",
-            type=NodeType.TRANSFORM,
-            current_version="1",
-        )
-        node_rev3 = NodeRevision(
-            node=node3,
-            name=node3.name,
-            type=node3.type,
-            version="1",
-            query=(
-                "SELECT payment_id, payment_amount, customer_id, account_type "
-                "FROM revenue_source WHERE payment_amount > 1000000 "
-                "AND account_type = 'BUSINESS'"
-            ),
-            columns=[
-                Column(name="payment_id", type=ColumnType.INT),
-                Column(name="payment_amount", type=ColumnType.FLOAT),
-                Column(name="customer_id", type=ColumnType.INT),
-                Column(name="account_type", type=ColumnType.STR),
-            ],
-        )
-        session.add(node_rev1)
-        session.add(node_rev2)
-        session.add(node_rev3)
-        session.commit()
-        return session
-
-    def test_validating_a_valid_node(self, client: TestClient) -> None:
+    def test_validating_a_valid_node(self, client_with_examples: TestClient) -> None:
         """
         Test validating a valid node
         """
-
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -1097,12 +1003,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         data = response.json()
-
-        assert response.status_code == 200
-        assert {"message": data["message"], "status": data["status"]} == {
-            "message": "Node `foo` is invalid",
-            "status": "invalid",
-        }
+        assert (
+            data["message"]
+            == "Node definition contains references to nodes that do not exist"
+        )
 
     def test_validating_invalid_sql(self, client: TestClient) -> None:
         """
@@ -1229,250 +1133,35 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "warnings": [],
         }
 
-    def test_adding_tables_to_nodes(
-        self,
-        mocker: MockerFixture,
-        session: Session,
-        client: TestClient,
-    ):
+    def test_adding_dimensions_to_node_columns(self, client_with_examples: TestClient):
         """
         Test adding tables to existing nodes
         """
-        catalog = Catalog(name="test")
-        session.add(catalog)
-        session.commit()
-
-        database = Database(name="postgres", URI="postgres://")
-        session.add(database)
-        session.commit()
-
-        response = client.post(
-            "/nodes/",
-            json={
-                "columns": {
-                    "payment_id": {"type": "INT"},
-                    "payment_type": {"type": "INT"},
-                    "payment_amount": {"type": "FLOAT"},
-                    "customer_id": {"type": "INT"},
-                    "account_type": {"type": "STR"},
-                },
-                "description": "A source table for revenue data",
-                "mode": "published",
-                "name": "third_party_revenue",
-                "type": "source",
-            },
-        )
-        assert response.status_code == 201
-
-        response = client.post(
-            "/nodes/third_party_revenue/table/",
-            json={
-                "database_name": "postgres",
-                "catalog_name": "test",
-                "cost": 1.0,
-                "schema": "accounting",
-                "table": "revenue",
-                "columns": [
-                    {"name": "payment_id", "type": "INT"},
-                    {"name": "payment_type", "type": "INT"},
-                    {"name": "payment_amount", "type": "FLOAT"},
-                    {"name": "customer_id", "type": "INT"},
-                    {"name": "account_type", "type": "STR"},
-                ],
-            },
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert data == {
-            "message": "Table revenue has been successfully linked to node third_party_revenue",
-        }
-
-        # Test adding a second table
-        response = client.post(
-            "/nodes/third_party_revenue/table/",
-            json={
-                "database_name": "postgres",
-                "catalog_name": "test",
-                "cost": 1.0,
-                "schema": "accounting",
-                "table": "third_party_revenue",
-                "columns": [
-                    {"name": "payment_id", "type": "INT"},
-                    {"name": "payment_type", "type": "INT"},
-                    {"name": "payment_amount", "type": "FLOAT"},
-                    {"name": "customer_id", "type": "INT"},
-                    {"name": "account_type", "type": "STR"},
-                ],
-            },
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert data == {
-            "message": (
-                "Table third_party_revenue has been successfully "
-                "linked to node third_party_revenue"
-            ),
-        }
-
-        # Test returning a 409 when the table already exists
-        response = client.post(
-            "/nodes/third_party_revenue/table/",
-            json={
-                "database_name": "postgres",
-                "catalog_name": "test",
-                "cost": 1.0,
-                "schema": "accounting",
-                "table": "revenue",
-                "columns": [
-                    {"name": "payment_id", "type": "INT"},
-                    {"name": "payment_type", "type": "INT"},
-                    {"name": "payment_amount", "type": "FLOAT"},
-                    {"name": "customer_id", "type": "INT"},
-                    {"name": "account_type", "type": "STR"},
-                ],
-            },
-        )
-        assert response.status_code == 409
-        data = response.json()
-        assert data == {
-            "message": (
-                "Table revenue in database postgres in catalog test already exists "
-                "for node third_party_revenue"
-            ),
-            "errors": [],
-            "warnings": [],
-        }
-
-        # When no columns are set and no query service is configured, return an error
-        response = client.post(
-            "/nodes/third_party_revenue/table/",
-            json={
-                "database_name": "postgres",
-                "catalog_name": "test",
-                "cost": 1.0,
-                "schema": "accounting",
-                "table": "ledgers",
-                "columns": [],
-            },
-        )
-        assert response.status_code == 500
-        data = response.json()
-        assert data == {
-            "message": (
-                "No table columns were provided and no query service is "
-                "configured for table columns inference!"
-            ),
-            "errors": [],
-            "warnings": [],
-        }
-
-        # When a query service is configured and no columns are set, use it to infer columns
-        def get_query_service_client_override() -> QueryServiceClient:
-            mock_query_service = mocker.MagicMock()
-            mock_query_service.get_columns_for_table().return_value = [
-                Column(name="blah", type=ColumnType.INT),
-            ]
-            return mock_query_service
-
-        app.dependency_overrides[
-            get_query_service_client
-        ] = get_query_service_client_override
-        response = client.post(
-            "/nodes/third_party_revenue/table/",
-            json={
-                "database_name": "postgres",
-                "catalog_name": "test",
-                "cost": 1.0,
-                "schema": "accounting",
-                "table": "ledgers",
-                "columns": [],
-            },
-        )
-        assert response.status_code == 201
-        data = response.json()
-        assert data == {
-            "message": "Table ledgers has been successfully linked to node third_party_revenue",
-        }
-
-    def test_adding_dimensions_to_node_columns(self, client: TestClient):
-        """
-        Test adding tables to existing nodes
-        """
-
-        response = client.post(
-            "/nodes/",
-            json={
-                "columns": {
-                    "payment_id": {"type": "INT"},
-                    "payment_type": {"type": "INT"},
-                    "payment_amount": {"type": "FLOAT"},
-                    "customer_id": {"type": "INT"},
-                    "account_type": {"type": "STR"},
-                },
-                "description": "A source table for revenue data",
-                "mode": "published",
-                "name": "company_revenue",
-                "type": "source",
-            },
-        )
-        assert response.status_code == 201
-
-        response = client.post(
-            "/nodes/",
-            json={
-                "columns": {
-                    "id": {"type": "INT"},
-                    "payment_type_name": {"type": "STR"},
-                    "payment_type_classification": {"type": "INT"},
-                },
-                "description": "A source table for different types of payments",
-                "mode": "published",
-                "name": "payment_type_table",
-                "type": "source",
-            },
-        )
-        assert response.status_code == 201
-
-        response = client.post(
-            "/nodes/",
-            json={
-                "description": "Payment type dimensions",
-                "query": (
-                    "SELECT id, payment_type_name, payment_type_classification "
-                    "FROM payment_type_table"
-                ),
-                "mode": "published",
-                "name": "payment_type",
-                "type": "dimension",
-            },
-        )
-        assert response.status_code == 201
-
-        # Attach the payment_type dimension to the payment_type column on the company_revenue node
-        response = client.post(
-            "/nodes/company_revenue/columns/payment_type/?dimension=payment_type",
+        # Attach the payment_type dimension to the payment_type column on the revenue node
+        response = client_with_examples.post(
+            "/nodes/revenue/columns/payment_type/?dimension=payment_type",
         )
         data = response.json()
         assert data == {
             "message": (
                 "Dimension node payment_type has been successfully "
-                "linked to column payment_type on node company_revenue"
+                "linked to column payment_type on node revenue"
             ),
         }
 
         # Check that the proper error is raised when the column doesn't exist
-        response = client.post(
-            "/nodes/company_revenue/columns/non_existent_column/?dimension=payment_type",
+        response = client_with_examples.post(
+            "/nodes/revenue/columns/non_existent_column/?dimension=payment_type",
         )
         assert response.status_code == 404
         data = response.json()
         assert data["message"] == (
-            "Column non_existent_column does not exist on node company_revenue"
+            "Column non_existent_column does not exist on node revenue"
         )
 
         # Add a dimension including a specific dimension column name
-        response = client.post(
-            "/nodes/company_revenue/columns/payment_type/"
+        response = client_with_examples.post(
+            "/nodes/revenue/columns/payment_type/"
             "?dimension=payment_type"
             "&dimension_column=payment_type_name",
         )
@@ -1480,101 +1169,52 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["message"] == (
             "Dimension node payment_type has been successfully "
-            "linked to column payment_type on node company_revenue"
+            "linked to column payment_type on node revenue"
+        )
+
+        response = client_with_examples.post(
+            "/nodes/revenue/columns/payment_type/?dimension=basic.dimension.users",
+        )
+        data = response.json()
+        assert data["message"] == (
+            "Cannot add dimension to column, because catalogs do not match: default, public"
         )
 
         # Check that not including the dimension defaults it to the column name
-        response = client.post("/nodes/company_revenue/columns/payment_type/")
+        response = client_with_examples.post("/nodes/revenue/columns/payment_type/")
         assert response.status_code == 201
         data = response.json()
         assert data["message"] == (
             "Dimension node payment_type has been successfully "
-            "linked to column payment_type on node company_revenue"
+            "linked to column payment_type on node revenue"
         )
 
-    def test_node_downstreams(self, client: TestClient):
+    def test_node_downstreams(self, client_with_examples: TestClient):
         """
         Test getting downstream nodes of different node types.
         """
-
-        client.post(
-            "/nodes/",
-            json={
-                "name": "event_source",
-                "description": "Events",
-                "type": "source",
-                "columns": {
-                    "event_id": {"type": "INT"},
-                    "event_latency": {"type": "INT"},
-                    "device_id": {"type": "INT"},
-                    "country": {"type": "STR", "dimension": "countries_dim"},
-                },
-                "mode": "published",
-            },
+        response = client_with_examples.get(
+            "/nodes/event_source/downstream/?node_type=metric",
         )
-
-        client.post(
-            "/nodes/",
-            json={
-                "name": "long_events",
-                "description": "High-Latency Events",
-                "type": "transform",
-                "query": "SELECT event_id, event_latency, device_id, country "
-                "FROM event_source WHERE event_latency > 1000000",
-                "mode": "published",
-            },
-        )
-
-        client.post(
-            "/nodes/",
-            json={
-                "name": "country_dim",
-                "description": "Country Dimension",
-                "type": "dimension",
-                "query": "SELECT country, COUNT(DISTINCT event_id) AS events_cnt "
-                "FROM event_source GROUP BY country",
-                "mode": "published",
-            },
-        )
-
-        client.post(
-            "/nodes/",
-            json={
-                "name": "device_ids_count",
-                "description": "Number of Distinct Devices",
-                "type": "metric",
-                "query": "SELECT COUNT(DISTINCT device_id) " "FROM event_source",
-                "mode": "published",
-            },
-        )
-
-        client.post(
-            "/nodes/",
-            json={
-                "name": "long_events_distinct_countries",
-                "description": "Number of Distinct Countries for Long Events",
-                "type": "metric",
-                "query": "SELECT COUNT(DISTINCT country) " "FROM long_events",
-                "mode": "published",
-            },
-        )
-
-        response = client.get("/nodes/event_source/downstream/?node_type=metric")
         data = response.json()
         assert {node["name"] for node in data} == {
             "long_events_distinct_countries",
             "device_ids_count",
         }
 
-        response = client.get("/nodes/event_source/downstream/?node_type=transform")
+        response = client_with_examples.get(
+            "/nodes/event_source/downstream/?node_type=transform",
+        )
         data = response.json()
         assert {node["name"] for node in data} == {"long_events"}
 
-        response = client.get("/nodes/event_source/downstream/?node_type=dimension")
+        response = client_with_examples.get(
+            "/nodes/event_source/downstream/?node_type=dimension",
+        )
         data = response.json()
         assert {node["name"] for node in data} == {"country_dim"}
 
-        response = client.get("/nodes/event_source/downstream/")
+        response = client_with_examples.get("/nodes/event_source/downstream/")
         data = response.json()
         assert {node["name"] for node in data} == {
             "long_events_distinct_countries",
@@ -1583,11 +1223,11 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "country_dim",
         }
 
-        response = client.get("/nodes/device_ids_count/downstream/")
+        response = client_with_examples.get("/nodes/device_ids_count/downstream/")
         data = response.json()
         assert data == []
 
-        response = client.get("/nodes/long_events/downstream/")
+        response = client_with_examples.get("/nodes/long_events/downstream/")
         data = response.json()
         assert {node["name"] for node in data} == {"long_events_distinct_countries"}
 
@@ -1684,9 +1324,7 @@ def test_node_similarity(session: Session, client: TestClient):
     }
 
 
-def test_resolving_downstream_status(
-    client: TestClient,
-) -> None:
+def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     """
     Test creating and updating a source node
     """
@@ -1771,7 +1409,7 @@ def test_resolving_downstream_status(
         metric2,
         metric3,
     ]:
-        response = client.post(
+        response = client_with_examples.post(
             "/nodes/",
             json=node,
         )
@@ -1788,14 +1426,17 @@ def test_resolving_downstream_status(
         "type": "source",
         "columns": {
             "id": {"type": "INT"},
-            "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
+            "user_id": {"type": "INT"},
             "timestamp": {"type": "TIMESTAMP"},
             "text": {"type": "STR"},
         },
         "mode": "published",
+        "catalog": "public",
+        "schema_": "basic",
+        "table": "comments",
     }
 
-    response = client.post(
+    response = client_with_examples.post(
         "/nodes/",
         json=missing_parent_node,
     )
@@ -1806,7 +1447,7 @@ def test_resolving_downstream_status(
 
     # Check that downstream nodes have now been switched to a "valid" status
     for node in [transform1, transform2, transform3, metric1, metric2, metric3]:
-        response = client.get(f"/nodes/{node['name']}/")
+        response = client_with_examples.get(f"/nodes/{node['name']}/")
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == node["name"]
@@ -1817,7 +1458,7 @@ def test_resolving_downstream_status(
 
     # Check that nodes still not valid have an invalid status
     for node in [transform4, transform5]:
-        response = client.get(f"/nodes/{node['name']}/")
+        response = client_with_examples.get(f"/nodes/{node['name']}/")
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == node["name"]

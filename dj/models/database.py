@@ -8,10 +8,9 @@ from typing import TYPE_CHECKING, Dict, List, Optional, TypedDict
 from uuid import UUID, uuid4
 
 from sqlalchemy import DateTime, String
-from sqlalchemy.engine import Engine
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
-from sqlmodel import JSON, Field, Relationship, create_engine
+from sqlmodel import JSON, Field, Relationship
 
 from dj.models.base import BaseSQLModel
 from dj.utils import UTCDatetime
@@ -74,35 +73,6 @@ class Database(BaseSQLModel, table=True):  # type: ignore
         back_populates="database",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
-
-    @property
-    def engine(self) -> Engine:
-        """
-        Handler to the engine associated with the database.
-        """
-        return create_engine(self.URI, **self.extra_params)
-
-    async def do_ping(self) -> bool:
-        """
-        Ping the database to see if it's online.
-        """
-        try:
-            raw_connection = self.engine.raw_connection()
-            return self.engine.dialect.do_ping(raw_connection)
-        except Exception:  # pylint: disable=broad-except
-            return False
-
-    def to_yaml(self) -> DatabaseYAML:
-        """
-        Serialize the table for YAML.
-        """
-        return {
-            "description": self.description,
-            "URI": self.URI,
-            "read-only": self.read_only,
-            "async_": self.async_,
-            "cost": self.cost,
-        }
 
     def __hash__(self) -> int:
         return hash(self.id)

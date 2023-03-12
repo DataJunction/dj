@@ -48,5 +48,4 @@ class TranslatedSQL(SQLModel):
     Class for SQL generated from a given metric.
     """
 
-    database_id: int
     sql: str

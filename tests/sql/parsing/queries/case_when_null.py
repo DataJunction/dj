@@ -124,4 +124,5 @@ def case_when_null():
             distinct=False,
         ),
         ctes=[],
+        dialect="ansi",
     )

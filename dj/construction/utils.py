@@ -105,4 +105,4 @@ def amenable_name(name: str) -> str:
             ret.append(LOOKUP_CHARS.get(char, "UNK"))
             cont = []
 
-    return "_".join(ret) + "_" + "".join(cont)
+    return ("_".join(ret) + "_" + "".join(cont)).strip("_")
