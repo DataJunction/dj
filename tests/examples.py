@@ -2,7 +2,7 @@
 Post requests for all example entities
 """
 from dj.models import Column
-from dj.typing import ColumnType
+from dj.typing import ColumnType, QueryState
 
 EXAMPLES = (  # type: ignore
     (
@@ -929,4 +929,47 @@ COLUMN_MAPPINGS = {
         Column(name="timestamp", type=ColumnType("TIMESTAMP")),
         Column(name="text", type=ColumnType("STR")),
     ],
+}
+
+QUERY_DATA_MAPPINGS = {
+    (
+        "SELECT  payment_type_table.id,\n\tpayment_type_table.payment_type_name,"
+        '\n\tpayment_type_table.payment_type_classification \n FROM "accounting".'
+        '"payment_type_table" AS payment_type_table'
+    ): [
+        {
+            "submitted_query": (
+                "SELECT  payment_type_table.id,\n\tpayment_type_table.payment_type_name,"
+                "\n\tpayment_type_table.payment_type_classification \n "
+                'FROM "accounting"."payment_type_table"'
+                " AS payment_type_table"
+            ),
+            "state": QueryState.FINISHED,
+            "results": {
+                "columns": [
+                    {"name": "id", "type": "INT"},
+                    {"name": "payment_type_name", "type": "STR"},
+                    {"name": "payment_type_classification", "type": "STR"},
+                ],
+                "rows": [
+                    (1, "VISA", "CARD"),
+                    (2, "MASTERCARD", "CARD"),
+                ],
+            },
+            "errors": [],
+        },
+    ],
+    'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" AS basic_DOT_source_DOT_comments': {
+        "submitted_query": (
+            'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" AS basic_DOT_source_DOT_comments'
+        ),
+        "state": QueryState.FINISHED,
+        "results": {
+            "columns": [{"name": "cnt", "type": "INT"}],
+            "rows": [
+                (1,),
+            ],
+        },
+        "errors": [],
+    },
 }
