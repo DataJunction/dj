@@ -12,7 +12,6 @@ Key | Input Type | Accessed Type | Description | Notes
 ------------ | ------------- | ------------- | ------------- | -------------
 **mode** | [**NodeMode**](NodeMode.md) | [**NodeMode**](NodeMode.md) |  | 
 **node_revision_id** | decimal.Decimal, int,  | decimal.Decimal,  |  | 
-**[tables](#tables)** | list, tuple,  | tuple,  |  | 
 **updated_at** | str, datetime,  | str,  |  | value must conform to RFC-3339 date-time
 **[columns](#columns)** | list, tuple,  | tuple,  |  | 
 **name** | str,  | str,  |  | 
@@ -22,6 +21,9 @@ Key | Input Type | Accessed Type | Description | Notes
 **[materialization_configs](#materialization_configs)** | list, tuple,  | tuple,  |  | 
 **node_id** | decimal.Decimal, int,  | decimal.Decimal,  |  | 
 **status** | [**NodeStatus**](NodeStatus.md) | [**NodeStatus**](NodeStatus.md) |  | 
+**catalog** | [**Catalog**](Catalog.md) | [**Catalog**](Catalog.md) |  | [optional] 
+**schema_** | str,  | str,  |  | [optional] 
+**table** | str,  | str,  |  | [optional] 
 **description** | str,  | str,  |  | [optional] if omitted the server will use the default value of ""
 **query** | str,  | str,  |  | [optional] 
 **availability** | [**AvailabilityState**](AvailabilityState.md) | [**AvailabilityState**](AvailabilityState.md) |  | [optional] 
@@ -38,18 +40,6 @@ list, tuple,  | tuple,  |  |
 Class Name | Input Type | Accessed Type | Description | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
 [**ColumnOutput**](ColumnOutput.md) | [**ColumnOutput**](ColumnOutput.md) | [**ColumnOutput**](ColumnOutput.md) |  | 
-
-# tables
-
-## Model Type Info
-Input Type | Accessed Type | Description | Notes
------------- | ------------- | ------------- | -------------
-list, tuple,  | tuple,  |  | 
-
-### Tuple Items
-Class Name | Input Type | Accessed Type | Description | Notes
-------------- | ------------- | ------------- | ------------- | -------------
-[**TableOutput**](TableOutput.md) | [**TableOutput**](TableOutput.md) | [**TableOutput**](TableOutput.md) |  | 
 
 # materialization_configs
 

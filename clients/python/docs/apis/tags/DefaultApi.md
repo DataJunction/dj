@@ -11,15 +11,12 @@ Method | HTTP request | Description
 [**add_dimension_to_node_nodes_name_columns_column_post**](#add_dimension_to_node_nodes_name_columns_column_post) | **post** /nodes/{name}/columns/{column}/ | Add Dimension To Node
 [**add_engine_engines_post**](#add_engine_engines_post) | **post** /engines/ | Add Engine
 [**add_engines_to_catalog_catalogs_name_engines_post**](#add_engines_to_catalog_catalogs_name_engines_post) | **post** /catalogs/{name}/engines/ | Add Engines To Catalog
-[**add_table_to_node_nodes_name_table_post**](#add_table_to_node_nodes_name_table_post) | **post** /nodes/{name}/table/ | Add Table To Node
 [**add_tag_to_node_nodes_name_tag_post**](#add_tag_to_node_nodes_name_tag_post) | **post** /nodes/{name}/tag/ | Add Tag To Node
 [**common_dimensions_metrics_common_dimensions_get**](#common_dimensions_metrics_common_dimensions_get) | **get** /metrics/common/dimensions/ | Common Dimensions
 [**create_node_nodes_post**](#create_node_nodes_post) | **post** /nodes/ | Create Node
 [**create_tag_tags_post**](#create_tag_tags_post) | **post** /tags/ | Create Tag
 [**downstream_nodes_nodes_name_downstream_get**](#downstream_nodes_nodes_name_downstream_get) | **get** /nodes/{name}/downstream/ | Downstream Nodes
 [**find_nodes_by_tag_tags_name_nodes_get**](#find_nodes_by_tag_tags_name_nodes_get) | **get** /tags/{name}/nodes/ | Find Nodes By Tag
-[**handle_http_get_graphql_get**](#handle_http_get_graphql_get) | **get** /graphql | Handle Http Get
-[**handle_http_post_graphql_post**](#handle_http_post_graphql_post) | **post** /graphql | Handle Http Post
 [**health_health_get**](#health_health_get) | **get** /health/ | Health
 [**list_attributes_attributes_get**](#list_attributes_attributes_get) | **get** /attributes/ | List Attributes
 [**list_catalogs_catalogs_get**](#list_catalogs_catalogs_get) | **get** /catalogs/ | List Catalogs
@@ -30,11 +27,10 @@ Method | HTTP request | Description
 [**node_similarity_nodes_similarity_node1_name_node2_name_get**](#node_similarity_nodes_similarity_node1_name_node2_name_get) | **get** /nodes/similarity/{node1_name}/{node2_name} | Node Similarity
 [**read_catalog_catalogs_name_get**](#read_catalog_catalogs_name_get) | **get** /catalogs/{name}/ | Read Catalog
 [**read_cube_cubes_name_get**](#read_cube_cubes_name_get) | **get** /cubes/{name}/ | Read Cube
-[**read_databases_databases_get**](#read_databases_databases_get) | **get** /databases/ | Read Databases
 [**read_metric_metrics_name_get**](#read_metric_metrics_name_get) | **get** /metrics/{name}/ | Read Metric
 [**read_metrics_metrics_get**](#read_metrics_metrics_get) | **get** /metrics/ | Read Metrics
 [**read_metrics_sql_metrics_name_sql_get**](#read_metrics_sql_metrics_name_sql_get) | **get** /metrics/{name}/sql/ | Read Metrics Sql
-[**read_metrics_sql_query_validate_post**](#read_metrics_sql_query_validate_post) | **post** /query/validate | Read Metrics Sql
+[**read_metrics_sql_query_sql_get**](#read_metrics_sql_query_sql_get) | **get** /query/{sql} | Read Metrics Sql
 [**read_node_nodes_name_get**](#read_node_nodes_name_get) | **get** /nodes/{name}/ | Read Node
 [**read_nodes_nodes_get**](#read_nodes_nodes_get) | **get** /nodes/ | Read Nodes
 [**read_tag_tags_name_get**](#read_tag_tags_name_get) | **get** /tags/{name}/ | Read Tag
@@ -748,135 +744,6 @@ Type | Description  | Notes
 
 
 #### add_engines_to_catalog_catalogs_name_engines_post.ApiResponseFor422
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor422ResponseBodyApplicationJson, ] |  |
-headers | Unset | headers were not defined |
-
-# SchemaFor422ResponseBodyApplicationJson
-Type | Description  | Notes
-------------- | ------------- | -------------
-[**HTTPValidationError**](../../models/HTTPValidationError.md) |  | 
-
-
-### Authorization
-
-No authorization required
-
-[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
-
-# **add_table_to_node_nodes_name_table_post**
-<a name="add_table_to_node_nodes_name_table_post"></a>
-> bool, date, datetime, dict, float, int, list, str, none_type add_table_to_node_nodes_name_table_post(namecreate_table)
-
-Add Table To Node
-
-Add a table to a node
-
-### Example
-
-```python
-import djclient
-from djclient.apis.tags import default_api
-from djclient.model.http_validation_error import HTTPValidationError
-from djclient.model.create_table import CreateTable
-from pprint import pprint
-# Defining the host is optional and defaults to http://localhost
-# See configuration.py for a list of all supported configuration parameters.
-configuration = djclient.Configuration(
-    host = "http://localhost"
-)
-
-# Enter a context with an instance of the API client
-with djclient.ApiClient(configuration) as api_client:
-    # Create an instance of the API class
-    api_instance = default_api.DefaultApi(api_client)
-
-    # example passing only required values which don't have defaults set
-    path_params = {
-        'name': "name_example",
-    }
-    body = CreateTable(
-        schema="schema_example",
-        table="table_example",
-        cost=1.0,
-        database_name="database_name_example",
-        catalog_name="catalog_name_example",
-        columns=[
-            CreateColumn(
-                name="name_example",
-                type="type_example",
-            )
-        ],
-    )
-    try:
-        # Add Table To Node
-        api_response = api_instance.add_table_to_node_nodes_name_table_post(
-            path_params=path_params,
-            body=body,
-        )
-        pprint(api_response)
-    except djclient.ApiException as e:
-        print("Exception when calling DefaultApi->add_table_to_node_nodes_name_table_post: %s\n" % e)
-```
-### Parameters
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-body | typing.Union[SchemaForRequestBodyApplicationJson] | required |
-path_params | RequestPathParams | |
-content_type | str | optional, default is 'application/json' | Selects the schema and serialization of the request body
-accept_content_types | typing.Tuple[str] | default is ('application/json', ) | Tells the server the content type(s) that are accepted by the client
-stream | bool | default is False | if True then the response.content will be streamed and loaded from a file like object. When downloading a file, set this to True to force the code to deserialize the content to a FileSchema file
-timeout | typing.Optional[typing.Union[int, typing.Tuple]] | default is None | the timeout used by the rest client
-skip_deserialization | bool | default is False | when True, headers and body will be unset and an instance of api_client.ApiResponseWithoutDeserialization will be returned
-
-### body
-
-# SchemaForRequestBodyApplicationJson
-Type | Description  | Notes
-------------- | ------------- | -------------
-[**CreateTable**](../../models/CreateTable.md) |  | 
-
-
-### path_params
-#### RequestPathParams
-
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-name | NameSchema | | 
-
-# NameSchema
-
-## Model Type Info
-Input Type | Accessed Type | Description | Notes
------------- | ------------- | ------------- | -------------
-str,  | str,  |  | 
-
-### Return Types, Responses
-
-Code | Class | Description
-------------- | ------------- | -------------
-n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-201 | [ApiResponseFor201](#add_table_to_node_nodes_name_table_post.ApiResponseFor201) | Successful Response
-422 | [ApiResponseFor422](#add_table_to_node_nodes_name_table_post.ApiResponseFor422) | Validation Error
-
-#### add_table_to_node_nodes_name_table_post.ApiResponseFor201
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
-headers | Unset | headers were not defined |
-
-# SchemaFor201ResponseBodyApplicationJson
-
-## Model Type Info
-Input Type | Accessed Type | Description | Notes
------------- | ------------- | ------------- | -------------
-dict, frozendict.frozendict, str, date, datetime, uuid.UUID, int, float, decimal.Decimal, bool, None, list, tuple, bytes, io.FileIO, io.BufferedReader,  | frozendict.frozendict, str, decimal.Decimal, BoolClass, NoneClass, tuple, bytes, FileIO |  | 
-
-#### add_table_to_node_nodes_name_table_post.ApiResponseFor422
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
@@ -1631,136 +1498,6 @@ Type | Description  | Notes
 ------------- | ------------- | -------------
 [**HTTPValidationError**](../../models/HTTPValidationError.md) |  | 
 
-
-### Authorization
-
-No authorization required
-
-[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
-
-# **handle_http_get_graphql_get**
-<a name="handle_http_get_graphql_get"></a>
-> bool, date, datetime, dict, float, int, list, str, none_type handle_http_get_graphql_get()
-
-Handle Http Get
-
-### Example
-
-```python
-import djclient
-from djclient.apis.tags import default_api
-from pprint import pprint
-# Defining the host is optional and defaults to http://localhost
-# See configuration.py for a list of all supported configuration parameters.
-configuration = djclient.Configuration(
-    host = "http://localhost"
-)
-
-# Enter a context with an instance of the API client
-with djclient.ApiClient(configuration) as api_client:
-    # Create an instance of the API class
-    api_instance = default_api.DefaultApi(api_client)
-
-    # example, this endpoint has no required or optional parameters
-    try:
-        # Handle Http Get
-        api_response = api_instance.handle_http_get_graphql_get()
-        pprint(api_response)
-    except djclient.ApiException as e:
-        print("Exception when calling DefaultApi->handle_http_get_graphql_get: %s\n" % e)
-```
-### Parameters
-This endpoint does not need any parameter.
-
-### Return Types, Responses
-
-Code | Class | Description
-------------- | ------------- | -------------
-n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#handle_http_get_graphql_get.ApiResponseFor200) | The GraphiQL integrated development environment.
-404 | [ApiResponseFor404](#handle_http_get_graphql_get.ApiResponseFor404) | Not found if GraphiQL is not enabled.
-
-#### handle_http_get_graphql_get.ApiResponseFor200
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
-headers | Unset | headers were not defined |
-
-# SchemaFor200ResponseBodyApplicationJson
-
-## Model Type Info
-Input Type | Accessed Type | Description | Notes
------------- | ------------- | ------------- | -------------
-dict, frozendict.frozendict, str, date, datetime, uuid.UUID, int, float, decimal.Decimal, bool, None, list, tuple, bytes, io.FileIO, io.BufferedReader,  | frozendict.frozendict, str, decimal.Decimal, BoolClass, NoneClass, tuple, bytes, FileIO |  | 
-
-#### handle_http_get_graphql_get.ApiResponseFor404
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-response | urllib3.HTTPResponse | Raw response |
-body | Unset | body was not defined |
-headers | Unset | headers were not defined |
-
-### Authorization
-
-No authorization required
-
-[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
-
-# **handle_http_post_graphql_post**
-<a name="handle_http_post_graphql_post"></a>
-> bool, date, datetime, dict, float, int, list, str, none_type handle_http_post_graphql_post()
-
-Handle Http Post
-
-### Example
-
-```python
-import djclient
-from djclient.apis.tags import default_api
-from pprint import pprint
-# Defining the host is optional and defaults to http://localhost
-# See configuration.py for a list of all supported configuration parameters.
-configuration = djclient.Configuration(
-    host = "http://localhost"
-)
-
-# Enter a context with an instance of the API client
-with djclient.ApiClient(configuration) as api_client:
-    # Create an instance of the API class
-    api_instance = default_api.DefaultApi(api_client)
-
-    # example, this endpoint has no required or optional parameters
-    try:
-        # Handle Http Post
-        api_response = api_instance.handle_http_post_graphql_post()
-        pprint(api_response)
-    except djclient.ApiException as e:
-        print("Exception when calling DefaultApi->handle_http_post_graphql_post: %s\n" % e)
-```
-### Parameters
-This endpoint does not need any parameter.
-
-### Return Types, Responses
-
-Code | Class | Description
-------------- | ------------- | -------------
-n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#handle_http_post_graphql_post.ApiResponseFor200) | Successful Response
-
-#### handle_http_post_graphql_post.ApiResponseFor200
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
-headers | Unset | headers were not defined |
-
-# SchemaFor200ResponseBodyApplicationJson
-
-## Model Type Info
-Input Type | Accessed Type | Description | Notes
------------- | ------------- | ------------- | -------------
-dict, frozendict.frozendict, str, date, datetime, uuid.UUID, int, float, decimal.Decimal, bool, None, list, tuple, bytes, io.FileIO, io.BufferedReader,  | frozendict.frozendict, str, decimal.Decimal, BoolClass, NoneClass, tuple, bytes, FileIO |  | 
 
 ### Authorization
 
@@ -2699,75 +2436,6 @@ No authorization required
 
 [[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
 
-# **read_databases_databases_get**
-<a name="read_databases_databases_get"></a>
-> [Database] read_databases_databases_get()
-
-Read Databases
-
-List the available databases.
-
-### Example
-
-```python
-import djclient
-from djclient.apis.tags import default_api
-from djclient.model.database import Database
-from pprint import pprint
-# Defining the host is optional and defaults to http://localhost
-# See configuration.py for a list of all supported configuration parameters.
-configuration = djclient.Configuration(
-    host = "http://localhost"
-)
-
-# Enter a context with an instance of the API client
-with djclient.ApiClient(configuration) as api_client:
-    # Create an instance of the API class
-    api_instance = default_api.DefaultApi(api_client)
-
-    # example, this endpoint has no required or optional parameters
-    try:
-        # Read Databases
-        api_response = api_instance.read_databases_databases_get()
-        pprint(api_response)
-    except djclient.ApiException as e:
-        print("Exception when calling DefaultApi->read_databases_databases_get: %s\n" % e)
-```
-### Parameters
-This endpoint does not need any parameter.
-
-### Return Types, Responses
-
-Code | Class | Description
-------------- | ------------- | -------------
-n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#read_databases_databases_get.ApiResponseFor200) | Successful Response
-
-#### read_databases_databases_get.ApiResponseFor200
-Name | Type | Description  | Notes
-------------- | ------------- | ------------- | -------------
-response | urllib3.HTTPResponse | Raw response |
-body | typing.Union[SchemaFor200ResponseBodyApplicationJson, ] |  |
-headers | Unset | headers were not defined |
-
-# SchemaFor200ResponseBodyApplicationJson
-
-## Model Type Info
-Input Type | Accessed Type | Description | Notes
------------- | ------------- | ------------- | -------------
-list, tuple,  | tuple,  |  | 
-
-### Tuple Items
-Class Name | Input Type | Accessed Type | Description | Notes
-------------- | ------------- | ------------- | ------------- | -------------
-[**Database**]({{complexTypePrefix}}Database.md) | [**Database**]({{complexTypePrefix}}Database.md) | [**Database**]({{complexTypePrefix}}Database.md) |  | 
-
-### Authorization
-
-No authorization required
-
-[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
-
 # **read_metric_metrics_name_get**
 <a name="read_metric_metrics_name_get"></a>
 > Metric read_metric_metrics_name_get(name)
@@ -2991,8 +2659,6 @@ with djclient.ApiClient(configuration) as api_client:
     query_params = {
         'dimensions': [],
         'filters': [],
-        'database_name': "database_name_example",
-        'check_database_online': True,
     }
     try:
         # Read Metrics Sql
@@ -3022,8 +2688,6 @@ Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 dimensions | DimensionsSchema | | optional
 filters | FiltersSchema | | optional
-database_name | DatabaseNameSchema | | optional
-check_database_online | CheckDatabaseOnlineSchema | | optional
 
 
 # DimensionsSchema
@@ -3049,20 +2713,6 @@ list, tuple,  | tuple,  |  |
 Class Name | Input Type | Accessed Type | Description | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
 items | str,  | str,  |  | 
-
-# DatabaseNameSchema
-
-## Model Type Info
-Input Type | Accessed Type | Description | Notes
------------- | ------------- | ------------- | -------------
-str,  | str,  |  | 
-
-# CheckDatabaseOnlineSchema
-
-## Model Type Info
-Input Type | Accessed Type | Description | Notes
------------- | ------------- | ------------- | -------------
-bool,  | BoolClass,  |  | if omitted the server will use the default value of True
 
 ### path_params
 #### RequestPathParams
@@ -3118,9 +2768,9 @@ No authorization required
 
 [[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
 
-# **read_metrics_sql_query_validate_post**
-<a name="read_metrics_sql_query_validate_post"></a>
-> TranslatedSQL read_metrics_sql_query_validate_post(djsql)
+# **read_metrics_sql_query_sql_get**
+<a name="read_metrics_sql_query_sql_get"></a>
+> TranslatedSQL read_metrics_sql_query_sql_get(sql)
 
 Read Metrics Sql
 
@@ -3131,7 +2781,6 @@ Return SQL for a DJ Query.  A database can be optionally specified. If no databa
 ```python
 import djclient
 from djclient.apis.tags import default_api
-from djclient.model.djsql import DJSQL
 from djclient.model.http_validation_error import HTTPValidationError
 from djclient.model.translated_sql import TranslatedSQL
 from pprint import pprint
@@ -3147,47 +2796,51 @@ with djclient.ApiClient(configuration) as api_client:
     api_instance = default_api.DefaultApi(api_client)
 
     # example passing only required values which don't have defaults set
-    body = DJSQL(
-        database_name="database_name_example",
-        sql="sql_example",
-    )
+    path_params = {
+        'sql': "sql_example",
+    }
     try:
         # Read Metrics Sql
-        api_response = api_instance.read_metrics_sql_query_validate_post(
-            body=body,
+        api_response = api_instance.read_metrics_sql_query_sql_get(
+            path_params=path_params,
         )
         pprint(api_response)
     except djclient.ApiException as e:
-        print("Exception when calling DefaultApi->read_metrics_sql_query_validate_post: %s\n" % e)
+        print("Exception when calling DefaultApi->read_metrics_sql_query_sql_get: %s\n" % e)
 ```
 ### Parameters
 
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
-body | typing.Union[SchemaForRequestBodyApplicationJson] | required |
-content_type | str | optional, default is 'application/json' | Selects the schema and serialization of the request body
+path_params | RequestPathParams | |
 accept_content_types | typing.Tuple[str] | default is ('application/json', ) | Tells the server the content type(s) that are accepted by the client
 stream | bool | default is False | if True then the response.content will be streamed and loaded from a file like object. When downloading a file, set this to True to force the code to deserialize the content to a FileSchema file
 timeout | typing.Optional[typing.Union[int, typing.Tuple]] | default is None | the timeout used by the rest client
 skip_deserialization | bool | default is False | when True, headers and body will be unset and an instance of api_client.ApiResponseWithoutDeserialization will be returned
 
-### body
+### path_params
+#### RequestPathParams
 
-# SchemaForRequestBodyApplicationJson
-Type | Description  | Notes
-------------- | ------------- | -------------
-[**DJSQL**](../../models/DJSQL.md) |  | 
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+sql | SqlSchema | | 
 
+# SqlSchema
+
+## Model Type Info
+Input Type | Accessed Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+str,  | str,  |  | 
 
 ### Return Types, Responses
 
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-200 | [ApiResponseFor200](#read_metrics_sql_query_validate_post.ApiResponseFor200) | Successful Response
-422 | [ApiResponseFor422](#read_metrics_sql_query_validate_post.ApiResponseFor422) | Validation Error
+200 | [ApiResponseFor200](#read_metrics_sql_query_sql_get.ApiResponseFor200) | Successful Response
+422 | [ApiResponseFor422](#read_metrics_sql_query_sql_get.ApiResponseFor422) | Validation Error
 
-#### read_metrics_sql_query_validate_post.ApiResponseFor200
+#### read_metrics_sql_query_sql_get.ApiResponseFor200
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
@@ -3200,7 +2853,7 @@ Type | Description  | Notes
 [**TranslatedSQL**](../../models/TranslatedSQL.md) |  | 
 
 
-#### read_metrics_sql_query_validate_post.ApiResponseFor422
+#### read_metrics_sql_query_sql_get.ApiResponseFor422
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
@@ -3664,6 +3317,9 @@ with djclient.ApiClient(configuration) as api_client:
         'name': "name_example",
     }
     body = UpdateNode(
+        catalog="catalog_example",
+        schema_="schema__example",
+        table="table_example",
         columns=dict(
             "key": SourceNodeColumnType(
                 type="type_example",
