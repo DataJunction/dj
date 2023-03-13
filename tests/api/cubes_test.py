@@ -11,13 +11,12 @@ def test_read_cube(client_with_examples: TestClient) -> None:
     """
     # Create a cube
     response = client_with_examples.post(
-        "/nodes/",
+        "/nodes/cube/",
         json={
             "cube_elements": ["number_of_account_types", "account_type"],
             "description": "A cube of number of accounts grouped by account type",
             "mode": "published",
             "name": "number_of_accounts_by_account_type",
-            "type": "cube",
         },
     )
     assert response.status_code == 201
@@ -39,51 +38,51 @@ def test_read_cube(client_with_examples: TestClient) -> None:
     assert data["description"] == "A cube of number of accounts grouped by account type"
     # Check that creating a cube with a query fails appropriately
     response = client_with_examples.post(
-        "/nodes/",
+        "/nodes/cube/",
         json={
             "description": "A cube of number of accounts grouped by account type",
             "mode": "published",
             "query": "SELECT 1",
+            "cube_elements": ["number_of_account_types", "account_type"],
             "name": "cubes_shouldnt_have_queries",
-            "type": "cube",
         },
     )
     assert response.status_code == 422
     data = response.json()
-    assert data == {
-        "message": "Query not allowed for node of type cube",
-        "errors": [],
-        "warnings": [],
-    }
+    assert data["detail"] == [
+        {
+            "loc": ["body", "query"],
+            "msg": "extra fields not permitted",
+            "type": "value_error.extra",
+        },
+    ]
 
     # Check that creating a cube with no cube elements fails appropriately
     response = client_with_examples.post(
-        "/nodes/",
+        "/nodes/cube/",
         json={
             "cube_elements": [],
             "description": "A cube of number of accounts grouped by account type",
             "mode": "published",
             "name": "cubes_must_have_elements",
-            "type": "cube",
         },
     )
     assert response.status_code == 422
     data = response.json()
     assert data == {
-        "message": "Cannot create a cube node with no cube elements",
+        "message": "At least one metric is required to create a cube node",
         "errors": [],
         "warnings": [],
     }
 
     # Check that creating a cube with incompatible nodes fails appropriately
     response = client_with_examples.post(
-        "/nodes/",
+        "/nodes/cube/",
         json={
             "cube_elements": ["number_of_account_types", "account_type_table"],
             "description": "",
             "mode": "published",
             "name": "cubes_cant_use_source_nodes",
-            "type": "cube",
         },
     )
     assert response.status_code == 422
@@ -96,13 +95,12 @@ def test_read_cube(client_with_examples: TestClient) -> None:
 
     # Check that creating a cube with no metric nodes fails appropriately
     response = client_with_examples.post(
-        "/nodes/",
+        "/nodes/cube/",
         json={
             "cube_elements": ["account_type"],
             "description": "",
             "mode": "published",
             "name": "cubes_must_have_metrics",
-            "type": "cube",
         },
     )
     assert response.status_code == 422
@@ -115,13 +113,12 @@ def test_read_cube(client_with_examples: TestClient) -> None:
 
     # Check that creating a cube with no dimension nodes fails appropriately
     response = client_with_examples.post(
-        "/nodes/",
+        "/nodes/cube/",
         json={
             "cube_elements": ["number_of_account_types"],
             "description": "A cube of number of accounts grouped by account type",
             "mode": "published",
             "name": "cubes_must_have_dimensions",
-            "type": "cube",
         },
     )
     assert response.status_code == 422
@@ -141,13 +138,12 @@ def test_raise_on_cube_with_multiple_catalogs(
     """
     # Create a cube
     response = client_with_examples.post(
-        "/nodes/",
+        "/nodes/cube/",
         json={
             "cube_elements": ["account_type", "basic.num_comments"],
             "description": "multicatalog cube's raise an error",
             "mode": "published",
             "name": "multicatalog",
-            "type": "cube",
         },
     )
     assert not response.ok

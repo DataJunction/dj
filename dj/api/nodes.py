@@ -3,6 +3,7 @@ Node related APIs.
 """
 import http.client
 import logging
+import os
 from collections import defaultdict
 from http import HTTPStatus
 from typing import List, Optional, Union
@@ -11,6 +12,7 @@ from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
+from starlette.requests import Request
 
 from dj.api.helpers import (
     get_attribute_type,
@@ -20,11 +22,12 @@ from dj.api.helpers import (
     get_engine,
     get_node_by_name,
     propagate_valid_status,
+    raise_if_node_exists,
     resolve_downstream_references,
     validate_node_data,
 )
 from dj.api.tags import get_tag_by_name
-from dj.errors import DJDoesNotExistException, DJException, DJInvalidInputException
+from dj.errors import DJDoesNotExistException, DJException
 from dj.models import ColumnAttribute
 from dj.models.attribute import UniquenessScope
 from dj.models.base import generate_display_name
@@ -50,28 +53,12 @@ from dj.models.node import (
     UpdateNode,
     UpsertMaterializationConfig,
 )
+from dj.service_clients import QueryServiceClient
 from dj.sql.parsing import parse
-from dj.utils import Version, VersionUpgrade, get_session
+from dj.utils import Version, VersionUpgrade, get_query_service_client, get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
-
-
-def raise_on_query_not_allowed(
-    data: Union[CreateNode, CreateSourceNode, CreateCubeNode],
-) -> None:
-    """
-    Check if the payload includes a query for a node type that can't have one
-    """
-    if (
-        data.type in (NodeType.SOURCE, NodeType.CUBE)
-        and not isinstance(data, (CreateSourceNode, CreateCubeNode))
-        and data.query
-    ):
-        raise DJException(
-            message=(f"Query not allowed for node of type {data.type}"),
-            http_status_code=http.client.UNPROCESSABLE_ENTITY,
-        )
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
@@ -318,12 +305,23 @@ def list_node_revisions(
 
 def create_node_revision(
     data: CreateNode,
+    node_type: NodeType,
     session: Session,
 ) -> NodeRevision:
     """
     Create a non-source node revision.
     """
-    node_revision = NodeRevision.parse_obj(data)
+    node_revision = NodeRevision(
+        name=data.name,
+        display_name=data.display_name
+        if data.display_name
+        else generate_display_name(data.name),
+        description=data.description,
+        type=node_type,
+        status=NodeStatus.VALID,
+        query=data.query,
+        mode=data.mode,
+    )
     (
         validated_node,
         dependencies_map,
@@ -343,7 +341,7 @@ def create_node_revision(
         raise DJException(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
         )
-    catalog_id = next(iter(catalog_ids), "draft")
+    catalog_id = next(iter(catalog_ids), 0)
     parent_refs = session.exec(
         select(Node).where(
             # pylint: disable=no-member
@@ -372,11 +370,6 @@ def create_cube_node_revision(
     """
     Create a cube node revision.
     """
-    if not data.cube_elements:
-        raise DJException(
-            message=("Cannot create a cube node with no cube elements"),
-            http_status_code=http.client.UNPROCESSABLE_ENTITY,
-        )
     metrics = []
     dimensions = []
     catalogs = []
@@ -418,78 +411,35 @@ def create_cube_node_revision(
     return NodeRevision(
         name=data.name,
         description=data.description,
-        type=data.type,
+        type=NodeType.CUBE,
         cube_elements=metrics + dimensions,
     )
 
 
-@router.post("/nodes/", response_model=NodeOutput, status_code=201)
-def create_node(
-    data: Union[CreateSourceNode, CreateCubeNode, CreateNode],
-    session: Session = Depends(get_session),
-) -> NodeOutput:
+def save_node(
+    session: Session,
+    node_revision: NodeRevision,
+    node: Node,
+    node_mode: NodeMode,
+):
     """
-    Create a node.
+    Links the node and node revision together and saves them
     """
-    node = get_node_by_name(session, data.name, raise_if_not_exists=False)
-    if node:
-        raise DJException(
-            message=f"A node with name `{data.name}` already exists.",
-            http_status_code=HTTPStatus.CONFLICT,
-        )
-
-    node = Node(name=data.name, type=data.type, current_version=0)
-
-    raise_on_query_not_allowed(data)
-
-    if data.type == NodeType.SOURCE:
-        if not data.schema_ or not data.table or not data.catalog:
-            raise DJInvalidInputException(
-                f"Nodes of type `{NodeType.SOURCE}` must have `catalog`, "
-                "`schema_`, and `table` set",
-            )
-        catalog = get_catalog(session=session, name=data.catalog)
-        node_revision = NodeRevision(
-            name=data.name,
-            display_name=data.display_name
-            if data.display_name
-            else generate_display_name(data.name),
-            description=data.description,
-            type=data.type,
-            status=NodeStatus.VALID,
-            catalog_id=catalog.id,
-            schema_=data.schema_,
-            table=data.table,
-            columns=[
-                Column(
-                    name=column_name,
-                    type=ColumnType[column_data["type"]],
-                )
-                for column_name, column_data in data.columns.items()
-            ],
-            parents=[],
-        )
-    elif data.type == NodeType.CUBE:
-        node_revision = create_cube_node_revision(session=session, data=data)
-    else:
-        node_revision = create_node_revision(data, session)
-
-    # Point the node to the new node revision.
     node_revision.node = node
     node_revision.version = (
         str(DEFAULT_DRAFT_VERSION)
-        if data.mode == NodeMode.DRAFT
+        if node_mode == NodeMode.DRAFT
         else str(DEFAULT_PUBLISHED_VERSION)
     )
     node.current_version = node_revision.version
-
     node_revision.extra_validation()
 
     session.add(node)
     session.commit()
+
     newly_valid_nodes = resolve_downstream_references(
         session=session,
-        node_revision=node,
+        node_revision=node_revision,
     )
     propagate_valid_status(
         session=session,
@@ -497,6 +447,99 @@ def create_node(
         catalog_id=node.current.catalog_id,  # pylint: disable=no-member
     )
     session.refresh(node.current)
+
+
+@router.post("/nodes/source/", response_model=NodeOutput, status_code=201)
+def create_source_node(
+    data: CreateSourceNode,
+    session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> NodeOutput:
+    """
+    Create a source node. If columns are not provided, the source node's schema
+    will be inferred using the configured query service.
+    """
+    raise_if_node_exists(session, data.name)
+    node = Node(name=data.name, type=NodeType.SOURCE, current_version=0)
+    catalog = get_catalog(session=session, name=data.catalog)
+
+    # When no columns are provided, attempt to find actual table columns
+    # if a query service is set
+    columns = (
+        [
+            Column(
+                name=column_name,
+                type=ColumnType[column_data["type"]],
+            )
+            for column_name, column_data in data.columns.items()
+        ]
+        if data.columns
+        else None
+    )
+    if not columns:
+        if not query_service_client:
+            raise DJException(
+                message="No table columns were provided and no query "
+                "service is configured for table columns inference!",
+            )
+        columns = query_service_client.get_columns_for_table(
+            data.catalog,
+            data.schema_,  # type: ignore
+            data.table,
+        )
+
+    node_revision = NodeRevision(
+        name=data.name,
+        display_name=data.display_name
+        if data.display_name
+        else generate_display_name(data.name),
+        description=data.description,
+        type=NodeType.SOURCE,
+        status=NodeStatus.VALID,
+        catalog_id=catalog.id,
+        schema_=data.schema_,
+        table=data.table,
+        columns=columns,
+        parents=[],
+    )
+
+    # Point the node to the new node revision.
+    save_node(session, node_revision, node, data.mode)
+    return node  # type: ignore
+
+
+@router.post("/nodes/transform/", response_model=NodeOutput, status_code=201)
+@router.post("/nodes/dimension/", response_model=NodeOutput, status_code=201)
+@router.post("/nodes/metric/", response_model=NodeOutput, status_code=201)
+def create_node(
+    data: CreateNode,
+    request: Request,
+    *,
+    session: Session = Depends(get_session),
+) -> NodeOutput:
+    """
+    Create a node.
+    """
+    node_type = NodeType(os.path.basename(os.path.normpath(request.url.path)))
+    raise_if_node_exists(session, data.name)
+    node = Node(name=data.name, type=NodeType(node_type), current_version=0)
+    node_revision = create_node_revision(data, node_type, session)
+    save_node(session, node_revision, node, data.mode)
+    return node  # type: ignore
+
+
+@router.post("/nodes/cube/", response_model=NodeOutput, status_code=201)
+def create_cube_node(
+    data: CreateCubeNode,
+    session: Session = Depends(get_session),
+) -> NodeOutput:
+    """
+    Create a node.
+    """
+    raise_if_node_exists(session, data.name)
+    node = Node(name=data.name, type=NodeType.CUBE, current_version=0)
+    node_revision = create_cube_node_revision(session=session, data=data)
+    save_node(session, node_revision, node, data.mode)
     return node  # type: ignore
 
 
