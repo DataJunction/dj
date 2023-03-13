@@ -31,7 +31,7 @@ from dj.sql.parsing import ast
 from dj.sql.parsing.backends.exceptions import DJParseException
 
 
-def get_node_by_name(
+def get_node_by_name(  # pylint: disable=too-many-arguments
     session: Session,
     name: str,
     node_type: Optional[NodeType] = None,
@@ -49,8 +49,6 @@ def get_node_by_name(
         node = session.exec(statement).unique().one_or_none()
     else:
         node = session.exec(statement).one_or_none()
-
-    # Only raise an error for non-existent nodes if this flag is set
     if raise_if_not_exists:
         if not node:
             raise DJException(
@@ -61,6 +59,18 @@ def get_node_by_name(
                 http_status_code=404,
             )
     return node
+
+
+def raise_if_node_exists(session: Session, name: str) -> None:
+    """
+    Raise an error if the node with the given name already exists.
+    """
+    node = get_node_by_name(session, name, raise_if_not_exists=False)
+    if node:
+        raise DJException(
+            message=f"A node with name `{name}` already exists.",
+            http_status_code=HTTPStatus.CONFLICT,
+        )
 
 
 def get_column(node: NodeRevision, column_name: str) -> Column:
@@ -311,7 +321,7 @@ def resolve_downstream_references(
                 .unique()
                 .one()
             )
-            downstream_node_revision.parents.append(node_revision)
+            downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
             (
                 _,

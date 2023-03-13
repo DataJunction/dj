@@ -125,7 +125,6 @@ class TestCreateOrUpdateNodes:
 
         return {
             "description": "Country dimension",
-            "type": "dimension",
             "query": "SELECT country, COUNT(1) AS user_cnt "
             "FROM basic.source.users GROUP BY country",
             "mode": "published",
@@ -141,7 +140,6 @@ class TestCreateOrUpdateNodes:
         return {
             "name": "country_agg",
             "query": "SELECT country, COUNT(DISTINCT id) AS num_users FROM comments",
-            "type": "transform",
             "mode": "published",
             "description": "Distinct users per country",
             "columns": [
@@ -159,7 +157,6 @@ class TestCreateOrUpdateNodes:
         return {
             "name": "country_agg",
             "query": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
-            "type": "transform",
             "mode": "published",
             "description": "Distinct users per country",
             "columns": [
@@ -217,6 +214,79 @@ class TestCreateOrUpdateNodes:
         session.commit()
         return node
 
+    def test_create_source_node_without_cols_or_query_service(
+        self,
+        client_with_examples: TestClient,
+    ):
+        """
+        Trying to create a source node without columns and without
+        a query service set up should fail.
+        """
+        basic_source_comments = {
+            "name": "comments",
+            "description": "A fact table with comments",
+            "columns": {},
+            "mode": "published",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "comments",
+        }
+
+        # Trying to create a source node without columns and without
+        # a query service set up should fail
+        response = client_with_examples.post(
+            "/nodes/source/",
+            json=basic_source_comments,
+        )
+        data = response.json()
+        assert (
+            data["message"] == "No table columns were provided and no query "
+            "service is configured for table columns inference!"
+        )
+        assert response.status_code == 500
+
+    def test_create_source_node_with_query_service(
+        self,
+        client_with_query_service: TestClient,
+    ):
+        """
+        Creating a source node without columns but with a query service set should
+        result in the source node columns being inferred via the query service.
+        """
+        basic_source_comments = {
+            "name": "comments",
+            "description": "A fact table with comments",
+            "columns": {},
+            "mode": "published",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "comments",
+        }
+
+        # Trying to create a source node without columns and without
+        # a query service set up should fail
+        response = client_with_query_service.post(
+            "/nodes/source/",
+            json=basic_source_comments,
+        )
+        data = response.json()
+        assert data["name"] == "comments"
+        assert data["type"] == "source"
+        assert data["display_name"] == "Comments"
+        assert data["version"] == "v1.0"
+        assert data["status"] == "valid"
+        assert data["mode"] == "published"
+        assert data["catalog"]["name"] == "public"
+        assert data["schema_"] == "basic"
+        assert data["table"] == "comments"
+        assert data["columns"] == [
+            {"name": "id", "type": "INT", "attributes": []},
+            {"name": "user_id", "type": "INT", "attributes": []},
+            {"name": "timestamp", "type": "TIMESTAMP", "attributes": []},
+            {"name": "text", "type": "STR", "attributes": []},
+        ]
+        assert response.status_code == 201
+
     def test_create_update_source_node(
         self,
         client_with_examples: TestClient,
@@ -227,7 +297,6 @@ class TestCreateOrUpdateNodes:
         basic_source_comments = {
             "name": "basic.source.comments",
             "description": "A fact table with comments",
-            "type": "source",
             "columns": {
                 "id": {"type": "INT"},
                 "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
@@ -242,7 +311,7 @@ class TestCreateOrUpdateNodes:
 
         # Trying to create it again should fail
         response = client_with_examples.post(
-            "/nodes/",
+            "/nodes/source/",
             json=basic_source_comments,
         )
         data = response.json()
@@ -321,11 +390,10 @@ class TestCreateOrUpdateNodes:
         Test raise on source node with no catalog
         """
         response = client.post(
-            "/nodes/",
+            "/nodes/source/",
             json={
                 "name": "basic.source.comments",
                 "description": "A fact table with comments",
-                "type": "source",
                 "columns": {
                     "id": {"type": "INT"},
                     "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
@@ -336,10 +404,25 @@ class TestCreateOrUpdateNodes:
             },
         )
         assert not response.ok
-        assert (
-            "Nodes of type `source` must have `catalog`, `schema_`, and `table` set"
-            in response.json()["message"]
-        )
+        assert response.json() == {
+            "detail": [
+                {
+                    "loc": ["body", "catalog"],
+                    "msg": "field required",
+                    "type": "value_error.missing",
+                },
+                {
+                    "loc": ["body", "schema_"],
+                    "msg": "field required",
+                    "type": "value_error.missing",
+                },
+                {
+                    "loc": ["body", "table"],
+                    "msg": "field required",
+                    "type": "value_error.missing",
+                },
+            ],
+        }
 
     def test_create_invalid_transform_node(
         self,
@@ -353,7 +436,7 @@ class TestCreateOrUpdateNodes:
         """
 
         response = client.post(
-            "/nodes/",
+            "/nodes/transform/",
             json=create_invalid_transform_node_payload,
         )
         data = response.json()
@@ -376,7 +459,7 @@ class TestCreateOrUpdateNodes:
 
         # Create a transform node
         response = client.post(
-            "/nodes/",
+            "/nodes/transform/",
             json=create_transform_node_payload,
         )
         data = response.json()
@@ -487,7 +570,7 @@ class TestCreateOrUpdateNodes:
         """
 
         response = client.post(
-            "/nodes/",
+            "/nodes/dimension/",
             json=create_dimension_node_payload,
         )
         data = response.json()
@@ -526,7 +609,7 @@ class TestCreateOrUpdateNodes:
         Test raising when trying to select from multiple catalogs
         """
         response = client_with_examples.post(
-            "/nodes/",
+            "/nodes/transform/",
             json={
                 "query": (
                     "SELECT payment_id, payment_amount, customer_id, account_type "
@@ -535,7 +618,6 @@ class TestCreateOrUpdateNodes:
                 "description": "Multicatalog",
                 "mode": "published",
                 "name": "multicatalog",
-                "type": "transform",
             },
         )
         assert (
@@ -555,7 +637,7 @@ class TestCreateOrUpdateNodes:
         """
 
         response = client.post(
-            "/nodes/",
+            "/nodes/dimension/",
             json=create_dimension_node_payload,
         )
         data = response.json()
@@ -1332,7 +1414,6 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     transform1 = {
         "name": "comments_by_migrated_users",
         "description": "Comments by users who have already migrated",
-        "type": "transform",
         "query": "SELECT id, user_id FROM comments WHERE text LIKE '%migrated%'",
         "mode": "draft",
     }
@@ -1340,7 +1421,6 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     transform2 = {
         "name": "comments_by_users_pending_a_migration",
         "description": "Comments by users who have a migration pending",
-        "type": "transform",
         "query": "SELECT id, user_id FROM comments WHERE text LIKE '%migration pending%'",
         "mode": "draft",
     }
@@ -1348,7 +1428,6 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     transform3 = {
         "name": "comments_by_users_partially_migrated",
         "description": "Comments by users are partially migrated",
-        "type": "transform",
         "query": (
             "SELECT p.id, p.user_id FROM comments_by_users_pending_a_migration p "
             "INNER JOIN comments_by_migrated_users m ON p.user_id = m.user_id"
@@ -1359,7 +1438,6 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     transform4 = {
         "name": "comments_by_banned_users",
         "description": "Comments by users are partially migrated",
-        "type": "transform",
         "query": (
             "SELECT id, user_id FROM comments "
             "INNER JOIN banned_users ON comments.user_id = banned_users.banned_user_id"
@@ -1370,7 +1448,6 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     transform5 = {
         "name": "comments_by_users_partially_migrated_sample",
         "description": "Sample of comments by users are partially migrated",
-        "type": "transform",
         "query": "SELECT id, user_id, foo FROM comments_by_users_partially_migrated",
         "mode": "draft",
     }
@@ -1378,7 +1455,6 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     metric1 = {
         "name": "number_of_migrated_users",
         "description": "Number of migrated users",
-        "type": "metric",
         "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_migrated_users",
         "mode": "draft",
     }
@@ -1386,7 +1462,6 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     metric2 = {
         "name": "number_of_users_with_pending_migration",
         "description": "Number of users with a migration pending",
-        "type": "metric",
         "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_users_pending_a_migration",
         "mode": "draft",
     }
@@ -1394,23 +1469,22 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     metric3 = {
         "name": "number_of_users_partially_migrated",
         "description": "Number of users partially migrated",
-        "type": "metric",
         "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_users_partially_migrated",
         "mode": "draft",
     }
 
-    for node in [
-        transform1,
-        transform2,
-        transform3,
-        transform4,
-        transform5,
-        metric1,
-        metric2,
-        metric3,
+    for node, node_type in [
+        (transform1, NodeType.TRANSFORM),
+        (transform2, NodeType.TRANSFORM),
+        (transform3, NodeType.TRANSFORM),
+        (transform4, NodeType.TRANSFORM),
+        (transform5, NodeType.TRANSFORM),
+        (metric1, NodeType.METRIC),
+        (metric2, NodeType.METRIC),
+        (metric3, NodeType.METRIC),
     ]:
         response = client_with_examples.post(
-            "/nodes/",
+            f"/nodes/{node_type.value}/",
             json=node,
         )
         assert response.status_code == 201
@@ -1423,7 +1497,6 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     missing_parent_node = {
         "name": "comments",
         "description": "A fact table with comments",
-        "type": "source",
         "columns": {
             "id": {"type": "INT"},
             "user_id": {"type": "INT"},
@@ -1437,7 +1510,7 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     }
 
     response = client_with_examples.post(
-        "/nodes/",
+        "/nodes/source/",
         json=missing_parent_node,
     )
     assert response.status_code == 201

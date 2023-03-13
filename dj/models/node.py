@@ -464,7 +464,6 @@ class ImmutableNodeFields(BaseSQLModel):
     """
 
     name: str
-    type: NodeType
 
 
 class MutableNodeFields(BaseSQLModel):
@@ -474,8 +473,15 @@ class MutableNodeFields(BaseSQLModel):
 
     display_name: Optional[str]
     description: str
-    query: Optional[str]
     mode: NodeMode
+
+
+class MutableNodeQueryField(BaseSQLModel):
+    """
+    Query field for node.
+    """
+
+    query: str
 
 
 class SourceNodeColumnType(TypedDict, total=False):
@@ -492,10 +498,10 @@ class SourceNodeFields(BaseSQLModel):
     Source node fields that can be changed.
     """
 
-    catalog: Optional[str] = None
-    schema_: Optional[str] = None
-    table: Optional[str] = None
-    columns: Dict[str, SourceNodeColumnType]
+    catalog: str
+    schema_: str
+    table: str
+    columns: Optional[Dict[str, SourceNodeColumnType]]
 
 
 class CubeNodeFields(BaseSQLModel):
@@ -514,7 +520,7 @@ class CubeNodeFields(BaseSQLModel):
 #
 
 
-class CreateNode(ImmutableNodeFields, MutableNodeFields):
+class CreateNode(ImmutableNodeFields, MutableNodeFields, MutableNodeQueryField):
     """
     Create non-source node object.
     """
@@ -531,6 +537,13 @@ class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
     A create object for cube nodes
     """
 
+    class Config:  # pylint: disable=too-few-public-methods
+        """
+        Do not allow extra fields in input
+        """
+
+        extra = Extra.forbid
+
 
 class UpdateNode(MutableNodeFields, SourceNodeFields):
     """
@@ -542,6 +555,7 @@ class UpdateNode(MutableNodeFields, SourceNodeFields):
         for k, v in {
             **SourceNodeFields.__annotations__,  # pylint: disable=E1101
             **MutableNodeFields.__annotations__,  # pylint: disable=E1101
+            **MutableNodeQueryField.__annotations__,  # pylint: disable=E1101
         }.items()
     }
 
