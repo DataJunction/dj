@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+gb0fe2cb"
+        "version": "0.0.post1.dev1+g7c4b316"
     },
     "paths": {
         "/catalogs/": {
@@ -616,54 +616,6 @@
                         }
                     }
                 }
-            },
-            "post": {
-                "summary": "Create Node",
-                "description": "Create a node.",
-                "operationId": "create_node_nodes__post",
-                "requestBody": {
-                    "content": {
-                        "application/json": {
-                            "schema": {
-                                "title": "Data",
-                                "anyOf": [
-                                    {
-                                        "$ref": "#/components/schemas/CreateSourceNode"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/CreateCubeNode"
-                                    },
-                                    {
-                                        "$ref": "#/components/schemas/CreateNode"
-                                    }
-                                ]
-                            }
-                        }
-                    },
-                    "required": true
-                },
-                "responses": {
-                    "201": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/NodeOutput"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
             }
         },
         "/nodes/{name}/": {
@@ -829,6 +781,201 @@
                                     "items": {
                                         "$ref": "#/components/schemas/NodeRevisionOutput"
                                     }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/source/": {
+            "post": {
+                "summary": "Create Source Node",
+                "description": "Create a source node. If columns are not provided, the source node's schema\nwill be inferred using the configured query service.",
+                "operationId": "create_source_node_nodes_source__post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateSourceNode"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeOutput"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/metric/": {
+            "post": {
+                "summary": "Create Node",
+                "description": "Create a node.",
+                "operationId": "create_node_nodes_metric__post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateNode"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeOutput"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/dimension/": {
+            "post": {
+                "summary": "Create Node",
+                "description": "Create a node.",
+                "operationId": "create_node_nodes_dimension__post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateNode"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeOutput"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/transform/": {
+            "post": {
+                "summary": "Create Node",
+                "description": "Create a node.",
+                "operationId": "create_node_nodes_transform__post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateNode"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeOutput"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/cube/": {
+            "post": {
+                "summary": "Create Cube Node",
+                "description": "Create a node.",
+                "operationId": "create_cube_node_nodes_cube__post",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateCubeNode"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeOutput"
                                 }
                             }
                         }
@@ -1771,8 +1918,7 @@
                     "cube_elements",
                     "description",
                     "mode",
-                    "name",
-                    "type"
+                    "name"
                 ],
                 "type": "object",
                 "properties": {
@@ -1797,23 +1943,25 @@
                     "name": {
                         "title": "Name",
                         "type": "string"
-                    },
-                    "type": {
-                        "$ref": "#/components/schemas/NodeType"
                     }
                 },
+                "additionalProperties": false,
                 "description": "A create object for cube nodes"
             },
             "CreateNode": {
                 "title": "CreateNode",
                 "required": [
+                    "query",
                     "description",
                     "mode",
-                    "name",
-                    "type"
+                    "name"
                 ],
                 "type": "object",
                 "properties": {
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
                     "display_name": {
                         "title": "Display Name",
                         "type": "string"
@@ -1822,19 +1970,12 @@
                         "title": "Description",
                         "type": "string"
                     },
-                    "query": {
-                        "title": "Query",
-                        "type": "string"
-                    },
                     "mode": {
                         "$ref": "#/components/schemas/NodeMode"
                     },
                     "name": {
                         "title": "Name",
                         "type": "string"
-                    },
-                    "type": {
-                        "$ref": "#/components/schemas/NodeType"
                     }
                 },
                 "description": "Create non-source node object."
@@ -1842,11 +1983,12 @@
             "CreateSourceNode": {
                 "title": "CreateSourceNode",
                 "required": [
-                    "columns",
+                    "catalog",
+                    "schema_",
+                    "table",
                     "description",
                     "mode",
-                    "name",
-                    "type"
+                    "name"
                 ],
                 "type": "object",
                 "properties": {
@@ -1877,19 +2019,12 @@
                         "title": "Description",
                         "type": "string"
                     },
-                    "query": {
-                        "title": "Query",
-                        "type": "string"
-                    },
                     "mode": {
                         "$ref": "#/components/schemas/NodeMode"
                     },
                     "name": {
                         "title": "Name",
                         "type": "string"
-                    },
-                    "type": {
-                        "$ref": "#/components/schemas/NodeType"
                     }
                 },
                 "description": "A create object for source nodes"
@@ -2629,12 +2764,12 @@
                         "title": "Description",
                         "type": "string"
                     },
+                    "mode": {
+                        "$ref": "#/components/schemas/NodeMode"
+                    },
                     "query": {
                         "title": "Query",
                         "type": "string"
-                    },
-                    "mode": {
-                        "$ref": "#/components/schemas/NodeMode"
                     }
                 },
                 "additionalProperties": false,
