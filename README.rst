@@ -45,7 +45,7 @@ Engines can be created using the :code:`POST /engines/` endpoint.
       -H 'accept: application/json' \
       -H 'Content-Type: application/json' \
       -d '{
-      "name": "postgres",
+      "name": "sqlalchemy-postgresql",
       "version": "15.2",
       "uri": "postgresql://dj:dj@postgres-roads:5432/djdb"
     }'
@@ -60,7 +60,7 @@ Engines can be attached to existing catalogs using the :code:`POST /catalogs/{na
       -H 'Content-Type: application/json' \
       -d '[
       {
-        "name": "postgres",
+        "name": "sqlalchemy-postgresql",
         "version": "15.2"
       }
     ]'
@@ -78,7 +78,7 @@ Queries can be submitted to DJQS for a specified catalog and engine.
       -H 'Content-Type: application/json' \
       -d '{
       "catalog_name": "djdb",
-      "engine_name": "postgres",
+      "engine_name": "sqlalchemy-postgresql",
       "engine_version": "15.2",
       "submitted_query": "SELECT * from roads.repair_orders",
       "async_": false
@@ -94,7 +94,7 @@ Async queries can be submitted as well.
       -H 'Content-Type: application/json' \
       -d '{
       "catalog_name": "djdb",
-      "engine_name": "postgres",
+      "engine_name": "sqlalchemy-postgresql",
       "engine_version": "15.2",
       "submitted_query": "SELECT * from roads.repair_orders",
       "async_": true
@@ -106,7 +106,7 @@ Async queries can be submitted as well.
 
     {
       "catalog_name": "djdb",
-      "engine_name": "postgres",
+      "engine_name": "sqlalchemy-postgresql",
       "engine_version": "15.2",
       "id": "<QUERY ID HERE>",
       "submitted_query": "SELECT * from roads.repair_orders",
@@ -137,7 +137,7 @@ once it's completed.
 
     {
       "catalog_name": "djdb",
-      "engine_name": "postgres",
+      "engine_name": "sqlalchemy-postgresql",
       "engine_version": "15.2",
       "id": "$QUERY_ID",
       "submitted_query": "SELECT * from roads.repair_orders",
@@ -169,7 +169,7 @@ If running a [reflection service](https://github.com/DataJunction/djrs), that se
 .. code-block:: sh
 
     curl -X 'GET' \
-      'http://localhost:8001/table/djdb.roads.repair_orders/columns/?engine=postgres&engine_version=15.2' \
+      'http://localhost:8001/table/djdb.roads.repair_orders/columns/?engine=sqlalchemy-postgresql&engine_version=15.2' \
       -H 'accept: application/json'
 
 *response*
