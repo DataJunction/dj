@@ -16,8 +16,8 @@ Key | Input Type | Accessed Type | Description | Notes
 **[columns](#columns)** | dict, frozendict.frozendict,  | frozendict.frozendict,  |  | [optional] 
 **display_name** | str,  | str,  |  | [optional] 
 **description** | str,  | str,  |  | [optional] 
-**query** | str,  | str,  |  | [optional] 
 **mode** | [**NodeMode**](NodeMode.md) | [**NodeMode**](NodeMode.md) |  | [optional] 
+**query** | str,  | str,  |  | [optional] 
 
 # columns
 
