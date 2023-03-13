@@ -13,7 +13,11 @@ Method | HTTP request | Description
 [**add_engines_to_catalog_catalogs_name_engines_post**](#add_engines_to_catalog_catalogs_name_engines_post) | **post** /catalogs/{name}/engines/ | Add Engines To Catalog
 [**add_tag_to_node_nodes_name_tag_post**](#add_tag_to_node_nodes_name_tag_post) | **post** /nodes/{name}/tag/ | Add Tag To Node
 [**common_dimensions_metrics_common_dimensions_get**](#common_dimensions_metrics_common_dimensions_get) | **get** /metrics/common/dimensions/ | Common Dimensions
-[**create_node_nodes_post**](#create_node_nodes_post) | **post** /nodes/ | Create Node
+[**create_cube_node_nodes_cube_post**](#create_cube_node_nodes_cube_post) | **post** /nodes/cube/ | Create Cube Node
+[**create_node_nodes_dimension_post**](#create_node_nodes_dimension_post) | **post** /nodes/dimension/ | Create Node
+[**create_node_nodes_metric_post**](#create_node_nodes_metric_post) | **post** /nodes/metric/ | Create Node
+[**create_node_nodes_transform_post**](#create_node_nodes_transform_post) | **post** /nodes/transform/ | Create Node
+[**create_source_node_nodes_source_post**](#create_source_node_nodes_source_post) | **post** /nodes/source/ | Create Source Node
 [**create_tag_tags_post**](#create_tag_tags_post) | **post** /tags/ | Create Tag
 [**downstream_nodes_nodes_name_downstream_get**](#downstream_nodes_nodes_name_downstream_get) | **get** /nodes/{name}/downstream/ | Downstream Nodes
 [**find_nodes_by_tag_tags_name_nodes_get**](#find_nodes_by_tag_tags_name_nodes_get) | **get** /tags/{name}/nodes/ | Find Nodes By Tag
@@ -1001,11 +1005,11 @@ No authorization required
 
 [[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
 
-# **create_node_nodes_post**
-<a name="create_node_nodes_post"></a>
-> NodeOutput create_node_nodes_post(any_type)
+# **create_cube_node_nodes_cube_post**
+<a name="create_cube_node_nodes_cube_post"></a>
+> NodeOutput create_cube_node_nodes_cube_post(create_cube_node)
 
-Create Node
+Create Cube Node
 
 Create a node.
 
@@ -1016,9 +1020,7 @@ import djclient
 from djclient.apis.tags import default_api
 from djclient.model.create_cube_node import CreateCubeNode
 from djclient.model.node_output import NodeOutput
-from djclient.model.create_source_node import CreateSourceNode
 from djclient.model.http_validation_error import HTTPValidationError
-from djclient.model.create_node import CreateNode
 from pprint import pprint
 # Defining the host is optional and defaults to http://localhost
 # See configuration.py for a list of all supported configuration parameters.
@@ -1032,15 +1034,23 @@ with djclient.ApiClient(configuration) as api_client:
     api_instance = default_api.DefaultApi(api_client)
 
     # example passing only required values which don't have defaults set
-    body = None
+    body = CreateCubeNode(
+        display_name="display_name_example",
+        cube_elements=[
+            "cube_elements_example"
+        ],
+        description="description_example",
+        mode=NodeMode("published"),
+        name="name_example",
+    )
     try:
-        # Create Node
-        api_response = api_instance.create_node_nodes_post(
+        # Create Cube Node
+        api_response = api_instance.create_cube_node_nodes_cube_post(
             body=body,
         )
         pprint(api_response)
     except djclient.ApiException as e:
-        print("Exception when calling DefaultApi->create_node_nodes_post: %s\n" % e)
+        print("Exception when calling DefaultApi->create_cube_node_nodes_cube_post: %s\n" % e)
 ```
 ### Parameters
 
@@ -1056,29 +1066,20 @@ skip_deserialization | bool | default is False | when True, headers and body wil
 ### body
 
 # SchemaForRequestBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**CreateCubeNode**](../../models/CreateCubeNode.md) |  | 
 
-## Model Type Info
-Input Type | Accessed Type | Description | Notes
------------- | ------------- | ------------- | -------------
-dict, frozendict.frozendict, str, date, datetime, uuid.UUID, int, float, decimal.Decimal, bool, None, list, tuple, bytes, io.FileIO, io.BufferedReader,  | frozendict.frozendict, str, decimal.Decimal, BoolClass, NoneClass, tuple, bytes, FileIO |  | 
-
-### Composed Schemas (allOf/anyOf/oneOf/not)
-#### anyOf
-Class Name | Input Type | Accessed Type | Description | Notes
-------------- | ------------- | ------------- | ------------- | -------------
-[CreateSourceNode]({{complexTypePrefix}}CreateSourceNode.md) | [**CreateSourceNode**]({{complexTypePrefix}}CreateSourceNode.md) | [**CreateSourceNode**]({{complexTypePrefix}}CreateSourceNode.md) |  | 
-[CreateCubeNode]({{complexTypePrefix}}CreateCubeNode.md) | [**CreateCubeNode**]({{complexTypePrefix}}CreateCubeNode.md) | [**CreateCubeNode**]({{complexTypePrefix}}CreateCubeNode.md) |  | 
-[CreateNode]({{complexTypePrefix}}CreateNode.md) | [**CreateNode**]({{complexTypePrefix}}CreateNode.md) | [**CreateNode**]({{complexTypePrefix}}CreateNode.md) |  | 
 
 ### Return Types, Responses
 
 Code | Class | Description
 ------------- | ------------- | -------------
 n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
-201 | [ApiResponseFor201](#create_node_nodes_post.ApiResponseFor201) | Successful Response
-422 | [ApiResponseFor422](#create_node_nodes_post.ApiResponseFor422) | Validation Error
+201 | [ApiResponseFor201](#create_cube_node_nodes_cube_post.ApiResponseFor201) | Successful Response
+422 | [ApiResponseFor422](#create_cube_node_nodes_cube_post.ApiResponseFor422) | Validation Error
 
-#### create_node_nodes_post.ApiResponseFor201
+#### create_cube_node_nodes_cube_post.ApiResponseFor201
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
@@ -1091,7 +1092,431 @@ Type | Description  | Notes
 [**NodeOutput**](../../models/NodeOutput.md) |  | 
 
 
-#### create_node_nodes_post.ApiResponseFor422
+#### create_cube_node_nodes_cube_post.ApiResponseFor422
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor422ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor422ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**HTTPValidationError**](../../models/HTTPValidationError.md) |  | 
+
+
+### Authorization
+
+No authorization required
+
+[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
+
+# **create_node_nodes_dimension_post**
+<a name="create_node_nodes_dimension_post"></a>
+> NodeOutput create_node_nodes_dimension_post(create_node)
+
+Create Node
+
+Create a node.
+
+### Example
+
+```python
+import djclient
+from djclient.apis.tags import default_api
+from djclient.model.node_output import NodeOutput
+from djclient.model.http_validation_error import HTTPValidationError
+from djclient.model.create_node import CreateNode
+from pprint import pprint
+# Defining the host is optional and defaults to http://localhost
+# See configuration.py for a list of all supported configuration parameters.
+configuration = djclient.Configuration(
+    host = "http://localhost"
+)
+
+# Enter a context with an instance of the API client
+with djclient.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = default_api.DefaultApi(api_client)
+
+    # example passing only required values which don't have defaults set
+    body = CreateNode(
+        query="query_example",
+        display_name="display_name_example",
+        description="description_example",
+        mode=NodeMode("published"),
+        name="name_example",
+    )
+    try:
+        # Create Node
+        api_response = api_instance.create_node_nodes_dimension_post(
+            body=body,
+        )
+        pprint(api_response)
+    except djclient.ApiException as e:
+        print("Exception when calling DefaultApi->create_node_nodes_dimension_post: %s\n" % e)
+```
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+body | typing.Union[SchemaForRequestBodyApplicationJson] | required |
+content_type | str | optional, default is 'application/json' | Selects the schema and serialization of the request body
+accept_content_types | typing.Tuple[str] | default is ('application/json', ) | Tells the server the content type(s) that are accepted by the client
+stream | bool | default is False | if True then the response.content will be streamed and loaded from a file like object. When downloading a file, set this to True to force the code to deserialize the content to a FileSchema file
+timeout | typing.Optional[typing.Union[int, typing.Tuple]] | default is None | the timeout used by the rest client
+skip_deserialization | bool | default is False | when True, headers and body will be unset and an instance of api_client.ApiResponseWithoutDeserialization will be returned
+
+### body
+
+# SchemaForRequestBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**CreateNode**](../../models/CreateNode.md) |  | 
+
+
+### Return Types, Responses
+
+Code | Class | Description
+------------- | ------------- | -------------
+n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
+201 | [ApiResponseFor201](#create_node_nodes_dimension_post.ApiResponseFor201) | Successful Response
+422 | [ApiResponseFor422](#create_node_nodes_dimension_post.ApiResponseFor422) | Validation Error
+
+#### create_node_nodes_dimension_post.ApiResponseFor201
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor201ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**NodeOutput**](../../models/NodeOutput.md) |  | 
+
+
+#### create_node_nodes_dimension_post.ApiResponseFor422
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor422ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor422ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**HTTPValidationError**](../../models/HTTPValidationError.md) |  | 
+
+
+### Authorization
+
+No authorization required
+
+[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
+
+# **create_node_nodes_metric_post**
+<a name="create_node_nodes_metric_post"></a>
+> NodeOutput create_node_nodes_metric_post(create_node)
+
+Create Node
+
+Create a node.
+
+### Example
+
+```python
+import djclient
+from djclient.apis.tags import default_api
+from djclient.model.node_output import NodeOutput
+from djclient.model.http_validation_error import HTTPValidationError
+from djclient.model.create_node import CreateNode
+from pprint import pprint
+# Defining the host is optional and defaults to http://localhost
+# See configuration.py for a list of all supported configuration parameters.
+configuration = djclient.Configuration(
+    host = "http://localhost"
+)
+
+# Enter a context with an instance of the API client
+with djclient.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = default_api.DefaultApi(api_client)
+
+    # example passing only required values which don't have defaults set
+    body = CreateNode(
+        query="query_example",
+        display_name="display_name_example",
+        description="description_example",
+        mode=NodeMode("published"),
+        name="name_example",
+    )
+    try:
+        # Create Node
+        api_response = api_instance.create_node_nodes_metric_post(
+            body=body,
+        )
+        pprint(api_response)
+    except djclient.ApiException as e:
+        print("Exception when calling DefaultApi->create_node_nodes_metric_post: %s\n" % e)
+```
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+body | typing.Union[SchemaForRequestBodyApplicationJson] | required |
+content_type | str | optional, default is 'application/json' | Selects the schema and serialization of the request body
+accept_content_types | typing.Tuple[str] | default is ('application/json', ) | Tells the server the content type(s) that are accepted by the client
+stream | bool | default is False | if True then the response.content will be streamed and loaded from a file like object. When downloading a file, set this to True to force the code to deserialize the content to a FileSchema file
+timeout | typing.Optional[typing.Union[int, typing.Tuple]] | default is None | the timeout used by the rest client
+skip_deserialization | bool | default is False | when True, headers and body will be unset and an instance of api_client.ApiResponseWithoutDeserialization will be returned
+
+### body
+
+# SchemaForRequestBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**CreateNode**](../../models/CreateNode.md) |  | 
+
+
+### Return Types, Responses
+
+Code | Class | Description
+------------- | ------------- | -------------
+n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
+201 | [ApiResponseFor201](#create_node_nodes_metric_post.ApiResponseFor201) | Successful Response
+422 | [ApiResponseFor422](#create_node_nodes_metric_post.ApiResponseFor422) | Validation Error
+
+#### create_node_nodes_metric_post.ApiResponseFor201
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor201ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**NodeOutput**](../../models/NodeOutput.md) |  | 
+
+
+#### create_node_nodes_metric_post.ApiResponseFor422
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor422ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor422ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**HTTPValidationError**](../../models/HTTPValidationError.md) |  | 
+
+
+### Authorization
+
+No authorization required
+
+[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
+
+# **create_node_nodes_transform_post**
+<a name="create_node_nodes_transform_post"></a>
+> NodeOutput create_node_nodes_transform_post(create_node)
+
+Create Node
+
+Create a node.
+
+### Example
+
+```python
+import djclient
+from djclient.apis.tags import default_api
+from djclient.model.node_output import NodeOutput
+from djclient.model.http_validation_error import HTTPValidationError
+from djclient.model.create_node import CreateNode
+from pprint import pprint
+# Defining the host is optional and defaults to http://localhost
+# See configuration.py for a list of all supported configuration parameters.
+configuration = djclient.Configuration(
+    host = "http://localhost"
+)
+
+# Enter a context with an instance of the API client
+with djclient.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = default_api.DefaultApi(api_client)
+
+    # example passing only required values which don't have defaults set
+    body = CreateNode(
+        query="query_example",
+        display_name="display_name_example",
+        description="description_example",
+        mode=NodeMode("published"),
+        name="name_example",
+    )
+    try:
+        # Create Node
+        api_response = api_instance.create_node_nodes_transform_post(
+            body=body,
+        )
+        pprint(api_response)
+    except djclient.ApiException as e:
+        print("Exception when calling DefaultApi->create_node_nodes_transform_post: %s\n" % e)
+```
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+body | typing.Union[SchemaForRequestBodyApplicationJson] | required |
+content_type | str | optional, default is 'application/json' | Selects the schema and serialization of the request body
+accept_content_types | typing.Tuple[str] | default is ('application/json', ) | Tells the server the content type(s) that are accepted by the client
+stream | bool | default is False | if True then the response.content will be streamed and loaded from a file like object. When downloading a file, set this to True to force the code to deserialize the content to a FileSchema file
+timeout | typing.Optional[typing.Union[int, typing.Tuple]] | default is None | the timeout used by the rest client
+skip_deserialization | bool | default is False | when True, headers and body will be unset and an instance of api_client.ApiResponseWithoutDeserialization will be returned
+
+### body
+
+# SchemaForRequestBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**CreateNode**](../../models/CreateNode.md) |  | 
+
+
+### Return Types, Responses
+
+Code | Class | Description
+------------- | ------------- | -------------
+n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
+201 | [ApiResponseFor201](#create_node_nodes_transform_post.ApiResponseFor201) | Successful Response
+422 | [ApiResponseFor422](#create_node_nodes_transform_post.ApiResponseFor422) | Validation Error
+
+#### create_node_nodes_transform_post.ApiResponseFor201
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor201ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**NodeOutput**](../../models/NodeOutput.md) |  | 
+
+
+#### create_node_nodes_transform_post.ApiResponseFor422
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor422ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor422ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**HTTPValidationError**](../../models/HTTPValidationError.md) |  | 
+
+
+### Authorization
+
+No authorization required
+
+[[Back to top]](#__pageTop) [[Back to API list]](../../../README.md#documentation-for-api-endpoints) [[Back to Model list]](../../../README.md#documentation-for-models) [[Back to README]](../../../README.md)
+
+# **create_source_node_nodes_source_post**
+<a name="create_source_node_nodes_source_post"></a>
+> NodeOutput create_source_node_nodes_source_post(create_source_node)
+
+Create Source Node
+
+Create a source node. If columns are not provided, the source node's schema will be inferred using the configured query service.
+
+### Example
+
+```python
+import djclient
+from djclient.apis.tags import default_api
+from djclient.model.node_output import NodeOutput
+from djclient.model.create_source_node import CreateSourceNode
+from djclient.model.http_validation_error import HTTPValidationError
+from pprint import pprint
+# Defining the host is optional and defaults to http://localhost
+# See configuration.py for a list of all supported configuration parameters.
+configuration = djclient.Configuration(
+    host = "http://localhost"
+)
+
+# Enter a context with an instance of the API client
+with djclient.ApiClient(configuration) as api_client:
+    # Create an instance of the API class
+    api_instance = default_api.DefaultApi(api_client)
+
+    # example passing only required values which don't have defaults set
+    body = CreateSourceNode(
+        catalog="catalog_example",
+        schema_="schema__example",
+        table="table_example",
+        columns=dict(
+            "key": SourceNodeColumnType(
+                type="type_example",
+                dimension="dimension_example",
+            ),
+        ),
+        display_name="display_name_example",
+        description="description_example",
+        mode=NodeMode("published"),
+        name="name_example",
+    )
+    try:
+        # Create Source Node
+        api_response = api_instance.create_source_node_nodes_source_post(
+            body=body,
+        )
+        pprint(api_response)
+    except djclient.ApiException as e:
+        print("Exception when calling DefaultApi->create_source_node_nodes_source_post: %s\n" % e)
+```
+### Parameters
+
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+body | typing.Union[SchemaForRequestBodyApplicationJson] | required |
+content_type | str | optional, default is 'application/json' | Selects the schema and serialization of the request body
+accept_content_types | typing.Tuple[str] | default is ('application/json', ) | Tells the server the content type(s) that are accepted by the client
+stream | bool | default is False | if True then the response.content will be streamed and loaded from a file like object. When downloading a file, set this to True to force the code to deserialize the content to a FileSchema file
+timeout | typing.Optional[typing.Union[int, typing.Tuple]] | default is None | the timeout used by the rest client
+skip_deserialization | bool | default is False | when True, headers and body will be unset and an instance of api_client.ApiResponseWithoutDeserialization will be returned
+
+### body
+
+# SchemaForRequestBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**CreateSourceNode**](../../models/CreateSourceNode.md) |  | 
+
+
+### Return Types, Responses
+
+Code | Class | Description
+------------- | ------------- | -------------
+n/a | api_client.ApiResponseWithoutDeserialization | When skip_deserialization is True this response is returned
+201 | [ApiResponseFor201](#create_source_node_nodes_source_post.ApiResponseFor201) | Successful Response
+422 | [ApiResponseFor422](#create_source_node_nodes_source_post.ApiResponseFor422) | Validation Error
+
+#### create_source_node_nodes_source_post.ApiResponseFor201
+Name | Type | Description  | Notes
+------------- | ------------- | ------------- | -------------
+response | urllib3.HTTPResponse | Raw response |
+body | typing.Union[SchemaFor201ResponseBodyApplicationJson, ] |  |
+headers | Unset | headers were not defined |
+
+# SchemaFor201ResponseBodyApplicationJson
+Type | Description  | Notes
+------------- | ------------- | -------------
+[**NodeOutput**](../../models/NodeOutput.md) |  | 
+
+
+#### create_source_node_nodes_source_post.ApiResponseFor422
 Name | Type | Description  | Notes
 ------------- | ------------- | ------------- | -------------
 response | urllib3.HTTPResponse | Raw response |
@@ -3328,8 +3753,8 @@ with djclient.ApiClient(configuration) as api_client:
         ),
         display_name="display_name_example",
         description="description_example",
-        query="query_example",
         mode=NodeMode("published"),
+        query="query_example",
     )
     try:
         # Update Node

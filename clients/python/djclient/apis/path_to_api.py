@@ -17,6 +17,11 @@ from djclient.apis.paths.nodes_ import Nodes
 from djclient.apis.paths.nodes_name_ import NodesName
 from djclient.apis.paths.nodes_name_materialization_ import NodesNameMaterialization
 from djclient.apis.paths.nodes_name_revisions_ import NodesNameRevisions
+from djclient.apis.paths.nodes_source_ import NodesSource
+from djclient.apis.paths.nodes_metric_ import NodesMetric
+from djclient.apis.paths.nodes_dimension_ import NodesDimension
+from djclient.apis.paths.nodes_transform_ import NodesTransform
+from djclient.apis.paths.nodes_cube_ import NodesCube
 from djclient.apis.paths.nodes_name_columns_column_ import NodesNameColumnsColumn
 from djclient.apis.paths.nodes_name_tag_ import NodesNameTag
 from djclient.apis.paths.nodes_similarity_node1_name_node2_name import NodesSimilarityNode1NameNode2Name
@@ -48,6 +53,11 @@ PathToApi = typing_extensions.TypedDict(
         PathValues.NODES_NAME_: NodesName,
         PathValues.NODES_NAME_MATERIALIZATION_: NodesNameMaterialization,
         PathValues.NODES_NAME_REVISIONS_: NodesNameRevisions,
+        PathValues.NODES_SOURCE_: NodesSource,
+        PathValues.NODES_METRIC_: NodesMetric,
+        PathValues.NODES_DIMENSION_: NodesDimension,
+        PathValues.NODES_TRANSFORM_: NodesTransform,
+        PathValues.NODES_CUBE_: NodesCube,
         PathValues.NODES_NAME_COLUMNS_COLUMN_: NodesNameColumnsColumn,
         PathValues.NODES_NAME_TAG_: NodesNameTag,
         PathValues.NODES_SIMILARITY_NODE1_NAME_NODE2_NAME: NodesSimilarityNode1NameNode2Name,
@@ -80,6 +90,11 @@ path_to_api = PathToApi(
         PathValues.NODES_NAME_: NodesName,
         PathValues.NODES_NAME_MATERIALIZATION_: NodesNameMaterialization,
         PathValues.NODES_NAME_REVISIONS_: NodesNameRevisions,
+        PathValues.NODES_SOURCE_: NodesSource,
+        PathValues.NODES_METRIC_: NodesMetric,
+        PathValues.NODES_DIMENSION_: NodesDimension,
+        PathValues.NODES_TRANSFORM_: NodesTransform,
+        PathValues.NODES_CUBE_: NodesCube,
         PathValues.NODES_NAME_COLUMNS_COLUMN_: NodesNameColumnsColumn,
         PathValues.NODES_NAME_TAG_: NodesNameTag,
         PathValues.NODES_SIMILARITY_NODE1_NAME_NODE2_NAME: NodesSimilarityNode1NameNode2Name,
