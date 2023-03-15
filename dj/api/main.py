@@ -29,10 +29,8 @@ from dj.api.attributes import default_attribute_types
 from dj.errors import DJException
 from dj.models.catalog import Catalog
 from dj.models.column import Column
-from dj.models.database import Database
 from dj.models.engine import Engine
 from dj.models.node import NodeRevision
-from dj.models.query import Query
 from dj.models.table import Table
 from dj.utils import get_settings
 

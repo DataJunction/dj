@@ -1,5 +1,5 @@
 """Clients for various configurable services."""
-from typing import List, Optional
+from typing import List
 from urllib.parse import urljoin
 from uuid import UUID
 
@@ -9,7 +9,7 @@ from urllib3 import Retry
 
 from dj.errors import DJQueryServiceClientException
 from dj.models.column import Column
-from dj.models.query import QueryWithResults
+from dj.models.query import QueryCreate, QueryWithResults
 from dj.typing import ColumnType
 
 
@@ -88,24 +88,14 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
 
     def submit_query(  # pylint: disable=too-many-arguments
         self,
-        engine_name: str,
-        engine_version: str,
-        query: str,
-        catalog_name: Optional[str] = "default",
-        async_: Optional[bool] = False,
+        query_create: QueryCreate,
     ) -> QueryWithResults:
         """
         Submit a query to the query service
         """
         response = self.requests_session.post(
             "/queries/",
-            json={
-                "engine_name": engine_name,
-                "catalog_name": catalog_name,
-                "engine_version": engine_version,
-                "query": query,
-                "async_": async_,
-            },
+            json=query_create.dict(),
         )
         response_data = response.json()
         if not response.ok:

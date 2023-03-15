@@ -13,7 +13,7 @@ from dj.api.helpers import get_node_by_name, get_query
 from dj.errors import DJException, DJInvalidInputException
 from dj.models.metric import TranslatedSQL
 from dj.models.node import AvailabilityState, AvailabilityStateBase, NodeType
-from dj.models.query import QueryWithResults
+from dj.models.query import QueryCreate, QueryWithResults
 from dj.service_clients import QueryServiceClient
 from dj.utils import get_query_service_client, get_session
 
@@ -92,9 +92,10 @@ def add_availability(
 @router.get("/data/{node_name}/")
 def data_for_node(
     node_name: str,
+    *,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
-    *,
+    async_: bool = False,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> QueryWithResults:
@@ -120,11 +121,12 @@ def data_for_node(
     query = TranslatedSQL(sql=str(query_ast))
     available_engines = node.current.catalog.engines
 
-    result = query_service_client.submit_query(
+    query_create = QueryCreate(
         engine_name=available_engines[0].name,
-        engine_version=available_engines[0].version,
         catalog_name=node.current.catalog.name,
-        query=query.sql,
-        async_=False,
+        engine_version=available_engines[0].version,
+        submitted_query=query.sql,
+        async_=async_,
     )
+    result = query_service_client.submit_query(query_create)
     return result

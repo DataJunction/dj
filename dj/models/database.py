@@ -17,7 +17,6 @@ from dj.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from dj.models.catalog import Catalog
-    from dj.models.query import Query
     from dj.models.table import Table
 
 
@@ -65,11 +64,6 @@ class Database(BaseSQLModel, table=True):  # type: ignore
     )
 
     tables: List["Table"] = Relationship(
-        back_populates="database",
-        sa_relationship_kwargs={"cascade": "all, delete"},
-    )
-
-    queries: List["Query"] = Relationship(
         back_populates="database",
         sa_relationship_kwargs={"cascade": "all, delete"},
     )
