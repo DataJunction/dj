@@ -56,24 +56,39 @@ def test_infer_complex_column_with_table(client_with_examples: TestClient):
     #         ),
     #     ),
     # )[0]
+#     response = client_with_examples.post(
+#         "/nodes/dimension/",
+#         json={
+#             "description": "AB test cells",
+#             "mode": "published",
+#             "name": "cell_d40",
+#             "display_name": "Test Cells",
+#             "query": """SELECT
+#   test_id,
+#   cast(cell_id as int) cell_id,
+#   cell_name test_cell_name
+# FROM
+#  (
+#      select test_id,
+#             cells
+#       from ab_tests
+#  ) tests
+#  CROSS JOIN UNNEST(cells) AS t (cell_id, cell_name)""",
+#         },
+#     )
+
     response = client_with_examples.post(
         "/nodes/dimension/",
         json={
-            "description": "AB test cells",
+            "description": "Map Access Check",
             "mode": "published",
-            "name": "cell_d40",
-            "display_name": "Test Cells",
+            "name": "map_access_check",
+            "display_name": "Map Access Check",
             "query": """SELECT
-  test_id,
-  cast(cell_id as int) cell_id,
-  cell_name test_cell_name 
-FROM
- (
-     select test_id,
-            cells 
-      from ab_tests
- ) tests
- CROSS JOIN UNNEST(cells) AS t (cell_id, cell_name)""",
+      test_id,
+      cells,
+    FROM ab_tests where 
+      cells['1'] = '111' and cells['2'] = '222'""",
         },
     )
     assert response.json() == {}

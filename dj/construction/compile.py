@@ -76,7 +76,7 @@ def _check_col(
     else:  # finally check if the column that does not have a namespace is in any namespace
         for nmpsc, nmspc_cols in namespaces.items():  # pragma: no cover
 
-            if col.name.name in nmspc_cols:
+            if col.name.name in nmspc_cols and nmpsc in table_nodes:
                 # when the column is a function, check the args to the function
                 # if isinstance(nmspc_cols[col.name.name].table, ast.Function):
                 #     for arg_col in nmspc_cols[col.name.name].table.args:
@@ -277,7 +277,6 @@ def _validate_columns(
 
             bad_namespace = namespace is None
         except DJException as exc:
-            print("EXCEPT", col, exc)
             bad_col_exc = exc
             bad_namespace = True
         if bad_namespace:
@@ -337,50 +336,6 @@ def _validate_columns(
     return dimension_columns
 
 
-# flake8: noqa: C901
-def _tvf_to_namespaces(session, namespaces, table):
-    namespace = ""
-    if isinstance(table, ast.Named):
-        namespace = make_name(table.namespace, table.name.name)
-
-    # you cannot combine an unnamed subquery with anything else
-    if (namespace and "" in namespaces) or (namespace == "" and namespaces):
-        CompoundBuildException().append(
-            error=DJError(
-                code=ErrorCode.INVALID_SQL_QUERY,
-                message=f"You may only use an unnamed subquery alone for {table}",
-            ),
-            message="Cannot extract dependencies from SELECT",
-        )
-    # you cannot have multiple references with the same name
-    if namespace in namespaces:
-        CompoundBuildException().append(  # pragma: no cover
-            DJError(
-                code=ErrorCode.INVALID_SQL_QUERY,
-                message=f"Duplicate name `{namespace}` for table {table}",
-            ),
-            message="Cannot extract dependencies from SELECT",
-        )
-
-    namespaces[namespace] = {}
-
-    if isinstance(table, ast.Alias):
-        table: Union[ast.Table, ast.Select, ast.Function] = table.child  # type: ignore
-
-    # subquery handling
-    # we track subqueries separately and extract at the end
-    # but introspect the columns to make sure the parent query selection is valid
-    if isinstance(table, ast.Function):
-        # if this is a table-value function, add all columns generated from this as a table
-        dj_func = function_registry[table.name.name]
-        namespaces[namespace].update({col.name.name: col for col in table.parent.columns})
-        # namespaces[namespace].update({c.name: c for c in table_node.columns})
-        table = ast.Table(
-            name=table.parent.name,
-            _columns=[col for col in table.parent.columns],
-        )
-
-
 def _compile_select_ast(
     session: Session,
     select: ast.Select,  # pylint: disable= W0621
@@ -420,16 +375,10 @@ def _compile_select_ast(
                 (_dimension_columns, _sources_transforms, _dimensions_tables),
             ) = _tables_to_namespaces(session, namespaces, table)
 
-        # print("Table:", table.name.name, _table_nodes)
         table_nodes.update(_table_nodes)
         dimension_columns |= _dimension_columns
         sources_transforms |= _sources_transforms
         dimensions_tables |= _dimensions_tables
-
-    for table in tables:
-        ref = table.child if isinstance(table, ast.Alias) else table
-        if isinstance(ref, ast.Function):
-            _tvf_to_namespaces(session, namespaces, table)
 
     # organize column discovery recording dupes
     # we'll use this lookup to validate columns

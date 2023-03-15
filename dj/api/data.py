@@ -94,6 +94,7 @@ def data_for_node(
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    async_: bool = False,
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
