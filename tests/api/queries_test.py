@@ -5,6 +5,7 @@ Tests for the queries API.
 import json
 from datetime import datetime
 from http import HTTPStatus
+from unittest import mock
 
 import msgpack
 from fastapi.testclient import TestClient
@@ -256,7 +257,30 @@ def test_submit_query_results_backend(
             headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
     data = response.json()
-
+    assert data == {
+        "catalog_name": "test_catalog",
+        "engine_name": "test_engine",
+        "engine_version": "1.0",
+        "id": mock.ANY,
+        "submitted_query": "SELECT 1 AS col",
+        "executed_query": "SELECT 1 AS col",
+        "scheduled": "2021-01-01T00:00:00",
+        "started": "2021-01-01T00:00:00",
+        "finished": "2021-01-01T00:00:00",
+        "state": "FINISHED",
+        "progress": 1.0,
+        "results": [
+            {
+                "sql": "SELECT 1 AS col",
+                "columns": [{"name": "col", "type": "STR"}],
+                "rows": [[1]],
+                "row_count": 1,
+            },
+        ],
+        "next": None,
+        "previous": None,
+        "errors": [],
+    }
     cached = settings.results_backend.get(data["id"])
     assert json.loads(cached) == [
         {

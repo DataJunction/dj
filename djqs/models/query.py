@@ -100,7 +100,8 @@ class QueryResults(BaseQuery):
     """
 
     id: uuid.UUID
-
+    engine_name: Optional[str] = None
+    engine_version: Optional[str] = None
     submitted_query: str
     executed_query: Optional[str] = None
 
