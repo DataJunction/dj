@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from dj.models.column import Column
+from dj.models.database import Database
 from dj.models.node import Node, NodeRevision, NodeType
-from dj.models.query import Database
 from dj.models.table import Table
 from dj.typing import ColumnType
 

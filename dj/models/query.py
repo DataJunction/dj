@@ -5,53 +5,27 @@ Models for queries.
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import Any, List, Optional, Union
-from uuid import UUID, uuid4
+from typing import Any, List, Optional
 
 import msgpack
 from pydantic import AnyHttpUrl, validator
-from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy_utils import UUIDType
-from sqlmodel import Field, Relationship
+from sqlmodel import Field, SQLModel
 
 from dj.models.base import BaseSQLModel
-from dj.models.database import Database
 from dj.typing import QueryState, Row
 
 
-class BaseQuery(BaseSQLModel):
+class BaseQuery(SQLModel):
     """
     Base class for query models.
     """
 
-    database_id: int = Field(foreign_key="database.id")
-    catalog: Optional[str] = None
-    schema_: Optional[str] = Field(default=None, alias="schema")
+    catalog_name: Optional[str]
+    engine_name: Optional[str] = None
+    engine_version: Optional[str] = None
 
     class Config:  # pylint: disable=too-few-public-methods, missing-class-docstring
         allow_population_by_field_name = True
-
-
-class Query(BaseQuery, table=True):  # type: ignore
-    """
-    A query.
-    """
-
-    id: UUID = Field(
-        default_factory=uuid4,
-        sa_column=SqlaColumn(UUIDType(), primary_key=True),
-    )
-    database: Database = Relationship(back_populates="queries")
-
-    submitted_query: str
-    executed_query: Optional[str] = None
-
-    scheduled: Optional[datetime] = None
-    started: Optional[datetime] = None
-    finished: Optional[datetime] = None
-
-    state: QueryState = QueryState.UNKNOWN
-    progress: float = 0.0
 
 
 class QueryCreate(BaseQuery):
@@ -60,6 +34,7 @@ class QueryCreate(BaseQuery):
     """
 
     submitted_query: str
+    async_: bool = False
 
 
 class ColumnMetadata(BaseSQLModel):
@@ -104,40 +79,31 @@ class TableRef(BaseSQLModel):
     table: str
 
 
-class QueryExecutionResult(BaseSQLModel):
-    """
-    Query execution job response
-    """
-
-    columns: List[ColumnMetadata]
-    rows: Union[List[Row], bytes]
-
-
 class QueryWithResults(BaseSQLModel):
     """
     Model for query with results.
     """
 
-    id: uuid.UUID  # execution ref
-
+    id: uuid.UUID
     engine_name: Optional[str] = None
     engine_version: Optional[str] = None
+    submitted_query: str
+    executed_query: Optional[str] = None
 
-    query: str
-
-    created: Optional[datetime] = None
+    scheduled: Optional[datetime] = None
     started: Optional[datetime] = None
     finished: Optional[datetime] = None
 
     state: QueryState = QueryState.UNKNOWN
+    progress: float = 0.0
 
     output_table: Optional[TableRef]
-    results: QueryExecutionResult
+    results: QueryResults
     next: Optional[AnyHttpUrl] = None
     previous: Optional[AnyHttpUrl] = None
     errors: List[str]
 
-    @validator("created", pre=True)
+    @validator("scheduled", pre=True)
     def parse_scheduled_date_string(cls, value):  # pylint: disable=no-self-argument
         """
         Convert string date values to datetime

@@ -3,7 +3,7 @@ Fixtures for testing.
 """
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 
-from typing import Collection, Iterator, List, Optional
+from typing import Collection, Iterator, List
 
 import pytest
 from cachelib.simple import SimpleCache
@@ -16,6 +16,7 @@ from sqlmodel.pool import StaticPool
 from dj.api.main import app
 from dj.config import Settings
 from dj.models import Column
+from dj.models.query import QueryCreate
 from dj.service_clients import QueryServiceClient
 from dj.utils import get_query_service_client, get_session, get_settings
 
@@ -91,13 +92,9 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
     )
 
     def mock_submit_query(
-        engine_name: str,  # pylint: disable=unused-argument
-        engine_version: str,  # pylint: disable=unused-argument
-        query: str,
-        catalog_name: str,  # pylint: disable=unused-argument
-        async_: Optional[bool] = False,  # pylint: disable=unused-argument
+        query_create: QueryCreate,
     ) -> Collection[Collection[str]]:
-        return QUERY_DATA_MAPPINGS[query]
+        return QUERY_DATA_MAPPINGS[query_create.submitted_query]
 
     mocker.patch.object(
         qs_client,
