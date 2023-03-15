@@ -235,6 +235,36 @@ def construction_session(  # pylint: disable=too-many-locals
         ],
     )
 
+    tests_src_ref = Node(
+        name="ab_tests",
+        type=NodeType.SOURCE,
+        current_version="1",
+    )
+    tests_src = NodeRevision(
+        name=tests_src_ref.name,
+        type=tests_src_ref.type,
+        node=tests_src_ref,
+        version="1",
+        columns=[
+            Column(name="test_id", type=ColumnType.INT),
+            Column(name="cells", type=ColumnType.MAP["str", "str"]),
+        ],
+        tables=[
+            Table(
+                node_id=4250,
+                schema="basic",
+                table="ab_tests",
+                columns=[
+                    Column(name="test_id", type=ColumnType.INT),
+                    Column(name="cells", type=ColumnType.MAP["str", "str"]),
+                ],
+                cost=10.0,
+                database=postgres,
+                database_id=1,
+            ),
+        ],
+    )
+
     users_src_ref = Node(
         name="basic.source.users",
         type=NodeType.SOURCE,
@@ -566,6 +596,7 @@ def construction_session(  # pylint: disable=too-many-locals
     session.add(customers_agg_tfm)
     session.add(orders_src)
     session.add(customers_src)
+    session.add(tests_src)
 
     session.commit()
     return session

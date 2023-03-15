@@ -147,7 +147,8 @@ def client_with_examples(client: TestClient) -> TestClient:
     load examples
     """
     for endpoint, json in EXAMPLES:
-        post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
+        if endpoint in ("/catalogs/", "/engines/", "/catalogs/default/engines/", "/catalogs/public/engines", "/nodes/source/"):
+            post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
     return client
 
 

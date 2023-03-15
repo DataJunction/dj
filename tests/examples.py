@@ -57,6 +57,21 @@ EXAMPLES = (  # type: ignore
         "/nodes/source/",
         {
             "columns": {
+                "test_id": {"type": "INT"},
+                "cells": {"type": "MAP[STR, STR]"},
+            },
+            "description": "ab tests",
+            "mode": "published",
+            "name": "ab_tests",
+            "catalog": "default",
+            "schema_": "testing",
+            "table": "ab_tests",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "columns": {
                 "repair_order_id": {"type": "INT"},
                 "repair_type_id": {"type": "INT"},
                 "price": {"type": "FLOAT"},

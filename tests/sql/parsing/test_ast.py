@@ -13,7 +13,10 @@ from dj.sql.parsing.ast import (
     Boolean,
     Column,
     From,
+    Function,
     IsNull,
+    Join,
+    JoinKind,
     MapSubscript,
     Name,
     Namespace,
@@ -684,3 +687,134 @@ GROUP BY a.x;
     """
     tree = parse(query)
     assert tree.select.projection[0].is_aggregation()
+
+
+def test_cross_join():
+    """
+    Test that CROSS JOIN and UNNEST are supported
+    """
+    query = """
+SELECT
+        cast(cell_id as int) cell_id,
+        cell_name test_cell_name
+    FROM
+     (
+         select test_id,
+                cells
+          from ab_tests
+     ) tests
+     CROSS JOIN UNNEST(cells) AS t(cell_id, cell_name)
+    """
+    tree = parse(query)
+    print(tree)
+    assert tree == Query(
+        select=Select(
+            from_=From(
+                tables=[
+                    Alias(
+                        name=Name(name="tests", quote_style=""),
+                        namespace=None,
+                        child=Select(
+                            from_=From(
+                                tables=[
+                                    Table(
+                                        name=Name(name="ab_tests", quote_style=""),
+                                        namespace=None,
+                                    )
+                                ],
+                                joins=[],
+                            ),
+                            group_by=[],
+                            having=None,
+                            projection=[
+                                Column(
+                                    name=Name(name="test_id", quote_style=""),
+                                    namespace=None,
+                                    _api_column=False,
+                                ),
+                                Column(
+                                    name=Name(name="cells", quote_style=""),
+                                    namespace=None,
+                                    _api_column=False,
+                                ),
+                            ],
+                            where=None,
+                            limit=None,
+                            distinct=False,
+                            order_by=[],
+                        ),
+                        columns=[],
+                    )
+                ],
+                joins=[
+                    Join(
+                        kind=JoinKind.CrossJoin,
+                        table=Alias(
+                            name=Name(name="t", quote_style=""),
+                            namespace=None,
+                            child=Function(
+                                name=Name(name="UNNEST", quote_style=""),
+                                namespace=Namespace(names=[]),
+                                args=[
+                                    Column(
+                                        name=Name(name="cells", quote_style=""),
+                                        namespace=None,
+                                        _api_column=False,
+                                    )
+                                ],
+                                distinct=False,
+                                over=None,
+                                is_tvf=True,
+                            ),
+                            columns=[
+                                Column(
+                                    name=Name(name="cell_id", quote_style=""),
+                                    namespace=None,
+                                    _api_column=False,
+                                ),
+                                Column(
+                                    name=Name(name="cell_name", quote_style=""),
+                                    namespace=None,
+                                    _api_column=False,
+                                ),
+                            ],
+                        ),
+                        on=None,
+                    )
+                ],
+            ),
+            group_by=[],
+            having=None,
+            projection=[
+                Alias(
+                    name=Name(name="cell_id", quote_style=""),
+                    namespace=None,
+                    child=Cast(
+                        expr=Column(
+                            name=Name(name="cell_id", quote_style=""),
+                            namespace=None,
+                            _api_column=False,
+                        ),
+                        type_="INT",
+                    ),
+                    columns=[],
+                ),
+                Alias(
+                    name=Name(name="test_cell_name", quote_style=""),
+                    namespace=None,
+                    child=Column(
+                        name=Name(name="cell_name", quote_style=""),
+                        namespace=None,
+                        _api_column=False,
+                    ),
+                    columns=[],
+                ),
+            ],
+            where=None,
+            limit=None,
+            distinct=False,
+            order_by=[],
+        ),
+        ctes=[],
+        dialect="ansi",
+    )

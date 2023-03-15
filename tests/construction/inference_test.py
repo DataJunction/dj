@@ -4,6 +4,7 @@
 import pytest
 from sqlalchemy import select
 from sqlmodel import Session
+from starlette.testclient import TestClient
 
 from dj.construction.inference import get_type_of_expression
 from dj.models.node import Node
@@ -42,6 +43,40 @@ def test_infer_column_with_table(construction_session: Session):
         get_type_of_expression(ast.Column(ast.Name("status"), _table=table))
         == ColumnType.STR
     )
+
+
+def test_infer_complex_column_with_table(client_with_examples: TestClient):
+    """
+    Test getting the type of a column that has a table
+    """
+    # node = next(
+    #     construction_session.exec(
+    #         select(Node).filter(
+    #             Node.name == "ab_tests",
+    #         ),
+    #     ),
+    # )[0]
+    response = client_with_examples.post(
+        "/nodes/dimension/",
+        json={
+            "description": "AB test cells",
+            "mode": "published",
+            "name": "cell_d40",
+            "display_name": "Test Cells",
+            "query": """SELECT
+  test_id,
+  cast(cell_id as int) cell_id,
+  cell_name test_cell_name 
+FROM
+ (
+     select test_id,
+            cells 
+      from ab_tests
+ ) tests
+ CROSS JOIN UNNEST(cells) AS t (cell_id, cell_name)""",
+        },
+    )
+    assert response.json() == {}
 
 
 def test_infer_values():

@@ -235,12 +235,30 @@ def parse_table(parse_tree: dict) -> ast.TableExpression:
     if match_keys(parse_tree, {"Table"}):
         subtree = parse_tree["Table"]
 
-        table = parse_namespace(subtree["name"]).to_named_type(ast.Table)
+        # table with function
+        if "args" in subtree and subtree["args"]:
+            # parse_column
+            namespace, name = parse_namespace(subtree["name"]).pop_self()
+            print("tablewithfunction", namespace, name)  # name=UNNEST
+            table = ast.Function(  # type: ignore
+                name,
+                args=[parse_expression(exp) for exp in subtree["args"]],
+                is_tvf=True,
+            ).add_namespace(namespace)
+        else:
+            table = parse_namespace(subtree["name"]).to_named_type(ast.Table)  # type: ignore
+
         if subtree["alias"]:
+            print("parse alias cols", subtree["alias"]["columns"], table)
             aliased: ast.Alias[ast.Table] = ast.Alias(  # type: ignore
                 parse_name(subtree["alias"]["name"]),
                 child=table,
+                columns=[
+                    parse_name(col).to_named_type(ast.Column).add_table(table)
+                    for col in subtree["alias"]["columns"]
+                ],
             )
+            print("aliased.columns", aliased.columns)
             return aliased
         return table
 
@@ -316,6 +334,11 @@ def parse_join(parse_tree: dict) -> ast.Join:
     ):
         relation = parse_tree["relation"]
         join_operator = parse_tree["join_operator"]
+
+        # A CrossJoin is special in that it doesn't require `ON`
+        if join_operator == ast.JoinKind.CrossJoin.name:
+            return ast.Join(ast.JoinKind.CrossJoin, parse_table(relation))
+
         for exp in ast.JoinKind:
             join_kind = exp.name
             if match_keys(

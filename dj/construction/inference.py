@@ -55,6 +55,14 @@ def _(expression: ast.Column):
                     f"Cannot resolve type of column {expression}. "
                     "column's table does not have a DJ Node.",
                 )
+        elif isinstance(table, ast.Function):
+            if table:
+                print("FUNCTION", get_type_of_expression(table))
+            else:
+                raise DJParseException(
+                    f"Cannot resolve type of column {expression}. "
+                    "column's table does not have a DJ Node.",
+                )
         else:
             raise DJParseException(
                 f"Cannot resolve type of column {expression}. "
@@ -98,6 +106,7 @@ def _(expression: ast.Wildcard):  # pragma: no cover
 def _(expression: ast.Function):  # pragma: no cover
     name = expression.name.name.upper()
     dj_func = function_registry[name]
+    print("GOT HERE", dj_func, expression)
     return dj_func.infer_type_from_types(
         *(get_type_of_expression(exp) for exp in expression.args)
     )

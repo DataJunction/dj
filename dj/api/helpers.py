@@ -278,13 +278,14 @@ def validate_node_data(
     for col in query_ast.select.projection:
         try:
             column_type = get_type_of_expression(col)
+            print(">> get_type_of_expression(", col, ") = ", column_type)
             validated_node.columns.append(
                 Column(name=col.name.name, type=column_type),  # type: ignore
             )
         except DJParseException:
             type_inference_failed_columns.append(col.name.name)  # type: ignore
             validated_node.status = NodeStatus.INVALID
-
+    print(type_inference_failed_columns, "!!!!")
     return (
         validated_node,
         dependencies_map,

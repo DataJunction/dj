@@ -481,6 +481,51 @@ class Avg(Function):
         return func.avg(column)
 
 
+class Unnest(Function):
+    """
+    The ``UNNEST`` function.
+    """
+
+    is_aggregation = False
+
+    @staticmethod
+    def infer_type(*args: Column) -> ColumnType:  # type: ignore
+        unnested_type = []
+        print("UNNEST!!", args)
+        for argument in args:
+            if argument.type not in {ColumnType.ARRAY, ColumnType.MAP}:
+                raise DJInternalErrorException(
+                    message="`UNNEST` can only be used with `ARRAY` or `MAP` types.",
+                )
+            if argument.type == ColumnType.ARRAY:
+                unnested_type.append(argument.type.args[0])
+            if argument.type == ColumnType.MAP:
+                unnested_type.append(argument.type.args)
+        return ColumnType.Row[unnested_type]
+
+    @staticmethod
+    def infer_type_from_types(*types: Any) -> ColumnType:  # type: ignore
+        unnested_type = []
+        for arg_type in types:
+            if arg_type not in {ColumnType.ARRAY, ColumnType.MAP}:
+                raise DJInternalErrorException(
+                    message="`UNNEST` can only be used with `ARRAY` or `MAP` types.",
+                )
+            if arg_type == ColumnType.ARRAY:
+                unnested_type.append(arg_type.args[0])
+            if arg_type == ColumnType.MAP:
+                unnested_type.append(arg_type.args)
+        return ColumnType.Row[unnested_type]
+
+    @staticmethod
+    def get_sqla_function(  # type: ignore
+        column: SqlaColumn,
+        *,
+        dialect: Optional[str] = None,
+    ) -> SqlaFunction:
+        return func.unnest(column)
+
+
 class FunctionRegistry:  # pylint: disable=too-few-public-methods
     """
     A simple object for registering functions.
@@ -528,5 +573,6 @@ function_registry = FunctionRegistry(
         "SUM": Sum,
         "AVG": Avg,
         "NOW": Now,
+        "UNNEST": Unnest,
     },
 )

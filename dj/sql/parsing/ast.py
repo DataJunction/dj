@@ -839,6 +839,8 @@ class Function(Named, Operation):
     args: List[Expression] = field(default_factory=list)
     distinct: bool = False
     over: Optional[Over] = None
+    is_tvf: bool = False
+    # children: "Table" = None
 
     def __str__(self) -> str:
         distinct = "DISTINCT " if self.distinct else ""
@@ -1062,6 +1064,7 @@ class Alias(Named, Generic[AliasedType]):
     """
 
     child: AliasedType = field(default_factory=Node)  # type: ignore
+    columns: List[Expression] = field(default_factory=list)
 
     def __post_init__(self):
         super().__post_init__()
@@ -1104,7 +1107,9 @@ class Alias(Named, Generic[AliasedType]):
         return self
 
     def __str__(self) -> str:
-        return f"{self.child} AS {self.name}"
+        return f"{self.child} AS {self.name}" + (
+            f"({','.join(str(col) for col in self.columns)})" if self.columns else ""
+        )
 
     def is_aggregation(self) -> bool:
         return isinstance(self.child, Expression) and self.child.is_aggregation()
@@ -1201,7 +1206,7 @@ class MapSubscript(Expression):
     keys: List[Name]
 
     def __str__(self) -> str:
-        key_chains = "".join([f'["{key}"]' for key in self.keys])
+        key_chains = "".join([f"['{key}']" for key in self.keys])
         return f"{self.map_column}{key_chains}"
 
 
@@ -1303,7 +1308,13 @@ class JoinKind(DJEnum):
 
 
 # pylint: enable=C0103
-TableExpression = Union[Table, Alias[Table], "Select", Alias["Select"]]
+TableExpression = Union[
+    Table,
+    Alias[Table],
+    "Select",
+    Alias["Select"],
+    Alias[Function],
+]
 
 
 @dataclass(eq=False)
@@ -1314,11 +1325,28 @@ class Join(Node):
 
     kind: JoinKind
     table: TableExpression
-    on: Expression  # pylint: disable=C0103
+    on: Optional[Expression] = None  # pylint: disable=C0103
 
     def __str__(self) -> str:
-        return f"""{self.kind.value} {self.table}
+        return (
+            f"""{self.kind.value} {self.table}
         ON {self.on}"""
+            if self.on
+            else f"{self.kind.value} {self.table}"
+        )
+
+
+# @dataclass(eq=False)
+# class CrossJoin(Node):
+#     """
+#     A cross join
+#     """
+#
+#     kind: JoinKind
+#     table: TableExpression
+#
+#     def __str__(self) -> str:
+#         return f"""{self.kind.value} {self.table}"""
 
 
 @dataclass(eq=False)
