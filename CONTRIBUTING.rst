@@ -25,113 +25,31 @@ The SQLModel documentation is a good start, since it covers the basics of SQLAlc
 Running the examples
 ====================
 
-The repository comes with a small set of examples in the ``examples/configs/`` directory, with some basic nodes built from 3 databases (Postgres, Druid, Google Sheets) and another example based on DBT tutorial (WIP).
+The repository should be run in conjunction with [`djqs`](https://github.com/DataJunction/djqs), which will load a
+`postgres-roads` database with example data. In order to get this up and running:
+* ``docker compose up`` from DJ to get the DJ metrics service up (defaults to run on port 8000)
+* ``docker compose up`` in DJQS to get the DJ query service up (defaults to run on port 8001)
 
-Running ``docker compose up`` will start a Druid cluster, a Postgres database, and the DJ service (together with Celery workers for running async queries and Redis for caching and storing results).
+Once both are up, you can fire up `juypter notebook` to run the `Modeling the Roads Example Database.ipynb`,
+which will create all of the relevant nodes and provide some examples of API interactions.
 
-You can check that everything is working by querying the list of available databasesi (install `jq <https://stedolan.github.io/jq/>`_ if you don't have it):
+You can check that everything is working by querying the list of available catalogs (install `jq <https://stedolan.github.io/jq/>`_ if you don't have it):
 
 .. code-block:: bash
 
-    % curl http://localhost:8000/databases/ | jq
+    % curl http://localhost:8000/catalogs/ | jq
     [
       {
-        "id": 0,
-        "description": "The DJ meta database",
-        "read_only": true,
-        "async_": false,
-        "cost": 1,
-        "created_at": "2022-04-10T20:22:58.274082",
-        "updated_at": "2022-04-10T20:22:58.274092",
-        "name": "dj",
-        "URI": "dj://localhost:8000/0"
-      },
-      {
-        "id": 1,
-        "description": "An in memory SQLite database for tableless queries",
-        "read_only": true,
-        "async_": false,
-        "cost": 0,
-        "created_at": "2022-04-10T20:22:58.275177",
-        "updated_at": "2022-04-10T20:22:58.275183",
-        "name": "in-memory",
-        "URI": "sqlite://"
-      },
-      {
-        "id": 2,
-        "description": "An Apache Druid database",
-        "read_only": true,
-        "async_": false,
-        "cost": 1,
-        "created_at": "2022-04-10T20:22:58.285035",
-        "updated_at": "2022-04-10T20:22:58.291059",
-        "name": "druid",
-        "URI": "druid://host.docker.internal:8082/druid/v2/sql/"
-      },
-      {
-        "id": 3,
-        "description": "A Postgres database",
-        "read_only": false,
-        "async_": false,
-        "cost": 10,
-        "created_at": "2022-04-10T20:22:58.298188",
-        "updated_at": "2022-04-10T20:22:58.305128",
-        "name": "postgres",
-        "URI": "postgresql://username:FoolishPassword@host.docker.internal:5433/examples"
-      },
-      {
-        "id": 4,
-        "description": "A Google Sheets connector",
-        "read_only": true,
-        "async_": false,
-        "cost": 100,
-        "created_at": "2022-04-10T20:22:58.310020",
-        "updated_at": "2022-04-10T20:22:58.317108",
-        "name": "gsheets",
-        "URI": "gsheets://"
+        "name": "default",
+        "engines": [
+          {
+            "name": "postgres",
+            "version": "",
+            "uri": "postgresql://dj:dj@postgres-roads:5432/djdb"
+          }
+        ]
       }
     ]
-
-You can run queries against any of these databases:
-
-.. code-block:: bash
-
-    $ curl -H "Content-Type: application/json" \
-    > -d '{"database_id":1,"submitted_query":"SELECT 1 AS foo"}' \
-    > http://127.0.0.1:8000/queries/ | jq
-    {
-      "database_id": 1,
-      "catalog": null,
-      "schema_": null,
-      "id": "5cc9cc71-02c2-4c73-a0d9-f9c752f0762b",
-      "submitted_query": "SELECT 1 AS foo",
-      "executed_query": "SELECT 1 AS foo",
-      "scheduled": "2022-04-11T01:02:56.221241",
-      "started": "2022-04-11T01:02:56.221289",
-      "finished": "2022-04-11T01:02:56.222603",
-      "state": "FINISHED",
-      "progress": 1,
-      "results": [
-        {
-          "sql": "SELECT 1 AS foo",
-          "columns": [
-            {
-              "name": "foo",
-              "type": "STR"
-            }
-          ],
-          "rows": [
-            [
-              1
-            ]
-          ],
-          "row_count": 1
-        }
-      ],
-      "next": null,
-      "previous": null,
-      "errors": []
-    }
 
 To see the list of available nodes:
 
@@ -140,58 +58,68 @@ To see the list of available nodes:
     $ curl http://localhost:8000/nodes/ | jq
     [
       {
-        "id": 1,
-        "name": "dbt.jaffle_shop.orders",
-        "description": "Orders fact table",
-        "created_at": "2022-09-30T03:51:26.269672+00:00",
-        "updated_at": "2022-09-30T03:51:26.269685+00:00",
+        "node_revision_id": 1,
+        "node_id": 1,
         "type": "source",
+        "name": "repair_orders",
+        "display_name": "Repair Orders",
+        "version": "v1.0",
+        "status": "valid",
+        "mode": "published",
+        "catalog": {
+          "id": 1,
+          "uuid": "c2363d4d-ce0c-4eb2-9b1e-28743970f859",
+          "created_at": "2023-03-17T15:45:15.012784+00:00",
+          "updated_at": "2023-03-17T15:45:15.012795+00:00",
+          "extra_params": {},
+          "name": "default"
+        },
+        "schema_": "roads",
+        "table": "repair_orders",
+        "description": "Repair orders",
         "query": null,
+        "availability": null,
         "columns": [
           {
-            "name": "id",
-            "type": "INT"
+            "name": "repair_order_id",
+            "type": "INT",
+            "attributes": []
           },
           {
-            "name": "user_id",
-            "type": "INT"
+            "name": "municipality_id",
+            "type": "STR",
+            "attributes": []
+          },
+          {
+            "name": "hard_hat_id",
+            "type": "INT",
+            "attributes": []
           },
           {
             "name": "order_date",
-            "type": "DATE"
+            "type": "TIMESTAMP",
+            "attributes": []
           },
           {
-            "name": "status",
-            "type": "STR"
+            "name": "required_date",
+            "type": "TIMESTAMP",
+            "attributes": []
           },
           {
-            "name": "_etl_loaded_at",
-            "type": "TIMESTAMP"
+            "name": "dispatched_date",
+            "type": "TIMESTAMP",
+            "attributes": []
+          },
+          {
+            "name": "dispatcher_id",
+            "type": "INT",
+            "attributes": []
           }
-        ]
-      },
-      {
-        "id": 2,
-        "name": "dbt.jaffle_shop.customers",
-        "description": "Customer table",
-        "created_at": "2022-09-30T03:51:26.363081+00:00",
-        "updated_at": "2022-09-30T03:51:26.363096+00:00",
-        "type": "source",
-        "query": null,
-        "columns": [
-          {
-            "name": "id",
-            "type": "INT"
-          },
-          {
-            "name": "first_name",
-            "type": "STR"
-          },
-          {
-            "name": "last_name",
-            "type": "STR"
-          }
-        ]
+        ],
+        "updated_at": "2023-03-17T15:45:18.456072+00:00",
+        "materialization_configs": [],
+        "created_at": "2023-03-17T15:45:18.448321+00:00",
+        "tags": []
       },
       ...
     ]
@@ -203,38 +131,70 @@ And metrics:
     $ curl http://localhost:8000/metrics/ | jq
     [
       {
-        "id": 8,
-        "name": "basic.num_users",
-        "description": "Number of users.",
-        "created_at": "2022-09-30T03:51:29.193090+00:00",
-        "updated_at": "2022-09-30T03:51:29.193124+00:00",
-        "query": "SELECT SUM(num_users) FROM basic.transform.country_agg",
+        "id": 21,
+        "name": "num_repair_orders",
+        "display_name": "Num Repair Orders",
+        "current_version": "v1.0",
+        "description": "Number of repair orders",
+        "created_at": "2023-03-17T15:45:27.589799+00:00",
+        "updated_at": "2023-03-17T15:45:27.590304+00:00",
+        "query": "SELECT count(repair_order_id) as num_repair_orders FROM repair_orders",
         "dimensions": [
-          "basic.transform.country_agg.country",
-          "basic.transform.country_agg.num_users"
+          "dispatcher.company_name",
+          "dispatcher.dispatcher_id",
+          "dispatcher.phone",
+          "hard_hat.address",
+          "hard_hat.birth_date",
+          "hard_hat.city",
+          "hard_hat.contractor_id",
+          "hard_hat.country",
+          "hard_hat.first_name",
+          "hard_hat.hard_hat_id",
+          "hard_hat.hire_date",
+          "hard_hat.last_name",
+          "hard_hat.manager",
+          "hard_hat.postal_code",
+          "hard_hat.state",
+          "hard_hat.title",
+          "municipality_dim.contact_name",
+          "municipality_dim.contact_title",
+          "municipality_dim.local_region",
+          "municipality_dim.municipality_id",
+          "municipality_dim.municipality_type_desc",
+          "municipality_dim.municipality_type_id",
+          "municipality_dim.phone",
+          "municipality_dim.state_id",
+          "repair_orders.dispatched_date",
+          "repair_orders.dispatcher_id",
+          "repair_orders.hard_hat_id",
+          "repair_orders.municipality_id",
+          "repair_orders.order_date",
+          "repair_orders.repair_order_id",
+          "repair_orders.required_date"
         ]
       },
       {
-        "id": 10,
-        "name": "basic.num_comments",
-        "description": "Number of comments",
-        "created_at": "2022-09-30T03:51:30.376928+00:00",
-        "updated_at": "2022-09-30T03:51:30.376937+00:00",
-        "query": "SELECT COUNT(1) FROM basic.source.comments",
+        "id": 22,
+        "name": "avg_repair_price",
+        "display_name": "Avg Repair Price",
+        "current_version": "v1.0",
+        "description": "Average repair price",
+        "created_at": "2023-03-17T15:45:28.121435+00:00",
+        "updated_at": "2023-03-17T15:45:28.121836+00:00",
+        "query": "SELECT avg(price) as avg_repair_price FROM repair_order_details",
         "dimensions": [
-          "basic.dimension.users.age",
-          "basic.dimension.users.country",
-          "basic.dimension.users.full_name",
-          "basic.dimension.users.gender",
-          "basic.dimension.users.id",
-          "basic.dimension.users.preferred_language",
-          "basic.dimension.users.secret_number",
-          "basic.source.comments.id",
-          "basic.source.comments.text",
-          "basic.source.comments.timestamp",
-          "basic.source.comments.user_id"
+          "repair_order.dispatcher_id",
+          "repair_order.hard_hat_id",
+          "repair_order.municipality_id",
+          "repair_order.repair_order_id",
+          "repair_order_details.discount",
+          "repair_order_details.price",
+          "repair_order_details.quantity",
+          "repair_order_details.repair_order_id",
+          "repair_order_details.repair_type_id"
         ]
-      }
+      },
+      ...
     ]
 
 
@@ -242,23 +202,22 @@ To get data for a given metric:
 
 .. code-block:: bash
 
-    $ curl http://localhost:8000/metrics/8/data/ | jq
+    $ curl http://localhost:8000/data/avg_repair_price/ | jq
 
-You can also pass query parameters to group by a dimension (``d``) or filter (``f``):
+You can also pass query parameters to group by a dimension or filter:
 
 .. code-block:: bash
 
-    $ curl "http://localhost:8000/metrics/8/data/?d=basic.transform.country_agg.country" | jq
-    $ curl "http://localhost:8000/metrics/8/data/?f=basic.transform.country_agg.country='France'" | jq
+    $ curl "http://localhost:8000/data/avg_time_to_dispatch/?dimensions=dispatcher.company_name" | jq
+    $ curl "http://localhost:8000/data/avg_time_to_dispatch/?filters=hard_hat.state='AZ'" | jq
 
 Similarly, you can request the SQL for a given metric with given constraints:
 
 .. code-block:: bash
 
-    $ curl "http://localhost:8000/metrics/8/sql/?d=basic.transform.country_agg.country" | jq
+    $ curl "http://localhost:8000/sql/avg_time_to_dispatch/?dimensions=dispatcher.company_name" | jq
     {
-      "database_id": 3,
-      "sql": "SELECT sum("basic.transform.country_agg".num_users) AS sum_1, "basic.transform.country_agg".country \nFROM (SELECT "basic.source.users".country AS country, count("basic.source.users".id) AS num_users \nFROM (SELECT basic.dim_users.id AS id, basic.dim_users.full_name AS full_name, basic.dim_users.age AS age, basic.dim_users.country AS country, basic.dim_users.gender AS gender, basic.dim_users.preferred_language AS preferred_language \nFROM basic.dim_users) AS "basic.source.users" GROUP BY "basic.source.users".country) AS "basic.transform.country_agg" GROUP BY "basic.transform.country_agg".country"
+      "sql": "SELECT  avg(repair_orders.dispatched_date - repair_orders.order_date) AS avg_time_to_dispatch,\n\tdispatcher.company_name \n FROM \"roads\".\"repair_orders\" AS repair_orders\nLEFT JOIN (SELECT  dispatchers.company_name,\n\tdispatchers.dispatcher_id,\n\tdispatchers.phone \n FROM \"roads\".\"dispatchers\" AS dispatchers\n \n) AS dispatcher\n        ON repair_orders.dispatcher_id = dispatcher.dispatcher_id \n GROUP BY  dispatcher.company_name"
     }
 
 You can also run SQL queries against the metrics in DJ, using the special database with ID 0 and referencing a table called ``metrics``:

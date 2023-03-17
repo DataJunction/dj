@@ -8,6 +8,7 @@ from pytest_mock import MockerFixture
 from requests import Request
 
 from dj.errors import DJQueryServiceClientException
+from dj.models.query import QueryCreate
 from dj.service_clients import QueryServiceClient, RequestsSessionWithEndpoint
 
 
@@ -114,7 +115,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "results": [
                 {
                     "sql": "SELECT 1 as num",
-                    "columns": [{"name": "num", "type": "INT"}],
+                    "columns": [{"name": "num", "type": "STR"}],
                     "rows": [[1]],
                     "row_count": 1,
                 },
@@ -122,7 +123,6 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "next": None,
             "previous": None,
             "errors": [],
-            "database_id": 1,  # Will be deprecated soon in favor of catalog
         }
 
         mock_request = mocker.patch(
@@ -131,19 +131,20 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        query_service_client.submit_query(
-            engine="postgres",
+        query_create = QueryCreate(
+            catalog_name="default",
+            engine_name="postgres",
             engine_version="15.2",
             submitted_query="SELECT 1",
-            catalog="public",
             async_=False,
         )
+        query_service_client.submit_query(query_create)
 
         mock_request.assert_called_with(
             "/queries/",
             json={
-                "catalog_name": "public",
-                "engine": "postgres",
+                "catalog_name": "default",
+                "engine_name": "postgres",
                 "engine_version": "15.2",
                 "submitted_query": "SELECT 1",
                 "async_": False,
@@ -171,7 +172,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "results": [
                 {
                     "sql": "SELECT 1 as num",
-                    "columns": [{"name": "num", "type": "INT"}],
+                    "columns": [{"name": "num", "type": "STR"}],
                     "rows": [[1]],
                     "row_count": 1,
                 },
@@ -215,13 +216,14 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.get_query("ef209eef-c31a-4089-aae6-833259a08e22")
         assert "Error response from query service" in str(exc_info.value)
+        query_create = QueryCreate(
+            catalog_name="hive",
+            engine_name="postgres",
+            engine_version="15.2",
+            submitted_query="SELECT 1",
+            async_=False,
+        )
 
         with pytest.raises(DJQueryServiceClientException) as exc_info:
-            query_service_client.submit_query(
-                engine="postgres",
-                engine_version="15.2",
-                submitted_query="SELECT 1",
-                catalog="public",
-                async_=False,
-            )
+            query_service_client.submit_query(query_create)
         assert "Error response from query service" in str(exc_info.value)

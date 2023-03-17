@@ -7,8 +7,8 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from dj.models.column import Column
+from dj.models.database import Database
 from dj.models.node import Node, NodeRevision, NodeType
-from dj.models.query import Database
 from dj.models.table import Table
 from dj.typing import ColumnType
 
@@ -109,45 +109,6 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
     response = client.get("/metrics/a-metric")
     assert response.status_code == 400
     assert response.json() == {"detail": "Not a metric node: `a-metric`"}
-
-
-def test_read_metrics_sql(
-    session: Session,
-    client: TestClient,
-) -> None:
-    """
-    Test ``GET /metrics/{node_id}/sql/``.
-    """
-    database = Database(name="test", URI="blah://", tables=[])
-
-    source_node = Node(name="my_table", type=NodeType.SOURCE, current_version="1")
-    source_node_rev = NodeRevision(
-        name=source_node.name,
-        node=source_node,
-        version="1",
-        schema_="rev",
-        table="my_table",
-        columns=[Column(name="one", type=ColumnType["STR"])],
-        type=NodeType.SOURCE,
-    )
-
-    node = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
-    node_revision = NodeRevision(
-        name=node.name,
-        node=node,
-        version="1",
-        query="SELECT COUNT(*) FROM my_table",
-        type=NodeType.METRIC,
-    )
-    session.add(database)
-    session.add(node_revision)
-    session.add(source_node_rev)
-    session.commit()
-
-    response = client.get("/metrics/a-metric/sql/")
-    assert response.json() == {
-        "sql": 'SELECT  COUNT(*) AS col0 \n FROM "rev"."my_table" AS my_table',
-    }
 
 
 def test_common_dimensions(

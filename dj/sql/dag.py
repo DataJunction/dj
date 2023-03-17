@@ -1,10 +1,9 @@
 """
 DAG related functions.
 """
-
 from typing import List
 
-from dj.models.node import Node
+from dj.models.node import Node, NodeRevision
 from dj.utils import get_settings
 
 settings = get_settings()

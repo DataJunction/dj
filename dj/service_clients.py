@@ -1,6 +1,7 @@
 """Clients for various configurable services."""
-from typing import List, Optional
+from typing import List
 from urllib.parse import urljoin
+from uuid import UUID
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -8,7 +9,7 @@ from urllib3 import Retry
 
 from dj.errors import DJQueryServiceClientException
 from dj.models.column import Column
-from dj.models.query import QueryWithResults
+from dj.models.query import QueryCreate, QueryWithResults
 from dj.typing import ColumnType
 
 
@@ -87,30 +88,22 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
 
     def submit_query(  # pylint: disable=too-many-arguments
         self,
-        engine: str,
-        engine_version: str,
-        submitted_query: str,
-        catalog: Optional[str] = "default",
-        async_: Optional[bool] = False,
+        query_create: QueryCreate,
     ) -> QueryWithResults:
         """
         Submit a query to the query service
         """
         response = self.requests_session.post(
             "/queries/",
-            json={
-                "engine": engine,
-                "engine_version": engine_version,
-                "submitted_query": submitted_query,
-                "catalog_name": catalog,
-                "async_": async_,
-            },
+            json=query_create.dict(),
         )
+        response_data = response.json()
         if not response.ok:
             raise DJQueryServiceClientException(
-                message=f"Error response from query service: {response.text}",
+                message=f"Error response from query service: {response_data['message']}",
             )
         query_info = response.json()
+        query_info["id"] = UUID(query_info["id"])
         return QueryWithResults(**query_info)
 
     def get_query(
