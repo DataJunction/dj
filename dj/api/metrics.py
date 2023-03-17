@@ -9,9 +9,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
-from dj.api.helpers import get_node_by_name, get_query
+from dj.api.helpers import get_node_by_name
 from dj.errors import DJError, DJException, ErrorCode
-from dj.models.metric import Metric, TranslatedSQL
+from dj.models.metric import Metric
 from dj.models.node import Node, NodeType
 from dj.sql.dag import get_dimensions
 from dj.utils import get_session
@@ -54,31 +54,6 @@ def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric
     """
     node = get_metric(session, name)
     return Metric.parse_node(node)
-
-
-@router.get("/metrics/{name}/sql/", response_model=TranslatedSQL)
-def read_metrics_sql(
-    name: str,
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    *,
-    session: Session = Depends(get_session),
-) -> TranslatedSQL:
-    """
-    Return SQL for a metric.
-
-    A database can be optionally specified. If no database is specified the optimal one
-    will be used.
-    """
-    query_ast = get_query(
-        session=session,
-        metric=name,
-        dimensions=dimensions,
-        filters=filters,
-    )
-    return TranslatedSQL(
-        sql=str(query_ast),
-    )
 
 
 @router.get("/metrics/common/dimensions/", response_model=List[str])

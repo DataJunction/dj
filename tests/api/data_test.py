@@ -29,10 +29,7 @@ class TestDataForNode:
         )
         data = response.json()
         assert response.status_code == 422
-        assert (
-            data["message"]
-            == "Cannot set filters or dimensions for node type dimension!"
-        )
+        assert data["message"] == "Cannot set dimensions for node type dimension!"
 
     def test_get_dimension_data(
         self,
@@ -49,8 +46,9 @@ class TestDataForNode:
         assert data == [
             {
                 "submitted_query": (
-                    "SELECT  payment_type_table.id,\n\tpayment_type_table.payment_type_name,"
-                    "\n\tpayment_type_table.payment_type_classification \n FROM "
+                    "SELECT  payment_type_table.id,\n\t"
+                    "payment_type_table.payment_type_classification,"
+                    "\n\tpayment_type_table.payment_type_name \n FROM "
                     '"accounting"."payment_type_table"'
                     " AS payment_type_table"
                 ),
@@ -58,31 +56,69 @@ class TestDataForNode:
                 "results": {
                     "columns": [
                         {"name": "id", "type": "INT"},
-                        {"name": "payment_type_name", "type": "STR"},
                         {"name": "payment_type_classification", "type": "STR"},
+                        {"name": "payment_type_name", "type": "STR"},
                     ],
-                    "rows": [[1, "VISA", "CARD"], [2, "MASTERCARD", "CARD"]],
+                    "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
                 },
                 "errors": [],
             },
         ]
 
-    def test_get_unsupported_node_type_data(
+    def test_get_source_data(
         self,
         client_with_query_service: TestClient,
     ) -> None:
         """
-        Trying to get transform or source data should fail
+        Test retrieving data for a source node
         """
         response = client_with_query_service.get("/data/revenue/")
         data = response.json()
-        assert response.status_code == 500
-        assert data["message"] == "Can't get data for node type source!"
+        assert response.status_code == 200
+        assert data == {
+            "submitted_query": 'SELECT  * \n FROM "accounting"."revenue"',
+            "state": "FINISHED",
+            "results": {
+                "columns": [{"name": "profit", "type": "FLOAT"}],
+                "rows": [[129.19]],
+            },
+            "errors": [],
+        }
 
+    def test_get_transform_data(
+        self,
+        client_with_query_service: TestClient,
+    ) -> None:
+        """
+        Test retrieving data for a transform node
+        """
         response = client_with_query_service.get("/data/large_revenue_payments_only/")
         data = response.json()
-        assert response.status_code == 500
-        assert data["message"] == "Can't get data for node type transform!"
+        assert response.status_code == 200
+        assert data == {
+            "submitted_query": (
+                "SELECT  revenue.account_type,\n\t"
+                "revenue.customer_id,\n\trevenue.payment_amount,\n\t"
+                'revenue.payment_id \n FROM "accounting"."revenue" '
+                "AS revenue\n \n WHERE  revenue.payment_amount > 1000000"
+            ),
+            "state": "FINISHED",
+            "results": {
+                "columns": [
+                    {"name": "account_type", "type": "STR"},
+                    {"name": "customer_id", "type": "INT"},
+                    {"name": "payment_amount", "type": "STR"},
+                    {"name": "payment_id", "type": "INT"},
+                ],
+                "rows": [
+                    ["CHECKING", 2, "22.50", 1],
+                    ["SAVINGS", 2, "100.50", 1],
+                    ["CREDIT", 1, "11.50", 1],
+                    ["CHECKING", 2, "2.50", 1],
+                ],
+            },
+            "errors": [],
+        }
 
     def test_get_metric_data(
         self,

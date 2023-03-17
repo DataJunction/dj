@@ -23,6 +23,7 @@ from dj.api import (
     metrics,
     nodes,
     query,
+    sql,
     tags,
 )
 from dj.api.attributes import default_attribute_types
@@ -58,6 +59,7 @@ app.include_router(health.router)
 app.include_router(cubes.router)
 app.include_router(tags.router)
 app.include_router(attributes.router)
+app.include_router(sql.router)
 
 
 @app.exception_handler(DJException)

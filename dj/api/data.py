@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
 from dj.api.helpers import get_node_by_name, get_query
-from dj.errors import DJException, DJInvalidInputException
+from dj.errors import DJException
 from dj.models.metric import TranslatedSQL
 from dj.models.node import AvailabilityState, AvailabilityStateBase, NodeType
 from dj.models.query import QueryCreate, QueryWithResults
@@ -103,24 +103,15 @@ def data_for_node(
     Gets data for a node
     """
     node = get_node_by_name(session, node_name)
-    if node.type not in (NodeType.METRIC, NodeType.CUBE, NodeType.DIMENSION):
-        raise DJException(message=f"Can't get data for node type {node.type}!")
-
-    if node.type == NodeType.DIMENSION:
-        if dimensions or filters:
-            raise DJInvalidInputException(
-                message=f"Cannot set filters or dimensions for node type {node.type}!",
-            )
-
     query_ast = get_query(
         session=session,
-        metric=node_name,
+        node_name=node_name,
         dimensions=dimensions,
         filters=filters,
     )
     query = TranslatedSQL(sql=str(query_ast))
-    available_engines = node.current.catalog.engines
 
+    available_engines = node.current.catalog.engines
     query_create = QueryCreate(
         engine_name=available_engines[0].name,
         catalog_name=node.current.catalog.name,

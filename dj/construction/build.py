@@ -1,4 +1,5 @@
 """Functions to add to an ast DJ node queries"""
+
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
 from typing import Dict, List, Optional, Union, cast
 
@@ -196,7 +197,6 @@ def add_filters_and_dimensions_to_query_ast(
                 # use parse to get the asts from the strings we got
                 temp_select.where,  # type:ignore
             )
-            projection_addition += list(temp_select.find_all(ast.Column))
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
     if dimensions:
@@ -211,10 +211,19 @@ def add_filters_and_dimensions_to_query_ast(
         col.set_api_column(True).copy() for col in set(projection_addition)
     ]
 
+    # Cannot select for columns that aren't in GROUP BY and aren't aggregations
+    if query.select.group_by:
+        query.select.projection = [
+            col
+            for col in query.select.projection
+            if col.is_aggregation()
+            or col.name.name in {gc.name.name for gc in query.select.group_by}  # type: ignore
+        ]
+
 
 def _get_node_table(
     node: NodeRevision,
-    build_criteria: Optional[BuildCriteria],
+    build_criteria: Optional[BuildCriteria] = None,
     as_select: bool = False,
 ) -> Optional[Union[ast.Select, ast.Table]]:
     """
@@ -262,10 +271,6 @@ def build_node(  # pylint: disable=too-many-arguments
     """
     Determines the optimal way to build the Node and does so
     """
-    if node.query is None:  # pragma: no cover
-        raise Exception(
-            "Node has no query. Cannot build a node without a query.",
-        )
     # if no dimensions need to be added then we can see if the node is directly materialized
     if not (filters or dimensions):
         if select := cast(
@@ -274,10 +279,35 @@ def build_node(  # pylint: disable=too-many-arguments
         ):
             return ast.Query(select=select)  # pragma: no cover
 
-    query = parse(node.query, dialect)
-    add_filters_and_dimensions_to_query_ast(query, dialect, filters, dimensions)
+    if node.query:
+        query = parse(node.query, dialect)
+    else:
+        query = build_source_node_query(node)
+
+    add_filters_and_dimensions_to_query_ast(
+        query,
+        dialect,
+        filters,
+        dimensions,
+    )
 
     return build_ast(session, query, build_criteria)
+
+
+def build_source_node_query(node: NodeRevision):
+    """
+    Returns a query that selects each column explicitly in the source node.
+    """
+    name = ast.Name(node.name, '"')
+    table = ast.Table(name, None, _dj_node=node)
+    select = ast.Select(
+        projection=[
+            ast.Column(ast.Name(tbl_col.name), _table=table.alias_or_self())
+            for tbl_col in node.columns
+        ],
+        from_=ast.From(tables=[table]),
+    )
+    return ast.Query(select=select)
 
 
 def build_ast(  # pylint: disable=too-many-arguments

@@ -1396,7 +1396,7 @@ class Select(Expression):  # pylint: disable=R0902
         parts = ["SELECT "]
         if self.distinct:
             parts.append("DISTINCT ")
-        projection = ",\n\t".join(str(exp) for exp in self.projection)
+        projection = ",\n\t".join(sorted([str(exp) for exp in self.projection]))
         parts.extend((projection, "\n", str(self.from_), "\n"))
         if self.where is not None:
             parts.extend(("WHERE ", str(self.where), "\n"))
@@ -1464,6 +1464,10 @@ class Query(Expression):
 
     def __str__(self) -> str:
         subquery = bool(self.parent)
+        # self.select.projection = sorted(
+        #     self.select.projection,
+        #     key=lambda col: col.name.name
+        # )
         ctes = ",\n".join(f"{cte.name} AS {(cte.child)}" for cte in self.ctes)
         with_ = "WITH" if ctes else ""
         select = f"({(self.select)})" if subquery else (self.select)

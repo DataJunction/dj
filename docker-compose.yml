@@ -58,8 +58,8 @@ services:
     ports:
       - "5433:5432"
 
-  postgres_roads:
-    container_name: postgres_roads
+  postgres-roads:
+    container_name: postgres-roads
     networks:
       - core
     image: postgres:latest

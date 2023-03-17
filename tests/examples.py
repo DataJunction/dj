@@ -1,6 +1,8 @@
 """
 Post requests for all example entities
 """
+
+# pylint: disable=too-many-lines
 from dj.models import Column
 from dj.typing import ColumnType, QueryState
 
@@ -769,6 +771,10 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
+        "/nodes/event_source/columns/country/?dimension=country_dim&dimension_column=country",
+        {},
+    ),
+    (
         "/nodes/metric/",
         {
             "name": "device_ids_count",
@@ -933,27 +939,27 @@ COLUMN_MAPPINGS = {
 
 QUERY_DATA_MAPPINGS = {
     (
-        "SELECT  payment_type_table.id,\n\tpayment_type_table.payment_type_name,"
-        '\n\tpayment_type_table.payment_type_classification \n FROM "accounting".'
-        '"payment_type_table" AS payment_type_table'
+        "SELECT  payment_type_table.id,\n\tpayment_type_table.payment_type_classification,\n\t"
+        'payment_type_table.payment_type_name \n FROM "accounting"."payment_type_table" AS '
+        "payment_type_table"
     ): [
         {
             "submitted_query": (
-                "SELECT  payment_type_table.id,\n\tpayment_type_table.payment_type_name,"
-                "\n\tpayment_type_table.payment_type_classification \n "
-                'FROM "accounting"."payment_type_table"'
-                " AS payment_type_table"
+                "SELECT  payment_type_table.id,\n\tpayment_type_table."
+                "payment_type_classification,\n\t"
+                'payment_type_table.payment_type_name \n FROM "accounting"."payment_type_table" '
+                "AS payment_type_table"
             ),
             "state": QueryState.FINISHED,
             "results": {
                 "columns": [
                     {"name": "id", "type": "INT"},
-                    {"name": "payment_type_name", "type": "STR"},
                     {"name": "payment_type_classification", "type": "STR"},
+                    {"name": "payment_type_name", "type": "STR"},
                 ],
                 "rows": [
-                    (1, "VISA", "CARD"),
-                    (2, "MASTERCARD", "CARD"),
+                    (1, "CARD", "VISA"),
+                    (2, "CARD", "MASTERCARD"),
                 ],
             },
             "errors": [],
@@ -968,6 +974,44 @@ QUERY_DATA_MAPPINGS = {
             "columns": [{"name": "cnt", "type": "INT"}],
             "rows": [
                 (1,),
+            ],
+        },
+        "errors": [],
+    },
+    'SELECT  * \n FROM "accounting"."revenue"': {
+        "submitted_query": ('SELECT  * \n FROM "accounting"."revenue"'),
+        "state": QueryState.FINISHED,
+        "results": {
+            "columns": [{"name": "profit", "type": "FLOAT"}],
+            "rows": [
+                (129.19,),
+            ],
+        },
+        "errors": [],
+    },
+    (
+        "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
+        '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n '
+        "WHERE  revenue.payment_amount > 1000000"
+    ): {
+        "submitted_query": (
+            "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
+            '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n '
+            "WHERE  revenue.payment_amount > 1000000"
+        ),
+        "state": QueryState.FINISHED,
+        "results": {
+            "columns": [
+                {"name": "account_type", "type": "STR"},
+                {"name": "customer_id", "type": "INT"},
+                {"name": "payment_amount", "type": "STR"},
+                {"name": "payment_id", "type": "INT"},
+            ],
+            "rows": [
+                ("CHECKING", 2, "22.50", 1),
+                ("SAVINGS", 2, "100.50", 1),
+                ("CREDIT", 1, "11.50", 1),
+                ("CHECKING", 2, "2.50", 1),
             ],
         },
         "errors": [],
