@@ -36,14 +36,18 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
     return {
         """basic.source.users""": {
             None: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
+                True,
+                """
+                SELECT * FROM "basic.source.users"
+                """,
             ),
         },
         """basic.source.comments""": {
             None: (
-                False,
-                """Node has no query. Cannot generate a build plan without a query.""",
+                True,
+                """
+                SELECT * FROM "basic.source.comments"
+                """,
             ),
         },
         """basic.dimension.users""": {

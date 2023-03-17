@@ -30,18 +30,19 @@ CREATE TABLE roads.municipality (
     contact_name character varying(30),
     contact_title character varying(50),
     local_region character varying(30),
+    phone character varying(30),
     state_id smallint NOT NULL
 );
-INSERT INTO roads.municipality VALUES ('New York', 'Alexander Wilkinson', 'Assistant City Clerk', 'Manhattan', 33);
-INSERT INTO roads.municipality VALUES ('Los Angeles', 'Hugh Moser', 'Administrative Assistant', 'Santa Monica',5 );
-INSERT INTO roads.municipality VALUES ('Chicago', 'Phillip Bradshaw', 'Director of Community Engagement', 'West Ridge', 14);
-INSERT INTO roads.municipality VALUES ('Houston', 'Leo Ackerman', 'Municipal Roads Specialist', 'The Woodlands', 44);
-INSERT INTO roads.municipality VALUES ('Phoenix', 'Jessie Paul', 'Director of Finance and Administration', 'Old Town Scottsdale', 3);
-INSERT INTO roads.municipality VALUES ('Philadelphia', 'Willie Chaney', 'Municipal Manager', 'Center City', 39);
-INSERT INTO roads.municipality VALUES ('San Antonio', 'Chester Lyon', 'Treasurer', 'Alamo Heights', 44);
-INSERT INTO roads.municipality VALUES ('San Diego', 'Ralph Helms', 'Senior Electrical Project Manager', 'Del Mar', 5);
-INSERT INTO roads.municipality VALUES ('Dallas', 'Virgil Craft', 'Assistant Assessor (Town/Municipality)', 'Deep Ellum', 44);
-INSERT INTO roads.municipality VALUES ('San Jose', 'Charles Carney', 'Municipal Accounting Manager', 'Santana Row', 5);
+INSERT INTO roads.municipality VALUES ('New York', 'Alexander Wilkinson', 'Assistant City Clerk', 'Manhattan', '505-101-1929', 33);
+INSERT INTO roads.municipality VALUES ('Los Angeles', 'Hugh Moser', 'Administrative Assistant', 'Santa Monica', '505-122-1929', 5 );
+INSERT INTO roads.municipality VALUES ('Chicago', 'Phillip Bradshaw', 'Director of Community Engagement', 'West Ridge', '102-222-2033', 14);
+INSERT INTO roads.municipality VALUES ('Houston', 'Leo Ackerman', 'Municipal Roads Specialist', 'The Woodlands', '303-111-1929', 44);
+INSERT INTO roads.municipality VALUES ('Phoenix', 'Jessie Paul', 'Director of Finance and Administration', 'Old Town Scottsdale', '122-101-1111',3);
+INSERT INTO roads.municipality VALUES ('Philadelphia', 'Willie Chaney', 'Municipal Manager', 'Center City', '241-223-3224', 39);
+INSERT INTO roads.municipality VALUES ('San Antonio', 'Chester Lyon', 'Treasurer', 'Alamo Heights', '412-987-8236', 44);
+INSERT INTO roads.municipality VALUES ('San Diego', 'Ralph Helms', 'Senior Electrical Project Manager', 'Del Mar', '324-443-1157', 5);
+INSERT INTO roads.municipality VALUES ('Dallas', 'Virgil Craft', 'Assistant Assessor (Town/Municipality)', 'Deep Ellum', '442-101-3429', 44);
+INSERT INTO roads.municipality VALUES ('San Jose', 'Charles Carney', 'Municipal Accounting Manager', 'Santana Row', '408-331-1245', 5);
 
 CREATE TABLE roads.hard_hats (
     hard_hat_id smallint NOT NULL,

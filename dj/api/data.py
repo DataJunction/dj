@@ -3,21 +3,25 @@ Data related APIs.
 """
 
 import logging
+from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
-from dj.api.helpers import get_node_by_name
+from dj.api.helpers import get_node_by_name, get_query
 from dj.errors import DJException
+from dj.models.metric import TranslatedSQL
 from dj.models.node import AvailabilityState, AvailabilityStateBase, NodeType
-from dj.utils import get_session
+from dj.models.query import QueryCreate, QueryWithResults
+from dj.service_clients import QueryServiceClient
+from dj.utils import get_query_service_client, get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/data/availability/{node_name}/")
+@router.post("/data/{node_name}/availability/")
 def add_availability(
     node_name: str,
     data: AvailabilityStateBase,
@@ -83,3 +87,37 @@ def add_availability(
         status_code=200,
         content={"message": "Availability state successfully posted"},
     )
+
+
+@router.get("/data/{node_name}/")
+def data_for_node(
+    node_name: str,
+    *,
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
+    async_: bool = False,
+    session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> QueryWithResults:
+    """
+    Gets data for a node
+    """
+    node = get_node_by_name(session, node_name)
+    query_ast = get_query(
+        session=session,
+        node_name=node_name,
+        dimensions=dimensions,
+        filters=filters,
+    )
+    query = TranslatedSQL(sql=str(query_ast))
+
+    available_engines = node.current.catalog.engines
+    query_create = QueryCreate(
+        engine_name=available_engines[0].name,
+        catalog_name=node.current.catalog.name,
+        engine_version=available_engines[0].version,
+        submitted_query=query.sql,
+        async_=async_,
+    )
+    result = query_service_client.submit_query(query_create)
+    return result

@@ -205,30 +205,6 @@ def upgrade():
         sa.UniqueConstraint("version", "node_id", name=op.f("uq_noderevision_version")),
     )
     op.create_table(
-        "query",
-        sa.Column("id", sqlalchemy_utils.types.uuid.UUIDType(), nullable=False),
-        sa.Column("database_id", sa.Integer(), nullable=False),
-        sa.Column("catalog", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-        sa.Column("schema_", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-        sa.Column(
-            "submitted_query",
-            sqlmodel.sql.sqltypes.AutoString(),
-            nullable=False,
-        ),
-        sa.Column("executed_query", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-        sa.Column("scheduled", sa.DateTime(), nullable=True),
-        sa.Column("started", sa.DateTime(), nullable=True),
-        sa.Column("finished", sa.DateTime(), nullable=True),
-        sa.Column("state", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
-        sa.Column("progress", sa.Float(), nullable=False),
-        sa.ForeignKeyConstraint(
-            ["database_id"],
-            ["database.id"],
-            name=op.f("fk_query_database_id_database"),
-        ),
-        sa.PrimaryKeyConstraint("id", name=op.f("pk_query")),
-    )
-    op.create_table(
         "table",
         sa.Column("schema_", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("table", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
@@ -427,7 +403,6 @@ def downgrade():
     op.drop_table("columnattribute")
     op.drop_table("tagnoderelationship")
     op.drop_table("table")
-    op.drop_table("query")
     op.drop_table("noderevision")
     op.drop_table("column")
     op.drop_table("catalogengines")

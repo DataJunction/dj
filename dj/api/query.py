@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from dj.api.helpers import get_dj_query
-from dj.api.metrics import TranslatedSQL
+from dj.models.metric import TranslatedSQL
 from dj.utils import get_session
 
 router = APIRouter()

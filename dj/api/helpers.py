@@ -13,7 +13,7 @@ from dj.construction.build import build_node
 from dj.construction.dj_query import build_dj_metric_query
 from dj.construction.extract import extract_dependencies_from_node
 from dj.construction.inference import get_type_of_expression
-from dj.errors import DJError, DJException, ErrorCode
+from dj.errors import DJError, DJException, DJInvalidInputException, ErrorCode
 from dj.models import AttributeType, Catalog, Column, Engine
 from dj.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from dj.models.node import (
@@ -123,18 +123,24 @@ def get_catalog(session: Session, name: str) -> Catalog:
 
 def get_query(  # pylint: disable=too-many-arguments
     session: Session,
-    metric: str,
+    node_name: str,
     dimensions: List[str],
     filters: List[str],
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
     """
-    metric = get_node_by_name(session=session, name=metric, node_type=NodeType.METRIC)
+    node = get_node_by_name(session=session, name=node_name)
+
+    if node.type in (NodeType.DIMENSION, NodeType.SOURCE):
+        if dimensions:
+            raise DJInvalidInputException(
+                message=f"Cannot set dimensions for node type {node.type}!",
+            )
 
     query_ast = build_node(
         session=session,
-        node=metric.current,
+        node=node.current,
         dialect=None,
         filters=filters,
         dimensions=dimensions,
