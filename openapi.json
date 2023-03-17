@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+g7c4b316"
+        "version": "0.0.post1.dev1+gee35d4f"
     },
     "paths": {
         "/catalogs/": {
@@ -319,72 +319,6 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/Metric"
-                                }
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/metrics/{name}/sql/": {
-            "get": {
-                "summary": "Read Metrics Sql",
-                "description": "Return SQL for a metric.\n\nA database can be optionally specified. If no database is specified the optimal one\nwill be used.",
-                "operationId": "read_metrics_sql_metrics__name__sql__get",
-                "parameters": [
-                    {
-                        "required": true,
-                        "schema": {
-                            "title": "Name",
-                            "type": "string"
-                        },
-                        "name": "name",
-                        "in": "path"
-                    },
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "Dimensions",
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            },
-                            "default": []
-                        },
-                        "name": "dimensions",
-                        "in": "query"
-                    },
-                    {
-                        "required": false,
-                        "schema": {
-                            "title": "Filters",
-                            "type": "array",
-                            "items": {
-                                "type": "string"
-                            },
-                            "default": []
-                        },
-                        "name": "filters",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/TranslatedSQL"
                                 }
                             }
                         }
@@ -1204,11 +1138,11 @@
                 }
             }
         },
-        "/data/availability/{node_name}/": {
+        "/data/{node_name}/availability/": {
             "post": {
                 "summary": "Add Availability",
                 "description": "Add an availability state to a node",
-                "operationId": "add_availability_data_availability__node_name___post",
+                "operationId": "add_availability_data__node_name__availability__post",
                 "parameters": [
                     {
                         "required": true,
@@ -1230,6 +1164,80 @@
                     },
                     "required": true
                 },
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/data/{node_name}/": {
+            "get": {
+                "summary": "Data For Node",
+                "description": "Gets data for a node",
+                "operationId": "data_for_node_data__node_name___get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node Name",
+                            "type": "string"
+                        },
+                        "name": "node_name",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Dimensions",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "dimensions",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Filters",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "filters",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Async ",
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "name": "async_",
+                        "in": "query"
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "Successful Response",
@@ -1579,6 +1587,72 @@
                             "application/json": {
                                 "schema": {
                                     "$ref": "#/components/schemas/AttributeType"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/sql/{node_name}/": {
+            "get": {
+                "summary": "Get Sql For Node",
+                "description": "Return SQL for a node.",
+                "operationId": "get_sql_for_node_sql__node_name___get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node Name",
+                            "type": "string"
+                        },
+                        "name": "node_name",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Dimensions",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "dimensions",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Filters",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "filters",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TranslatedSQL"
                                 }
                             }
                         }
