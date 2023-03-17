@@ -107,9 +107,10 @@ async def test_raise_on_build_without_required_dimension_column(request):
         type=node_bar_ref.type,
         node=node_bar_ref,
         version="1",
-        query="""SELECT num_users FROM foo GROUP BY basic.dimension.countries.country""",
+        query="SELECT SUM(num_users) AS num_users "
+        "FROM foo GROUP BY basic.dimension.countries.country",
         columns=[
-            Column(name="num_users", type=ColumnType.STR),
+            Column(name="num_users", type=ColumnType.INT),
         ],
     )
     with pytest.raises(DJException) as exc_info:
@@ -142,8 +143,7 @@ async def test_build_metric_with_dimensions_filters(request):
         filters=["basic.dimension.users.age>=25", "basic.dimension.users.age<50"],
     )
 
-    expected = """SELECT  COUNT(1) AS cnt,
-        basic_DOT_dimension_DOT_users.age
+    expected = """SELECT  COUNT(1) AS cnt
  FROM "basic.source.comments" AS basic_DOT_source_DOT_comments
 LEFT JOIN (SELECT  basic_DOT_source_DOT_users.id,
         basic_DOT_source_DOT_users.full_name,
