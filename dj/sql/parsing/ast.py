@@ -105,6 +105,7 @@ class Replacer:  # pylint: disable=too-few-public-methods
                     iterable = True
                     new = []
                     for element in child:
+                        # print("trying out", element, from_, to)
                         if not self._compare(
                             element,
                             from_,
@@ -1396,7 +1397,7 @@ class Select(Expression):  # pylint: disable=R0902
         parts = ["SELECT "]
         if self.distinct:
             parts.append("DISTINCT ")
-        projection = ",\n\t".join(sorted([str(exp) for exp in self.projection]))
+        projection = ",\n\t".join([str(exp) for exp in self.projection])
         parts.extend((projection, "\n", str(self.from_), "\n"))
         if self.where is not None:
             parts.extend(("WHERE ", str(self.where), "\n"))

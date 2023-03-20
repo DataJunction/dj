@@ -1,7 +1,7 @@
 """
 Functions for transforming an AST using DJ information
 """
-
+import collections
 from itertools import chain
 from typing import Dict, Iterator, List, Optional, Set, Tuple, Union, cast
 
@@ -282,8 +282,8 @@ def _validate_columns(
                         )
                     else:
                         dim_table = ast.Table(
-                            col.namespace.names[0],  # type: ignore
-                            ast.Namespace(col.namespace.names[1:]),  # type: ignore
+                            col.namespace.names[-1],  # type: ignore
+                            ast.Namespace(col.namespace.names[:-1]),  # type: ignore
                         )
                         dim_table.add_dj_node(dim)
                         col.namespace = None
@@ -364,18 +364,14 @@ def _compile_select_ast(
     # check if there are any column dimension dependencies we need to join but cannot
     # if a dimension is already used directly in the from (manually join or ref'd) -
     # - there is no need to join it so we check only dimensions not used that way
-    for dim in dimension_columns - dimensions_tables:
+
+    dimensions_requiring_join = dimension_columns - dimensions_tables
+    for dim in dimensions_requiring_join:
         joinable = False
         # it is not possible to have a dimension referenced
         # somewhere without some from tables
-        for src_fm in sources_transforms | dimensions_tables:  # pragma: no cover
-            for col in src_fm.columns:  # pragma: no cover
-                if col.dimension and col.dimension.current == dim:  # pragma: no cover
-                    joinable = True
-                    break
-            if joinable:
-                break
-        if not joinable:
+        join_node = find_joinable_dimensions(dim, sources_transforms | dimensions_tables)
+        if not join_node:
             CompoundBuildException().append(
                 error=DJError(
                     code=ErrorCode.INVALID_DIMENSION_JOIN,
@@ -397,6 +393,28 @@ def _compile_select_ast(
     )
     for subquery in subqueries:
         _compile_select_ast(session, subquery)  # , namespaces)
+
+
+def find_joinable_dimensions(dimension_node: NodeRevision, nodes: Set[NodeRevision]):
+    """
+    Given a set of nodes, finds a joinable dimension
+    """
+    processed = set()
+    to_process = collections.deque([])
+    to_process.extend(nodes)
+
+    while to_process:
+        src_fm = to_process.popleft()
+        processed.add(src_fm)
+        for col in src_fm.columns:
+            if col.dimension:
+                joinable_dim = col.dimension.current
+                if joinable_dim == dimension_node:
+                    return src_fm
+                if joinable_dim not in processed:
+                    to_process.append(joinable_dim)
+                    to_process.extend([parent.current for parent in joinable_dim.parents])
+    return None
 
 
 def compile_node(

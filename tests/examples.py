@@ -518,6 +518,13 @@ EXAMPLES = (  # type: ignore
     ),
     (
         (
+            "/nodes/repair_order_details/columns/repair_order_id/"
+            "?dimension=repair_order&dimension_column=repair_order_id"
+        ),
+        {},
+    ),
+    (
+        (
             "/nodes/local_hard_hats/columns/state_id/"
             "?dimension=us_state&dimension_column=state_id"
         ),

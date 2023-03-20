@@ -120,7 +120,7 @@ async def test_raise_on_build_without_required_dimension_column(request):
         )
 
     assert (
-        "Node foo specifiying dimension basic.dimension.countries on column "
+        "Node foo specifying dimension basic.dimension.countries on column "
         "num_users does not specify a dimension column, but basic.dimension.countries "
         "does not have the default key `id`."
     ) in str(exc_info.value)
