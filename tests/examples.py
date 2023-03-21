@@ -523,6 +523,13 @@ EXAMPLES = (  # type: ignore
         ),
         {},
     ),
+    (
+        (
+            "/nodes/repair_order_details/columns/repair_order_id/"
+            "?dimension=repair_order&dimension_column=repair_order_id"
+        ),
+        {},
+    ),
     (  # Accounts/Revenue examples begin
         "/nodes/source/",
         {

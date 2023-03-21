@@ -1,11 +1,10 @@
 """
 Tests for the metrics API.
 """
-
-
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
+from dj.models import AttributeType, ColumnAttribute
 from dj.models.column import Column
 from dj.models.database import Database
 from dj.models.node import Node, NodeRevision, NodeType
@@ -28,6 +27,10 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     """
     Test ``GET /metric/{node_id}/``.
     """
+    client.get("/attributes/")
+    dimension_attribute = session.exec(
+        select(AttributeType).where(AttributeType.name == "dimension"),
+    ).one()
     parent_rev = NodeRevision(
         name="parent",
         version="1",
@@ -43,9 +46,21 @@ def test_read_metric(session: Session, client: TestClient) -> None:
             ),
         ],
         columns=[
-            Column(name="ds", type=ColumnType.STR),
-            Column(name="user_id", type=ColumnType.INT),
-            Column(name="foo", type=ColumnType.FLOAT),
+            Column(
+                name="ds",
+                type=ColumnType.STR,
+                attributes=[ColumnAttribute(attribute_type=dimension_attribute)],
+            ),
+            Column(
+                name="user_id",
+                type=ColumnType.INT,
+                attributes=[ColumnAttribute(attribute_type=dimension_attribute)],
+            ),
+            Column(
+                name="foo",
+                type=ColumnType.FLOAT,
+                attributes=[ColumnAttribute(attribute_type=dimension_attribute)],
+            ),
         ],
     )
     parent_node = Node(
@@ -123,18 +138,37 @@ def test_common_dimensions(
     assert response.status_code == 200
     assert set(response.json()) == set(
         [
-            "repair_order_details.discount",
-            "repair_order_details.repair_type_id",
-            "repair_order_details.repair_order_id",
+            "dispatcher.company_name",
+            "dispatcher.dispatcher_id",
+            "dispatcher.phone",
+            "hard_hat.address",
+            "hard_hat.birth_date",
+            "hard_hat.city",
+            "hard_hat.contractor_id",
+            "hard_hat.country",
+            "hard_hat.first_name",
+            "hard_hat.hard_hat_id",
+            "hard_hat.hire_date",
+            "hard_hat.last_name",
+            "hard_hat.manager",
+            "hard_hat.postal_code",
+            "hard_hat.state",
+            "hard_hat.title",
+            "municipality_dim.contact_name",
+            "municipality_dim.contact_title",
+            "municipality_dim.local_region",
+            "municipality_dim.municipality_id",
+            "municipality_dim.municipality_type_desc",
+            "municipality_dim.municipality_type_id",
+            "municipality_dim.phone",
+            "municipality_dim.state_id",
             "repair_order.dispatched_date",
-            "repair_order.order_date",
-            "repair_order.required_date",
             "repair_order.dispatcher_id",
-            "repair_order.municipality_id",
-            "repair_order_details.quantity",
-            "repair_order.repair_order_id",
             "repair_order.hard_hat_id",
-            "repair_order_details.price",
+            "repair_order.municipality_id",
+            "repair_order.order_date",
+            "repair_order.repair_order_id",
+            "repair_order.required_date",
         ],
     )
 
@@ -180,3 +214,45 @@ def test_raise_common_dimensions_metric_not_found(
         ],
         "warnings": [],
     }
+
+
+def test_get_dimensions(client_with_examples: TestClient):
+    """
+    Testing get dimensions for a metric
+    """
+    response = client_with_examples.get("/metrics/avg_repair_price/")
+
+    data = response.json()
+    assert data["dimensions"] == [
+        "dispatcher.company_name",
+        "dispatcher.dispatcher_id",
+        "dispatcher.phone",
+        "hard_hat.address",
+        "hard_hat.birth_date",
+        "hard_hat.city",
+        "hard_hat.contractor_id",
+        "hard_hat.country",
+        "hard_hat.first_name",
+        "hard_hat.hard_hat_id",
+        "hard_hat.hire_date",
+        "hard_hat.last_name",
+        "hard_hat.manager",
+        "hard_hat.postal_code",
+        "hard_hat.state",
+        "hard_hat.title",
+        "municipality_dim.contact_name",
+        "municipality_dim.contact_title",
+        "municipality_dim.local_region",
+        "municipality_dim.municipality_id",
+        "municipality_dim.municipality_type_desc",
+        "municipality_dim.municipality_type_id",
+        "municipality_dim.phone",
+        "municipality_dim.state_id",
+        "repair_order.dispatched_date",
+        "repair_order.dispatcher_id",
+        "repair_order.hard_hat_id",
+        "repair_order.municipality_id",
+        "repair_order.order_date",
+        "repair_order.repair_order_id",
+        "repair_order.required_date",
+    ]
