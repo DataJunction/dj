@@ -1,0 +1,117 @@
+version: "3"
+volumes:
+  postgres_data: {}
+  postgres_roads_example: {}
+  redis_data: {}
+
+networks:
+  core:
+    driver: bridge
+  djqs-network:
+    driver: bridge
+
+services:
+  dj:
+    container_name: dj
+    stdin_open: true
+    tty: true
+    networks:
+      - core
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: "${CORE_SERVICE}"
+    volumes:
+      - "${CORE_SERVICE}:/code"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db_migration
+      - postgres_examples
+      - djqs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  db_migration:
+    container_name: db_migration
+    networks:
+      - core
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: "${CORE_SERVICE}"
+    volumes:
+      - "${CORE_SERVICE}:/code"
+    command: alembic upgrade head
+    restart: on-failure
+
+  postgres_examples:
+    container_name: postgres_examples
+    networks:
+      - core
+    image: postgres:latest
+    volumes:
+      - "${CORE_SERVICE}/examples/docker/postgres_init.sql:/docker-entrypoint-initdb.d/init.sql"
+      - postgres_data:/var/lib/postgresql/data
+      # dbt
+      - "${CORE_SERVICE}/examples/dbt/postgres_init.sql:/docker-entrypoint-initdb.d/init_dbt.sql"
+      - "${CORE_SERVICE}/examples/dbt:/docker-entrypoint-dbt"
+    environment:
+      - POSTGRES_PASSWORD=FoolishPassword
+      - POSTGRES_USER=username
+      - POSTGRES_DB=examples
+    ports:
+      - "5433:5432"
+
+  postgres-roads:
+    container_name: postgres-roads
+    networks:
+      - core
+    image: postgres:latest
+    volumes:
+      - "${CORE_SERVICE}/examples/docker/postgres_init.roads.sql:/docker-entrypoint-initdb.d/init.sql"
+      - "${CORE_SERVICE}/postgres_roads_example:/var/lib/postgresql/data"
+    environment:
+      - POSTGRES_PASSWORD=dj
+      - POSTGRES_USER=dj
+      - POSTGRES_DB=roads
+    ports:
+      - "5435:5432"
+
+  djqs:
+    container_name: djqs
+    stdin_open: true
+    tty: true
+    networks:
+      - core
+      - djqs-network
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: "${QUERY_SERVICE}"
+    volumes:
+      - "${QUERY_SERVICE}:/code"
+    ports:
+      - "8001:8001"
+    depends_on:
+      - djqs-db-migration
+      - postgres-roads
+
+  djqs-db-migration:
+    container_name: djqs-db-migration
+    networks:
+      - djqs-network
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: "${QUERY_SERVICE}"
+    volumes:
+      - "${QUERY_SERVICE}:/code"
+    command: alembic upgrade head
+    restart: on-failure
+
+  jupyter-notebook:
+    image: jupyter/minimal-notebook
+    container_name: jupyter
+    networks:
+      - core
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/notebooks
