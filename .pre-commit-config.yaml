@@ -1,0 +1,59 @@
+exclude: (^docs/|^clients/)
+
+repos:
+  # Autoformat: YAML, JSON, Markdown, etc.
+  - repo: https://github.com/pre-commit/mirrors-prettier
+    rev: v3.0.0-alpha.6
+    hooks:
+      - id: prettier
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.4.0
+    hooks:
+      - id: trailing-whitespace
+      - id: check-ast
+        exclude: ^templates/
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-merge-conflict
+      - id: check-xml
+      - id: check-yaml
+      - id: end-of-file-fixer
+      - id: requirements-txt-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: ["--fix=auto"] # replace 'auto' with 'lf' to enforce Linux/Mac line endings or 'crlf' for Windows
+
+  # Lint: Dockerfile
+  - repo: https://github.com/hadolint/hadolint.git
+    rev: v2.12.1-beta
+    hooks:
+      - id: hadolint-docker
+        entry: hadolint/hadolint:v2.12.1-beta hadolint
+
+  # Lint: YAML
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.29.0
+    hooks:
+      - id: yamllint
+        args: ["-d {extends: relaxed, rules: {line-length: disable}}", "-s"]
+        files: \.(yaml|yml)$
+
+  # Lint: Bash scripts
+  - repo: https://github.com/openstack-dev/bashate.git
+    rev: 2.1.1
+    hooks:
+      - id: bashate
+        args: ["--ignore=E006"]
+
+  # Strip output from Jupyter notebooks
+  - repo: https://github.com/kynan/nbstripout
+    rev: 0.6.1
+    hooks:
+      - id: nbstripout
+
+  - repo: https://github.com/tomcatling/black-nb
+    rev: "0.7"
+    hooks:
+      - id: black-nb
+        files: '\.ipynb$'
