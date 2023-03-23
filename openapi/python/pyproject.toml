@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "djclient"
+name = "djopenapi"
 version = "0.0.1a1"
 readme = "README.md"
 repository = "https://github.com/DataJunction/dj"

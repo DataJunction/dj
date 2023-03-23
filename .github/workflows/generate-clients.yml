@@ -5,6 +5,7 @@ on:
       - main
     paths:
       - dj/**
+  workflow_dispatch:
 jobs:
   generate-python-client:
     runs-on: ubuntu-latest
