@@ -1,4 +1,4 @@
 additionalProperties:
-  packageName: djclient
-  projectName: djclient
+  packageName: djopenapi
+  projectName: djopenapi
   nonCompliantUseDiscriminatorIfCompositionFails: true
