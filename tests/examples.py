@@ -523,6 +523,34 @@ EXAMPLES = (  # type: ignore
         ),
         {},
     ),
+    (
+        (
+            "/nodes/repair_order_details/columns/repair_order_id/"
+            "?dimension=repair_order&dimension_column=repair_order_id"
+        ),
+        {},
+    ),
+    (
+        (
+            "/nodes/repair_order/columns/dispatcher_id/"
+            "?dimension=dispatcher&dimension_column=dispatcher_id"
+        ),
+        {},
+    ),
+    (
+        (
+            "/nodes/repair_order/columns/repair_order_id/"
+            "?dimension=hard_hat&dimension_column=hard_hat_id"
+        ),
+        {},
+    ),
+    (
+        (
+            "/nodes/repair_order/columns/municipality_id/"
+            "?dimension=municipality_dim&dimension_column=municipality_id"
+        ),
+        {},
+    ),
     (  # Accounts/Revenue examples begin
         "/nodes/source/",
         {
