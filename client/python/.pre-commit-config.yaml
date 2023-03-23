@@ -1,4 +1,4 @@
-exclude: (^docs/|^openapi/|^client/python/)
+files: ^client/python/
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -6,63 +6,32 @@ repos:
   hooks:
   - id: trailing-whitespace
   - id: check-ast
-    exclude: ^templates/
   - id: check-json
   - id: check-merge-conflict
   - id: check-xml
   - id: check-yaml
   - id: debug-statements
-    exclude: ^templates/
   - id: end-of-file-fixer
-    exclude: openapi.json
   - id: requirements-txt-fixer
-    exclude: ^templates/
   - id: mixed-line-ending
     args: ['--fix=auto']  # replace 'auto' with 'lf' to enforce Linux/Mac line endings or 'crlf' for Windows
-
-## If you want to avoid flake8 errors due to unused vars or imports:
-# - repo: https://github.com/myint/autoflake.git
-#   rev: v1.4
-#   hooks:
-#   - id: autoflake
-#     args: [
-#       --in-place,
-#       --remove-all-unused-imports,
-#       --remove-unused-variables,
-#     ]
-
 - repo: https://github.com/pycqa/isort
   rev: 5.12.0
   hooks:
   - id: isort
-
 - repo: https://github.com/psf/black
   rev: 22.8.0
   hooks:
   - id: black
     language_version: python3
-    exclude: ^templates/
-
-## If like to embrace black styles even in the docs:
-# - repo: https://github.com/asottile/blacken-docs
-#   rev: v1.9.1
-#   hooks:
-#   - id: blacken-docs
-#     additional_dependencies: [black]
-
 - repo: https://github.com/PyCQA/flake8
   rev: 3.9.2
   hooks:
   - id: flake8
-    exclude: ^templates/
-  ## You can add flake8 plugins via `additional_dependencies`:
-  #  additional_dependencies: [flake8-bugbear]
-
 - repo: https://github.com/pre-commit/mirrors-mypy
   rev: 'v0.931'  # Use the sha / tag you want to point at
   hooks:
   - id: mypy
-    exclude: ^templates/
     additional_dependencies:
     - types-requests
     - types-freezegun
@@ -74,17 +43,11 @@ repos:
   rev: v2.2.1
   hooks:
   - id: add-trailing-comma
-#- repo: https://github.com/asottile/reorder_python_imports
-#  rev: v2.5.0
-#  hooks:
-#  - id: reorder-python-imports
-#    args: [--application-directories=.:src]
 - repo: https://github.com/hadialqattan/pycln
   rev: v1.1.0 # Possible releases: https://github.com/hadialqattan/pycln/tags
   hooks:
   - id: pycln
     args: [--config=pyproject.toml]
-    exclude: ^templates/
 - repo: local
   hooks:
   - id: pylint
@@ -92,13 +55,3 @@ repos:
     entry: pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison
     language: system
     types: [python]
-    exclude: ^templates/
-- repo: https://github.com/kynan/nbstripout
-  rev: 0.6.1
-  hooks:
-    - id: nbstripout
-- repo: https://github.com/tomcatling/black-nb
-  rev: "0.7"
-  hooks:
-    - id: black-nb
-      files: '\.ipynb$'
