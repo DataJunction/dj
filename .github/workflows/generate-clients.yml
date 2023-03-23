@@ -46,8 +46,8 @@ jobs:
 
       - name: Move client to right directory
         run: |
-          mkdir -p ./clients/python
-          cp -r python-client/* ./clients/python/
+          mkdir -p ./openapi/python
+          cp -r python-client/* ./openapi/python/
           rm -rf python-client
 
       - name: Set short sha
@@ -56,7 +56,7 @@ jobs:
 
       - name: Commit generated files
         run: |
-          git add clients/python/
+          git add opanapi/python/
           git commit -m "Update DJ Python client"
           git checkout -b ci-pr/python-client-${{ steps.sha.outputs.short_sha }}
           git push --set-upstream origin ci-pr/python-client-${{ steps.sha.outputs.short_sha }}
