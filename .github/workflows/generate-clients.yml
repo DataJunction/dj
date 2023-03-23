@@ -57,7 +57,7 @@ jobs:
 
       - name: Commit generated files
         run: |
-          git add opanapi/python/
+          git add openapi/python/
           git commit -m "Update DJ Python client"
           git checkout -b ci-pr/python-client-${{ steps.sha.outputs.short_sha }}
           git push --set-upstream origin ci-pr/python-client-${{ steps.sha.outputs.short_sha }}
