@@ -1,4 +1,4 @@
-exclude: (^docs/|^clients/)
+exclude: (^docs/|^openapi/)
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
