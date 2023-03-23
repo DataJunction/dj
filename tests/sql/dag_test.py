@@ -58,12 +58,13 @@ def test_get_dimensions() -> None:
     )
     parent_ref.current = parent
 
-    child_ref = Node(name="C", current_version="1")
+    child_ref = Node(name="C", current_version="1", type=NodeType.METRIC)
     child = NodeRevision(
         node=child_ref,
         version="1",
         query="SELECT COUNT(*) FROM A",
         parents=[parent_ref],
+        type=NodeType.METRIC,
     )
     child_ref.current = child
 
