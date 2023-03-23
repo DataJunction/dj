@@ -1,0 +1,40 @@
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.poetry]
+name = "djclient"
+version = "0.0.1a1"
+readme = "README.md"
+repository = "https://github.com/DataJunction/dj"
+description = "DataJunction client library for connecting to a DataJunction server"
+authors = ["DataJunction Authors"]
+license = "MIT"
+packages = [
+    { include = "djclient" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[tool.coverage.run]
+source = ['djclient/']
+
+[tool.isort]
+src_paths = ["djclient/", "tests/"]
+profile = 'black'
+
+[tool.poetry.dependencies]
+python = "^3.8"
+djopenapi = "^0.0.1a1"
+
+[tool.poetry.dev-dependencies]
+coverage = "7.2.2"
+pre-commit = "3.2.0"
+pytest = "7.2.2"
