@@ -364,3 +364,30 @@ are three steps.
   docker attach dj
 
 When the breakpoint is hit, the attached session will enter an interactive ``pdb`` session.
+
+ANTLR
+-----
+
+Generating the ANTLR Parser
+---------------------------
+
+Install the ANTLR generator tool.
+
+.. code-block:: sh
+
+  pip install antlr4-tools
+
+While in the `dj/sql/parsing/backends/antlr4/grammar/` directory, generate the parser by running the following CLI command.
+
+.. code-block:: sh
+
+  antlr4 -Dlanguage=Python3 -visitor SqlBaseLexer.g4 SqlBaseParser.g4 -o generated
+
+A python 3 ANTLR parser will be generated in `dj/sql/parsing/backends/antlr4/grammar/generated/`.
+
+Creating a Diagram from the Grammar
+-----------------------------------
+
+Use https://bottlecaps.de/convert/ to go from ANTLR4 -> EBNF
+
+Input the EBNF into https://bottlecaps.de/rr/ui
