@@ -267,7 +267,7 @@ def compare_query_strings(str1, str2):
 @pytest.mark.skipif("not config.getoption('tpcds')")
 @pytest.mark.parametrize(
     "query_file",
-    spark_tpcds_files,
+    ansi_tpcds_files + spark_tpcds_files,
 )
 def test_tpcds_parse(query_file, request, monkeypatch):
     """
@@ -284,7 +284,7 @@ def test_tpcds_parse(query_file, request, monkeypatch):
 @pytest.mark.skipif("not config.getoption('tpcds')")
 @pytest.mark.parametrize(
     "query_file",
-    spark_tpcds_files,
+    ansi_tpcds_files + spark_tpcds_files,
 )
 def test_tpcds_to_ast(query_file, request, monkeypatch):
     """
@@ -301,7 +301,7 @@ def test_tpcds_to_ast(query_file, request, monkeypatch):
 @pytest.mark.skipif("not config.getoption('tpcds')")
 @pytest.mark.parametrize(
     "query_file",
-    spark_tpcds_files,
+    ansi_tpcds_files + spark_tpcds_files,
 )
 def test_tpcds_circular_parse(query_file, request, monkeypatch):
     """
@@ -346,7 +346,7 @@ def test_tpcds_circular_parse(query_file, request, monkeypatch):
 @pytest.mark.skipif("not config.getoption('tpcds')")
 @pytest.mark.parametrize(
     "query_file",
-    spark_tpcds_files,
+    ansi_tpcds_files + spark_tpcds_files,
 )
 def test_tpcds_circular_parse_and_compare(query_file, request, monkeypatch):
     """
@@ -372,7 +372,7 @@ def test_tpcds_circular_parse_and_compare(query_file, request, monkeypatch):
 
 @pytest.mark.parametrize(
     "query_file",
-    spark_tpcds_files,
+    ansi_tpcds_files + spark_tpcds_files,
 )
 def test_tpcds_ast_parse_comparisons(
     query_file,
