@@ -7,7 +7,7 @@ from dj.models.database import Database
 from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.table import Table
 from dj.sql.dag import get_dimensions
-from dj.typing import ColumnType
+from dj.sql.parsing.types import IntegerType, StringType
 
 
 def test_get_dimensions() -> None:
@@ -25,14 +25,14 @@ def test_get_dimensions() -> None:
                 database=database,
                 table="B",
                 columns=[
-                    Column(name="id", type=ColumnType.INT),
-                    Column(name="attribute", type=ColumnType.STR),
+                    Column(name="id", type=IntegerType()),
+                    Column(name="attribute", type=StringType()),
                 ],
             ),
         ],
         columns=[
-            Column(name="id", type=ColumnType.INT),
-            Column(name="attribute", type=ColumnType.STR),
+            Column(name="id", type=IntegerType()),
+            Column(name="attribute", type=StringType()),
         ],
     )
     dimension_ref.current = dimension
@@ -46,14 +46,14 @@ def test_get_dimensions() -> None:
                 database=database,
                 table="A",
                 columns=[
-                    Column(name="ds", type=ColumnType.STR),
-                    Column(name="b_id", type=ColumnType.INT, dimension=dimension_ref),
+                    Column(name="ds", type=StringType()),
+                    Column(name="b_id", type=IntegerType(), dimension=dimension_ref),
                 ],
             ),
         ],
         columns=[
-            Column(name="ds", type=ColumnType.STR),
-            Column(name="b_id", type=ColumnType.INT, dimension=dimension_ref),
+            Column(name="ds", type=StringType()),
+            Column(name="b_id", type=IntegerType(), dimension=dimension_ref),
         ],
     )
     parent_ref.current = parent

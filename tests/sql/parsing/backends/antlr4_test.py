@@ -102,11 +102,11 @@ def test_antlr4_backend_trim():
     Test trim
     """
     query = parse("SELECT TRIM(BOTH FROM '    SparkSQL   ');")
-    assert "TRIM(BOTH FROM '    SparkSQL   ')" in str(query)
+    assert "TRIM( BOTH FROM  '    SparkSQL   ')" in str(query)
     query = parse("SELECT TRIM(LEADING FROM '    SparkSQL   ');")
-    assert "TRIM(LEADING FROM '    SparkSQL   ')" in str(query)
+    assert "TRIM( LEADING FROM  '    SparkSQL   ')" in str(query)
     query = parse("SELECT TRIM(TRAILING FROM '    SparkSQL   ');")
-    assert "TRIM(TRAILING FROM '    SparkSQL   ')" in str(query)
+    assert "TRIM( TRAILING FROM  '    SparkSQL   ')" in str(query)
     query = parse("SELECT TRIM('    SparkSQL   ');")
     assert "TRIM('    SparkSQL   ')" in str(query)
 

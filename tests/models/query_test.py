@@ -15,7 +15,7 @@ from dj.models.query import (
     decode_results,
     encode_results,
 )
-from dj.typing import ColumnType, QueryState
+from dj.typing import QueryState
 
 
 def test_msgpack() -> None:
@@ -38,7 +38,7 @@ def test_msgpack() -> None:
             __root__=[
                 StatementResults(
                     sql="SELECT 42 AS answer",
-                    columns=[ColumnMetadata(name="answer", type=ColumnType.INT)],
+                    columns=[ColumnMetadata(name="answer", type="int")],
                     rows=[(42,)],
                     row_count=1,
                 ),
@@ -68,7 +68,7 @@ def test_msgpack() -> None:
         "results": [
             {
                 "sql": "SELECT 42 AS answer",
-                "columns": [{"name": "answer", "type": "INT"}],
+                "columns": [{"name": "answer", "type": "int"}],
                 "rows": [[42]],
                 "row_count": 1,
             },

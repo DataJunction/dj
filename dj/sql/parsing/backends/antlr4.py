@@ -2,7 +2,7 @@
 # mypy: ignore-errors
 import inspect
 import logging
-from typing import List, Tuple
+from typing import TYPE_CHECKING, List, Optional, Tuple, Union, cast
 
 import antlr4
 from antlr4 import InputStream, RecognitionException
@@ -10,11 +10,16 @@ from antlr4.error.ErrorListener import ErrorListener
 from antlr4.error.Errors import ParseCancellationException
 from antlr4.error.ErrorStrategy import BailErrorStrategy
 
-from dj.sql.parsing import ast2 as ast
+import dj.sql.parsing.types as ct
+from dj.sql.parsing import ast
+from dj.sql.parsing.ast import UnaryOpKind
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.sql.parsing.backends.grammar.generated.SqlBaseLexer import SqlBaseLexer
 from dj.sql.parsing.backends.grammar.generated.SqlBaseParser import SqlBaseParser
 from dj.sql.parsing.backends.grammar.generated.SqlBaseParser import SqlBaseParser as sbp
+
+if TYPE_CHECKING:
+    from dj.sql.parsing.types import ColumnType
 
 logger = logging.getLogger(__name__)
 
@@ -45,7 +50,7 @@ class ParseErrorListener(ErrorListener):
         msg,
         e,
     ):  # pylint: disable=invalid-name,no-self-use,too-many-arguments
-        raise SqlSyntaxError(f"Parse error {line}:{column}:" f"", msg)
+        raise SqlSyntaxError(f"Parse error {line}:{column}:", msg)
 
 
 class UpperCaseCharStream:
@@ -86,8 +91,8 @@ class ExplicitBailErrorStrategy(BailErrorStrategy):
 
 
 class EarlyBailSqlLexer(SqlBaseLexer):
-    def recover(self, re: RecognitionException):
-        raise SqlLexicalError from re
+    def recover(self, recognition_exc: RecognitionException):
+        raise SqlLexicalError from recognition_exc
 
 
 def build_parser(stream, strict_mode=False, early_bail=True):
@@ -135,7 +140,7 @@ def build_string_parser(string, strict_mode=False, early_bail=True):
     return parser
 
 
-def parse_sql(string, rule, converter, debug=False):
+def parse_sql(string, rule, converter=None, debug=False):
     tree = string_to_ast(string, rule, debug=debug)
     return converter(tree) if converter else tree
 
@@ -157,6 +162,24 @@ def tree_to_strings(tree, indent=0):
         for child in tree.children:
             result += tree_to_strings(child, indent + 1)
     return result
+
+
+def parse_rule(sql: str, rule: str) -> Union[ast.Node, "ColumnType"]:
+    """
+    Parse a string into a DJ ast using the ANTLR4 backend.
+    """
+    antlr_tree = parse_sql(sql, rule)
+    ast_tree = visit(antlr_tree)
+    return ast_tree
+
+
+def parse(sql: Optional[str]) -> ast.Query:
+    """
+    Parse a string sql query into a DJ ast Query
+    """
+    if not sql:
+        raise DJParseException("Empty query provided!")
+    return cast(ast.Query, parse_rule(sql, "singleStatement"))
 
 
 TERMINAL_NODE = antlr4.tree.Tree.TerminalNodeImpl
@@ -276,6 +299,20 @@ def _(ctx: sbp.ExpressionContext):
 
 
 @visit.register
+def _(ctx: sbp.BooleanLiteralContext):
+    boolean_value_mapping = {"true": True, "false": False}
+    boolean_value = ctx.booleanValue().getText().lower()
+    if boolean_value in boolean_value_mapping:
+        return ast.Boolean(boolean_value_mapping[boolean_value])
+    raise DJParseException(f"Invalid boolean value {boolean_value}!")
+
+
+@visit.register
+def _(ctx: sbp.BooleanValueContext):
+    return ast.Boolean(visit(ctx.getText()))
+
+
+@visit.register
 def _(ctx: sbp.PredicatedContext):
     if value_expr := ctx.valueExpression():
         if not ctx.predicate():
@@ -334,6 +371,14 @@ def _(ctx: sbp.PredicateContext) -> ast.Predicate:
 
 
 @visit.register
+def _(ctx: sbp.SubscriptContext):
+    return ast.Subscript(
+        expr=visit(ctx.primaryExpression()),
+        index=visit(ctx.valueExpression()),
+    )
+
+
+@visit.register
 def _(ctx: sbp.ValueExpressionContext):
     if primary := ctx.primaryExpression():
         return visit(primary)
@@ -346,7 +391,11 @@ def _(ctx: sbp.ValueExpressionDefaultContext):
 
 @visit.register
 def _(ctx: sbp.ArithmeticBinaryContext):
-    return ast.BinaryOp(ctx.operator.text, visit(ctx.left), visit(ctx.right))
+    return ast.BinaryOp(
+        ast.BinaryOpKind(ctx.operator.text.upper()),
+        visit(ctx.left),
+        visit(ctx.right),
+    )
 
 
 @visit.register
@@ -379,6 +428,7 @@ def _(ctx: sbp.QueryPrimaryContext):
 def _(ctx: sbp.RegularQuerySpecificationContext):
     quantifier, projection = visit(ctx.selectClause())
     from_ = visit(ctx.fromClause()) if ctx.fromClause() else None
+    laterals = visit(ctx.lateralView())
     group_by = visit(ctx.aggregationClause()) if ctx.aggregationClause() else []
     where = None
     if where_clause := ctx.whereClause():
@@ -386,14 +436,19 @@ def _(ctx: sbp.RegularQuerySpecificationContext):
     having = None
     if having_clause := ctx.havingClause():
         having = visit(having_clause)
-    return ast.Select(
+    select = ast.Select(
         quantifier=quantifier,
         projection=projection,
         from_=from_,
+        lateral_views=laterals,
         where=where,
         group_by=group_by,
         having=having,
     )
+    if from_ and from_.laterals:
+        select.lateral_views += from_.laterals
+        del from_.laterals
+    return select
 
 
 @visit.register
@@ -418,9 +473,9 @@ def _(ctx: sbp.GroupByClauseContext):
 def _(ctx: sbp.GroupingAnalyticsContext):
     grouping_set = visit(ctx.groupingSet())
     if ctx.ROLLUP():
-        return ast.Function("ROLLUP", args=grouping_set)
+        return ast.Function(ast.Name(name="ROLLUP"), args=grouping_set)
     if ctx.CUBE():
-        return ast.Function("CUBE", args=grouping_set)
+        return ast.Function(ast.Name(name="CUBE"), args=grouping_set)
     return grouping_set
 
 
@@ -449,7 +504,7 @@ def _(ctx: sbp.SetQuantifierContext):
 
 @visit.register
 def _(ctx: sbp.NamedExpressionSeqContext):
-    return visit(ctx.children)
+    return visit(ctx.namedExpression())
 
 
 @visit.register
@@ -457,6 +512,16 @@ def _(ctx: sbp.NamedExpressionContext):
     expr = visit(ctx.expression())
     if alias := ctx.name:
         return expr.set_alias(visit(alias))
+
+    if col_names := ctx.identifierList():
+        if not isinstance(expr, ast.TableExpression):
+            raise SqlSyntaxError(
+                f"{ctx.start.line}:{ctx.start.column} Cannot use an identifier"
+                "list as an alias on a non-Table Expression.",
+            )
+        expr.column_list = [ast.Column(name) for name in visit(col_names)]
+    if ctx.AS():
+        expr.set_as(True)
     return expr
 
 
@@ -614,10 +679,20 @@ def _(ctx: sbp.LateralViewContext):
     outer = bool(ctx.OUTER())
     func_name = visit(ctx.qualifiedName())
     func_args = visit(ctx.expression())
-    func = ast.FunctionTable(func_name, func_args)
-    table = ast.Table(visit(ctx.tblName))
-    columns = [ast.Column(name) for name in visit(ctx.colName)]
-    return ast.LateralView(outer, func, table, columns)
+    table_name = visit(ctx.tblName)
+    function_table_name = table_name if table_name != ast.Name(name="AS") else None
+    func = ast.FunctionTable(func_name, args=func_args, alias=function_table_name)
+    func.set_alias(table_name)
+    if function_table_name:
+        func.column_list = [
+            ast.Column(name=ast.Name(name=name.name, namespace=function_table_name))
+            for name in visit(ctx.colName)
+        ]
+    else:
+        func.column_list = [ast.Column(name=name) for name in visit(ctx.colName)]
+    if ctx.AS():
+        func.set_as(True)
+    return ast.LateralView(outer, func)
 
 
 @visit.register
@@ -699,7 +774,9 @@ def _(ctx: sbp.FromClauseContext):
     laterals = visit(ctx.lateralView())
     if ctx.pivotClause() or ctx.unpivotClause():
         return
-    return ast.From(relations, laterals)
+    from_ = ast.From(relations)
+    from_.laterals = laterals
+    return from_
 
 
 @visit.register
@@ -713,7 +790,7 @@ def _(ctx: sbp.JoinCriteriaContext):
 def _(ctx: sbp.ComparisonContext):
     left, right = visit(ctx.left), visit(ctx.right)
     op = visit(ctx.comparisonOperator())
-    return ast.BinaryOp(op, left, right)
+    return ast.BinaryOp(ast.BinaryOpKind(op.upper()), left, right)
 
 
 @visit.register
@@ -749,17 +826,21 @@ def _(ctx: sbp.CtesContext) -> List[ast.Select]:
 
 @visit.register
 def _(ctx: sbp.NamedQueryContext) -> ast.Select:
-    return visit(ctx.query().queryTerm())
+    return visit(ctx.query())
 
 
 @visit.register
 def _(ctx: sbp.LogicalBinaryContext) -> ast.BinaryOp:
-    return ast.BinaryOp(ctx.operator.text, visit(ctx.left), visit(ctx.right))
+    return ast.BinaryOp(
+        ast.BinaryOpKind(ctx.operator.text.upper()),
+        visit(ctx.left),
+        visit(ctx.right),
+    )
 
 
 @visit.register
 def _(ctx: sbp.SubqueryExpressionContext):
-    return visit(ctx.query().queryTerm())
+    return visit(ctx.query())
 
 
 @visit.register
@@ -845,28 +926,15 @@ def _(ctx: sbp.CastContext) -> ast.Cast:
 
 
 @visit.register
-def _(ctx: sbp.PrimitiveDataTypeContext) -> ast.Value:
-    left_paren = ctx.LEFT_PAREN() or ""
-    right_paren = ctx.RIGHT_PAREN() or ""
-    ident = visit(ctx.identifier())
-    integer_values = (
-        ",".join(str(value) for value in ctx.INTEGER_VALUE())
-        if ctx.INTEGER_VALUE()
-        else ""
-    )
-    return ast.Name(f"{ident} {left_paren}{integer_values}{right_paren}")
-
-
-@visit.register
 def _(ctx: sbp.ExistsContext) -> ast.UnaryOp:
     expr = visit(ctx.query().queryTerm())
     expr.parenthesized = True
-    return ast.UnaryOp(op="EXISTS", expr=expr)
+    return ast.UnaryOp(op=UnaryOpKind.Exists, expr=expr)
 
 
 @visit.register
 def _(ctx: sbp.LogicalNotContext) -> ast.UnaryOp:
-    return ast.UnaryOp(op="NOT", expr=visit(ctx.booleanExpression()))
+    return ast.UnaryOp(op=UnaryOpKind.Not, expr=visit(ctx.booleanExpression()))
 
 
 @visit.register
@@ -953,7 +1021,7 @@ def _(ctx: sbp.TrimContext) -> ast.Function:
     trailing = "TRAILING " if ctx.TRAILING() else ""
     from_ = "FROM " if ctx.FROM() else ""
     return ast.Function(
-        "TRIM",
+        ast.Name("TRIM"),
         [visit(ctx.srcStr)],
         f"{both or leading or trailing}{from_}",
     )
@@ -966,10 +1034,75 @@ def _(ctx: sbp.LambdaContext) -> ast.Function:
     return ast.Lambda(identifiers=identifier, expr=expr)
 
 
-def parse(sql: str) -> ast.Query:
-    """
-    Parse a string into a DJ ast using the ANTLR4 backend.
-    """
-    tree = parse_statement(sql)
-    query = visit(tree)
-    return query
+@visit.register
+def _(ctx: sbp.PrimitiveDataTypeContext) -> ast.Value:
+    column_type = ctx.getText().strip()
+    decimal_match = ct.DECIMAL_REGEX.match(column_type)
+    if decimal_match:
+        precision = int(decimal_match.group("precision"))
+        scale = int(decimal_match.group("scale"))
+        return ct.DecimalType(precision, scale)
+
+    fixed_match = ct.FIXED_PARSER.match(column_type)
+    if fixed_match:
+        length = int(fixed_match.group("length"))
+        return ct.FixedType(length)
+
+    column_type = column_type.lower().strip("()")
+    try:
+        return ct.PRIMITIVE_TYPES[column_type]
+    except KeyError as exc:
+        raise DJParseException(
+            f"DJ does not recognize the type `{ctx.getText()}`.",
+        ) from exc
+
+
+@visit.register
+def _(ctx: sbp.ComplexDataTypeContext) -> ct.ColumnType:
+    if ctx.ARRAY():
+        return ct.ListType(visit(ctx.dataType())[0])
+    if ctx.MAP():
+        return ct.MapType(*visit(ctx.dataType()))
+    if ctx.STRUCT():
+        if type_list := ctx.complexColTypeList():
+            return ct.StructType(*visit(type_list))
+        else:
+            return ct.StructType()
+
+
+@visit.register
+def _(ctx: sbp.ComplexColTypeListContext) -> List[ct.NestedField]:
+    return visit(ctx.complexColType())
+
+
+@visit.register
+def _(ctx: sbp.ComplexColTypeContext) -> ct.NestedField:
+    name = visit(ctx.identifier())
+    type = visit(ctx.dataType())
+    optional = not ctx.NOT()
+    doc = None
+    if comment := ctx.commentSpec():
+        doc = comment.getText()
+    return ct.NestedField(name, type, optional, doc)
+
+
+@visit.register
+def _(ctx: sbp.YearMonthIntervalDataTypeContext) -> ct.YearMonthIntervalType:
+    from_ = ctx.from_.getText().upper()
+    to = ctx.to.text.upper() if ctx.to else None
+    return ct.YearMonthIntervalType(from_=from_, to_=to)
+
+
+@visit.register
+def _(ctx: sbp.DayTimeIntervalDataTypeContext) -> ct.DayTimeIntervalType:
+    from_ = ctx.from_.text.upper()
+    to = ctx.to.text.upper() if ctx.to else None
+    return ct.DayTimeIntervalType(from_=from_, to_=to)
+
+
+@visit.register
+def _(ctx: sbp.ExtractContext):
+    return ast.Function(
+        ast.Name("EXTRACT"),
+        args=[visit(ctx.field), visit(ctx.source)],
+    )
