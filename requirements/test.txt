@@ -9,8 +9,6 @@
 
 -e file:.
     # via -r requirements/test.in
-alembic==1.10.2
-    # via djrs
 amqp==5.1.1
     # via kombu
 astroid==2.15.0
@@ -58,13 +56,13 @@ djopenapi==0.0.1a1
     # via djrs
 exceptiongroup==1.1.1
     # via pytest
-filelock==3.10.2
+filelock==3.10.4
     # via virtualenv
 freezegun==1.2.2
     # via djrs
 frozendict==2.3.6
     # via djopenapi
-identify==2.5.21
+identify==2.5.22
     # via pre-commit
 idna==3.4
     # via requests
@@ -76,10 +74,6 @@ kombu==5.2.4
     # via celery
 lazy-object-proxy==1.9.0
     # via astroid
-mako==1.2.4
-    # via alembic
-markupsafe==2.1.2
-    # via mako
 mccabe==0.7.0
     # via pylint
 nodeenv==1.7.0
@@ -101,8 +95,6 @@ pre-commit==3.2.0
 prompt-toolkit==3.0.38
     # via click-repl
 pydantic==1.10.7
-    # via djrs
-pydruid==0.6.5
     # via djrs
 pyfakefs==5.1.0
     # via djrs
@@ -139,7 +131,6 @@ redis==4.5.3
 requests==2.28.2
     # via
     #   djrs
-    #   pydruid
     #   requests-mock
 requests-mock==1.10.0
     # via djrs
@@ -148,8 +139,6 @@ six==1.16.0
     #   click-repl
     #   python-dateutil
     #   requests-mock
-sqlalchemy==2.0.7
-    # via alembic
 tomli==2.0.1
     # via
     #   build
@@ -161,12 +150,10 @@ tomlkit==0.11.6
     # via pylint
 typing-extensions==4.3.0
     # via
-    #   alembic
     #   astroid
     #   djopenapi
     #   djrs
     #   pydantic
-    #   sqlalchemy
 urllib3==1.26.15
     # via
     #   djopenapi
