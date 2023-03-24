@@ -6,11 +6,11 @@ import pytest
 from sqlalchemy import select
 from sqlmodel import Session
 
+import dj.sql.parsing.types as ct
 from dj.construction.build import amenable_name, build_node
 from dj.errors import DJException
 from dj.models import Column, NodeRevision
 from dj.models.node import Node, NodeType
-from dj.typing import ColumnType
 
 from ..sql.utils import compare_query_strings
 from .fixtures import BUILD_EXPECTATION_PARAMETERS
@@ -65,9 +65,22 @@ async def test_build_metric_with_dimensions_aggs(request):
         num_comments_mtc.current,
         dimensions=["basic.dimension.users.country", "basic.dimension.users.gender"],
     )
-    assert 'FROM "basic.source.users" AS basic_DOT_source_DOT_users' in str(query)
-    assert "basic_DOT_dimension_DOT_users.gender" in str(query)
-    assert "basic_DOT_dimension_DOT_users.country" in str(query)
+    expected = """
+        SELECT
+          basic_DOT_dimension_DOT_users.country,
+          basic_DOT_dimension_DOT_users.gender,
+          COUNT(1) AS cnt
+        FROM basic.source.comments AS basic_DOT_source_DOT_comments LEFT OUTER JOIN (SELECT  basic_DOT_source_DOT_users.age,
+        basic_DOT_source_DOT_users.country,
+        basic_DOT_source_DOT_users.full_name,
+        basic_DOT_source_DOT_users.gender,
+        basic_DOT_source_DOT_users.id,
+        basic_DOT_source_DOT_users.preferred_language,
+        basic_DOT_source_DOT_users.secret_number
+         FROM basic.source.users AS basic_DOT_source_DOT_users) AS basic_DOT_dimension_DOT_users ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+         GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
+    """
+    assert compare_query_strings(str(query), expected)
 
 
 @pytest.mark.asyncio
@@ -93,7 +106,7 @@ async def test_raise_on_build_without_required_dimension_column(request):
         columns=[
             Column(
                 name="num_users",
-                type=ColumnType.INT,
+                type=ct.IntegerType(),
                 dimension=country_dim,
             ),
         ],
@@ -110,7 +123,7 @@ async def test_raise_on_build_without_required_dimension_column(request):
         query="SELECT SUM(num_users) AS num_users "
         "FROM foo GROUP BY basic.dimension.countries.country",
         columns=[
-            Column(name="num_users", type=ColumnType.INT),
+            Column(name="num_users", type=ct.IntegerType()),
         ],
     )
     with pytest.raises(DJException) as exc_info:
@@ -120,9 +133,9 @@ async def test_raise_on_build_without_required_dimension_column(request):
         )
 
     assert (
-        "Node foo specifiying dimension basic.dimension.countries on column "
-        "num_users does not specify a dimension column, but basic.dimension.countries "
-        "does not have the default key `id`."
+        "Node foo specifying dimension basic.dimension.countries on column "
+        "num_users does not specify a dimension column, but basic.dimension"
+        ".countries does not have the default key `id`."
     ) in str(exc_info.value)
 
 
@@ -142,22 +155,26 @@ async def test_build_metric_with_dimensions_filters(request):
         num_comments_mtc.current,
         filters=["basic.dimension.users.age>=25", "basic.dimension.users.age<50"],
     )
-
-    expected = """SELECT  COUNT(1) AS cnt
- FROM "basic.source.comments" AS basic_DOT_source_DOT_comments
-LEFT JOIN (SELECT  basic_DOT_source_DOT_users.id,
-        basic_DOT_source_DOT_users.full_name,
+    expected = """
+    SELECT
+      COUNT(1) AS cnt
+    FROM basic.source.comments AS basic_DOT_source_DOT_comments
+    LEFT OUTER JOIN (
+      SELECT
         basic_DOT_source_DOT_users.age,
         basic_DOT_source_DOT_users.country,
+        basic_DOT_source_DOT_users.full_name,
         basic_DOT_source_DOT_users.gender,
+        basic_DOT_source_DOT_users.id,
         basic_DOT_source_DOT_users.preferred_language,
         basic_DOT_source_DOT_users.secret_number
- FROM "basic.source.users" AS basic_DOT_source_DOT_users
-
-) AS basic_DOT_dimension_DOT_users
-        ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
- WHERE  basic_DOT_dimension_DOT_users.age >= 25 AND basic_DOT_dimension_DOT_users.age < 50"""
-
+      FROM basic.source.users AS basic_DOT_source_DOT_users
+    ) AS basic_DOT_dimension_DOT_users
+      ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+    WHERE
+      basic_DOT_dimension_DOT_users.age >= 25
+      AND basic_DOT_dimension_DOT_users.age < 50
+    """
     assert compare_query_strings(str(query), expected)
 
 
@@ -173,7 +190,7 @@ async def test_build_node_with_unnamed_column(request):
         version="1",
         query="""SELECT 1 FROM basic.dimension.countries""",
         columns=[
-            Column(name="col1", type=ColumnType.INT),
+            Column(name="col1", type=ct.IntegerType()),
         ],
     )
     build_node(

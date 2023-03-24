@@ -31,7 +31,7 @@ from dj.errors import DJDoesNotExistException, DJException
 from dj.models import ColumnAttribute
 from dj.models.attribute import UniquenessScope
 from dj.models.base import generate_display_name
-from dj.models.column import Column, ColumnAttributeInput, ColumnType
+from dj.models.column import Column, ColumnAttributeInput
 from dj.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -54,7 +54,7 @@ from dj.models.node import (
     UpsertMaterializationConfig,
 )
 from dj.service_clients import QueryServiceClient
-from dj.sql.parsing import parse
+from dj.sql.parsing.backends.antlr4 import parse
 from dj.utils import Version, VersionUpgrade, get_query_service_client, get_session
 
 _logger = logging.getLogger(__name__)
@@ -469,7 +469,16 @@ def create_source_node(
         [
             Column(
                 name=column_name,
-                type=ColumnType[column_data["type"]],
+                type=column_data.type,
+                dimension=(
+                    get_node_by_name(
+                        session,
+                        name=column_data.dimension,
+                        node_type=NodeType.DIMENSION,
+                    )
+                    if column_data.dimension
+                    else None
+                ),
             )
             for column_name, column_data in data.columns.items()
         ]
@@ -677,8 +686,8 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
         columns=[
             Column(
                 name=column_name,
-                type=ColumnType[column_data["type"]],
-                dimension_column=column_data.get("dimension"),
+                type=column_data.type,
+                dimension_column=column_data.dimension,
             )
             for column_name, column_data in data.columns.items()
         ]
@@ -733,7 +742,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
 @router.patch("/nodes/{name}/", response_model=NodeOutput)
 def update_node(
     name: str,
-    data: Union[UpdateNode],
+    data: UpdateNode,
     *,
     session: Session = Depends(get_session),
 ) -> NodeOutput:

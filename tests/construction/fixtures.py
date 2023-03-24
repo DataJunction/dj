@@ -8,8 +8,15 @@ import pytest
 from sqlmodel import Session
 
 from dj.models import Column, Database, NodeRevision, Table
-from dj.models.column import ColumnType
 from dj.models.node import Node, NodeType
+from dj.sql.parsing.types import (
+    DateType,
+    FloatType,
+    IntegerType,
+    MapType,
+    StringType,
+    TimestampType,
+)
 
 BUILD_NODE_NAMES: List[str] = [
     "basic.source.users",
@@ -38,7 +45,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             None: (
                 True,
                 """
-                SELECT * FROM "basic.source.users"
+                SELECT * FROM basic.source.users
                 """,
             ),
         },
@@ -46,7 +53,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             None: (
                 True,
                 """
-                SELECT * FROM "basic.source.comments"
+                SELECT * FROM basic.source.comments
                 """,
             ),
         },
@@ -60,7 +67,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
     basic_DOT_source_DOT_users.gender,
     basic_DOT_source_DOT_users.preferred_language,
     basic_DOT_source_DOT_users.secret_number
- FROM "basic.source.users" AS basic_DOT_source_DOT_users""",
+ FROM basic.source.users AS basic_DOT_source_DOT_users""",
             ),
         },
         """dbt.source.jaffle_shop.orders""": {
@@ -75,7 +82,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 """SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
     dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
     dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name
- FROM "dbt.source.jaffle_shop.customers" AS dbt_DOT_source_DOT_jaffle_shop_DOT_customers""",
+ FROM dbt.source.jaffle_shop.customers AS dbt_DOT_source_DOT_jaffle_shop_DOT_customers""",
             ),
         },
         """dbt.source.jaffle_shop.customers""": {
@@ -89,14 +96,14 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 True,
                 """SELECT  basic_DOT_dimension_DOT_users.country,
     COUNT(1) AS user_cnt
- FROM (SELECT  basic_DOT_source_DOT_users.id,
-    basic_DOT_source_DOT_users.full_name,
-    basic_DOT_source_DOT_users.age,
+ FROM (SELECT  basic_DOT_source_DOT_users.age,
     basic_DOT_source_DOT_users.country,
+    basic_DOT_source_DOT_users.full_name,
     basic_DOT_source_DOT_users.gender,
+    basic_DOT_source_DOT_users.id,
     basic_DOT_source_DOT_users.preferred_language,
     basic_DOT_source_DOT_users.secret_number
- FROM "basic.source.users" AS basic_DOT_source_DOT_users
+ FROM basic.source.users AS basic_DOT_source_DOT_users
 
 ) AS basic_DOT_dimension_DOT_users
 
@@ -108,7 +115,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 True,
                 """SELECT  basic_DOT_source_DOT_users.country,
     COUNT(DISTINCT basic_DOT_source_DOT_users.id) AS num_users
- FROM "basic.source.users" AS basic_DOT_source_DOT_users
+ FROM basic.source.users AS basic_DOT_source_DOT_users
 
  GROUP BY  basic_DOT_source_DOT_users.country""",
             ),
@@ -117,7 +124,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
             None: (
                 True,
                 """SELECT  COUNT(1) AS cnt
- FROM "basic.source.comments" AS basic_DOT_source_DOT_comments""",
+ FROM basic.source.comments AS basic_DOT_source_DOT_comments""",
             ),
         },
         """basic.num_users""": {
@@ -126,7 +133,7 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
                 """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users) AS col0
  FROM (SELECT  basic_DOT_source_DOT_users.country,
     COUNT(DISTINCT basic_DOT_source_DOT_users.id) AS num_users
- FROM "basic.source.users" AS basic_DOT_source_DOT_users
+ FROM basic.source.users AS basic_DOT_source_DOT_users
 
  GROUP BY  basic_DOT_source_DOT_users.country) AS basic_DOT_transform_DOT_country_agg""",
             ),
@@ -134,13 +141,11 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
         """dbt.transform.customer_agg""": {
             None: (
                 True,
-                """SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
-    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
+                """SELECT  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name,
+    dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id,
     dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name,
     COUNT(1) AS order_cnt
- FROM "dbt.source.jaffle_shop.orders" AS dbt_DOT_source_DOT_jaffle_shop_DOT_orders
-INNER JOIN "dbt.source.jaffle_shop.customers" AS dbt_DOT_source_DOT_jaffle_shop_DOT_customers
-    ON dbt_DOT_source_DOT_jaffle_shop_DOT_orders.user_id = dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id
+ FROM dbt.source.jaffle_shop.orders AS dbt_DOT_source_DOT_jaffle_shop_DOT_orders JOIN dbt.source.jaffle_shop.customers AS dbt_DOT_source_DOT_jaffle_shop_DOT_customers ON dbt_DOT_source_DOT_jaffle_shop_DOT_orders.user_id = dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id
  GROUP BY  dbt_DOT_source_DOT_jaffle_shop_DOT_customers.id, dbt_DOT_source_DOT_jaffle_shop_DOT_customers.first_name, dbt_DOT_source_DOT_jaffle_shop_DOT_customers.last_name""",
             ),
         },
@@ -176,8 +181,8 @@ def construction_session(  # pylint: disable=too-many-locals
           GROUP BY country
         """,
         columns=[
-            Column(name="country", type=ColumnType.STR),
-            Column(name="user_cnt", type=ColumnType.INT),
+            Column(name="country", type=StringType()),
+            Column(name="user_cnt", type=IntegerType()),
         ],
     )
 
@@ -202,13 +207,13 @@ def construction_session(  # pylint: disable=too-many-locals
           FROM basic.source.users
         """,
         columns=[
-            Column(name="id", type=ColumnType.INT),
-            Column(name="full_name", type=ColumnType.STR),
-            Column(name="age", type=ColumnType.INT),
-            Column(name="country", type=ColumnType.STR),
-            Column(name="gender", type=ColumnType.STR),
-            Column(name="preferred_language", type=ColumnType.STR),
-            Column(name="secret_number", type=ColumnType.FLOAT),
+            Column(name="id", type=IntegerType()),
+            Column(name="full_name", type=StringType()),
+            Column(name="age", type=IntegerType()),
+            Column(name="country", type=StringType()),
+            Column(name="gender", type=StringType()),
+            Column(name="preferred_language", type=StringType()),
+            Column(name="secret_number", type=FloatType()),
         ],
     )
 
@@ -231,11 +236,11 @@ def construction_session(  # pylint: disable=too-many-locals
         columns=[
             Column(
                 name="country",
-                type=ColumnType.STR,
+                type=StringType(),
                 dimension=user_dim_ref,
                 dimension_column="country",
             ),
-            Column(name="num_users", type=ColumnType.INT),
+            Column(name="num_users", type=IntegerType()),
         ],
     )
 
@@ -250,21 +255,30 @@ def construction_session(  # pylint: disable=too-many-locals
         node=users_src_ref,
         version="1",
         columns=[
-            Column(name="id", type=ColumnType.INT),
-            Column(name="full_name", type=ColumnType.STR),
-            Column(name="names_map", type=ColumnType.MAP["str", "str"]),
+            Column(name="id", type=IntegerType()),
+            Column(name="full_name", type=StringType()),
+            Column(
+                name="names_map",
+                type=MapType(key_type=StringType(), value_type=StringType()),
+            ),
             Column(
                 name="user_metadata",
-                type=ColumnType.MAP[
-                    "str",
-                    ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
-                ],
+                type=MapType(
+                    key_type=StringType(),
+                    value_type=MapType(
+                        key_type=StringType(),
+                        value_type=MapType(
+                            key_type=StringType(),
+                            value_type=FloatType(),
+                        ),
+                    ),
+                ),
             ),
-            Column(name="age", type=ColumnType.INT),
-            Column(name="country", type=ColumnType.STR),
-            Column(name="gender", type=ColumnType.STR),
-            Column(name="preferred_language", type=ColumnType.STR),
-            Column(name="secret_number", type=ColumnType.FLOAT),
+            Column(name="age", type=IntegerType()),
+            Column(name="country", type=StringType()),
+            Column(name="gender", type=StringType()),
+            Column(name="preferred_language", type=StringType()),
+            Column(name="secret_number", type=FloatType()),
         ],
         tables=[
             Table(
@@ -272,21 +286,30 @@ def construction_session(  # pylint: disable=too-many-locals
                 schema="basic",
                 table="comments",
                 columns=[
-                    Column(name="id", type=ColumnType.INT),
-                    Column(name="full_name", type=ColumnType.STR),
-                    Column(name="names_map", type=ColumnType.MAP["str", "str"]),
+                    Column(name="id", type=IntegerType()),
+                    Column(name="full_name", type=StringType()),
+                    Column(
+                        name="names_map",
+                        type=MapType(key_type=StringType(), value_type=StringType()),
+                    ),
                     Column(
                         name="user_metadata",
-                        type=ColumnType.MAP[
-                            "str",
-                            ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
-                        ],
+                        type=MapType(
+                            key_type=StringType(),
+                            value_type=MapType(
+                                key_type=StringType(),
+                                value_type=MapType(
+                                    key_type=StringType(),
+                                    value_type=FloatType(),
+                                ),
+                            ),
+                        ),
                     ),
-                    Column(name="age", type=ColumnType.INT),
-                    Column(name="country", type=ColumnType.STR),
-                    Column(name="gender", type=ColumnType.STR),
-                    Column(name="preferred_language", type=ColumnType.STR),
-                    Column(name="secret_number", type=ColumnType.FLOAT),
+                    Column(name="age", type=IntegerType()),
+                    Column(name="country", type=StringType()),
+                    Column(name="gender", type=StringType()),
+                    Column(name="preferred_language", type=StringType()),
+                    Column(name="secret_number", type=FloatType()),
                 ],
                 cost=10.0,
                 database=postgres,
@@ -296,21 +319,30 @@ def construction_session(  # pylint: disable=too-many-locals
                 node_id=4250,
                 table="comments",
                 columns=[
-                    Column(name="id", type=ColumnType.INT),
-                    Column(name="full_name", type=ColumnType.STR),
-                    Column(name="names_map", type=ColumnType.MAP["str", "str"]),
+                    Column(name="id", type=IntegerType()),
+                    Column(name="full_name", type=StringType()),
+                    Column(
+                        name="names_map",
+                        type=MapType(key_type=StringType(), value_type=StringType()),
+                    ),
                     Column(
                         name="user_metadata",
-                        type=ColumnType.MAP[
-                            "str",
-                            ColumnType.MAP["str", ColumnType.MAP["str", "float"]],
-                        ],
+                        type=MapType(
+                            key_type=StringType(),
+                            value_type=MapType(
+                                key_type=StringType(),
+                                value_type=MapType(
+                                    key_type=StringType(),
+                                    value_type=FloatType(),
+                                ),
+                            ),
+                        ),
                     ),
-                    Column(name="age", type=ColumnType.INT),
-                    Column(name="country", type=ColumnType.STR),
-                    Column(name="gender", type=ColumnType.STR),
-                    Column(name="preferred_language", type=ColumnType.STR),
-                    Column(name="secret_number", type=ColumnType.FLOAT),
+                    Column(name="age", type=IntegerType()),
+                    Column(name="country", type=StringType()),
+                    Column(name="gender", type=StringType()),
+                    Column(name="preferred_language", type=StringType()),
+                    Column(name="secret_number", type=FloatType()),
                 ],
                 cost=100.0,
                 database=gsheets,
@@ -330,14 +362,14 @@ def construction_session(  # pylint: disable=too-many-locals
         node=comments_src_ref,
         version="1",
         columns=[
-            Column(name="id", type=ColumnType.INT),
+            Column(name="id", type=IntegerType()),
             Column(
                 name="user_id",
-                type=ColumnType.INT,
+                type=IntegerType(),
                 dimension=user_dim_ref,
             ),
-            Column(name="timestamp", type=ColumnType.TIMESTAMP),
-            Column(name="text", type=ColumnType.STR),
+            Column(name="timestamp", type=TimestampType()),
+            Column(name="text", type=StringType()),
         ],
         tables=[
             Table(
@@ -345,10 +377,10 @@ def construction_session(  # pylint: disable=too-many-locals
                 schema="basic",
                 table="comments",
                 columns=[
-                    Column(name="id", type=ColumnType.INT),
-                    Column(name="user_id", type=ColumnType.INT),
-                    Column(name="timestamp", type=ColumnType.TIMESTAMP),
-                    Column(name="text", type=ColumnType.STR),
+                    Column(name="id", type=IntegerType()),
+                    Column(name="user_id", type=IntegerType()),
+                    Column(name="timestamp", type=TimestampType()),
+                    Column(name="text", type=StringType()),
                 ],
                 cost=10.0,
                 database=postgres,
@@ -358,10 +390,10 @@ def construction_session(  # pylint: disable=too-many-locals
                 node_id=4252,
                 table="comments",
                 columns=[
-                    Column(name="id", type=ColumnType.INT),
-                    Column(name="user_id", type=ColumnType.INT),
-                    Column(name="timestamp", type=ColumnType.TIMESTAMP),
-                    Column(name="text", type=ColumnType.STR),
+                    Column(name="id", type=IntegerType()),
+                    Column(name="user_id", type=IntegerType()),
+                    Column(name="timestamp", type=TimestampType()),
+                    Column(name="text", type=StringType()),
                 ],
                 cost=100.0,
                 database=gsheets,
@@ -385,7 +417,7 @@ def construction_session(  # pylint: disable=too-many-locals
         FROM basic.source.comments
         """,
         columns=[
-            Column(name="cnt", type=ColumnType.INT),
+            Column(name="cnt", type=IntegerType()),
         ],
     )
 
@@ -404,7 +436,7 @@ def construction_session(  # pylint: disable=too-many-locals
         FROM basic.transform.country_agg
         """,
         columns=[
-            Column(name="col0", type=ColumnType.INT),
+            Column(name="col0", type=IntegerType()),
         ],
     )
     num_users_us_join_mtc_ref = Node(
@@ -427,7 +459,7 @@ def construction_session(  # pylint: disable=too-many-locals
         columns=[
             Column(
                 name="sum_users",
-                type=ColumnType.INT,
+                type=IntegerType(),
             ),
         ],
     )
@@ -448,9 +480,9 @@ def construction_session(  # pylint: disable=too-many-locals
           FROM dbt.source.jaffle_shop.customers
         """,
         columns=[
-            Column(name="id", type=ColumnType.INT),
-            Column(name="first_name", type=ColumnType.STR),
-            Column(name="last_name", type=ColumnType.STR),
+            Column(name="id", type=IntegerType()),
+            Column(name="first_name", type=StringType()),
+            Column(name="last_name", type=StringType()),
         ],
     )
 
@@ -476,10 +508,10 @@ def construction_session(  # pylint: disable=too-many-locals
                    c.last_name
         """,
         columns=[
-            Column(name="id", type=ColumnType.INT),
-            Column(name="first_name", type=ColumnType.STR),
-            Column(name="last_name", type=ColumnType.STR),
-            Column(name="order_cnt", type=ColumnType.INT),
+            Column(name="id", type=IntegerType()),
+            Column(name="first_name", type=StringType()),
+            Column(name="last_name", type=StringType()),
+            Column(name="order_cnt", type=IntegerType()),
         ],
     )
 
@@ -494,16 +526,16 @@ def construction_session(  # pylint: disable=too-many-locals
         node=orders_src_ref,
         version="1",
         columns=[
-            Column(name="id", type=ColumnType.INT),
+            Column(name="id", type=IntegerType()),
             Column(
                 name="user_id",
-                type=ColumnType.INT,
+                type=IntegerType(),
                 dimension=customers_dim_ref,
                 dimension_column="event_id",
             ),
-            Column(name="order_date", type=ColumnType.DATE),
-            Column(name="status", type=ColumnType.STR),
-            Column(name="_etl_loaded_at", type=ColumnType.TIMESTAMP),
+            Column(name="order_date", type=DateType()),
+            Column(name="status", type=StringType()),
+            Column(name="_etl_loaded_at", type=TimestampType()),
         ],
         tables=[
             Table(
@@ -511,11 +543,11 @@ def construction_session(  # pylint: disable=too-many-locals
                 schema="jaffle_shop",
                 table="orders",
                 columns=[
-                    Column(name="id", type=ColumnType.INT),
-                    Column(name="user_id", type=ColumnType.INT),
-                    Column(name="order_date", type=ColumnType.DATE),
-                    Column(name="status", type=ColumnType.STR),
-                    Column(name="_etl_loaded_at", type=ColumnType.TIMESTAMP),
+                    Column(name="id", type=IntegerType()),
+                    Column(name="user_id", type=IntegerType()),
+                    Column(name="order_date", type=DateType()),
+                    Column(name="status", type=StringType()),
+                    Column(name="_etl_loaded_at", type=TimestampType()),
                 ],
                 cost=10.0,
                 database=postgres,
@@ -535,9 +567,9 @@ def construction_session(  # pylint: disable=too-many-locals
         node=customers_src_ref,
         version="1",
         columns=[
-            Column(name="id", type=ColumnType.INT),
-            Column(name="first_name", type=ColumnType.STR),
-            Column(name="last_name", type=ColumnType.STR),
+            Column(name="id", type=IntegerType()),
+            Column(name="first_name", type=StringType()),
+            Column(name="last_name", type=StringType()),
         ],
         tables=[
             Table(
@@ -545,9 +577,9 @@ def construction_session(  # pylint: disable=too-many-locals
                 schema="jaffle_shop",
                 table="customers",
                 columns=[
-                    Column(name="id", type=ColumnType.INT),
-                    Column(name="first_name", type=ColumnType.STR),
-                    Column(name="last_name", type=ColumnType.STR),
+                    Column(name="id", type=IntegerType()),
+                    Column(name="first_name", type=StringType()),
+                    Column(name="last_name", type=StringType()),
                 ],
                 cost=10.0,
                 database=postgres,

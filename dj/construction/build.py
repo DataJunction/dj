@@ -1,184 +1,310 @@
 """Functions to add to an ast DJ node queries"""
+import collections
 
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
-from typing import Dict, List, Optional, Union, cast
+from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
 from sqlmodel import Session
 
-from dj.construction.utils import amenable_name
-from dj.errors import DJException
+from dj.construction.utils import amenable_name, to_namespaced_name
+from dj.errors import DJException, DJInvalidInputException
 from dj.models.column import Column
 from dj.models.node import BuildCriteria, NodeRevision, NodeType
-from dj.sql.parsing import ast, parse
+from dj.sql.parsing.ast import CompileContext
+from dj.sql.parsing.backends.antlr4 import ast, parse
 
 
-def _get_tables_from_select(select: ast.Select) -> Dict[NodeRevision, List[ast.Table]]:
+def _get_tables_from_select(
+    select: ast.SelectExpression,
+) -> DefaultDict[NodeRevision, List[ast.Table]]:
     """
     Extract all tables (source, transform, dimensions)
+    directly on the select that have an attached DJ node
     """
-    tables: Dict[NodeRevision, List[ast.Table]] = {}
+    tables: DefaultDict[NodeRevision, List[ast.Table]] = collections.defaultdict(list)
 
     for table in select.find_all(ast.Table):
         if node := table.dj_node:  # pragma: no cover
-            tables[node] = tables.get(node, [])
             tables[node].append(table)
     return tables
 
 
-def _get_dim_cols_from_select(
-    select: ast.Select,
-) -> Dict[NodeRevision, List[ast.Column]]:
+def _join_path(
+    dimension_node: NodeRevision,
+    initial_nodes: Set[NodeRevision],
+) -> Tuple[NodeRevision, Dict[Tuple[NodeRevision, NodeRevision], List[Column]]]:
     """
-    Extract all dimension nodes referenced as columns
+    For a dimension node, we want to find a possible join path between it
+    and any of the nodes that are directly referenced in the original query. If
+    no join path exists, returns an empty dict.
     """
-    dimension_columns: Dict[NodeRevision, List[ast.Column]] = {}
+    processed = set()
 
-    for col in select.find_all(ast.Column):
-        if isinstance(col.table, ast.Table):
-            if node := col.table.dj_node:  # pragma: no cover
-                if node.type == NodeType.DIMENSION:
-                    dimension_columns[node] = dimension_columns.get(node, [])
-                    dimension_columns[node].append(col)
-    return dimension_columns
+    to_process: Deque[
+        Tuple[NodeRevision, Dict[Tuple[NodeRevision], List[Column]]]
+    ] = collections.deque([])
+    join_info: Dict[Tuple[NodeRevision], List[Column]] = {}
+    to_process.extend([(node, join_info.copy()) for node in initial_nodes])
+
+    while to_process:
+        current_node, path = to_process.popleft()
+        processed.add(current_node)
+        dimensions_to_columns = collections.defaultdict(list)
+
+        # From the columns on the current node, find the next layer of
+        # dimension nodes that can be joined in
+        for col in current_node.columns:
+            if col.dimension:
+                dimensions_to_columns[col.dimension.current].append(col)
+
+        # Go through all potential dimensions and their join columns
+        for joinable_dim, join_cols in dimensions_to_columns.items():
+            next_join_path = {**path, **{(current_node, joinable_dim): join_cols}}
+            full_join_path = (joinable_dim, next_join_path)
+            if joinable_dim == dimension_node:
+                for col in join_cols:
+                    if col.dimension_column is None and not any(
+                        dim_col.name == "id" for dim_col in dimension_node.columns
+                    ):
+                        raise DJException(
+                            f"Node {current_node.name} specifying dimension "
+                            f"{joinable_dim.name} on column {col.name} does not"
+                            f" specify a dimension column, but {dimension_node.name} "
+                            f"does not have the default key `id`.",
+                        )
+                return full_join_path  # type: ignore
+            if joinable_dim not in processed:  # pragma: no cover
+                to_process.append(full_join_path)
+                for parent in joinable_dim.parents:
+                    to_process.append((parent.current, next_join_path))
+    return None  # type: ignore  # pragma: no cover
 
 
-def _build_dimensions_on_select(
+def _get_or_build_join_table(
     session: Session,
-    dimension_columns: Dict[NodeRevision, List[ast.Column]],
-    dialect: Optional[str] = None,
+    table_node: NodeRevision,
+    build_criteria: Optional[BuildCriteria],
+):
+    """
+    Build the join table from a materialization if one is available, or recurse
+    to build it from the dimension node's query if not
+    """
+    table_node_alias = amenable_name(table_node.name)
+    join_table = cast(
+        Optional[ast.TableExpression],
+        _get_node_table(table_node, build_criteria),
+    )
+    if not join_table:  # pragma: no cover
+        join_query = parse(cast(str, table_node.query))
+        join_table = build_ast(session, join_query)  # type: ignore
+        join_table.parenthesized = True  # type: ignore
+
+    ctx = CompileContext(session=session, exception=DJException())
+    join_table.compile(ctx)  # type: ignore
+
+    join_table = cast(ast.TableExpression, join_table)  # type: ignore
+    right_alias = ast.Name(table_node_alias)
+    join_right = ast.Alias(  # type: ignore
+        right_alias,
+        child=join_table,
+        as_=True,
+    )
+    join_table.set_alias(right_alias)  # type: ignore
+    return join_right
+
+
+def _build_joins_for_dimension(
+    session: Session,
+    dim_node: NodeRevision,
+    initial_nodes: Set[NodeRevision],
+    tables: DefaultDict[NodeRevision, List[ast.Table]],
+    build_criteria: Optional[BuildCriteria],
+    required_dimension_columns: List[ast.Column],
+) -> List[ast.Join]:
+    """
+    Returns the join ASTs needed to bring in the dimension node from
+    the set of initial nodes.
+    """
+    _, paths = _join_path(dim_node, initial_nodes)
+    asts = []
+    for connecting_nodes, join_columns in paths.items():
+        start_node, table_node = connecting_nodes  # type: ignore
+        join_on = []
+
+        # Assemble table on left of join
+        left_table = (
+            tables[start_node][0].child  # type: ignore
+            if isinstance(tables[start_node][0], ast.Alias)
+            else tables[start_node][0]
+        )
+        join_left_columns = {
+            col.alias_or_name.name: col for col in left_table.columns  # type: ignore
+        }
+
+        # Assemble table on right of join
+        join_right = _get_or_build_join_table(session, table_node, build_criteria)
+        tables[table_node].append(join_right)  # type: ignore
+        join_right_columns = {
+            col.alias_or_name.name: col  # type: ignore
+            for col in join_right.child.columns
+        }
+
+        # Assemble join ON clause
+        for join_col in join_columns:
+            if join_col.name in join_left_columns and (
+                join_col.dimension_column in join_right_columns
+                or "id" in join_right_columns
+            ):
+                left_table.add_ref_column(
+                    cast(ast.Column, join_left_columns[join_col.name]),
+                )
+                join_on.append(
+                    ast.BinaryOp.Eq(
+                        join_left_columns[join_col.name],
+                        join_right_columns[join_col.dimension_column or "id"],
+                    ),
+                )
+            else:
+                raise DJInvalidInputException(  # pragma: no cover
+                    f"The specified join column {join_col.dimension_column} "
+                    f"does not exist on {table_node.name}",
+                )
+            for dim_col in required_dimension_columns:
+                join_right.child.add_ref_column(dim_col)
+
+        if join_on:  # pragma: no cover
+            asts.append(
+                ast.Join(
+                    "LEFT OUTER",
+                    join_right,  # type: ignore
+                    ast.JoinCriteria(
+                        on=ast.BinaryOp.And(*join_on),  # pylint: disable=E1120
+                    ),
+                ),
+            )
+    return asts
+
+
+def join_tables_for_dimensions(
+    session: Session,
+    dimension_nodes_to_columns: Dict[NodeRevision, List[ast.Column]],
+    tables: DefaultDict[NodeRevision, List[ast.Table]],
     build_criteria: Optional[BuildCriteria] = None,
 ):
     """
-    Add all filter and agg dimensions to a select
+    Joins the tables necessary for a set of filter and group by dimensions
+    onto the select expression.
+
+    In some cases, the necessary tables will already be on the select and
+    no additional joins will be needed. However, if the tables are not in
+    the select, it will traverse through available linked tables (via dimension
+    nodes) and join them in.
     """
 
-    for dim_node, dim_cols in dimension_columns.items():
-        selects_map = {}
-        for dim_col in dim_cols:
-            select = cast(ast.Select, dim_col.get_nearest_parent_of_type(ast.Select))
-            selects_map[id(select)] = select
-        for select in selects_map.values():
-            tables = _get_tables_from_select(select)
-            if dim_node not in tables:  # need to join dimension
-                join_info: Dict[NodeRevision, List[Column]] = {}
-                for table_node in tables:
-                    join_dim_cols = []
-                    for col in table_node.columns:
-                        if col.dimension and col.dimension.current == dim_node:
-                            if col.dimension_column is None and not any(
-                                dim_col.name == "id" for dim_col in dim_node.columns
-                            ):
-                                raise DJException(
-                                    f"Node {table_node.node.name} specifiying dimension "
-                                    f"{dim_node.node.name} on column {col.name} does not"
-                                    f" specify a dimension column, but {dim_node.node.name} "
-                                    f"does not have the default key `id`.",
-                                )
-                            join_dim_cols.append(col)
+    for dim_node, required_dimension_columns in sorted(
+        dimension_nodes_to_columns.items(),
+        key=lambda x: x[0].name,
+    ):
+        # Find all the selects that contain the different dimension columns
+        selects_map = {
+            cast(ast.Select, dim_col.get_nearest_parent_of_type(ast.Select))
+            for dim_col in required_dimension_columns
+        }
 
-                    join_info[table_node] = join_dim_cols
-                dim_table = cast(
-                    Optional[ast.Table],
-                    _get_node_table(dim_node, build_criteria),
-                )  # got a materialization
-                if (
-                    dim_table is None
-                ):  # no materialization - recurse to build dimension first  # pragma: no cover
-                    dim_query = parse(cast(str, dim_node.query), dialect)
-                    dim_table = build_ast(  # type: ignore  # noqa
-                        session,
-                        dim_query,
-                        build_criteria,
-                    ).to_select()
-
-                alias = amenable_name(dim_node.node.name)
-                dim_ast = ast.Alias(  # type: ignore
-                    ast.Name(alias),
-                    child=dim_table,
+        # Join the source tables (if necessary) for these dimension columns
+        # onto each select clause
+        for select in selects_map:
+            initial_nodes = {
+                table.dj_node for table in select.find_all(ast.Table) if table.dj_node
+            }
+            if dim_node not in initial_nodes:  # need to join dimension
+                join_asts = _build_joins_for_dimension(
+                    session,
+                    dim_node,
+                    initial_nodes,
+                    tables,
+                    build_criteria,
+                    required_dimension_columns,
                 )
-
-                for (
-                    dim_col
-                ) in dim_cols:  # replace column table references to this dimension
-                    dim_col.add_table(dim_ast)  # type: ignore
-
-                for table_node, cols in join_info.items():
-                    ast_tables = tables[table_node]
-                    join_on = []
-                    for table in ast_tables:
-                        for col in cols:
-                            join_on.append(
-                                ast.BinaryOp.Eq(
-                                    ast.Column(ast.Name(col.name), _table=table),
-                                    ast.Column(
-                                        ast.Name(col.dimension_column or "id"),
-                                        _table=dim_ast,  # type: ignore
-                                    ),
-                                ),
-                            )
-
-                    if join_on:  # table had stuff to join
-                        select.from_.joins.append(  # pragma: no cover
-                            ast.Join(
-                                ast.JoinKind.LeftOuter,
-                                dim_ast,  # type: ignore
-                                ast.BinaryOp.And(*join_on),  # pylint: disable=E1120
-                            ),
-                        )
+                if join_asts and select.from_:
+                    select.from_.relations[-1].extensions.extend(  # pragma: no cover
+                        join_asts,
+                    )
 
 
 def _build_tables_on_select(
     session: Session,
-    select: ast.Select,
+    select: ast.SelectExpression,
     tables: Dict[NodeRevision, List[ast.Table]],
-    dialect: Optional[str] = None,
     build_criteria: Optional[BuildCriteria] = None,
 ):
     """
     Add all nodes not agg or filter dimensions to the select
     """
     for node, tbls in tables.items():
-
         node_table = cast(
             Optional[ast.Table],
             _get_node_table(node, build_criteria),
         )  # got a materialization
         if node_table is None:  # no materialization - recurse to node first
-            node_query = parse(cast(str, node.query), dialect)
+            node_query = parse(cast(str, node.query))
             node_table = build_ast(  # type: ignore
                 session,
                 node_query,
                 build_criteria,
-            ).to_select()  # pylint: disable=W0212
+            ).select  # pylint: disable=W0212
+            node_table.parenthesized = True  # type: ignore
 
         alias = amenable_name(node.node.name)
-        node_ast = ast.Alias(ast.Name(alias), child=node_table)  # type: ignore
+        context = CompileContext(session=session, exception=DJException())
+
+        node_ast = ast.Alias(ast.Name(alias), child=node_table, as_=True)  # type: ignore
         for tbl in tbls:
+            node_ast.compile(context)
             select.replace(tbl, node_ast)
+
+
+def dimension_columns_mapping(
+    select: ast.SelectExpression,
+) -> Dict[NodeRevision, List[ast.Column]]:
+    """
+    Extract all dimension nodes referenced by columns
+    """
+    dimension_nodes_to_columns: Dict[NodeRevision, List[ast.Column]] = {}
+
+    for col in select.find_all(ast.Column):
+        if isinstance(col.table, ast.Table):
+            if node := col.table.dj_node:  # pragma: no cover
+                if node.type == NodeType.DIMENSION:
+                    dimension_nodes_to_columns[node] = dimension_nodes_to_columns.get(
+                        node,
+                        [],
+                    )
+                    dimension_nodes_to_columns[node].append(col)
+    return dimension_nodes_to_columns
 
 
 # flake8: noqa: C901
 def _build_select_ast(
     session: Session,
-    select: ast.Select,
-    dialect: Optional[str] = None,
+    select: ast.SelectExpression,
     build_criteria: Optional[BuildCriteria] = None,
 ):
     """
     Transforms a select ast by replacing dj node references with their asts
+    Starts by extracting all dimensions-backed columns from filters + group bys.
+    Some of them can be sourced directly from tables on the select, others cannot
+    For the ones that cannot be sourced directly, attempt to join them via dimension links.
     """
-
-    dimension_columns = _get_dim_cols_from_select(select)
     tables = _get_tables_from_select(select)
-
-    _build_dimensions_on_select(session, dimension_columns, dialect, build_criteria)
-
-    _build_tables_on_select(session, select, tables, dialect, build_criteria)
+    dimension_columns = dimension_columns_mapping(select)
+    join_tables_for_dimensions(session, dimension_columns, tables, build_criteria)
+    _build_tables_on_select(session, select, tables, build_criteria)
 
 
 def add_filters_and_dimensions_to_query_ast(
     query: ast.Query,
-    dialect: Optional[str] = None,
+    dialect: Optional[str] = None,  # pylint: disable=unused-argument
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
 ):
@@ -192,7 +318,7 @@ def add_filters_and_dimensions_to_query_ast(
         )
 
         for filter_ in filters:
-            temp_select = parse(f"select * where {filter_}", dialect).select
+            temp_select = parse(f"select * where {filter_}").select
             filter_asts.append(
                 # use parse to get the asts from the strings we got
                 temp_select.where,  # type:ignore
@@ -203,20 +329,17 @@ def add_filters_and_dimensions_to_query_ast(
         for agg in dimensions:
             temp_select = parse(
                 f"select * group by {agg}",
-                dialect,
             ).select
             query.select.group_by += temp_select.group_by  # type:ignore
             projection_addition += list(temp_select.find_all(ast.Column))
-    query.select.projection += [
-        col.set_api_column(True).copy() for col in set(projection_addition)
-    ]
+    query.select.projection += list(projection_addition)
 
     # Cannot select for columns that aren't in GROUP BY and aren't aggregations
     if query.select.group_by:
         query.select.projection = [
             col
             for col in query.select.projection
-            if col.is_aggregation()
+            if col.is_aggregation()  # type: ignore
             or col.name.name in {gc.name.name for gc in query.select.group_by}  # type: ignore
         ]
 
@@ -231,32 +354,33 @@ def _get_node_table(
     """
     table = None
     if node.type == NodeType.SOURCE:
-        namespace = None
         if node.table:
-            name = ast.Name(node.table, '"')
-            namespace = (
-                ast.Namespace([ast.Name(node.schema_, '"')])
-                if node.schema_
-                else ast.Namespace([])
+            name = ast.Name(
+                node.table,
+                namespace=ast.Name(node.schema_) if node.schema_ else None,
             )
         else:
-            name = ast.Name(node.name, '"')
-        table = ast.Table(name, namespace, _dj_node=node)
+            name = to_namespaced_name(node.name)
+        table = ast.Table(name, _dj_node=node)
     elif node.availability and node.availability.is_available(
         criteria=build_criteria,
     ):  # pragma: no cover
-        namespace = (
-            ast.Namespace([ast.Name(node.availability.schema_, '"')])
-            if node.availability.schema_
-            else ast.Namespace([])
-        )
         table = ast.Table(
-            ast.Name(node.availability.table, '"'),
-            namespace,
+            ast.Name(
+                node.availability.table,
+                namespace=(
+                    ast.Name(node.availability.schema_)
+                    if node.availability.schema_
+                    else None
+                ),
+            ),
             _dj_node=node,
         )
     if table and as_select:  # pragma: no cover
-        return ast.Select(projection=[ast.Wildcard()], from_=ast.From(tables=[table]))
+        return ast.Select(
+            projection=[ast.Wildcard()],
+            from_=ast.From(relations=[ast.Relation(table)]),
+        )
     return table
 
 
@@ -280,7 +404,7 @@ def build_node(  # pylint: disable=too-many-arguments
             return ast.Query(select=select)  # pragma: no cover
 
     if node.query:
-        query = parse(node.query, dialect)
+        query = parse(node.query)
     else:
         query = build_source_node_query(node)
 
@@ -298,14 +422,12 @@ def build_source_node_query(node: NodeRevision):
     """
     Returns a query that selects each column explicitly in the source node.
     """
-    name = ast.Name(node.name, '"')
-    table = ast.Table(name, None, _dj_node=node)
+    table = ast.Table(to_namespaced_name(node.name), None, _dj_node=node)
     select = ast.Select(
         projection=[
-            ast.Column(ast.Name(tbl_col.name), _table=table.alias_or_self())
-            for tbl_col in node.columns
+            ast.Column(ast.Name(tbl_col.name), _table=table) for tbl_col in node.columns
         ],
-        from_=ast.From(tables=[table]),
+        from_=ast.From(relations=[ast.Relation(table)]),
     )
     return ast.Query(select=select)
 
@@ -318,6 +440,7 @@ def build_ast(  # pylint: disable=too-many-arguments
     """
     Determines the optimal way to build the query AST and does so
     """
-    query.compile(session)
+    context = CompileContext(session=session, exception=DJException())
+    query.compile(context)
     query.build(session, build_criteria)
     return query

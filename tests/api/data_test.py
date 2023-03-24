@@ -45,19 +45,16 @@ class TestDataForNode:
         assert response.status_code == 200
         assert data == [
             {
-                "submitted_query": (
-                    "SELECT  payment_type_table.id,\n\t"
-                    "payment_type_table.payment_type_classification,"
-                    "\n\tpayment_type_table.payment_type_name \n FROM "
-                    '"accounting"."payment_type_table"'
-                    " AS payment_type_table"
-                ),
+                "submitted_query": "SELECT  payment_type_table.id,\n\tpayment_type_table."
+                "payment_type_classification,\n\tpayment_type_table."
+                'payment_type_name \n FROM "accounting"."payment_type_table"'
+                " AS payment_type_table",
                 "state": "FINISHED",
                 "results": {
                     "columns": [
-                        {"name": "id", "type": "INT"},
-                        {"name": "payment_type_classification", "type": "STR"},
-                        {"name": "payment_type_name", "type": "STR"},
+                        {"name": "id", "type": "int"},
+                        {"name": "payment_type_classification", "type": "string"},
+                        {"name": "payment_type_name", "type": "string"},
                     ],
                     "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
                 },
@@ -79,7 +76,7 @@ class TestDataForNode:
             "submitted_query": 'SELECT  * \n FROM "accounting"."revenue"',
             "state": "FINISHED",
             "results": {
-                "columns": [{"name": "profit", "type": "FLOAT"}],
+                "columns": [{"name": "profit", "type": "float"}],
                 "rows": [[129.19]],
             },
             "errors": [],
@@ -96,19 +93,17 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "submitted_query": (
-                "SELECT  revenue.account_type,\n\t"
-                "revenue.customer_id,\n\trevenue.payment_amount,\n\t"
-                'revenue.payment_id \n FROM "accounting"."revenue" '
-                "AS revenue\n \n WHERE  revenue.payment_amount > 1000000"
-            ),
+            "submitted_query": "SELECT  revenue.account_type,\n\trevenue.customer_id,"
+            "\n\trevenue.payment_amount,\n\trevenue.payment_id \n "
+            'FROM "accounting"."revenue" AS revenue\n \n WHERE  '
+            "revenue.payment_amount > 1000000",
             "state": "FINISHED",
             "results": {
                 "columns": [
-                    {"name": "account_type", "type": "STR"},
-                    {"name": "customer_id", "type": "INT"},
-                    {"name": "payment_amount", "type": "STR"},
-                    {"name": "payment_id", "type": "INT"},
+                    {"name": "account_type", "type": "string"},
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "payment_amount", "type": "string"},
+                    {"name": "payment_id", "type": "int"},
                 ],
                 "rows": [
                     ["CHECKING", 2, "22.50", 1],
@@ -131,11 +126,11 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "errors": [],
-            "results": {"columns": [{"name": "cnt", "type": "INT"}], "rows": [[1]]},
+            "submitted_query": 'SELECT  COUNT(1) AS cnt \n FROM "basic".'
+            '"comments" AS basic_DOT_source_DOT_comments',
             "state": "FINISHED",
-            "submitted_query": "SELECT  COUNT(1) AS cnt \n"
-            ' FROM "basic"."comments" AS basic_DOT_source_DOT_comments',
+            "results": {"columns": [{"name": "cnt", "type": "int"}], "rows": [[1]]},
+            "errors": [],
         }
 
 

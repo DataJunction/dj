@@ -107,7 +107,7 @@ Let's look at the ``COUNT`` function in DJ:
     from sqlalchemy.sql.schema import Column as SqlaColumn
 
     from dj.models.column import Column
-    from dj.typing import ColumnType
+    from dj.sql.parsing.types import ColumnType; import dj.sql.parsing.types as ct
 
 
     class Count(Function):
