@@ -43,7 +43,7 @@ def get_celery() -> Celery:
     celery_app.conf.beat_schedule = {
         "refresh": {
             "task": "djrs.worker.app.refresh",
-            "schedule": 10.0,
+            "schedule": settings.polling_interval,
         },
     }
     return celery_app
