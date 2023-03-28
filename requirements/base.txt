@@ -51,7 +51,7 @@ python-dateutil==2.7.5
     # via djopenapi
 python-dotenv==0.19.2
     # via djrs
-pytz==2022.7.1
+pytz==2023.2
     # via celery
 redis==4.5.3
     # via celery
