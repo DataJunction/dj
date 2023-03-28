@@ -89,7 +89,8 @@ def reflect(node_name: str, catalog: str, schema: str, table: str):
         f"{update_columns_response.reason}",
     )
 
-    # Post availability state
+    # pylint: disable=fixme
+    # TODO: Post actual availability state when information available
     availability_state_response = (
         dj_api.add_availability_data_node_name_availability_post(
             body=AvailabilityStateBase(
