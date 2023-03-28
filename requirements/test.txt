@@ -11,7 +11,7 @@
     # via -r requirements/test.in
 amqp==5.1.1
     # via kombu
-astroid==2.15.0
+astroid==2.15.1
     # via pylint
 async-timeout==4.0.2
     # via redis
@@ -56,10 +56,12 @@ djopenapi==0.0.1a1
     # via djrs
 exceptiongroup==1.1.1
     # via pytest
-filelock==3.10.4
+filelock==3.10.7
     # via virtualenv
 freezegun==1.2.2
-    # via djrs
+    # via
+    #   djrs
+    #   pytest-freezegun
 frozendict==2.3.6
     # via djopenapi
 identify==2.5.22
@@ -84,13 +86,13 @@ packaging==23.0
     #   pytest
 pip-tools==6.12.3
     # via djrs
-platformdirs==3.1.1
+platformdirs==3.2.0
     # via
     #   pylint
     #   virtualenv
 pluggy==1.0.0
     # via pytest
-pre-commit==3.2.0
+pre-commit==3.2.1
     # via djrs
 prompt-toolkit==3.0.38
     # via click-repl
@@ -107,10 +109,13 @@ pytest==7.2.2
     #   djrs
     #   pytest-asyncio
     #   pytest-cov
+    #   pytest-freezegun
     #   pytest-mock
 pytest-asyncio==0.15.1
     # via djrs
 pytest-cov==4.0.0
+    # via djrs
+pytest-freezegun==0.4.2
     # via djrs
 pytest-integration==0.2.2
     # via djrs
@@ -122,7 +127,7 @@ python-dateutil==2.7.5
     #   freezegun
 python-dotenv==0.19.2
     # via djrs
-pytz==2022.7.1
+pytz==2023.2
     # via celery
 pyyaml==6.0
     # via pre-commit
@@ -146,7 +151,7 @@ tomli==2.0.1
     #   pylint
     #   pyproject-hooks
     #   pytest
-tomlkit==0.11.6
+tomlkit==0.11.7
     # via pylint
 typing-extensions==4.3.0
     # via
