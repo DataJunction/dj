@@ -2,7 +2,7 @@ pyenv: .python-version
 
 .python-version: setup.cfg
 	if [ -z "`pyenv virtualenvs | grep djrs`" ]; then\
-	    pyenv virtualenv djrs;\
+	    pyenv virtualenv 3.10 djrs;\
 	fi
 	if [ ! -f .python-version ]; then\
 	    pyenv local djrs;\
