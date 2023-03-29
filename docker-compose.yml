@@ -9,6 +9,8 @@ networks:
     driver: bridge
   djqs-network:
     driver: bridge
+  djrs-network:
+    driver: bridge
 
 services:
   dj:
@@ -105,6 +107,41 @@ services:
       - "${QUERY_SERVICE}:/code"
     command: alembic upgrade head
     restart: on-failure
+
+  # Reflection service
+  djrs-redis:
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - djrs-network
+
+  djrs-worker:
+    container_name: djrs-worker
+    build: "${DJRS_SERVICE}"
+    command: ["celery", "-A", "djrs.worker.app", "worker", "--loglevel", "INFO"]
+    networks:
+      - core
+      - djrs-network
+    volumes:
+      - "${DJRS_SERVICE}:/code"
+    depends_on:
+      - djrs-redis
+      - dj
+
+  djrs-beat:
+    container_name: djrs-beat
+    build: "${DJRS_SERVICE}"
+    command:
+      ["celery", "--app", "djrs.worker.app", "beat", "--loglevel", "INFO"]
+    networks:
+      - djrs-network
+    depends_on:
+      - djrs-redis
+      - dj
+    restart: "no"
+    volumes:
+      - "${DJRS_SERVICE}:/code"
 
   jupyter-notebook:
     image: jupyter/minimal-notebook
