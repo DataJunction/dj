@@ -209,3 +209,67 @@ If running a [reflection service](https://github.com/DataJunction/djrs), that se
         }
       ]
     }
+
+=====
+Spark
+=====
+
+DJQS includes an example of using Spark as an engine. To try it, start up the docker compose environment and then
+load the example roads database into Spark.
+
+.. code-block::
+
+    docker exec -it djqs /bin/bash -c "python /code/docker/spark_load_roads.py"
+
+Next, create a :code:`djspark` catalog and a :code:`spark` engine.
+
+.. code-block::
+
+    curl -X 'POST' \
+      'http://localhost:8001/catalogs/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "name": "djspark"
+    }'
+
+.. code-block::
+
+    curl -X 'POST' \
+      'http://localhost:8001/engines/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "name": "spark",
+      "version": "3.3.2",
+      "uri": "spark://local[*]"
+    }'
+
+.. code-block::
+
+    curl -X 'POST' \
+      'http://localhost:8001/catalogs/djspark/engines/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '[
+      {
+        "name": "spark",
+        "version": "3.3.2"
+      }
+    ]'
+
+Now you can submit Spark SQL queries.
+
+.. code-block::
+
+    curl -X 'POST' \
+      'http://localhost:8001/queries/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "catalog_name": "djspark",
+      "engine_name": "spark",
+      "engine_version": "3.3.2",
+      "submitted_query": "SELECT * FROM roads.us_states LIMIT 10",
+      "async_": false
+    }'
