@@ -86,7 +86,8 @@ def run_query(
         .where(Engine.version == query.engine_version),
     ).one()
     if engine.uri == "spark://local[*]":
-        return run_spark_query(query)
+        spark = get_spark_session()
+        return run_spark_query(query, spark)
     sqla_engine = create_engine(engine.uri, **catalog.extra_params)
     connection = sqla_engine.connect()
 
@@ -116,19 +117,28 @@ def get_spark_field_type(field: StructField):
     return ColumnType.STR
 
 
-def run_spark_query(query: Query) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+def get_spark_session():
     """
-    Start a spark session and run a spark SQL query against the local warehouse
+    Get a spark session
     """
-    # Toss any stale session
     SparkSession._instantiatedContext = None  # pylint: disable=protected-access
-    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     spark = (
         SparkSession.builder.master("local[*]")
         .appName("djqs")
         .enableHiveSupport()
         .getOrCreate()
     )
+    return spark
+
+
+def run_spark_query(
+    query: Query,
+    spark: SparkSession,
+) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+    """
+    Run a spark SQL query against the local warehouse
+    """
+    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     results_df = spark.sql(query.submitted_query)
     rows = results_df.rdd.map(tuple).collect()
     columns = [

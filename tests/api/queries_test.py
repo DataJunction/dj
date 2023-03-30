@@ -2,8 +2,8 @@
 Tests for the queries API.
 """
 
+import datetime
 import json
-from datetime import datetime
 from http import HTTPStatus
 
 import msgpack
@@ -117,9 +117,9 @@ def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
     assert data["engine_version"] == "1.0"
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] == "SELECT 1 AS col"
-    assert data["scheduled"] == datetime(2021, 1, 1)
-    assert data["started"] == datetime(2021, 1, 1)
-    assert data["finished"] == datetime(2021, 1, 1)
+    assert data["scheduled"] == datetime.datetime(2021, 1, 1)
+    assert data["started"] == datetime.datetime(2021, 1, 1)
+    assert data["finished"] == datetime.datetime(2021, 1, 1)
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
@@ -521,3 +521,49 @@ def test_submit_spark_query(session: Session, client: TestClient) -> None:
     ]
     assert data["results"][0]["rows"] == [[1, "a"]]
     assert data["errors"] == []
+
+
+def test_spark_fixture_show_tables(spark) -> None:
+    """
+    Test that show tables of the spark fixture lists the roads tables
+    """
+    spark_df = spark.sql("show tables")
+    records = spark_df.rdd.map(tuple).collect()
+    assert records == [
+        ("", "contractors", True),
+        ("", "dispatchers", True),
+        ("", "hard_hat_state", True),
+        ("", "hard_hats", True),
+        ("", "municipality", True),
+        ("", "municipality_municipality_type", True),
+        ("", "municipality_type", True),
+        ("", "repair_order_details", True),
+        ("", "repair_orders", True),
+        ("", "repair_type", True),
+        ("", "us_region", True),
+        ("", "us_states", True),
+    ]
+
+
+def test_spark_fixture_query(spark) -> None:
+    """
+    Test a spark query against the roads database in the spark fixture
+    """
+    spark_df = spark.sql(
+        """
+        SELECT ro.repair_order_id, ro.order_date
+        FROM repair_orders ro
+        LEFT JOIN repair_order_details roi
+        ON ro.repair_order_id = roi.repair_order_id
+        ORDER BY ro.repair_order_id
+        LIMIT 5
+    """,
+    )
+    records = spark_df.rdd.map(tuple).collect()
+    assert records == [
+        (10001, datetime.date(2007, 7, 4)),
+        (10002, datetime.date(2007, 7, 5)),
+        (10003, datetime.date(2007, 7, 8)),
+        (10004, datetime.date(2007, 7, 8)),
+        (10005, datetime.date(2007, 7, 9)),
+    ]
