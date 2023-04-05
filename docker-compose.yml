@@ -118,20 +118,20 @@ services:
 
   djrs-worker:
     container_name: djrs-worker
-    build: "${DJRS_SERVICE}"
+    build: "${REFLECTION_SERVICE}"
     command: ["celery", "-A", "djrs.worker.app", "worker", "--loglevel", "INFO"]
     networks:
       - core
       - djrs-network
     volumes:
-      - "${DJRS_SERVICE}:/code"
+      - "${REFLECTION_SERVICE}:/code"
     depends_on:
       - djrs-redis
       - dj
 
   djrs-beat:
     container_name: djrs-beat
-    build: "${DJRS_SERVICE}"
+    build: "${REFLECTION_SERVICE}"
     command:
       ["celery", "--app", "djrs.worker.app", "beat", "--loglevel", "INFO"]
     networks:
@@ -141,10 +141,10 @@ services:
       - dj
     restart: "no"
     volumes:
-      - "${DJRS_SERVICE}:/code"
+      - "${REFLECTION_SERVICE}:/code"
 
   jupyter-notebook:
-    image: jupyter/minimal-notebook
+    image: jupyter/scipy-notebook
     container_name: jupyter
     networks:
       - core
@@ -152,3 +152,6 @@ services:
       - "8888:8888"
     volumes:
       - ./notebooks:/home/jovyan/notebooks
+    environment:
+      JUPYTER_ENABLE_LAB: "yes"
+    command: "start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''"
