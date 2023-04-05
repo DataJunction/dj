@@ -323,7 +323,7 @@ class Node(ABC):
 
     def is_ancestor_of(self, other: Optional["Node"]) -> bool:
         """
-        Checks if the subtree of `self` contains the node
+        Checks if `self` is an ancestor of the node
         """
         return bool(other) and other.contains(self)
 
@@ -1925,7 +1925,7 @@ class From(Node):
 @dataclass(eq=False)
 class SetOp(TableExpression):
     """
-    A column wrapper for ordering
+    A set operation
     """
 
     kind: str = ""  # Union, intersect, ...
@@ -1974,8 +1974,8 @@ class Cast(Expression):
 @dataclass(eq=False)
 class SelectExpression(Aliasable, Expression):
     """
-    An uninitializable Type for Select for use as a
-    default where a Select is required but succeeds optional fields
+    An uninitializable Type for Select for use as a default where
+    a Select is required.
     """
 
     quantifier: str = ""  # Distinct, All
@@ -2085,7 +2085,7 @@ class SortItem(Node):
 @dataclass(eq=False)
 class Organization(Node):
     """
-    A column wrapper for ordering
+    Sets up organization for the query
     """
 
     order: List[SortItem]

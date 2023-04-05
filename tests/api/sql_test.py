@@ -103,32 +103,32 @@ def test_sql(
               repair_orders.order_date = '2009-08-14'
             """,
         ),
-        # # querying transform node with filters on joinable dimension
-        # (
-        #     "long_events",
-        #     [],
-        #     ["country_dim.events_cnt >= 20"],
-        #     """
-        #     SELECT
-        #       event_source.event_id,
-        #       event_source.event_latency,
-        #       event_source.device_id,
-        #       event_source.country
-        #     FROM logs.log_events AS event_source
-        #     LEFT OUTER JOIN (
-        #       SELECT
-        #         event_source.country,
-        #         COUNT(DISTINCT event_source.event_id) AS events_cnt
-        #       FROM logs.log_events AS event_source
-        #       GROUP BY
-        #         event_source.country
-        #     ) AS country_dim
-        #             ON event_source.country = country_dim.country
-        #      WHERE
-        #        event_source.event_latency > 1000000 AND
-        #        country_dim.events_cnt >= 20
-        #     """,
-        # ),
+        # querying transform node with filters on joinable dimension
+        (
+            "long_events",
+            [],
+            ["country_dim.events_cnt >= 20"],
+            """
+            SELECT
+              event_source.event_id,
+              event_source.event_latency,
+              event_source.device_id,
+              event_source.country
+            FROM logs.log_events AS event_source
+            LEFT OUTER JOIN (
+              SELECT
+                event_source.country,
+                COUNT(DISTINCT event_source.event_id) AS events_cnt
+              FROM logs.log_events AS event_source
+              GROUP BY
+                event_source.country
+            ) AS country_dim
+                    ON event_source.country = country_dim.country
+             WHERE
+               event_source.event_latency > 1000000 AND
+               country_dim.events_cnt >= 20
+            """,
+        ),
         # querying transform node with filters directly on the node
         (
             "long_events",
@@ -282,6 +282,7 @@ def test_sql(
               municipality_dim.local_region
             """,
         ),
+        # metric with second-order dimension
         (
             "avg_repair_price",
             ["hard_hat.city"],
@@ -326,6 +327,57 @@ def test_sql(
               hard_hat.city
             """,
         ),
+        # metric with multiple nth order dimensions that can share some of the joins
+        (
+            "avg_repair_price",
+            ["hard_hat.city", "dispatcher.company_name"],
+            [],
+            """
+            SELECT
+              avg(repair_order_details.price) AS avg_repair_price,
+              dispatcher.company_name,
+              hard_hat.city
+            FROM roads.repair_order_details AS repair_order_details
+            LEFT OUTER JOIN (
+              SELECT
+                repair_orders.dispatched_date,
+                repair_orders.dispatcher_id,
+                repair_orders.hard_hat_id,
+                repair_orders.municipality_id,
+                repair_orders.order_date,
+                repair_orders.repair_order_id,
+                repair_orders.required_date
+              FROM roads.repair_orders AS repair_orders
+            ) AS repair_order ON repair_order_details.repair_order_id = repair_order.repair_order_id
+            LEFT OUTER JOIN (
+              SELECT
+                dispatchers.company_name,
+                dispatchers.dispatcher_id,
+                dispatchers.phone
+              FROM roads.dispatchers AS dispatchers
+            ) AS dispatcher ON repair_order.dispatcher_id = dispatcher.dispatcher_id
+            LEFT OUTER JOIN (
+              SELECT
+                hard_hats.address,
+                hard_hats.birth_date,
+                hard_hats.city,
+                hard_hats.contractor_id,
+                hard_hats.country,
+                hard_hats.first_name,
+                hard_hats.hard_hat_id,
+                hard_hats.hire_date,
+                hard_hats.last_name,
+                hard_hats.manager,
+                hard_hats.postal_code,
+                hard_hats.state,
+                hard_hats.title
+              FROM roads.hard_hats AS hard_hats
+            ) AS hard_hat ON repair_order.hard_hat_id = hard_hat.hard_hat_id
+            GROUP BY
+              hard_hat.city,
+              dispatcher.company_name
+            """,
+        ),
     ],
 )
 def test_sql_with_filters(
@@ -343,6 +395,7 @@ def test_sql_with_filters(
         params={"dimensions": dimensions, "filters": filters},
     )
     data = response.json()
+    print("DATA", data["sql"])
     assert compare_query_strings(data["sql"], sql)
 
 

@@ -475,9 +475,8 @@ def create_source_node(
                         session,
                         name=column_data.dimension,
                         node_type=NodeType.DIMENSION,
+                        raise_if_not_exists=False,
                     )
-                    if column_data.dimension
-                    else None
                 ),
             )
             for column_name, column_data in data.columns.items()
