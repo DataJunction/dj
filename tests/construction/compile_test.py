@@ -6,11 +6,9 @@ Tests for compiling nodes
 import pytest
 from sqlmodel import Session
 
-from dj.construction.utils import make_name
 from dj.errors import DJException
 from dj.models import NodeRevision
 from dj.models.node import Node
-from dj.sql.parsing import ast
 from dj.sql.parsing.ast import CompileContext
 from dj.sql.parsing.backends.antlr4 import parse
 from dj.sql.parsing.backends.exceptions import DJParseException
@@ -29,77 +27,6 @@ def test_get_table_node_is_none(construction_session: Session):
     query.compile(ctx)
 
     assert "No node `purchases`" in str(ctx.exception.errors)
-
-
-@pytest.mark.parametrize(
-    "name,expected_make_name",
-    [
-        (
-            ast.Name(
-                "d",
-                namespace=ast.Name(
-                    name="c",
-                    namespace=ast.Name("b", namespace=ast.Name("a")),
-                ),
-            ),
-            "a.b.c.d",
-        ),
-        (
-            ast.Name("node-name", namespace=ast.Name("b", namespace=ast.Name("a"))),
-            "a.b.node-name",
-        ),
-        (ast.Name("node-[name]"), "node-[name]"),
-        (ast.Name("c", namespace=ast.Name("b", namespace=ast.Name("a"))), "a.b.c"),
-        (
-            ast.Name(
-                "node&(name)",
-                namespace=ast.Name(
-                    "c",
-                    namespace=ast.Name("b", namespace=ast.Name("a")),
-                ),
-            ),
-            "a.b.c.node&(name)",
-        ),
-        (
-            ast.Name(
-                "+d",
-                namespace=ast.Name(
-                    "c",
-                    namespace=ast.Name("b", namespace=ast.Name("a")),
-                ),
-            ),
-            "a.b.c.+d",
-        ),
-        (
-            ast.Name(
-                "-d",
-                namespace=ast.Name(
-                    "c",
-                    namespace=ast.Name("b", namespace=ast.Name("a")),
-                ),
-            ),
-            "a.b.c.-d",
-        ),
-        (
-            ast.Name(
-                "~~d",
-                namespace=ast.Name(
-                    "c",
-                    namespace=ast.Name("b", namespace=ast.Name("a")),
-                ),
-            ),
-            "a.b.c.~~d",
-        ),
-    ],
-)
-def test_make_name(
-    name: ast.Name,
-    expected_make_name: str,
-):
-    """
-    Test making names from a namespace and a name
-    """
-    assert make_name(name) == expected_make_name
 
 
 def test_missing_references(construction_session: Session):

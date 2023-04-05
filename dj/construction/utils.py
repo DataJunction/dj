@@ -15,17 +15,6 @@ if TYPE_CHECKING:
     from dj.sql.parsing.ast import Name
 
 
-def make_name(name: "Name") -> str:
-    """
-    Takes a namespaced name and returns a possible DJ node name.
-    """
-    ret = name.name
-    while name.namespace:
-        ret = name.namespace.name + "." + ret
-        name = name.namespace
-    return ret
-
-
 def get_dj_node(
     session: Session,
     node_name: str,
