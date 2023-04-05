@@ -7,7 +7,7 @@ from typing import List, Optional, Set, cast
 from sqlmodel import Session
 
 from dj.construction.build import build_ast
-from dj.construction.utils import amenable_name, get_dj_node, make_name
+from dj.construction.utils import amenable_name, get_dj_node
 from dj.errors import DJErrorException
 from dj.models.node import NodeRevision, NodeType
 from dj.sql.parsing.backends.antlr4 import ast, parse
@@ -32,7 +32,7 @@ def _resolve_metric_nodes(session, col):
     select accordingly
     """
     joins = []
-    col_name = make_name(col.name)
+    col_name = col.identifier(False)
     if metric_node := try_get_dj_node(
         session,
         col_name,
@@ -56,7 +56,7 @@ def _resolve_metric_nodes(session, col):
                 )
             metrics_ref = parent_select.from_.relations[0].primary
             try:
-                metrics_ref_name = make_name(metrics_ref.alias_or_name)
+                metrics_ref_name = metrics_ref.alias_or_name.identifier(False)
             except AttributeError:  # pragma: no cover
                 metrics_ref_name = ""
             if metrics_ref_name != "metrics":
@@ -121,7 +121,7 @@ def _hoist_metric_source_tables(
         if isinstance(table.child, ast.Select):  # pragma: no cover
             return []  # pragma: no cover
         table = table.child  # pragma: no cover
-    table_name = make_name(table.name)
+    table_name = table.identifier(False)
     if table_node := try_get_dj_node(  # pragma: no cover
         session,
         table_name,
@@ -184,15 +184,6 @@ def _source_column_join_on_expression(
     )
 
 
-def _label_dimension_nodes(session, col):
-    """
-    Mark dimensions as api columns for compile to acknowledge them
-    """
-    col_name = make_name(col.alias_or_name)
-    if try_get_dj_node(session, col_name, {NodeType.DIMENSION}):
-        col.set_api_column(True)  # pragma: no cover
-
-
 def build_dj_metric_query(  # pylint: disable=R0914,R0912
     session: Session,
     query: str,
@@ -206,11 +197,6 @@ def build_dj_metric_query(  # pylint: disable=R0914,R0912
     # we check all columns looking for metric nodes
     for col in select.find_all(ast.Column):
         _resolve_metric_nodes(session, col)
-
-    # make the ast aware of all dimensions that are mentioned
-    # that have come from the api
-    for col in select.find_all(ast.Column):
-        _label_dimension_nodes(session, col)
 
     return build_ast(
         session,

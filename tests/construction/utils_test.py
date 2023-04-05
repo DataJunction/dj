@@ -6,48 +6,9 @@ Tests for building nodes and extracting dependencies
 import pytest
 from sqlmodel import Session
 
-from dj.construction.utils import get_dj_node, make_name
+from dj.construction.utils import get_dj_node
 from dj.errors import DJErrorException
 from dj.models.node import NodeType
-from dj.sql.parsing.ast import Name
-
-
-@pytest.mark.parametrize(
-    "name,expected_make_name",
-    [
-        (
-            Name("d", namespace=Name("c", namespace=Name("b", namespace=Name("a")))),
-            "a.b.c.d",
-        ),
-        (Name("node-name", namespace=Name("b", namespace=Name("a"))), "a.b.node-name"),
-        (Name("node-[name]"), "node-[name]"),
-        (Name("c", namespace=Name("b", namespace=Name("a"))), "a.b.c"),
-        (
-            Name(
-                "node&(name)",
-                namespace=Name("c", namespace=Name("b", namespace=Name("a"))),
-            ),
-            "a.b.c.node&(name)",
-        ),
-        (
-            Name("+d", namespace=Name("c", namespace=Name("b", namespace=Name("a")))),
-            "a.b.c.+d",
-        ),
-        (
-            Name("-d", namespace=Name("c", namespace=Name("b", namespace=Name("a")))),
-            "a.b.c.-d",
-        ),
-        (
-            Name("~~d", namespace=Name("c", namespace=Name("b", namespace=Name("a")))),
-            "a.b.c.~~d",
-        ),
-    ],
-)
-def test_make_name(name: Name, expected_make_name: str):
-    """
-    Test making names from a namespace and a name
-    """
-    assert make_name(name) == expected_make_name
 
 
 def test_get_dj_node_raise_unknown_node_exception(session: Session):
