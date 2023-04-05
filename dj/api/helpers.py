@@ -32,7 +32,7 @@ from dj.sql.parsing.backends.exceptions import DJParseException
 
 def get_node_by_name(  # pylint: disable=too-many-arguments
     session: Session,
-    name: str,
+    name: Optional[str],
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
     raise_if_not_exists: bool = True,

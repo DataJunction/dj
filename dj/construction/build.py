@@ -45,6 +45,7 @@ def _join_path(
     ] = collections.deque([])
     join_info: Dict[Tuple[NodeRevision], List[Column]] = {}
     to_process.extend([(node, join_info.copy()) for node in initial_nodes])
+    possible_join_paths = []
 
     while to_process:
         current_node, path = to_process.popleft()
@@ -54,7 +55,7 @@ def _join_path(
         # From the columns on the current node, find the next layer of
         # dimension nodes that can be joined in
         for col in current_node.columns:
-            if col.dimension:
+            if col.dimension and col.dimension.type == NodeType.DIMENSION:
                 dimensions_to_columns[col.dimension.current].append(col)
 
         # Go through all potential dimensions and their join columns
@@ -72,12 +73,12 @@ def _join_path(
                             f" specify a dimension column, but {dimension_node.name} "
                             f"does not have the default key `id`.",
                         )
-                return full_join_path  # type: ignore
+                possible_join_paths.append(full_join_path)  # type: ignore
             if joinable_dim not in processed:  # pragma: no cover
                 to_process.append(full_join_path)
                 for parent in joinable_dim.parents:
                     to_process.append((parent.current, next_join_path))
-    return None  # type: ignore  # pragma: no cover
+    return min(possible_join_paths, key=len)  # type: ignore
 
 
 def _get_or_build_join_table(
@@ -143,6 +144,7 @@ def _build_joins_for_dimension(
 
         # Assemble table on right of join
         join_right = _get_or_build_join_table(session, table_node, build_criteria)
+        initial_nodes.add(table_node)
         tables[table_node].append(join_right)  # type: ignore
         join_right_columns = {
             col.alias_or_name.name: col  # type: ignore
@@ -214,9 +216,7 @@ def join_tables_for_dimensions(
         # Join the source tables (if necessary) for these dimension columns
         # onto each select clause
         for select in selects_map:
-            initial_nodes = {
-                table.dj_node for table in select.find_all(ast.Table) if table.dj_node
-            }
+            initial_nodes = set(tables)
             if dim_node not in initial_nodes:  # need to join dimension
                 join_asts = _build_joins_for_dimension(
                     session,
