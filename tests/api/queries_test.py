@@ -2,8 +2,8 @@
 Tests for the queries API.
 """
 
+import datetime
 import json
-from datetime import datetime
 from http import HTTPStatus
 
 import msgpack
@@ -117,9 +117,9 @@ def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
     assert data["engine_version"] == "1.0"
     assert data["submitted_query"] == "SELECT 1 AS col"
     assert data["executed_query"] == "SELECT 1 AS col"
-    assert data["scheduled"] == datetime(2021, 1, 1)
-    assert data["started"] == datetime(2021, 1, 1)
-    assert data["finished"] == datetime(2021, 1, 1)
+    assert data["scheduled"] == datetime.datetime(2021, 1, 1)
+    assert data["started"] == datetime.datetime(2021, 1, 1)
+    assert data["finished"] == datetime.datetime(2021, 1, 1)
     assert data["state"] == "FINISHED"
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
@@ -465,3 +465,105 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
     assert response.status_code == 404
 
     response = client.get("/queries/123")
+
+
+def test_submit_spark_query(session: Session, client: TestClient) -> None:
+    """
+    Test submitting a Spark query
+    """
+    engine = Engine(name="test_spark_engine", version="3.3.2", uri="spark://local[*]")
+    catalog = Catalog(name="test_catalog", engines=[engine])
+    session.add(catalog)
+    session.commit()
+    session.refresh(catalog)
+
+    query_create = QueryCreate(
+        catalog_name=catalog.name,
+        engine_name=engine.name,
+        engine_version=engine.version,
+        submitted_query="SELECT 1 AS int_col, 'a' as str_col",
+    )
+    payload = query_create.json(by_alias=True)
+    assert payload == json.dumps(
+        {
+            "catalog_name": "test_catalog",
+            "engine_name": "test_spark_engine",
+            "engine_version": "3.3.2",
+            "submitted_query": "SELECT 1 AS int_col, 'a' as str_col",
+            "async_": False,
+        },
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["catalog_name"] == "test_catalog"
+    assert data["engine_name"] == "test_spark_engine"
+    assert data["engine_version"] == "3.3.2"
+    assert data["submitted_query"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["executed_query"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["scheduled"] == "2021-01-01T00:00:00"
+    assert data["started"] == "2021-01-01T00:00:00"
+    assert data["finished"] == "2021-01-01T00:00:00"
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["results"][0]["columns"] == [
+        {"name": "int_col", "type": "INT"},
+        {"name": "str_col", "type": "STR"},
+    ]
+    assert data["results"][0]["rows"] == [[1, "a"]]
+    assert data["errors"] == []
+
+
+def test_spark_fixture_show_tables(spark) -> None:
+    """
+    Test that show tables of the spark fixture lists the roads tables
+    """
+    spark_df = spark.sql("show tables")
+    records = spark_df.rdd.map(tuple).collect()
+    assert records == [
+        ("", "contractors", True),
+        ("", "dispatchers", True),
+        ("", "hard_hat_state", True),
+        ("", "hard_hats", True),
+        ("", "municipality", True),
+        ("", "municipality_municipality_type", True),
+        ("", "municipality_type", True),
+        ("", "repair_order_details", True),
+        ("", "repair_orders", True),
+        ("", "repair_type", True),
+        ("", "us_region", True),
+        ("", "us_states", True),
+    ]
+
+
+def test_spark_fixture_query(spark) -> None:
+    """
+    Test a spark query against the roads database in the spark fixture
+    """
+    spark_df = spark.sql(
+        """
+        SELECT ro.repair_order_id, ro.order_date
+        FROM repair_orders ro
+        LEFT JOIN repair_order_details roi
+        ON ro.repair_order_id = roi.repair_order_id
+        ORDER BY ro.repair_order_id
+        LIMIT 5
+    """,
+    )
+    records = spark_df.rdd.map(tuple).collect()
+    assert records == [
+        (10001, datetime.date(2007, 7, 4)),
+        (10002, datetime.date(2007, 7, 5)),
+        (10003, datetime.date(2007, 7, 8)),
+        (10004, datetime.date(2007, 7, 8)),
+        (10005, datetime.date(2007, 7, 9)),
+    ]

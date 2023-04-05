@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from typing import List, Tuple
 
 import sqlparse
+from pyspark.sql import SparkSession  # pylint: disable=import-error
+from pyspark.sql.types import StructField  # pylint: disable=import-error
 from sqlalchemy import create_engine, text
 from sqlmodel import Session, select
 
@@ -83,6 +85,9 @@ def run_query(
         .where(Engine.name == query.engine_name)
         .where(Engine.version == query.engine_version),
     ).one()
+    if engine.uri == "spark://local[*]":
+        spark = get_spark_session()
+        return run_spark_query(query, spark)
     sqla_engine = create_engine(engine.uri, **catalog.extra_params)
     connection = sqla_engine.connect()
 
@@ -100,6 +105,47 @@ def run_query(
         )
         output.append((sql, columns, stream))
 
+    return output
+
+
+def get_spark_field_type(field: StructField):
+    """
+    Get a DJ type for a Spark field
+    """
+    if field.dataType.simpleString() == "int":
+        return ColumnType.INT
+    return ColumnType.STR
+
+
+def get_spark_session():
+    """
+    Get a spark session
+    """
+    SparkSession._instantiatedContext = None  # pylint: disable=protected-access
+    spark = (
+        SparkSession.builder.master("local[*]")
+        .appName("djqs")
+        .enableHiveSupport()
+        .getOrCreate()
+    )
+    return spark
+
+
+def run_spark_query(
+    query: Query,
+    spark: SparkSession,
+) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+    """
+    Run a spark SQL query against the local warehouse
+    """
+    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+    results_df = spark.sql(query.submitted_query)
+    rows = results_df.rdd.map(tuple).collect()
+    columns = [
+        ColumnMetadata(name=field.name, type=get_spark_field_type(field))
+        for field in results_df.schema
+    ]
+    output.append((query.submitted_query, columns, rows))
     return output
 
 

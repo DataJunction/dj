@@ -111,3 +111,7 @@ ENV/
 
 # IDEA
 .idea
+
+# Spark
+spark-warehouse
+metastore_db

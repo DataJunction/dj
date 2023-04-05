@@ -20,6 +20,8 @@ services:
       - djqs-network
     environment:
       - DOTENV_FILE=.docker-env/.env
+      - PYSPARK_PYTHON=/opt/conda/bin/python
+      - PYSPARK_DRIVER_PYTHON=/opt/conda/bin/python
     build: .
     volumes:
       - .:/code
