@@ -34,6 +34,14 @@ def refresh():
     nodes with associated tables.
     """
     dj_api = get_dj_client()
+
+    catalogs_to_engines = {
+        catalog.name: catalog.engines[0] if catalog.engines else None
+        for catalog in json.loads(
+            dj_api.list_catalogs_catalogs_get(),
+        )
+    }
+
     all_nodes = {
         node["name"]: node
         for node in json.loads(
@@ -51,6 +59,7 @@ def refresh():
                     node["catalog"]["name"],
                     node["schema_"],
                     node["table"],
+                    catalogs_to_engines[node["catalog"]["name"]],
                 ),
             )
             tasks.append(task)
@@ -73,6 +82,10 @@ def reflect(node_name: str, catalog: str, schema: str, table: str):
     # Update table columns
     response = requests.get(
         f"{settings.query_service}/table/{catalog}.{schema}.{table}/columns/",
+        params={
+            "engine": "",
+            "engine_version": "",
+        },
         timeout=30,
     )
     table_columns = response.json()["columns"]
