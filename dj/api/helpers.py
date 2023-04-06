@@ -11,8 +11,6 @@ from sqlmodel import Session, select
 
 from dj.construction.build import build_node
 from dj.construction.dj_query import build_dj_metric_query
-from dj.construction.extract import extract_dependencies_from_node
-from dj.construction.inference import get_type_of_expression
 from dj.errors import DJError, DJException, DJInvalidInputException, ErrorCode
 from dj.models import AttributeType, Catalog, Column, Engine
 from dj.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
@@ -28,12 +26,13 @@ from dj.models.node import (
     NodeType,
 )
 from dj.sql.parsing import ast
+from dj.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from dj.sql.parsing.backends.exceptions import DJParseException
 
 
 def get_node_by_name(  # pylint: disable=too-many-arguments
     session: Session,
-    name: str,
+    name: Optional[str],
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
     raise_if_not_exists: bool = True,
@@ -246,19 +245,15 @@ def validate_node_data(
         node = Node(name=data.name, type=data.type)
         validated_node = NodeRevision.parse_obj(data)
         validated_node.node = node
-
     validated_node.status = NodeStatus.VALID
+
     # Try to parse the node's query and extract dependencies
     try:
-        (
-            query_ast,
-            dependencies_map,
-            missing_parents_map,
-        ) = extract_dependencies_from_node(
-            session=session,
-            node=validated_node,
-        )
-    except ValueError as exc:
+        query_ast = parse(validated_node.query)  # type: ignore
+        exc = DJException()
+        ctx = ast.CompileContext(session=session, exception=exc)
+        dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)
+    except (ValueError, SqlSyntaxError) as exc:
         raise DJException(message=str(exc)) from exc
 
     # Only raise on missing parents if the node mode is set to published
@@ -283,14 +278,13 @@ def validate_node_data(
     type_inference_failed_columns = []
     for col in query_ast.select.projection:
         try:
-            column_type = get_type_of_expression(col)
+            column_type = col.type  # type: ignore
             validated_node.columns.append(
-                Column(name=col.name.name, type=column_type),  # type: ignore
+                Column(name=col.alias_or_name.name, type=column_type),  # type: ignore
             )
         except DJParseException:
-            type_inference_failed_columns.append(col.name.name)  # type: ignore
+            type_inference_failed_columns.append(col.alias_or_name.name)  # type: ignore
             validated_node.status = NodeStatus.INVALID
-
     return (
         validated_node,
         dependencies_map,

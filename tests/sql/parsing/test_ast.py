@@ -1,686 +1,891 @@
 """
 testing ast Nodes and their methods
 """
-import pytest
-from sqlalchemy import select
 
-from dj.models.column import ColumnType
-from dj.models.node import Node, NodeType
-from dj.sql.parsing.ast import (
-    Alias,
-    BinaryOp,
-    BinaryOpKind,
-    Boolean,
-    Column,
-    From,
-    IsNull,
-    MapSubscript,
-    Name,
-    Namespace,
-    Null,
-    Number,
-    Over,
-    Query,
-    Raw,
-    Select,
-    String,
-    Table,
-    Wildcard,
-    flatten,
-)
-from dj.sql.parsing.backends.exceptions import DJParseException
-from dj.sql.parsing.backends.sqloxide import parse
-from tests.sql.utils import compare_query_strings
+from fastapi.testclient import TestClient
+from sqlmodel import Session
+
+from dj.errors import DJException
+from dj.sql.parsing import ast, types
+from dj.sql.parsing.backends.antlr4 import parse
 
 
-def test_trivial_ne(trivial_query):
+def test_ast_compile_table(
+    session,
+    client_with_examples,  # pylint: disable=unused-argument
+):
     """
-    test find_all on a trivial query
+    Test compiling the primary table from a query
+
+    Includes client_with_examples fixture so that examples are loaded into session
     """
-    assert not trivial_query.compare(
-        Query(
-            ctes=[],
-            select=Select(
-                distinct=False,
-                from_=From(tables=[Table(Name(name="b"))]),
-                projection=[Column(Name("a"))],
-            ),
-        ),
-    )
+    query = parse("SELECT hard_hat_id, last_name, first_name FROM hard_hats")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.select.from_.relations[0].primary.compile(ctx)
+    assert not exc.errors
+
+    node = query.select.from_.relations[  # pylint: disable=protected-access
+        0
+    ].primary._dj_node
+    assert node
+    assert node.name == "hard_hats"
 
 
-def test_trivial_diff(trivial_query):
+def test_ast_compile_table_missing_node(session):
     """
-    test diff on a trivial query
+    Test compiling a table when the node is missing
     """
-    assert trivial_query.diff(
-        Query(
-            ctes=[],
-            select=Select(
-                distinct=False,
-                from_=From(tables=[Table(Name(name="b"))]),
-                projection=[Column(Name("a"))],
-            ),
-            dialect="ansi",
-        ),
-    ) == [
-        (Name(name="a", quote_style=""), Name(name="b", quote_style="")),
-        (Wildcard(), Column(name=Name(name="a", quote_style=""), namespace=None)),
-    ]
+    query = parse("SELECT a FROM foo")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.select.from_.relations[0].primary.compile(ctx)
+    assert "No node `foo` exists of kind" in exc.errors[0].message
+
+    query = parse("SELECT a FROM foo, bar, baz")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.select.from_.relations[0].primary.compile(ctx)
+    assert "No node `foo` exists of kind" in exc.errors[0].message
+    query.select.from_.relations[1].primary.compile(ctx)
+    assert "No node `bar` exists of kind" in exc.errors[1].message
+    query.select.from_.relations[2].primary.compile(ctx)
+    assert "No node `baz` exists of kind" in exc.errors[2].message
+
+    query = parse("SELECT a FROM foo LEFT JOIN bar")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.select.from_.relations[0].primary.compile(ctx)
+    assert "No node `foo` exists of kind" in exc.errors[0].message
+    query.select.from_.relations[0].extensions[0].right.compile(ctx)
+    assert "No node `bar` exists of kind" in exc.errors[1].message
+
+    query = parse("SELECT a FROM foo LEFT JOIN (SELECT b FROM bar) b")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.select.from_.relations[0].primary.compile(ctx)
+    assert "No node `foo` exists of kind" in exc.errors[0].message
+    query.select.from_.relations[0].extensions[0].right.select.from_.relations[
+        0
+    ].primary.compile(ctx)
+    assert "No node `bar` exists of kind" in exc.errors[1].message
 
 
-def test_trivial_similarity_different(trivial_query):
+def test_ast_compile_query(
+    session,
+    client_with_examples,  # pylint: disable=unused-argument
+):
     """
-    test diff on a trivial query
+    Test compiling an entire query
     """
+    query = parse("SELECT hard_hat_id, last_name, first_name FROM hard_hats")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+
+    node = query.select.from_.relations[  # pylint: disable=protected-access
+        0
+    ].primary._dj_node
+    assert node
+    assert node.name == "hard_hats"
+
+
+def test_ast_compile_query_missing_columns(
+    session,
+    client_with_examples,  # pylint: disable=unused-argument
+):
+    """
+    Test compiling a query with missing columns
+    """
+    query = parse("SELECT hard_hat_id, column_foo, column_bar FROM hard_hats")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
     assert (
-        trivial_query.similarity_score(
-            Query(
-                ctes=[],
-                select=Select(
-                    distinct=False,
-                    from_=From(tables=[Table(Name(name="b"))]),
-                    projection=[Column(Name("a"))],
-                ),
-                dialect="ansi",
-            ),
-        )
-        == 5 / 8
+        "Column`column_foo` does not exist on any valid table." in exc.errors[0].message
     )
-
-
-def test_trivial_similarity_same(trivial_query):
-    """
-    test similarity score on a trivial query
-    """
-    assert trivial_query.similarity_score(trivial_query) == 1
-
-
-def test_findall_trivial(trivial_query):
-    """
-    test find_all on a trivial query
-    """
-    assert [Table(Name("a"))] == list(trivial_query.find_all(Table))
-
-
-def test_filter_trivial(trivial_query):
-    """
-    test filtering nodes of a trivial query
-    """
-    assert [Table(Name("a"))] == list(
-        trivial_query.filter(lambda node: isinstance(node, Table)),
-    )
-
-
-def test_flatten_trivial(trivial_query):
-    """
-    test flattening on a trivial query
-    """
-    assert [
-        Query(
-            select=Select(
-                distinct=False,
-                from_=From(
-                    tables=[Table(name=Name(name="a", quote_style=""))],
-                    joins=[],
-                ),
-                group_by=[],
-                having=None,
-                projection=[Wildcard()],
-                where=None,
-                limit=None,
-            ),
-            ctes=[],
-            dialect="ansi",
-        ),
-        Select(
-            distinct=False,
-            from_=From(tables=[Table(name=Name(name="a", quote_style=""))], joins=[]),
-            group_by=[],
-            having=None,
-            projection=[Wildcard()],
-            where=None,
-            limit=None,
-        ),
-        From(tables=[Table(name=Name(name="a", quote_style=""))], joins=[]),
-        Table(name=Name(name="a", quote_style="")),
-        Name(name="a", quote_style=""),
-        Wildcard(),
-    ] == list(trivial_query.flatten())
-
-
-def test_trivial_apply(trivial_query):
-    """
-    test the apply method for nodes on a trivial query
-    """
-    flat = []
-    trivial_query.apply(lambda node: flat.append(node))  # pylint: disable=W0108
-    assert flat == list(trivial_query.flatten())
-
-
-def test_named_alias_or_name_aliased():
-    """
-    test a named node for returning its alias name when a child of an alias
-    """
-    named = Table(Name(name="a"))
-    _ = Alias(
-        Name(name="alias"),
-        child=named,
-    )
-    assert named.alias_or_name() == Name("alias")
-
-
-def test_named_alias_or_name_not_aliased():
-    """
-    test a named node for returning its name when not a child of an alias
-    """
-    named = Table(Name(name="a"))
-    _ = From([named])
-    assert named.alias_or_name() == Name("a")
-
-
-@pytest.mark.parametrize("name1, name2", [("a", "b"), ("c", "d")])
-def test_column_hash(name1, name2):
-    """
-    test column hash
-    """
-    assert hash(Column(Name(name1))) == hash(
-        Column(Name(name1)),
-    )
-    assert hash(Column(Name(name1))) != hash(
-        Column(Name(name2)),
-    )
-    assert hash(Column(Name(name1))) != hash(
-        Table(Name(name1)),
-    )
-
-
-@pytest.mark.parametrize("name1, name2", [("a", "b"), ("c", "d")])
-def test_name_hash(name1, name2):
-    """
-    test name hash
-    """
-    assert hash(Name(name1)) == hash(
-        Name(name1),
-    )
-    assert hash(Name(name1)) != hash(Name(name2))
-    assert hash(Name(name1, "'")) == hash(Name(name1, "'"))
-
-
-@pytest.mark.parametrize("value1, value2", list(zip(range(5), range(5, 10))))
-def test_number_hash(value1, value2):
-    """
-    test number hash
-    """
-    assert hash(Number(value1)) == hash(Number(value1))
-    assert hash(Number(value1)) != hash(Number(value2))
-    assert hash(Number(value1)) != hash(String(str((value1))))
-
-
-@pytest.mark.parametrize("value1, value2", [(True, False), (False, True)])
-def test_boolean_hash(value1, value2):
-    """
-    test boolean hash
-    """
-    assert hash(Boolean(value1)) == hash(Boolean(value1))
-    assert hash(Boolean(value1)) != hash(Boolean(value2))
-    assert hash(Boolean(value1)) != hash(String(str((value1))))
-
-
-def test_column_table():
-    """
-    test column add table
-    """
-    column = Column(Name("x"))
-    column.add_table(Table(Name("a")))
-    assert column.table == Table(Name("a"))
-
-
-def test_column_type():
-    """
-    test column add type
-    """
-    column = Column(Name("x"))
-    column.add_type(ColumnType.STR)
-    assert column.type == ColumnType.STR
-
-
-def test_column_expression_property():
-    """
-    test column get expression
-    """
-    column = Column(Name("x"))
-    exp = Column(Name("exp"))
-    column.add_expression(exp)
-    assert column.expression.compare(exp)
-
-
-def test_alias_alias_fails():
-    """
-    test having an alias of an alias fails
-    """
-    with pytest.raises(DJParseException) as exc:
-        Alias(Name("bad"), child=Alias(Name("alias"), child=Column(Name("child"))))
-    assert "An alias cannot descend from another Alias." in str(exc)
-
-
-def test_table_columns():
-    """
-    test adding/getting columns from table
-    """
-    table = Table(Name("a"))
-    table.add_columns(Column(Name("x")))
-    assert table.columns == {Column(Name("x"))}
-
-
-def test_raw_distinct_error():
-    """
-    test Raw distinct exception
-    """
-    with pytest.raises(DJParseException) as exc:
-        parse("SELECT Raw(distinct '{id}', 'int')")
-    assert "Raw cannot include DISTINCT in" in str(exc)
-
-
-def test_raw_type_error():
-    """
-    test Raw columntype exception
-    """
-    with pytest.raises(DJParseException) as exc:
-        parse("SELECT Raw('{id}', '5')")
-    assert "Raw expects the second argument to be a ColumnType not" in str(exc)
-
-
-def test_agg_error():
-    """
-    test Raw agg exception
-    """
-    with pytest.raises(DJParseException) as exc:
-        parse("SELECT Raw('{id}', 'int', 'no')")
     assert (
-        "Raw expects the third argument - which is optional - to be a Boolean not"
-        in str(exc)
+        "Column`column_bar` does not exist on any valid table." in exc.errors[1].message
     )
 
-
-def test_raw_is_agg():
-    """
-    test Raw column is agg
-    """
-    tree = parse("SELECT Raw('{id}', 'int', True)")
-    assert tree.select.projection[0].is_aggregation()
+    node = query.select.from_.relations[  # pylint: disable=protected-access
+        0
+    ].primary._dj_node
+    assert node
+    assert node.name == "hard_hats"
 
 
-def test_raw_type_arg_error():
+def test_ast_compile_missing_references(session: Session):
     """
-    test Raw columntype exception
+    Test getting dependencies from a query that has dangling references when set not to raise
     """
-    with pytest.raises(DJParseException) as exc:
-        parse("SELECT Raw('{id}', int)")
-    assert "Raw expects the second argument to be parseable as a String not" in str(exc)
+    query = parse("select a, b, c from does_not_exist")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    _, danglers = query.extract_dependencies(ctx)
+    assert "does_not_exist" in danglers
 
 
-def test_raw_str():
+def test_ast_compile_raise_on_ambiguous_column(
+    session: Session,
+    client_with_examples,  # pylint: disable=unused-argument
+):
     """
-    test Raw string
+    Test raising on ambiguous column
     """
-    assert compare_query_strings(
-        str(parse("SELECT Raw('{id}', 'ARRAY[INT]')")),
-        "SELECT id",
+    query = parse(
+        "SELECT country FROM basic.transform.country_agg a "
+        "LEFT JOIN basic.dimension.countries b on a.country = b.country",
     )
-
-
-def test_raw_init_no_args_error():
-    """
-    test Raw columntype exception
-    """
-    with pytest.raises(DJParseException) as exc:
-        Raw()
-    assert "Raw requires a name, string and type" in str(exc)
-
-
-def test_raw_not_2_or_3_args():
-    """
-    test Raw not 2 or 3 args
-    """
-    with pytest.raises(DJParseException) as exc:
-        parse("SELECT Raw('{id}', int, True, 'what')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
     assert (
-        "Raw expects to be of the form `Raw(EXPRESSION, COLUMNTYPE, [IS_AGGREGATION: BOOLEAN])."
-        in str(exc)
+        "Column `country` found in multiple tables. Consider namespacing."
+        in exc.errors[0].message
     )
 
 
-def test_convert_function_to_raw_bad_name():
+def test_ast_compile_having(
+    session: Session,
+    client_with_examples,  # pylint: disable=unused-argument
+):
     """
-    test Raw from function not named RAW
+    Test using having
     """
-    with pytest.raises(DJParseException) as exc:
-        parse("SELECT my_func('{id}', int)").select.projection[0].to_raw(  # type: ignore
-            parse,
-            "ansi",
-        )
-    assert "Can only convert a function named `RAW` to a Raw node" in str(exc)
-
-
-def test_wildcard_table_reference():
-    """
-    test adding/getting table from wildcard
-    """
-    wildcard = Wildcard()
-    wildcard.add_table(Table(Name("a")))
-    wildcard = wildcard.add_table(Table(Name("b")))
-    assert wildcard.table == Table(Name("a"))
-
-
-def test_flatten():
-    """
-    Test ``flatten``
-    """
-    assert list(
-        flatten([1, {1, 2, 3}, range(5), (8, (18, [4, iter(range(9))], [10]))]),
-    ) == [1, 1, 2, 3, range(0, 5), 8, 18, 4, 0, 1, 2, 3, 4, 5, 6, 7, 8, 10]
-
-
-def test_get_nearest_parent():
-    """
-    test getting the nearest parent of a node of a certain type
-    """
-
-    name_a = Name("a")
-    name_b = Name("b")
-
-    assert name_a.get_nearest_parent_of_type(Table) is None
-    table = Table(name_a, Namespace([name_b]))
-    assert name_a.get_nearest_parent_of_type(Table) is table
-    assert name_b.get_nearest_parent_of_type(Table) is table
-
-
-def test_empty_namespace_conversion_raises():
-    """
-    test if an empty namespace conversion raises
-    """
-    with pytest.raises(DJParseException):
-        Namespace([]).to_named_type(Column)
-
-
-def test_double_add_namespace():
-    """
-    test if an empty namespace conversion raises
-    """
-    col = Column(Name("x"))
-    col.add_namespace(Namespace([Name("a")]))
-    col.add_namespace(Namespace([Name("b")]))
-    assert str(col) == "a.x"
-
-
-def test_adding_bad_node_to_table(construction_session):
-    """
-    test adding a node to a table
-    """
-    table = Table(Name("a"))
-    node = next(
-        construction_session.exec(
-            select(Node).filter(Node.type == NodeType.METRIC),
-        ),
-    )[0]
-    with pytest.raises(DJParseException) as exc:
-        table.add_dj_node(node.current)
-    assert "Expected dj node of TRANSFORM, SOURCE, or DIMENSION" in str(exc)
-
-
-def test_column_string_table_subquery():
-    """test a column string when it references an unaliased subquery as a table"""
-    ast = parse("SELECT a FROM (SELECT * FROM t)", "ansi")
-    subquery = ast.select.from_.tables[0]
-    col = ast.select.projection[0]
-    col.add_table(subquery)
-    assert str(col) == "a"
-
-
-def test_in_subquery_more_than_one_column():
-    """test raises in select with more than 1 column"""
-    with pytest.raises(DJParseException) as exc:
-        parse("SELECT a in (SELECT 1, 2)", "ansi")
-    assert "IN subquery cannot have more than a single column" in str(exc)
-
-
-def test_select_some_column():
-    """test raises subquery without columns"""
-    with pytest.raises(DJParseException) as exc:
-        Select(From([]))
-    assert "Expected at least a single item in projection" in str(exc)
-
-
-def test_null_takes_no_value():
-    """test raises with a null with value"""
-    with pytest.raises(DJParseException) as exc:
-        Null(5)  # type: ignore
-    assert "NULL does not take a value" in str(exc)
-
-
-def test_over_with_nothing():
-    """test an over raises if given nothing"""
-    with pytest.raises(DJParseException) as exc:
-        Over()
-    assert "An OVER requires at least a PARTITION BY or ORDER BY" in str(exc)
-
-
-def test_replace():
-    """
-    test replacing nodes
-    """
-    select_statement = Select(
-        from_=From(
-            tables=[Table(Name(name="a")), Table(Name(name="b"))],
-        ),
-        projection=[Wildcard()],
+    query = parse(
+        "SELECT order_date, status FROM dbt.source.jaffle_shop.orders "
+        "GROUP BY dbt.dimension.customers.id "
+        "HAVING dbt.dimension.customers.id=1",
     )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
 
-    select_statement.replace(Name("a"), Name("A"))
-    select_statement.replace("b", "B")
-    assert compare_query_strings("select * from A, B", str(select_statement))
+    node = query.select.from_.relations[0].primary._dj_node  # type: ignore  # pylint: disable=protected-access
+    assert node
+    assert node.name == "dbt.source.jaffle_shop.orders"
 
 
-def test_map_subscripts():
+def test_ast_compile_lateral_view_explode1(session: Session):
     """
-    Test that map subscripts work in a query
+    Test lateral view explode
     """
-    query = Select(
-        from_=From(
-            tables=[Table(Name(name="a"))],
-        ),
-        projection=[
-            MapSubscript(
-                Column(name=Name(name="some_map", quote_style=""), namespace=None),
-                keys=["x"],
-            ),
-        ],
+
+    query = parse(
+        """SELECT a, b, c, c_age.col, d_age.col
+    FROM (SELECT 1 as a, 2 as b, 3 as c, ARRAY(30,60) as d, ARRAY(40,80) as e) AS foo
+    LATERAL VIEW EXPLODE(d) c_age
+    LATERAL VIEW EXPLODE(e) d_age;
+    """,
     )
-    assert compare_query_strings('SELECT some_map["x"] FROM a', str(query))
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
 
+    assert not exc.errors
 
-def test_query_to_select(cte_query):
-    """test converting a query to a select"""
-    assert cte_query.to_select().compare(  # pylint: disable=W0212
-        Select(
-            from_=From(
-                tables=[
-                    Alias(
-                        name=Name(name="cteReports", quote_style=""),
-                        namespace=None,
-                        child=Select(
-                            from_=From(
-                                tables=[
-                                    Table(
-                                        name=Name(name="Employees", quote_style=""),
-                                        namespace=None,
-                                    ),
-                                ],
-                                joins=[],
-                            ),
-                            group_by=[],
-                            having=None,
-                            projection=[
-                                Column(
-                                    name=Name(name="EmployeeID", quote_style=""),
-                                    namespace=None,
-                                ),
-                                Column(
-                                    name=Name(name="FirstName", quote_style=""),
-                                    namespace=None,
-                                ),
-                                Column(
-                                    name=Name(name="LastName", quote_style=""),
-                                    namespace=None,
-                                ),
-                                Column(
-                                    name=Name(name="ManagerID", quote_style=""),
-                                    namespace=None,
-                                ),
-                            ],
-                            where=IsNull(
-                                expr=Column(
-                                    name=Name(name="ManagerID", quote_style=""),
-                                    namespace=None,
-                                ),
-                            ),
-                            limit=None,
-                            distinct=False,
-                        ),
-                    ),
-                ],
-                joins=[],
-            ),
-            group_by=[],
-            having=None,
-            projection=[
-                Alias(
-                    name=Name(name="FullName", quote_style=""),
-                    namespace=None,
-                    child=BinaryOp(
-                        op=BinaryOpKind.Plus,
-                        left=BinaryOp(
-                            op=BinaryOpKind.Plus,
-                            left=Column(
-                                name=Name(name="FirstName", quote_style=""),
-                                namespace=None,
-                            ),
-                            right=String(value=" "),
-                        ),
-                        right=Column(
-                            name=Name(name="LastName", quote_style=""),
-                            namespace=None,
-                        ),
-                    ),
-                ),
-                Column(name=Name(name="EmpLevel", quote_style=""), namespace=None),
-                Alias(
-                    name=Name(name="Manager", quote_style=""),
-                    namespace=None,
-                    child=Query(
-                        select=Select(
-                            from_=From(
-                                tables=[
-                                    Table(
-                                        name=Name(name="Employees", quote_style=""),
-                                        namespace=None,
-                                    ),
-                                ],
-                                joins=[],
-                            ),
-                            group_by=[],
-                            having=None,
-                            projection=[
-                                BinaryOp(
-                                    op=BinaryOpKind.Plus,
-                                    left=BinaryOp(
-                                        op=BinaryOpKind.Plus,
-                                        left=Column(
-                                            name=Name(name="FirstName", quote_style=""),
-                                            namespace=None,
-                                        ),
-                                        right=String(value=" "),
-                                    ),
-                                    right=Column(
-                                        name=Name(name="LastName", quote_style=""),
-                                        namespace=None,
-                                    ),
-                                ),
-                            ],
-                            where=BinaryOp(
-                                op=BinaryOpKind.Eq,
-                                left=Column(
-                                    name=Name(name="EmployeeID", quote_style=""),
-                                    namespace=None,
-                                ),
-                                right=Column(
-                                    name=Name(name="MgrID", quote_style=""),
-                                    namespace=Namespace(
-                                        names=[Name(name="cteReports", quote_style="")],
-                                    ),
-                                ),
-                            ),
-                            limit=None,
-                            distinct=False,
-                        ),
-                        ctes=[],
-                    ),
-                ),
-            ],
-            where=None,
-            limit=None,
-            distinct=False,
-        ),
+    assert query.columns[0].is_compiled()
+    assert query.columns[1].is_compiled()
+    assert query.columns[2].is_compiled()
+    assert query.columns[3].is_compiled()
+    assert query.columns[4].is_compiled()
+    assert query.columns[0].name == ast.Name(  # type: ignore
+        name="a",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].name == ast.Name(  # type: ignore
+        name="b",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].name == ast.Name(  # type: ignore
+        name="c",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].name == ast.Name(  # type: ignore
+        name="col",
+        quote_style="",
+        namespace=ast.Name(name="c_age", quote_style="", namespace=None),
+    )
+    assert query.columns[4].name == ast.Name(  # type: ignore
+        name="col",
+        quote_style="",
+        namespace=ast.Name(name="d_age", quote_style="", namespace=None),
+    )
+    assert isinstance(query.columns[0].type, types.IntegerType)
+    assert isinstance(query.columns[1].type, types.IntegerType)
+    assert isinstance(query.columns[2].type, types.IntegerType)
+    assert isinstance(query.columns[3].type, types.IntegerType)
+    assert isinstance(query.columns[4].type, types.IntegerType)
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].table.alias_or_name == ast.Name(  # type: ignore
+        name="c_age",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].table.alias_or_name == ast.Name(  # type: ignore
+        name="d_age",
+        quote_style="",
+        namespace=None,
     )
 
 
-def test_double_alias():
+def test_ast_compile_lateral_view_explode2(session: Session):
     """
-    Test that a double alias resolves to the second alias
-    under non-strict validation
+    Test lateral view explode
     """
-    Alias.validate_strict = False
-    assert Alias(Name("a"), child=Alias(Name("b"), child=Table(Name("tbl")))).compare(
-        Alias(
-            name=Name(name="a"),
-            namespace=None,
-            child=Table(
-                name=Name(name="tbl"),
-            ),
-        ),
+
+    query = parse(
+        """SELECT a, b, c, c_age, d_age
+    FROM (SELECT 1 as a, 2 as b, 3 as c, ARRAY(30,60) as d, ARRAY(40,80) as e) AS foo
+    LATERAL VIEW EXPLODE(d) AS c_age
+    LATERAL VIEW EXPLODE(e) AS d_age;""",
     )
-    Alias.validate_strict = True
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
 
-
-def test_alias_replace():
-    """
-    Test that replacing something in an alias
-    with another alias results in the inner alias
-    taking the outer's place
-    """
-    alias = Alias(Name("b"), child=Table(Name("tbl")))
-    replace = Alias(Name("a"), child=Table(Name("tbl")))
-    alias.replace(
-        Table(Name("tbl")),
-        replace,
+    assert query.columns[0].is_compiled()
+    assert query.columns[1].is_compiled()
+    assert query.columns[2].is_compiled()
+    assert query.columns[3].is_compiled()
+    assert query.columns[4].is_compiled()
+    assert query.columns[0].name == ast.Name(  # type: ignore
+        name="a",
+        quote_style="",
+        namespace=None,
     )
-    assert alias.compare(replace)
+    assert query.columns[1].name == ast.Name(  # type: ignore
+        name="b",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].name == ast.Name(  # type: ignore
+        name="c",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].name == ast.Name(  # type: ignore
+        name="c_age",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].name == ast.Name(  # type: ignore
+        name="d_age",
+        quote_style="",
+        namespace=None,
+    )
+    assert isinstance(query.columns[0].type, types.IntegerType)
+    assert isinstance(query.columns[1].type, types.IntegerType)
+    assert isinstance(query.columns[2].type, types.IntegerType)
+    assert isinstance(query.columns[3].type, types.IntegerType)
+    assert isinstance(query.columns[4].type, types.IntegerType)
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
 
 
-def test_is_aggregation():
+def test_ast_compile_lateral_view_explode3(session: Session):
     """
-    Test some ast is aggregation method
+    Test lateral view explode of array constant
     """
-    query = """
-SELECT
-  CASE
-     WHEN a.x=1 THEN CAST(SUM(a.y) AS INT)
-     WHEN a.x=2 THEN COUNT(*)
-     ELSE AVG(a.y)
-  END as agg
-FROM a
-GROUP BY a.x;
+
+    query = parse(
+        """SELECT a, b, c, d, e
+    FROM (SELECT 1 as a, 2 as b, 3 as c) AS foo
+    LATERAL VIEW EXPLODE(ARRAY(30, 60)) AS d
+    LATERAL VIEW EXPLODE(ARRAY(40, 80)) AS e;""",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+
+    assert query.columns[0].is_compiled()
+    assert query.columns[1].is_compiled()
+    assert query.columns[2].is_compiled()
+    assert query.columns[3].is_compiled()
+    assert query.columns[4].is_compiled()
+    assert query.columns[0].name == ast.Name(  # type: ignore
+        name="a",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].name == ast.Name(  # type: ignore
+        name="b",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].name == ast.Name(  # type: ignore
+        name="c",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].name == ast.Name(  # type: ignore
+        name="d",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].name == ast.Name(  # type: ignore
+        name="e",
+        quote_style="",
+        namespace=None,
+    )
+    assert isinstance(query.columns[0].type, types.IntegerType)
+    assert isinstance(query.columns[1].type, types.IntegerType)
+    assert isinstance(query.columns[2].type, types.IntegerType)
+    assert isinstance(query.columns[3].type, types.IntegerType)
+    assert isinstance(query.columns[4].type, types.IntegerType)
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+
+
+def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient):
     """
-    tree = parse(query)
-    assert tree.select.projection[0].is_aggregation()
+    Test lateral view explode of an upstream column
+    """
+    response = client.post("/catalogs/", json={"name": "default"})
+    assert response.ok
+    response = client.post(
+        "/nodes/source/",
+        json={
+            "columns": {
+                "a": {"type": "int"},
+            },
+            "description": "Placeholder source node",
+            "mode": "published",
+            "name": "a",
+            "catalog": "default",
+            "schema_": "a",
+            "table": "a",
+        },
+    )
+    assert response.ok
+    response = client.post(
+        "/nodes/transform/",
+        json={
+            "description": "A projection with an array",
+            "query": "SELECT ARRAY(30, 60) as foo_array FROM a",
+            "mode": "published",
+            "name": "foo_array_example",
+        },
+    )
+    assert response.ok
+
+    query = parse(
+        """
+        SELECT foo_array, a, b
+        FROM foo_array_example
+        LATERAL VIEW EXPLODE(foo_array) AS a
+        LATERAL VIEW EXPLODE(foo_array) AS b;
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+
+    assert query.columns[0].is_compiled()
+    assert query.columns[1].is_compiled()
+    assert query.columns[2].is_compiled()
+    assert query.columns[0].name == ast.Name(  # type: ignore
+        name="foo_array",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].name == ast.Name(  # type: ignore
+        name="a",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].name == ast.Name(  # type: ignore
+        name="b",
+        quote_style="",
+        namespace=None,
+    )
+    assert isinstance(query.columns[0].type, types.ListType)
+    assert isinstance(query.columns[1].type, types.IntegerType)
+    assert isinstance(query.columns[2].type, types.IntegerType)
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo_array_example",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+
+
+def test_ast_compile_lateral_view_explode5(session: Session):
+    """
+    Test both a lateral and horizontal explode
+    """
+
+    query = parse(
+        """SELECT a, b, c, d.col, e.col, EXPLODE(ARRAY(30, 60))
+    FROM (SELECT 1 as a, 2 as b, 3 as c) AS foo
+    LATERAL VIEW EXPLODE(ARRAY(30, 60)) d
+    LATERAL VIEW EXPLODE(ARRAY(40, 80)) e;
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+
+    assert not exc.errors
+
+    assert query.columns[0].is_compiled()
+    assert query.columns[1].is_compiled()
+    assert query.columns[2].is_compiled()
+    assert query.columns[3].is_compiled()
+    assert query.columns[4].is_compiled()
+    assert query.columns[0].name == ast.Name(  # type: ignore
+        name="a",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].name == ast.Name(  # type: ignore
+        name="b",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].name == ast.Name(  # type: ignore
+        name="c",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].name == ast.Name(  # type: ignore
+        name="col",
+        quote_style="",
+        namespace=ast.Name(name="d", quote_style="", namespace=None),
+    )
+    assert query.columns[4].name == ast.Name(  # type: ignore
+        name="col",
+        quote_style="",
+        namespace=ast.Name(name="e", quote_style="", namespace=None),
+    )
+    assert query.columns[5].name == ast.Name(  # type: ignore
+        name="col",
+        quote_style="",
+        namespace=None,
+    )
+    assert isinstance(query.columns[0].type, types.IntegerType)
+    assert isinstance(query.columns[1].type, types.IntegerType)
+    assert isinstance(query.columns[2].type, types.IntegerType)
+    assert isinstance(query.columns[3].type, types.IntegerType)
+    assert isinstance(query.columns[4].type, types.IntegerType)
+    assert isinstance(query.columns[5].type, types.IntegerType)
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].table.alias_or_name == ast.Name(  # type: ignore
+        name="d",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].table.alias_or_name == ast.Name(  # type: ignore
+        name="e",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[5].table is None  # type: ignore
+
+
+def test_ast_compile_lateral_view_explode6(session: Session):
+    """
+    Test lateral view explode of a map (table aliased)
+    """
+
+    query = parse(
+        """SELECT a, b, c, c_age.key, c_age.value, d_age.key, d_age.value
+    FROM (
+      SELECT 1 as a, 2 as b, 3 as c, MAP('a',1,'b',2) as d, MAP('c',1,'d',2) as e
+    ) AS foo
+    LATERAL VIEW EXPLODE(d) c_age
+    LATERAL VIEW EXPLODE(e) d_age;
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+
+    assert not exc.errors
+
+    assert query.columns[0].is_compiled()
+    assert query.columns[1].is_compiled()
+    assert query.columns[2].is_compiled()
+    assert query.columns[3].is_compiled()
+    assert query.columns[4].is_compiled()
+    assert query.columns[5].is_compiled()
+    assert query.columns[6].is_compiled()
+    assert query.columns[0].name == ast.Name(  # type: ignore
+        name="a",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].name == ast.Name(  # type: ignore
+        name="b",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].name == ast.Name(  # type: ignore
+        name="c",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].name == ast.Name(  # type: ignore
+        name="key",
+        quote_style="",
+        namespace=ast.Name("c_age"),
+    )
+    assert query.columns[4].name == ast.Name(  # type: ignore
+        name="value",
+        quote_style="",
+        namespace=ast.Name("c_age"),
+    )
+    assert query.columns[5].name == ast.Name(  # type: ignore
+        name="key",
+        quote_style="",
+        namespace=ast.Name("d_age"),
+    )
+    assert query.columns[6].name == ast.Name(  # type: ignore
+        name="value",
+        quote_style="",
+        namespace=ast.Name("d_age"),
+    )
+    assert isinstance(query.columns[0].type, types.IntegerType)
+    assert isinstance(query.columns[1].type, types.IntegerType)
+    assert isinstance(query.columns[2].type, types.IntegerType)
+    assert isinstance(query.columns[3].type, types.StringType)
+    assert isinstance(query.columns[4].type, types.IntegerType)
+    assert isinstance(query.columns[5].type, types.StringType)
+    assert isinstance(query.columns[6].type, types.IntegerType)
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].table.alias_or_name == ast.Name(  # type: ignore
+        name="c_age",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].table.alias_or_name == ast.Name(  # type: ignore
+        name="c_age",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[5].table.alias_or_name == ast.Name(  # type: ignore
+        name="d_age",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[6].table.alias_or_name == ast.Name(  # type: ignore
+        name="d_age",
+        quote_style="",
+        namespace=None,
+    )
+
+
+def test_ast_compile_lateral_view_explode7(session: Session):
+    """
+    Test lateral view explode of a map (column aliased)
+    """
+
+    query = parse(
+        """SELECT a, b, c, k1, v1, k2, v2
+    FROM (
+      SELECT 1 as a, 2 as b, 3 as c, MAP('a',1,'b',2) as d, MAP('c',1,'d',2) as e
+    ) AS foo
+    LATERAL VIEW EXPLODE(d) AS k1, v1
+    LATERAL VIEW EXPLODE(e) AS k2, v2;
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+
+    assert not exc.errors
+
+    assert query.columns[0].is_compiled()
+    assert query.columns[1].is_compiled()
+    assert query.columns[2].is_compiled()
+    assert query.columns[3].is_compiled()
+    assert query.columns[4].is_compiled()
+    assert query.columns[5].is_compiled()
+    assert query.columns[6].is_compiled()
+    assert query.columns[0].name == ast.Name(  # type: ignore
+        name="a",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].name == ast.Name(  # type: ignore
+        name="b",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].name == ast.Name(  # type: ignore
+        name="c",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].name == ast.Name(  # type: ignore
+        name="k1",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].name == ast.Name(  # type: ignore
+        name="v1",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[5].name == ast.Name(  # type: ignore
+        name="k2",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[6].name == ast.Name(  # type: ignore
+        name="v2",
+        quote_style="",
+        namespace=None,
+    )
+    assert isinstance(query.columns[0].type, types.IntegerType)
+    assert isinstance(query.columns[1].type, types.IntegerType)
+    assert isinstance(query.columns[2].type, types.IntegerType)
+    assert isinstance(query.columns[3].type, types.StringType)
+    assert isinstance(query.columns[4].type, types.IntegerType)
+    assert isinstance(query.columns[5].type, types.StringType)
+    assert isinstance(query.columns[6].type, types.IntegerType)
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[5].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[6].table.alias_or_name == ast.Name(  # type: ignore
+        name="EXPLODE",
+        quote_style="",
+        namespace=None,
+    )
+
+
+def test_ast_compile_lateral_view_explode8(session: Session):
+    """
+    Test lateral view explode of a map (both table and column aliased)
+    """
+
+    query = parse(
+        """SELECT a, b, c, c_age.k1, c_age.v1, d_age.k2, d_age.v2
+    FROM (
+      SELECT 1 as a, 2 as b, 3 as c, MAP('a',1,'b',2) as d, MAP('c',1,'d',2) as e
+    ) AS foo
+    LATERAL VIEW EXPLODE(d) c_age AS k1, v1
+    LATERAL VIEW EXPLODE(e) d_age AS k2, v2;
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+
+    assert not exc.errors
+
+    assert query.columns[0].is_compiled()
+    assert query.columns[1].is_compiled()
+    assert query.columns[2].is_compiled()
+    assert query.columns[3].is_compiled()
+    assert query.columns[4].is_compiled()
+    assert query.columns[5].is_compiled()
+    assert query.columns[6].is_compiled()
+    assert query.columns[0].name == ast.Name(  # type: ignore
+        name="a",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].name == ast.Name(  # type: ignore
+        name="b",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].name == ast.Name(  # type: ignore
+        name="c",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].name == ast.Name(  # type: ignore
+        name="k1",
+        quote_style="",
+        namespace=ast.Name("c_age"),
+    )
+    assert query.columns[4].name == ast.Name(  # type: ignore
+        name="v1",
+        quote_style="",
+        namespace=ast.Name("c_age"),
+    )
+    assert query.columns[5].name == ast.Name(  # type: ignore
+        name="k2",
+        quote_style="",
+        namespace=ast.Name("d_age"),
+    )
+    assert query.columns[6].name == ast.Name(  # type: ignore
+        name="v2",
+        quote_style="",
+        namespace=ast.Name("d_age"),
+    )
+    assert isinstance(query.columns[0].type, types.IntegerType)
+    assert isinstance(query.columns[1].type, types.IntegerType)
+    assert isinstance(query.columns[2].type, types.IntegerType)
+    assert isinstance(query.columns[3].type, types.StringType)
+    assert isinstance(query.columns[4].type, types.IntegerType)
+    assert isinstance(query.columns[5].type, types.StringType)
+    assert isinstance(query.columns[6].type, types.IntegerType)
+    assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[1].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[2].table.alias_or_name == ast.Name(  # type: ignore
+        name="foo",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[3].table.alias_or_name == ast.Name(  # type: ignore
+        name="c_age",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[4].table.alias_or_name == ast.Name(  # type: ignore
+        name="c_age",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[5].table.alias_or_name == ast.Name(  # type: ignore
+        name="d_age",
+        quote_style="",
+        namespace=None,
+    )
+    assert query.columns[6].table.alias_or_name == ast.Name(  # type: ignore
+        name="d_age",
+        quote_style="",
+        namespace=None,
+    )

@@ -1,532 +1,1226 @@
+# mypy: ignore-errors
+# pylint: disable=too-many-lines
+
 """
 SQL functions for type inference.
 
 This file holds all the functions that we want to support in the SQL used to define
-nodes. The functions are used to infer types and transpile the (DJ) SQL to SQLAlchemy.
+nodes. The functions are used to infer types.
 
-For type inference each class representing a function should have a method with a
-signature compatible with the signature of the SQL function, and should return the type of
-the return value.
+Spark function reference
+https://github.com/apache/spark/tree/74cddcfda3ac4779de80696cdae2ba64d53fc635/sql/catalyst/src/main/scala/org/apache/spark/sql/catalyst/expressions
 
-For example, the ``COUNT()`` function can be used in different ways:
-
-    SELECT COUNT(*) FROM parent;
-    SELECT COUNT(1) FROM parent;
-    SELECT COUNT(user_id) FROM parent;
-
-Regardless of the argument, it always return an integer. The method definition for it
-should then look like this:
-
-    @staticmethod
-    def infer_type(argument: Union[Wildcard, int, Column]) -> ColumnType:
-        return ColumnType.INT
-
-For tranpilation:
-
-    @staticmethod
-    def get_sqla_function(
-        argument: Union["Wildcard", Column, int], dialect: Optional[str] = None
-    ) -> SqlaFunction:
-        return func.count(argument)
-
-The ``dialect`` can be used to build custom functions.
-
+Java strictmath reference
+https://docs.oracle.com/javase/8/docs/api/java/lang/StrictMath.html
 """
 
+import inspect
+import re
+from itertools import zip_longest
+
 # pylint: disable=unused-argument, missing-function-docstring, arguments-differ, too-many-return-statements
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    ClassVar,
+    Dict,
+    List,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+    get_origin,
+)
 
-import abc
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Type, Union
-
-from sqlalchemy.sql import cast, func
-from sqlalchemy.sql.expression import TextClause
-from sqlalchemy.sql.functions import Function as SqlaFunction
-from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy.sql.sqltypes import TIMESTAMP, DateTime
-
+import dj.sql.parsing.types as ct
 from dj.errors import (
     DJError,
-    DJInternalErrorException,
     DJInvalidInputException,
     DJNotImplementedException,
     ErrorCode,
 )
-from dj.models.column import Column
-from dj.typing import ColumnType
-from dj.utils import get_issue_url
+from dj.sql.parsing.backends.exceptions import DJParseException
 
 if TYPE_CHECKING:
-    from dj.sql.lib import Wildcard
+    from dj.sql.parsing.ast import Expression
 
 
-# a subset of the SQLAlchemy dialects that support ``DATE_TRUNC``
-DATE_TRUNC_DIALECTS = {
-    "postgresql",
-    "trino",
-    "presto",
-}
-
-# family of SQLite dialects
-SQLITE_DIALECTS = {
-    "sqlite",
-    "shillelagh",
-    "gsheets",
-}
-
-# Druid uses ISO durations for ``DATE_TRUNC``
-ISO_DURATIONS = {
-    "second": "PT1S",
-    "minute": "PT1M",
-    "hour": "PT1H",
-    "day": "P1D",
-    "week": "P1W",
-    "month": "P1M",
-    "quarter": "P3M",
-    "year": "P1Y",
-}
+def compare_registers(types, register) -> bool:
+    """
+    Comparing registers
+    """
+    saved_a = None
+    for ((_, register_a), (type_b, register_b)) in zip_longest(
+        types,
+        register,
+        fillvalue=register[-1],
+    ):
+        if register_a is None:
+            if type_b != -1:  # pragma: no cover
+                return False  # pragma: no cover
+        else:
+            saved_a = register_a
+        if register_b is None:
+            return False  # pragma: no cover
+        if not issubclass(saved_a, register_b):  # type: ignore
+            return False
+    return True
 
 
-class Function:  # pylint: disable=too-few-public-methods
+class DispatchMeta(type):
+    """
+    Dispatch abstract class for function registry
+    """
+
+    def __getattribute__(cls, func_name):  # pylint: disable=redefined-outer-name
+        if func_name in type.__getattribute__(cls, "registry").get(cls, {}):
+
+            def dynamic_dispatch(*args: "Expression"):
+                return cls.dispatch(func_name, *args)(*args)
+
+            return dynamic_dispatch
+        return type.__getattribute__(cls, func_name)
+
+
+class Dispatch(metaclass=DispatchMeta):
+    """
+    Function registry
+    """
+
+    registry: ClassVar[Dict[str, Dict[Tuple[Tuple[int, Type]], Callable]]] = {}
+
+    @classmethod
+    def register(cls, func):  # pylint: disable=redefined-outer-name
+        func_name = func.__name__
+        params = inspect.signature(func).parameters
+        spread_types = [[]]
+        cls.registry[cls] = cls.registry.get(cls) or {}
+        cls.registry[cls][func_name] = cls.registry[cls].get(func_name) or {}
+        for i, (key, value) in enumerate(params.items()):
+            name = str(value).split(":", maxsplit=1)[0]
+            if name.startswith("**"):
+                raise ValueError(
+                    "kwargs are not supported in dispatch.",
+                )  # pragma: no cover
+            if name.startswith("*"):
+                i = -1
+            type_ = params[key].annotation
+            if type_ == inspect.Parameter.empty:
+                raise ValueError(  # pragma: no cover
+                    "All arguments must have a type annotation.",
+                )
+            inner_types = [type_]
+            if get_origin(type_) == Union:
+                inner_types = type_.__args__
+                for _ in inner_types:
+                    spread_types += spread_types[:]
+            temp = []
+            for type_ in inner_types:
+                for types in spread_types:
+                    temp.append(types[:])
+                    temp[-1].append((i, type_))
+            spread_types = temp
+        for types in spread_types:
+            cls.registry[cls][func_name][tuple(types)] = func  # type: ignore
+
+    @classmethod
+    def dispatch(  # pylint: disable=redefined-outer-name
+        cls, func_name, *args: "Expression"
+    ):
+        type_registry = cls.registry[cls].get(func_name)  # type: ignore
+        if not type_registry:
+            raise ValueError(
+                f"No function registered on {cls.__name__}`{func_name}`.",
+            )  # pragma: no cover
+
+        type_list = []
+        for i, arg in enumerate(args):
+            type_list.append((i, type(arg.type) if hasattr(arg, "type") else type(arg)))
+
+        types = tuple(type_list)
+
+        if types in type_registry:  # type: ignore
+            return type_registry[types]  # type: ignore
+
+        for register, func in type_registry.items():  # type: ignore
+            if compare_registers(types, register):
+                return func
+
+        raise TypeError(
+            f"`{cls.__name__}.{func_name}` got an invalid "
+            "combination of types: "
+            f'{", ".join(str(t[1].__name__) for t in types)}',
+        )
+
+
+class Function(Dispatch):  # pylint: disable=too-few-public-methods
     """
     A DJ function.
     """
 
-    is_aggregation = False
+    is_aggregation: ClassVar[bool] = False
 
     @staticmethod
-    @abc.abstractmethod
-    def infer_type(*args: Any) -> ColumnType:
-        raise NotImplementedError("Subclass MUST implement infer_type")
-
-    @staticmethod
-    @abc.abstractmethod
-    def infer_type_from_types(*args: Any) -> ColumnType:
-        raise NotImplementedError("Subclass MUST implement infer_type_from_types")
-
-    @staticmethod
-    @abc.abstractmethod
-    def get_sqla_function(*, dialect: Optional[str] = None) -> SqlaFunction:
-        raise NotImplementedError("Subclass MUST implement get_sqla_function")
+    def infer_type(*args) -> ct.ColumnType:
+        raise NotImplementedError()
 
 
-class Count(Function):
+class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
     """
-    The ``COUNT`` function.
+    A DJ table-valued function.
     """
 
-    is_aggregation = True
-
     @staticmethod
-    def infer_type(argument: Union["Wildcard", Column, int]) -> ColumnType:  # type: ignore
-        return ColumnType.INT
-
-    @staticmethod
-    def infer_type_from_types(arg) -> ColumnType:  # type: ignore
-        return ColumnType.INT
-
-    @staticmethod
-    def get_sqla_function(  # type: ignore
-        argument: Union[SqlaColumn, str, int],
-        *,
-        dialect: Optional[str] = None,
-    ) -> SqlaFunction:
-        return func.count(argument)
+    def infer_type(*args) -> List[ct.ColumnType]:
+        raise NotImplementedError()
 
 
-class DateTruncNotImplementException(DJNotImplementedException):
+class Avg(Function):  # pylint: disable=abstract-method
     """
-    Custom exception for resolutions not implemented in ``DATE_TRUNC``.
-    """
-
-    def __init__(self, dialect: str, resolution: str):  # pragma: no cover
-        issue_url = str(
-            get_issue_url(title=f"Resolution missing for {dialect}: {resolution}"),
-        )
-        docs_url = (
-            "https://github.com/DataJunction/dj/blob/main/docs/functions.rst"
-            "#date_trunc"
-        )
-        super().__init__(
-            message=f'Resolution "{resolution}" not supported by dialect "{dialect}"',
-            errors=[
-                DJError(
-                    code=ErrorCode.NOT_IMPLEMENTED_ERROR,
-                    message=(
-                        f'The resolution "{resolution}" in the `DATE_TRUNC` function '
-                        f'hasn\'t been implemented in DJ for the dialect "{dialect}" '
-                        f"yet. You can file an issue at {issue_url} to request it to "
-                        f"be added, or use the documentation at {docs_url} to implement "
-                        "it."
-                    ),
-                    debug={
-                        "issue": issue_url,
-                        "documentation": docs_url,
-                        "context": {
-                            "dialect": dialect,
-                            "function": "DATE_TRUNC",
-                            "resolution": resolution,
-                        },
-                    },
-                ),
-            ],
-        )
-
-
-class DateTrunc(Function):  # pragma: no cover
-    """
-    The ``DATE_TRUNC`` function.
-
-    There's no standard ``DATE_TRUNC`` function, so we implement it for every dialect that
-    doesn't support it.
-    """
-
-    is_aggregation = False
-
-    @staticmethod
-    def infer_type(resolution: str, column: Column) -> ColumnType:  # type: ignore
-        return ColumnType.TIMESTAMP
-
-    @staticmethod
-    def infer_type_from_types(*args) -> ColumnType:  # type: ignore
-        return ColumnType.TIMESTAMP
-
-    # pylint: disable=too-many-branches
-    @staticmethod
-    def get_sqla_function(  # type: ignore
-        resolution: TextClause,
-        column: SqlaColumn,
-        *,
-        dialect: Optional[str] = None,
-    ) -> SqlaFunction:
-        if dialect is None:
-            raise DJInternalErrorException(
-                message="A dialect is needed for `DATE_TRUNC`",
-            )
-
-        if dialect in DATE_TRUNC_DIALECTS:
-            return func.date_trunc(str(resolution), column, type_=DateTime)
-
-        if dialect in SQLITE_DIALECTS:
-            if str(resolution) == "second":
-                return func.datetime(
-                    func.strftime("%Y-%m-%dT%H:%M:%S", column),
-                    type_=DateTime,
-                )
-            if str(resolution) == "minute":
-                return func.datetime(
-                    func.strftime("%Y-%m-%dT%H:%M:00", column),
-                    type_=DateTime,
-                )
-            if str(resolution) == "hour":
-                return func.datetime(
-                    func.strftime("%Y-%m-%dT%H:00:00", column),
-                    type_=DateTime,
-                )
-            if str(resolution) == "day":
-                return func.datetime(column, "start of day", type_=DateTime)
-            if str(resolution) == "week":
-                # https://stackoverflow.com/a/51666243
-                return func.datetime(
-                    column,
-                    "1 day",
-                    "weekday 0",
-                    "-7 days",
-                    "start of day",
-                    type_=DateTime,
-                )
-            if str(resolution) == "month":
-                return func.datetime(column, "start of month", type_=DateTime)
-            if str(resolution) == "quarter":
-                return func.datetime(
-                    column,
-                    "start of month",
-                    func.printf("-%d month", (func.strftime("%m", column) - 1) % 3),
-                    type_=DateTime,
-                )
-            if str(resolution) == "year":
-                return func.datetime(column, "start of year", type_=DateTime)
-
-            raise DateTruncNotImplementException(dialect, resolution)
-
-        if dialect == "druid":
-            if str(resolution) not in ISO_DURATIONS:
-                raise DateTruncNotImplementException(dialect, resolution)
-
-            return func.time_floor(
-                cast(column, TIMESTAMP),
-                ISO_DURATIONS[str(resolution)],
-                type_=DateTime,
-            )
-
-        issue_url = get_issue_url(title=f"DATE_TRUNC for {dialect}")
-        docs_url = (
-            "https://github.com/DataJunction/dj/blob/main/docs/functions.rst"
-            "#date_trunc"
-        )
-        raise DJNotImplementedException(
-            message=f'Dialect "{dialect}" doesn\'t support `DATE_TRUNC`',
-            errors=[
-                DJError(
-                    code=ErrorCode.NOT_IMPLEMENTED_ERROR,
-                    message=(
-                        f'The function "DATE_TRUNC" hasn\'t been implemented for '
-                        f'dialect "{dialect}" in DJ yet. You can file an issue at '
-                        f"{issue_url} to request it to be added, or use the "
-                        f"documentation at {docs_url} to implement it."
-                    ),
-                    debug={
-                        "issue": issue_url,
-                        "documentation": docs_url,
-                        "context": {"dialect": dialect},
-                    },
-                ),
-            ],
-        )
-
-
-class Min(Function):
-    """
-    The ``MIN`` function.
+    Computes the average of the input column or expression.
     """
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(column: Column) -> ColumnType:  # type: ignore
-        return column.type
 
-    @staticmethod
-    def infer_type_from_types(type_: ColumnType) -> ColumnType:  # type: ignore
-        return type_
-
-    @staticmethod
-    def get_sqla_function(  # type: ignore
-        column: SqlaColumn,
-        *,
-        dialect: Optional[str] = None,
-    ) -> SqlaFunction:
-        return func.min(column)
+@Avg.register
+def infer_type(
+    arg: ct.DecimalType,
+) -> ct.DecimalType:  # noqa: F811  # pylint: disable=function-redefined
+    type_ = arg
+    if hasattr(arg, "type") and isinstance(arg.type, ct.DecimalType):
+        type_ = arg.type
+    return ct.DecimalType(type_.precision + 4, type_.scale + 4)
 
 
-class Max(Function):
+@Avg.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.IntervalTypeBase,
+) -> ct.IntervalTypeBase:
+    return type(arg.type)()
+
+
+@Avg.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Min(Function):  # pylint: disable=abstract-method
     """
-    The ``MAX`` function.
+    Computes the minimum value of the input column or expression.
     """
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(column: Column) -> ColumnType:  # type: ignore
-        return column.type
 
-    @staticmethod
-    def infer_type_from_types(type_: ColumnType) -> ColumnType:  # type: ignore
-        return type_
-
-    @staticmethod
-    def get_sqla_function(  # type: ignore
-        column: SqlaColumn,
-        *,
-        dialect: Optional[str] = None,
-    ) -> SqlaFunction:
-        return func.max(column)
+@Min.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.NumberType,
+) -> ct.NumberType:
+    return arg.type
 
 
-class Now(Function):
+class Max(Function):  # pylint: disable=abstract-method
     """
-    The ``NOW`` function.
+    Computes the maximum value of the input column or expression.
     """
 
-    is_aggregation = False
-
-    @staticmethod
-    def infer_type() -> ColumnType:  # type: ignore
-        return ColumnType.TIMESTAMP
-
-    @staticmethod
-    def infer_type_from_types() -> ColumnType:  # type: ignore
-        return ColumnType.TIMESTAMP
-
-    @staticmethod
-    def get_sqla_function(  # type: ignore
-        *,
-        dialect: Optional[str] = None,
-    ) -> SqlaFunction:
-        return func.now()
+    is_aggregation = True
 
 
-class Coalesce(Function):
-    """
-    The ``COALESCE`` function.
-    """
-
-    is_aggregation = False
-
-    @staticmethod
-    def infer_type(*args: Any) -> ColumnType:
-        """
-        Coalesce requires that all arguments have the same type.
-        """
-        types: List[ColumnType] = [
-            arg.type
-            if isinstance(arg, Column)
-            else ColumnType(type(arg).__name__.upper())
-            for arg in args
-        ]
-
-        if not types:
-            raise DJInvalidInputException(
-                message="Wrong number of arguments to function",
-                errors=[
-                    DJError(
-                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                        message="You need to pass at least one argument to `COALESCE`.",
-                    ),
-                ],
-            )
-
-        if len(set(types)) > 1:
-            raise DJInvalidInputException(
-                message="All arguments MUST have the same type",
-                errors=[
-                    DJError(
-                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                        message=(
-                            "All arguments passed to `COALESCE` MUST have the same "
-                            "type. If the columns have different types they need to be "
-                            "cast to a common type."
-                        ),
-                        debug={"context": {"types": types}},
-                    ),
-                ],
-            )
-
-        return types.pop()
-
-    @staticmethod
-    def infer_type_from_types(*types) -> ColumnType:
-        """
-        Coalesce requires that all arguments have the same type.
-        """
-
-        if not types:  # pragma: no cover
-            raise DJInvalidInputException(
-                message="Wrong number of arguments to function",
-                errors=[
-                    DJError(
-                        code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                        message="You need to pass at least one argument to `COALESCE`.",
-                    ),
-                ],
-            )
-
-        for type_ in types:
-            if type_ != ColumnType.NULL:
-                return type_
-        return ColumnType.NULL
-
-    @staticmethod
-    def get_sqla_function(  # type: ignore
-        *args: Any,
-        dialect: Optional[str] = None,
-    ) -> SqlaFunction:
-        return func.coalesce(*args)
+@Max.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.NumberType,
+) -> ct.NumberType:
+    return arg.type
 
 
 class Sum(Function):
     """
-    The ``SUM`` function.
+    Computes the sum of the input column or expression.
     """
 
     is_aggregation = True
 
     @staticmethod
-    def infer_type(column: Column) -> ColumnType:  # type: ignore
-        return column.type
-
-    @staticmethod
-    def infer_type_from_types(type_: ColumnType) -> ColumnType:  # type: ignore
-        return type_
-
-    @staticmethod
-    def get_sqla_function(  # type: ignore
-        column: SqlaColumn,
-        *,
-        dialect: Optional[str] = None,
-    ) -> SqlaFunction:
-        return func.sum(column)
+    def infer_type(arg: "Expression") -> ct.ColumnType:  # type: ignore
+        return arg.type  # type: ignore
 
 
-class Avg(Function):
+class Ceil(Function):
     """
-    The ``AVG`` function.
+    Computes the smallest integer greater than or equal to the input value.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.IntegerType:  # type: ignore
+        return ct.IntegerType()
+
+
+class Count(Function):  # pylint: disable=abstract-method
+    """
+    Counts the number of non-null values in the input column or expression.
     """
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(argument: Column) -> ColumnType:  # type: ignore
-        return ColumnType.FLOAT
 
-    @staticmethod
-    def infer_type_from_types(type_: ColumnType) -> ColumnType:  # type: ignore
-        return type_
-
-    @staticmethod
-    def get_sqla_function(  # type: ignore
-        column: SqlaColumn,
-        *,
-        dialect: Optional[str] = None,
-    ) -> SqlaFunction:
-        return func.avg(column)
+@Count.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    *args: ct.ColumnType,
+) -> ct.LongType:
+    return ct.LongType()
 
 
-class FunctionRegistry:  # pylint: disable=too-few-public-methods
+class Coalesce(Function):  # pylint: disable=abstract-method
     """
-    A simple object for registering functions.
+    Computes the average of the input column or expression.
     """
 
-    def __init__(self, functions: Dict[str, Type[Function]]):
-        self.functions = functions
+    is_aggregation = False
 
-    def __getitem__(self, name: str) -> Type[Function]:
-        name = name.upper()
 
-        if name in self.functions:
-            return self.functions[name]
-
-        issue_url = str(get_issue_url(title=f"Function missing: {name}"))
-        docs_url = "https://github.com/DataJunction/dj/blob/main/docs/functions.rst"
-
-        raise DJNotImplementedException(
-            message=f"The function `{name}` hasn't been implemented yet",
+@Coalesce.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    *args: ct.ColumnType,
+) -> ct.ColumnType:
+    if not args:  # pragma: no cover
+        raise DJInvalidInputException(
+            message="Wrong number of arguments to function",
             errors=[
                 DJError(
-                    code=ErrorCode.NOT_IMPLEMENTED_ERROR,
-                    message=(
-                        f"The function `{name}` hasn't been implemented in DJ yet. "
-                        f"You can file an issue at {issue_url} to request it to be "
-                        f"added, or use the documentation at {docs_url} to implement it."
-                    ),
-                    debug={
-                        "issue": issue_url,
-                        "documentation": docs_url,
-                        "context": {"function": name},
-                    },
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message="You need to pass at least one argument to `COALESCE`.",
                 ),
             ],
         )
+    for arg in args:
+        if arg.type != ct.NullType():
+            return arg.type
+    return ct.NullType()
 
 
-function_registry = FunctionRegistry(
-    {
-        "COALESCE": Coalesce,
-        "COUNT": Count,
-        "DATE_TRUNC": DateTrunc,
-        "MAX": Max,
-        "MIN": Min,
-        "SUM": Sum,
-        "AVG": Avg,
-        "NOW": Now,
-    },
-)
+class CurrentDate(Function):  # pylint: disable=abstract-method
+    """
+    Returns the current date.
+    """
+
+
+@CurrentDate.register  # type: ignore
+def infer_type() -> ct.DateType:  # noqa: F811  # pylint: disable=function-redefined
+    return ct.DateType()
+
+
+class CurrentDatetime(Function):  # pylint: disable=abstract-method
+    """
+    Returns the current date and time.
+    """
+
+
+@CurrentDatetime.register  # type: ignore
+def infer_type() -> ct.TimestampType:  # noqa: F811  # pylint: disable=function-redefined
+    return ct.TimestampType()
+
+
+class CurrentTime(Function):  # pylint: disable=abstract-method
+    """
+    Returns the current time.
+    """
+
+
+@CurrentTime.register  # type: ignore
+def infer_type() -> ct.TimeType:  # noqa: F811  # pylint: disable=function-redefined
+    return ct.TimeType()
+
+
+class CurrentTimestamp(Function):  # pylint: disable=abstract-method
+    """
+    Returns the current timestamp.
+    """
+
+
+@CurrentTimestamp.register  # type: ignore
+def infer_type() -> ct.TimestampType:  # noqa: F811  # pylint: disable=function-redefined
+    return ct.TimestampType()
+
+
+class Now(Function):  # pylint: disable=abstract-method
+    """
+    Returns the current timestamp.
+    """
+
+
+@Now.register  # type: ignore
+def infer_type() -> ct.TimestamptzType:  # noqa: F811  # pylint: disable=function-redefined
+    return ct.TimestamptzType()
+
+
+class DateAdd(Function):  # pylint: disable=abstract-method
+    """
+    Adds a specified number of days to a date.
+    """
+
+
+@DateAdd.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    start_date: ct.DateType,
+    days: ct.IntegerBase,
+) -> ct.DateType:
+    return ct.DateType()
+
+
+@DateAdd.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    start_date: ct.StringType,
+    days: ct.IntegerBase,
+) -> ct.DateType:
+    return ct.DateType()
+
+
+class DateSub(Function):  # pylint: disable=abstract-method
+    """
+    Subtracts a specified number of days from a date.
+    """
+
+
+@DateSub.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    start_date: ct.DateType,
+    days: ct.IntegerBase,
+) -> ct.DateType:
+    return ct.DateType()
+
+
+@DateSub.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    start_date: ct.StringType,
+    days: ct.IntegerBase,
+) -> ct.DateType:
+    return ct.DateType()
+
+
+class If(Function):  # pylint: disable=abstract-method
+    """
+    If statement
+
+    if(condition, result, else_result): if condition evaluates to true,
+    then returns result; otherwise returns else_result.
+    """
+
+
+@If.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    cond: ct.BooleanType,
+    then: ct.ColumnType,
+    else_: ct.ColumnType,
+) -> ct.ColumnType:
+    if then.type != else_.type:
+        raise DJInvalidInputException(
+            message="The then result and else result must match in type! "
+            f"Got {then.type} and {else_.type}",
+        )
+
+    return then.type
+
+
+class DateDiff(Function):  # pylint: disable=abstract-method
+    """
+    Computes the difference in days between two dates.
+    """
+
+
+@DateDiff.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    start_date: ct.DateType,
+    end_date: ct.DateType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+@DateDiff.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    start_date: ct.StringType,
+    end_date: ct.StringType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+class DatetimeAdd(Function):
+    """
+    Adds a specified number of seconds to a timestamp.
+    """
+
+    @staticmethod
+    def infer_type(*arg: "Expression") -> ct.TimestampType:
+        return ct.TimestampType()
+
+
+class DatetimeSub(Function):
+    """
+    Subtracts a specified number of seconds from a timestamp.
+    """
+
+    @staticmethod
+    def infer_type(*arg: "Expression") -> ct.TimestampType:
+        return ct.TimestampType()
+
+
+class DatetimeDiff(Function):
+    """
+    Computes the difference in seconds between two timestamps.
+    """
+
+    @staticmethod
+    def infer_type(*arg: "Expression") -> ct.IntegerType:
+        return ct.IntegerType()
+
+
+class Extract(Function):
+    """
+    Returns a specified component of a timestamp, such as year, month or day.
+    """
+
+    @staticmethod
+    def infer_type(  # type: ignore
+        field: "Expression",
+        source: "Expression",
+    ) -> Union[ct.DecimalType, ct.IntegerType]:
+        if str(field.name) == "SECOND":  # type: ignore
+            return ct.DecimalType(8, 6)
+        return ct.IntegerType()
+
+
+class TimestampAdd(Function):
+    """
+    Adds a specified amount of time to a timestamp.
+    """
+
+    @staticmethod
+    def infer_type(*arg: "Expression") -> ct.TimestampType:
+        return ct.TimestampType()
+
+
+class TimestampSub(Function):
+    """
+    Subtracts a specified amount of time from a timestamp.
+    """
+
+    @staticmethod
+    def infer_type(*arg: "Expression") -> ct.TimestampType:
+        return ct.TimestampType()
+
+
+class TimestampDiff(Function):
+    """
+    Computes the difference in seconds between two timestamps.
+    """
+
+    @staticmethod
+    def infer_type(*arg: "Expression") -> ct.IntegerType:
+        return ct.IntegerType()
+
+
+class TimeAdd(Function):
+    """
+    Adds a specified amount of time to a time value.
+    """
+
+    @staticmethod
+    def infer_type(*arg: "Expression") -> ct.TimestampType:
+        return ct.TimestampType()
+
+
+class TimeSub(Function):
+    """
+    Subtracts a specified amount of time from a time value.
+    """
+
+    @staticmethod
+    def infer_type(*arg: "Expression") -> ct.TimestampType:
+        return ct.TimestampType()
+
+
+class TimeDiff(Function):
+    """
+    Computes the difference in seconds between two time values.
+    """
+
+    @staticmethod
+    def infer_type(*arg: "Expression") -> ct.IntegerType:
+        return ct.IntegerType()
+
+
+class DateStrToDate(Function):  # pragma: no cover
+    """
+    Converts a date string to a date value.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DateType:  # type: ignore
+        return ct.DateType()
+
+
+class DateToDateStr(Function):  # pragma: no cover
+    """
+    Converts a date value to a date string.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.StringType:  # type: ignore
+        return ct.StringType()
+
+
+class DateToDi(Function):  # pragma: no cover
+    """
+    Returns the day of the year for a specified date.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.IntegerType:  # type: ignore
+        return ct.IntegerType()
+
+
+class Day(Function):
+    """
+    Returns the day of the month for a specified date.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.TinyIntType:  # type: ignore
+        return ct.TinyIntType()
+
+
+class DiToDate(Function):  # pragma: no cover
+    """
+    Converts a day of the year and a year to a date value.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DateType:  # type: ignore
+        return ct.DateType()
+
+
+class Exp(Function):  # pylint: disable=abstract-method
+    """
+    Returns e to the power of expr.
+    """
+
+
+@Exp.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Floor(Function):
+    """
+    Returns the largest integer less than or equal to a specified number.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.IntegerType:  # type: ignore
+        return ct.IntegerType()
+
+
+class IfNull(Function):
+    """
+    Returns the second expression if the first is null, else returns the first expression.
+    """
+
+    @staticmethod
+    def infer_type(*args: "Expression") -> ct.ColumnType:  # type: ignore
+        return (  # type: ignore
+            args[0].type if args[1].type == ct.NullType() else args[1].type
+        )
+
+
+class Length(Function):  # pylint: disable=abstract-method
+    """
+    Returns the length of a string.
+    """
+
+
+@Length.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.StringType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+class Levenshtein(Function):  # pylint: disable=abstract-method
+    """
+    Returns the Levenshtein distance between two strings.
+    """
+
+
+@Levenshtein.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    string1: ct.StringType,
+    string2: ct.StringType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+class Ln(Function):  # pylint: disable=abstract-method
+    """
+    Returns the natural logarithm of a number.
+    """
+
+
+@Ln.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Log(Function):  # pylint: disable=abstract-method
+    """
+    Returns the logarithm of a number with the specified base.
+    """
+
+
+@Log.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    base: ct.ColumnType,
+    expr: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Log2(Function):  # pylint: disable=abstract-method
+    """
+    Returns the base-2 logarithm of a number.
+    """
+
+
+@Log2.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Log10(Function):  # pylint: disable=abstract-method
+    """
+    Returns the base-10 logarithm of a number.
+    """
+
+
+@Log10.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Lower(Function):
+    """
+    Converts a string to lowercase.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.StringType:  # type: ignore
+        return ct.StringType()
+
+
+class Month(Function):
+    """
+    Extracts the month of a date or timestamp.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.TinyIntType:  # type: ignore
+        return ct.TinyIntType()
+
+
+class Pow(Function):  # pylint: disable=abstract-method
+    """
+    Raises a base expression to the power of an exponent expression.
+    """
+
+
+@Pow.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    base: ct.ColumnType,
+    power: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Quantile(Function):  # pragma: no cover
+    """
+    Computes the quantile of a numerical column or expression.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(  # type: ignore
+        arg1: "Expression",
+        arg2: "Expression",
+    ) -> ct.DoubleType:
+        return ct.DoubleType()
+
+
+class ApproxQuantile(Function):  # pragma: no cover
+    """
+    Computes the approximate quantile of a numerical column or expression.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(  # type: ignore
+        arg1: "Expression",
+        arg2: "Expression",
+    ) -> ct.DoubleType:
+        return ct.DoubleType()
+
+
+class RegexpLike(Function):  # pragma: no cover
+    """
+    Matches a string column or expression against a regular expression pattern.
+    """
+
+    @staticmethod
+    def infer_type(  # type: ignore
+        arg1: "Expression",
+        arg2: "Expression",
+    ) -> ct.BooleanType:
+        return ct.BooleanType()
+
+
+class Round(Function):  # pylint: disable=abstract-method
+    """
+    Rounds a numeric column or expression to the specified number of decimal places.
+    """
+
+
+@Round.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    child: ct.DecimalType,
+    scale: ct.IntegerBase,
+) -> ct.NumberType:
+    child_type = child.type
+    integral_least_num_digits = child_type.precision - child_type.scale + 1
+    if scale.value < 0:
+        new_precision = max(
+            integral_least_num_digits,
+            -scale.type.value + 1,
+        )  # pragma: no cover
+        return ct.DecimalType(new_precision, 0)  # pragma: no cover
+    new_scale = min(child_type.scale, scale.value)
+    return ct.DecimalType(integral_least_num_digits + new_scale, new_scale)
+
+
+@Round.register
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined  # type: ignore
+    child: ct.NumberType,
+    scale: ct.IntegerBase,
+) -> ct.NumberType:
+    return child.type
+
+
+class SafeDivide(Function):  # pragma: no cover
+    """
+    Divides two numeric columns or expressions and returns NULL if the denominator is 0.
+    """
+
+    @staticmethod
+    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.DoubleType:  # type: ignore
+        return ct.DoubleType()
+
+
+class Substring(Function):
+    """
+    Extracts a substring from a string column or expression.
+    """
+
+    @staticmethod
+    def infer_type(  # type: ignore
+        arg1: "Expression",
+        arg2: "Expression",
+        arg3: "Expression",
+    ) -> ct.StringType:
+        return ct.StringType()
+
+
+class StrPosition(Function):  # pylint: disable=abstract-method
+    """
+    Returns the position of the first occurrence of a substring in a string column or expression.
+    """
+
+
+@StrPosition.register
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined  # pragma: no cover
+    arg1: ct.StringType,
+    arg2: ct.StringType,
+) -> ct.IntegerType:
+    return ct.IntegerType()  # pragma: no cover
+
+
+class StrToDate(Function):  # pragma: no cover
+    """
+    Converts a string in a specified format to a date.
+    """
+
+    @staticmethod
+    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.DateType:
+        return ct.DateType()
+
+
+class StrToTime(Function):  # pragma: no cover
+    """
+    Converts a string in a specified format to a timestamp.
+    """
+
+    @staticmethod
+    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.TimestampType:
+        return ct.TimestampType()
+
+
+class Sqrt(Function):
+    """
+    Computes the square root of a numeric column or expression.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DoubleType:
+        return ct.DoubleType()
+
+
+class Stddev(Function):
+    """
+    Computes the sample standard deviation of a numerical column or expression.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DoubleType:
+        return ct.DoubleType()
+
+
+class StddevPop(Function):  # pragma: no cover
+    """
+    Computes the population standard deviation of the input column or expression.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DoubleType:
+        return ct.DoubleType()
+
+
+class StddevSamp(Function):  # pragma: no cover
+    """
+    Computes the sample standard deviation of the input column or expression.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DoubleType:
+        return ct.DoubleType()
+
+
+class TimeToStr(Function):  # pragma: no cover
+    """
+    Converts a time value to a string using the specified format.
+    """
+
+    @staticmethod
+    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
+        return ct.StringType()
+
+
+class TimeToTimeStr(Function):  # pragma: no cover
+    """
+    Converts a time value to a string using the specified format.
+    """
+
+    @staticmethod
+    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
+        return ct.StringType()
+
+
+class TimeStrToDate(Function):  # pragma: no cover
+    """
+    Converts a string value to a date.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DateType:
+        return ct.DateType()
+
+
+class TimeStrToTime(Function):  # pragma: no cover
+    """
+    Converts a string value to a time.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.TimestampType:
+        return ct.TimestampType()
+
+
+class Trim(Function):  # pragma: no cover
+    """
+    Removes leading and trailing whitespace from a string value.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.StringType:
+        return ct.StringType()
+
+
+class TsOrDsToDateStr(Function):  # pragma: no cover
+    """
+    Converts a timestamp or date value to a string using the specified format.
+    """
+
+    @staticmethod
+    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
+        return ct.StringType()
+
+
+class TsOrDsToDate(Function):  # pragma: no cover
+    """
+    Converts a timestamp or date value to a date.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DateType:
+        return ct.DateType()
+
+
+class TsOrDiToDi(Function):  # pragma: no cover
+    """
+    Converts a timestamp or date value to a date.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.IntegerType:
+        return ct.IntegerType()
+
+
+class UnixToStr(Function):  # pragma: no cover
+    """
+    Converts a Unix timestamp to a string using the specified format.
+    """
+
+    @staticmethod
+    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
+        return ct.StringType()
+
+
+class UnixToTime(Function):  # pragma: no cover
+    """
+    Converts a Unix timestamp to a time.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.TimestampType:
+        return ct.TimestampType()
+
+
+class UnixToTimeStr(Function):  # pragma: no cover
+    """
+    Converts a Unix timestamp to a string using the specified format.
+    """
+
+    @staticmethod
+    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
+        return ct.StringType()
+
+
+class Upper(Function):  # pragma: no cover
+    """
+    Converts a string value to uppercase.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.StringType:
+        return ct.StringType()
+
+
+class Variance(Function):  # pragma: no cover
+    """
+    Computes the sample variance of the input column or expression.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DoubleType:
+        return ct.DoubleType()
+
+
+class VariancePop(Function):  # pragma: no cover
+    """
+    Computes the population variance of the input column or expression.
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.DoubleType:
+        return ct.DoubleType()
+
+
+class Array(Function):  # pylint: disable=abstract-method
+    """
+    Returns an array of constants
+    """
+
+
+@Array.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    *elements: ct.ColumnType,
+) -> ct.ListType:
+    types = {element.type for element in elements}
+    if len(types) > 1:
+        raise DJParseException(
+            f"Multiple types {', '.join(sorted(str(typ) for typ in types))} passed to array.",
+        )
+    element_type = elements[0].type if elements else ct.NullType()
+    return ct.ListType(element_type=element_type)
+
+
+class Map(Function):  # pylint: disable=abstract-method
+    """
+    Returns a map of constants
+    """
+
+
+def extract_consistent_type(elements):
+    """
+    Check if all elements are the same type and return that type.
+    """
+    if all(isinstance(element.type, ct.IntegerType) for element in elements):
+        return ct.IntegerType()
+    if all(isinstance(element.type, ct.DoubleType) for element in elements):
+        return ct.DoubleType()
+    if all(isinstance(element.type, ct.FloatType) for element in elements):
+        return ct.FloatType()
+    return ct.StringType()
+
+
+@Map.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    *elements: ct.ColumnType,
+) -> ct.MapType:
+    keys = elements[0::2]
+    values = elements[1::2]
+    if len(keys) != len(values):
+        raise DJParseException("Different number of keys and values for MAP.")
+
+    key_type = extract_consistent_type(keys)
+    value_type = extract_consistent_type(values)
+    return ct.MapType(key_type=key_type, value_type=value_type)
+
+
+class Week(Function):
+    """
+    Returns the week number of the year of the input date value.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.TinyIntType:
+        return ct.TinyIntType()
+
+
+class Year(Function):
+    """
+    Returns the year of the input date value.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.TinyIntType:
+        return ct.TinyIntType()
+
+
+class FromJson(Function):  # pragma: no cover  # pylint: disable=abstract-method
+    """
+    Converts a JSON string to a struct or map.
+    """
+
+
+@FromJson.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined  # pragma: no cover
+    json: ct.StringType,
+    schema: ct.StringType,
+    options: Optional[Function] = None,
+) -> ct.StructType:
+    # TODO: Handle options?  # pylint: disable=fixme
+    # pylint: disable=import-outside-toplevel
+    from dj.sql.parsing.backends.antlr4 import parse_rule  # pragma: no cover
+
+    return ct.StructType(
+        *parse_rule(schema.value, "complexColTypeList")
+    )  # pragma: no cover
+
+
+class FunctionRegistryDict(dict):
+    """
+    Custom dictionary mapping for functions
+    """
+
+    def __getitem__(self, key):
+        """
+        Returns a custom error about functions that haven't been implemented yet.
+        """
+        try:
+            return super().__getitem__(key)
+        except KeyError as exc:
+            raise DJNotImplementedException(
+                f"The function `{key}` hasn't been implemented in "
+                "DJ yet. You can file an issue at https://github."
+                "com/DataJunction/dj/issues/new?title=Function+"
+                f"missing:+{key} to request it to be added, or use "
+                "the documentation at https://github.com/DataJunct"
+                "ion/dj/blob/main/docs/functions.rst to implement it.",
+            ) from exc
+
+
+# https://spark.apache.org/docs/3.3.2/sql-ref-syntax-qry-select-tvf.html#content
+class Explode(TableFunction):  # pylint: disable=abstract-method
+    """
+    The Explode function is used to explode the specified array,
+    nested array, or map column into multiple rows.
+    The explode function will generate a new row for each
+    element in the specified column.
+    """
+
+
+@Explode.register
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    return [arg.element]
+
+
+@Explode.register
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.MapType,
+) -> List[ct.NestedField]:
+    return [arg.key, arg.value]
+
+
+function_registry = FunctionRegistryDict()
+for cls in Function.__subclasses__():
+    snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)
+    function_registry[cls.__name__.upper()] = cls
+    function_registry[snake_cased.upper()] = cls
+
+
+table_function_registry = FunctionRegistryDict()
+for cls in TableFunction.__subclasses__():
+    snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)
+    table_function_registry[cls.__name__.upper()] = cls
+    table_function_registry[snake_cased.upper()] = cls

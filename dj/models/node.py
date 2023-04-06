@@ -10,6 +10,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
+from pydantic import root_validator
 from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.sql.schema import UniqueConstraint
@@ -17,16 +18,16 @@ from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel
 from typing_extensions import TypedDict
 
+from dj.errors import DJInvalidInputException
 from dj.models.base import BaseSQLModel, generate_display_name
 from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
 from dj.models.engine import Engine, EngineInfo
-
-# from dj.models.table import Table, TableNodeRevision, TableYAML
 from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parse import is_metric
-from dj.typing import ColumnType, UTCDatetime
+from dj.sql.parsing.types import ColumnType
+from dj.typing import UTCDatetime
 from dj.utils import Version
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
@@ -434,26 +435,26 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         """
         if self.type in (NodeType.SOURCE, NodeType.CUBE):
             if self.query:
-                raise Exception(
+                raise DJInvalidInputException(
                     f"Node {self.name} of type {self.type} should not have a query",
                 )
 
         if self.type in {NodeType.TRANSFORM, NodeType.METRIC, NodeType.DIMENSION}:
             if not self.query:
-                raise Exception(
+                raise DJInvalidInputException(
                     f"Node {self.name} of type {self.type} needs a query",
                 )
 
         if self.type == NodeType.METRIC:
             if not is_metric(self.query):
-                raise Exception(
+                raise DJInvalidInputException(
                     f"Node {self.name} of type metric has an invalid query, "
                     "should have a single aggregation",
                 )
 
         if self.type == NodeType.CUBE:
             if not self.cube_elements:
-                raise Exception(
+                raise DJInvalidInputException(
                     f"Node {self.name} of type cube node needs cube elements",
                 )
 
@@ -484,7 +485,7 @@ class MutableNodeQueryField(BaseSQLModel):
     query: str
 
 
-class SourceNodeColumnType(TypedDict, total=False):
+class SourceNodeColumnType(BaseSQLModel):
     """
     Schema of a column for a table defined in a source node
     """
@@ -627,6 +628,21 @@ class ColumnOutput(SQLModel):
     name: str
     type: ColumnType
     attributes: List[AttributeOutput]
+
+    class Config:  # pylint: disable=too-few-public-methods
+        """
+        Should perform validation on assignment
+        """
+
+        validate_assignment = True
+
+    @root_validator
+    def type_string(cls, values):  # pylint: disable=no-self-argument
+        """
+        Extracts the type as a string
+        """
+        values["type"] = str(values.get("type"))
+        return values
 
 
 class TableOutput(SQLModel):

@@ -3,11 +3,14 @@ Models for columns.
 """
 from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 
+from pydantic import root_validator
+from sqlalchemy import TypeDecorator
 from sqlalchemy.sql.schema import Column as SqlaColumn
+from sqlalchemy.types import Text
 from sqlmodel import Field, Relationship
 
 from dj.models.base import BaseSQLModel
-from dj.typing import ColumnType, ColumnTypeDecorator
+from dj.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
     from dj.models.attribute import ColumnAttribute
@@ -23,6 +26,24 @@ class ColumnYAML(TypedDict, total=False):
     dimension: str
 
 
+class ColumnTypeDecorator(TypeDecorator):  # pylint: disable=abstract-method
+    """
+    Converts a column type from the database to a `ColumnType` class
+    """
+
+    impl = Text
+
+    def process_bind_param(self, value: ColumnType, dialect):
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        from dj.sql.parsing.backends.antlr4 import (  # pylint: disable=import-outside-toplevel
+            parse_rule,
+        )
+
+        return parse_rule(value, "dataType")
+
+
 class Column(BaseSQLModel, table=True):  # type: ignore
     """
     A column.
@@ -36,7 +57,11 @@ class Column(BaseSQLModel, table=True):  # type: ignore
     type: ColumnType = Field(sa_column=SqlaColumn(ColumnTypeDecorator, nullable=False))
 
     dimension_id: Optional[int] = Field(default=None, foreign_key="node.id")
-    dimension: "Node" = Relationship()
+    dimension: "Node" = Relationship(
+        sa_relationship_kwargs={
+            "lazy": "joined",
+        },
+    )
     dimension_column: Optional[str] = None
 
     attributes: List["ColumnAttribute"] = Relationship(
@@ -54,6 +79,17 @@ class Column(BaseSQLModel, table=True):  # type: ignore
 
     def __hash__(self) -> int:
         return hash(self.id)
+
+    class Config:  # pylint: disable=missing-class-docstring, too-few-public-methods
+        arbitrary_types_allowed = True
+
+    @root_validator
+    def type_string(cls, values):  # pylint: disable=no-self-argument
+        """
+        Processes the column type
+        """
+        values["type"] = str(values.get("type"))
+        return values
 
 
 class ColumnAttributeInput(BaseSQLModel):

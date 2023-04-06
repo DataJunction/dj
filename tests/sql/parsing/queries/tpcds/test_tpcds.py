@@ -1,7 +1,6 @@
 """
 test parsing tpcds queries into DJ ASTs
 """
-import re
 
 # mypy: ignore-errors
 # pylint: skip-file
@@ -221,49 +220,6 @@ def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
 
-def compare_parse_trees(tree1, tree2):
-    """
-    Recursively compare two ANTLR parse trees for equality.
-    """
-    # Check if the node types are the same
-    if type(tree1) != type(tree2):
-        return False
-
-    # Check if the node texts are the same
-    if tree1.getText() != tree2.getText():
-        return False
-
-    # Check if the number of child nodes is the same
-    if tree1.getChildCount() != tree2.getChildCount():
-        return False
-
-    # Recursively compare child nodes
-    for i in range(tree1.getChildCount()):
-        child1 = tree1.getChild(i)
-        child2 = tree2.getChild(i)
-        if not compare_parse_trees(child1, child2):
-            return False
-
-    # If all checks passed, the trees are equal
-    return True
-
-
-COMMENT = re.compile(r"(--.*)|(/\*[\s\S]*?\*/)")
-TRAILING_ZEROES = re.compile(r"(\d+\.\d*?[1-9])0+|\b(\d+)\.0+\b")
-DIFF_IGNORE = re.compile(r"[\';\s]+")
-
-
-def compare_query_strings(str1, str2):
-    """
-    Recursively compare two ANTLR parse trees for equality, ignoring certain elements.
-    """
-
-    str1 = DIFF_IGNORE.sub("", TRAILING_ZEROES.sub("", COMMENT.sub("", str1))).upper()
-    str2 = DIFF_IGNORE.sub("", TRAILING_ZEROES.sub("", COMMENT.sub("", str2))).upper()
-
-    return str1 == str2
-
-
 @pytest.mark.skipif("not config.getoption('tpcds')")
 @pytest.mark.parametrize(
     "query_file",
@@ -372,12 +328,13 @@ def test_tpcds_circular_parse_and_compare(query_file, request, monkeypatch):
 
 @pytest.mark.parametrize(
     "query_file",
-    ansi_tpcds_files + spark_tpcds_files,
+    spark_tpcds_files,
 )
 def test_tpcds_ast_parse_comparisons(
     query_file,
     request,
     monkeypatch,
+    compare_query_strings_fixture,
 ):
     """
     Test str -> parse(1) -> DJ AST -> str -> parse(2) and comparing (1) and (2)
@@ -387,4 +344,4 @@ def test_tpcds_ast_parse_comparisons(
         content = file.read()
         for query in content.split(";"):
             if query.strip():
-                assert compare_query_strings(query, str(parse(query)))
+                assert compare_query_strings_fixture(query, str(parse(query)))

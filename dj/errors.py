@@ -80,6 +80,15 @@ class DJError(SQLModel):
         return f"{self.message}{context} (error code: {self.code})"
 
 
+class DJErrorException(Exception):
+    """
+    Wrapper allows raising DJError
+    """
+
+    def __init__(self, dj_error: DJError):
+        self.dj_error = dj_error
+
+
 class DJWarningType(TypedDict):
     """
     Type for serialized warnings.

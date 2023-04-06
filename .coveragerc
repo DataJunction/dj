@@ -5,7 +5,7 @@ source = dj
 omit =
     */dj/sql/parsing/backends/grammar/generated/*
     */dj/sql/parsing/backends/antlr4.py
-    */dj/sql/parsing/ast2.py
+    */dj/sql/parsing/ast.py
 
 [paths]
 source =
