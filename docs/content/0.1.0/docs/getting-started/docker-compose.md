@@ -99,12 +99,18 @@ The DJ repository includes notebooks that each contain examples of different way
 to try them out. If you already have a remote DJ server running, you can connect the example notebooks to it simply by changing the `DJ_HOST`, `DJ_PORT` and `DJ_PROTOCOL`
 variables at the top of each notebook.
 
-Install jupyter notebook.
+Clone the DJ demo repository.
 ```sh
-pip install notebook
+git clone git@github.com:DataJunction/dj-demo.git
 ```
+
+Install jupyter lab.
+```sh
+pip install jupyterlab
+```
+
 Change into the notebooks directory and start a jupyter server.
 ```sh
 cd notebooks
-jupyter notebook
+jupyter lab
 ```
