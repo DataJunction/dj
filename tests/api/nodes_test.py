@@ -99,6 +99,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
             "name": "answer",
             "type": "int",
             "attributes": [],
+            "dimension": None,
         },
     ]
 
@@ -109,6 +110,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
             "name": "_col0",
             "type": "int",
             "attributes": [],
+            "dimension": None,
         },
     ]
 
@@ -281,10 +283,10 @@ class TestCreateOrUpdateNodes:
         assert data["schema_"] == "basic"
         assert data["table"] == "comments"
         assert data["columns"] == [
-            {"name": "id", "type": "int", "attributes": []},
-            {"name": "user_id", "type": "int", "attributes": []},
-            {"name": "timestamp", "type": "timestamp", "attributes": []},
-            {"name": "text", "type": "string", "attributes": []},
+            {"name": "id", "type": "int", "attributes": [], "dimension": None},
+            {"name": "user_id", "type": "int", "attributes": [], "dimension": None},
+            {"name": "timestamp", "type": "timestamp", "attributes": [], "dimension": None},
+            {"name": "text", "type": "string", "attributes": [], "dimension": None},
         ]
         assert response.status_code == 201
 
@@ -361,10 +363,10 @@ class TestCreateOrUpdateNodes:
         data = response.json()
         assert data["version"] == "v2.0"
         assert data["columns"] == [
-            {"name": "id", "type": "int", "attributes": []},
-            {"name": "user_id", "type": "int", "attributes": []},
-            {"name": "timestamp", "type": "timestamp", "attributes": []},
-            {"name": "text_v2", "type": "string", "attributes": []},
+            {"name": "id", "type": "int", "attributes": [], "dimension": None},
+            {"name": "user_id", "type": "int", "attributes": [], "dimension": None},
+            {"name": "timestamp", "type": "timestamp", "attributes": [], "dimension": None},
+            {"name": "text_v2", "type": "string", "attributes": [], "dimension": None},
         ]
 
     def test_update_nonexistent_node(
@@ -473,8 +475,8 @@ class TestCreateOrUpdateNodes:
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": []},
-            {"name": "num_users", "type": "long", "attributes": []},
+            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
         ]
 
         # Update the transform node with two minor changes
@@ -524,9 +526,9 @@ class TestCreateOrUpdateNodes:
             "COUNT(*) AS num_entries FROM basic.source.users"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": []},
-            {"name": "num_users", "type": "long", "attributes": []},
-            {"name": "num_entries", "type": "long", "attributes": []},
+            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
+            {"name": "num_entries", "type": "long", "attributes": [], "dimension": None},
         ]
 
         # Verify that asking for revisions for a non-existent transform fails
@@ -545,17 +547,17 @@ class TestCreateOrUpdateNodes:
         }
         assert {rev["version"]: rev["columns"] for rev in data} == {
             "v1.0": [
-                {"name": "country", "type": "string", "attributes": []},
-                {"name": "num_users", "type": "long", "attributes": []},
+                {"name": "country", "type": "string", "attributes": [], "dimension": None},
+                {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
             ],
             "v1.1": [
-                {"name": "country", "type": "string", "attributes": []},
-                {"name": "num_users", "type": "long", "attributes": []},
+                {"name": "country", "type": "string", "attributes": [], "dimension": None},
+                {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
             ],
             "v2.0": [
-                {"name": "country", "type": "string", "attributes": []},
-                {"name": "num_users", "type": "long", "attributes": []},
-                {"name": "num_entries", "type": "long", "attributes": []},
+                {"name": "country", "type": "string", "attributes": [], "dimension": None},
+                {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
+                {"name": "num_entries", "type": "long", "attributes": [], "dimension": None},
             ],
         }
 
@@ -587,8 +589,8 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": []},
-            {"name": "user_cnt", "type": "long", "attributes": []},
+            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {"name": "user_cnt", "type": "long", "attributes": [], "dimension": None},
         ]
 
         # Test updating the dimension node with a new query
@@ -602,7 +604,7 @@ class TestCreateOrUpdateNodes:
 
         # The columns should have been updated
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": []},
+            {"name": "country", "type": "string", "attributes": [], "dimension": None},
         ]
 
     def test_raise_on_multi_catalog_node(self, client_with_examples: TestClient):
@@ -654,8 +656,8 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": []},
-            {"name": "user_cnt", "type": "long", "attributes": []},
+            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {"name": "user_cnt", "type": "long", "attributes": [], "dimension": None},
         ]
 
         response = client.patch(
@@ -863,6 +865,7 @@ class TestNodeColumnsAttributes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+
             },
         ]
 
@@ -1016,14 +1019,15 @@ class TestNodeColumnsAttributes:
                     {"attribute_type": {"namespace": "system", "name": "primary_key"}},
                 ],
             },
-            {"name": "timestamp", "type": "timestamp", "attributes": []},
-            {"name": "text", "type": "string", "attributes": []},
-            {"name": "event_timestamp", "type": "timestamp", "attributes": []},
-            {"name": "created_at", "type": "timestamp", "attributes": []},
+            {"name": "timestamp", "type": "timestamp", "attributes": [], "dimension": None},
+            {"name": "text", "type": "string", "attributes": [], "dimension": None},
+            {"name": "event_timestamp", "type": "timestamp", "attributes": [], "dimension": None},
+            {"name": "created_at", "type": "timestamp", "attributes": [], "dimension": None},
             {
                 "name": "post_processing_timestamp",
                 "type": "timestamp",
                 "attributes": [],
+                "dimension": None,
             },
         ]
 
