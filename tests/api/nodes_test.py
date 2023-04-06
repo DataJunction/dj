@@ -9,8 +9,9 @@ from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from dj.models import Database, Table
-from dj.models.column import Column, ColumnType
+from dj.models.column import Column
 from dj.models.node import Node, NodeRevision, NodeType
+from dj.sql.parsing.types import IntegerType, StringType, TimestampType
 
 
 def test_read_node(client_with_examples: TestClient) -> None:
@@ -60,7 +61,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
         query="SELECT 42 AS answer",
         type=node2.type,
         columns=[
-            Column(name="answer", type=ColumnType.INT),
+            Column(name="answer", type=IntegerType()),
         ],
     )
     node3 = Node(name="a-metric", type=NodeType.METRIC, current_version="1")
@@ -70,7 +71,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
         version="1",
         query="SELECT COUNT(*) FROM my_table",
         columns=[
-            Column(name="_col0", type=ColumnType.INT),
+            Column(name="_col0", type=IntegerType()),
         ],
         type=node3.type,
     )
@@ -96,7 +97,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert nodes["also-not-a-metric"]["columns"] == [
         {
             "name": "answer",
-            "type": "INT",
+            "type": "int",
             "attributes": [],
         },
     ]
@@ -106,7 +107,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert nodes["a-metric"]["columns"] == [
         {
             "name": "_col0",
-            "type": "INT",
+            "type": "int",
             "attributes": [],
         },
     ]
@@ -143,8 +144,8 @@ class TestCreateOrUpdateNodes:
             "mode": "published",
             "description": "Distinct users per country",
             "columns": [
-                {"name": "country", "type": "STR"},
-                {"name": "num_users", "type": "INT"},
+                {"name": "country", "type": "string"},
+                {"name": "num_users", "type": "int"},
             ],
         }
 
@@ -160,8 +161,8 @@ class TestCreateOrUpdateNodes:
             "mode": "published",
             "description": "Distinct users per country",
             "columns": [
-                {"name": "country", "type": "STR"},
-                {"name": "num_users", "type": "INT"},
+                {"name": "country", "type": "string"},
+                {"name": "num_users", "type": "int"},
             ],
         }
 
@@ -186,8 +187,8 @@ class TestCreateOrUpdateNodes:
             database=database,
             table="A",
             columns=[
-                Column(name="ds", type=ColumnType.STR),
-                Column(name="user_id", type=ColumnType.INT),
+                Column(name="ds", type=StringType()),
+                Column(name="user_id", type=IntegerType()),
             ],
         )
         node = Node(
@@ -202,12 +203,12 @@ class TestCreateOrUpdateNodes:
             version="1",
             tables=[table],
             columns=[
-                Column(name="id", type=ColumnType.INT),
-                Column(name="full_name", type=ColumnType.STR),
-                Column(name="age", type=ColumnType.INT),
-                Column(name="country", type=ColumnType.STR),
-                Column(name="gender", type=ColumnType.STR),
-                Column(name="preferred_language", type=ColumnType.STR),
+                Column(name="id", type=IntegerType()),
+                Column(name="full_name", type=StringType()),
+                Column(name="age", type=IntegerType()),
+                Column(name="country", type=StringType()),
+                Column(name="gender", type=StringType()),
+                Column(name="preferred_language", type=StringType()),
             ],
         )
         session.add(node_revision)
@@ -280,10 +281,10 @@ class TestCreateOrUpdateNodes:
         assert data["schema_"] == "basic"
         assert data["table"] == "comments"
         assert data["columns"] == [
-            {"name": "id", "type": "INT", "attributes": []},
-            {"name": "user_id", "type": "INT", "attributes": []},
-            {"name": "timestamp", "type": "TIMESTAMP", "attributes": []},
-            {"name": "text", "type": "STR", "attributes": []},
+            {"name": "id", "type": "int", "attributes": []},
+            {"name": "user_id", "type": "int", "attributes": []},
+            {"name": "timestamp", "type": "timestamp", "attributes": []},
+            {"name": "text", "type": "string", "attributes": []},
         ]
         assert response.status_code == 201
 
@@ -298,10 +299,10 @@ class TestCreateOrUpdateNodes:
             "name": "basic.source.comments",
             "description": "A fact table with comments",
             "columns": {
-                "id": {"type": "INT"},
-                "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
-                "timestamp": {"type": "TIMESTAMP"},
-                "text": {"type": "STR"},
+                "id": {"type": "int"},
+                "user_id": {"type": "int", "dimension": "basic.dimension.users"},
+                "timestamp": {"type": "timestamp"},
+                "text": {"type": "string"},
             },
             "mode": "published",
             "catalog": "public",
@@ -350,20 +351,20 @@ class TestCreateOrUpdateNodes:
             f"/nodes/{basic_source_comments['name']}/",
             json={
                 "columns": {
-                    "id": {"type": "INT"},
-                    "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
-                    "timestamp": {"type": "TIMESTAMP"},
-                    "text_v2": {"type": "STR"},
+                    "id": {"type": "int"},
+                    "user_id": {"type": "int", "dimension": "basic.dimension.users"},
+                    "timestamp": {"type": "timestamp"},
+                    "text_v2": {"type": "string"},
                 },
             },
         )
         data = response.json()
         assert data["version"] == "v2.0"
         assert data["columns"] == [
-            {"name": "id", "type": "INT", "attributes": []},
-            {"name": "user_id", "type": "INT", "attributes": []},
-            {"name": "timestamp", "type": "TIMESTAMP", "attributes": []},
-            {"name": "text_v2", "type": "STR", "attributes": []},
+            {"name": "id", "type": "int", "attributes": []},
+            {"name": "user_id", "type": "int", "attributes": []},
+            {"name": "timestamp", "type": "timestamp", "attributes": []},
+            {"name": "text_v2", "type": "string", "attributes": []},
         ]
 
     def test_update_nonexistent_node(
@@ -395,10 +396,10 @@ class TestCreateOrUpdateNodes:
                 "name": "basic.source.comments",
                 "description": "A fact table with comments",
                 "columns": {
-                    "id": {"type": "INT"},
-                    "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
-                    "timestamp": {"type": "TIMESTAMP"},
-                    "text": {"type": "STR"},
+                    "id": {"type": "int"},
+                    "user_id": {"type": "int", "dimension": "basic.dimension.users"},
+                    "timestamp": {"type": "timestamp"},
+                    "text": {"type": "string"},
                 },
                 "mode": "published",
             },
@@ -472,8 +473,8 @@ class TestCreateOrUpdateNodes:
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "STR", "attributes": []},
-            {"name": "num_users", "type": "INT", "attributes": []},
+            {"name": "country", "type": "string", "attributes": []},
+            {"name": "num_users", "type": "long", "attributes": []},
         ]
 
         # Update the transform node with two minor changes
@@ -523,9 +524,9 @@ class TestCreateOrUpdateNodes:
             "COUNT(*) AS num_entries FROM basic.source.users"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "STR", "attributes": []},
-            {"name": "num_users", "type": "INT", "attributes": []},
-            {"name": "num_entries", "type": "INT", "attributes": []},
+            {"name": "country", "type": "string", "attributes": []},
+            {"name": "num_users", "type": "long", "attributes": []},
+            {"name": "num_entries", "type": "long", "attributes": []},
         ]
 
         # Verify that asking for revisions for a non-existent transform fails
@@ -544,17 +545,17 @@ class TestCreateOrUpdateNodes:
         }
         assert {rev["version"]: rev["columns"] for rev in data} == {
             "v1.0": [
-                {"name": "country", "type": "STR", "attributes": []},
-                {"name": "num_users", "type": "INT", "attributes": []},
+                {"name": "country", "type": "string", "attributes": []},
+                {"name": "num_users", "type": "long", "attributes": []},
             ],
             "v1.1": [
-                {"name": "country", "type": "STR", "attributes": []},
-                {"name": "num_users", "type": "INT", "attributes": []},
+                {"name": "country", "type": "string", "attributes": []},
+                {"name": "num_users", "type": "long", "attributes": []},
             ],
             "v2.0": [
-                {"name": "country", "type": "STR", "attributes": []},
-                {"name": "num_users", "type": "INT", "attributes": []},
-                {"name": "num_entries", "type": "INT", "attributes": []},
+                {"name": "country", "type": "string", "attributes": []},
+                {"name": "num_users", "type": "long", "attributes": []},
+                {"name": "num_entries", "type": "long", "attributes": []},
             ],
         }
 
@@ -586,8 +587,8 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "STR", "attributes": []},
-            {"name": "user_cnt", "type": "INT", "attributes": []},
+            {"name": "country", "type": "string", "attributes": []},
+            {"name": "user_cnt", "type": "long", "attributes": []},
         ]
 
         # Test updating the dimension node with a new query
@@ -601,7 +602,7 @@ class TestCreateOrUpdateNodes:
 
         # The columns should have been updated
         assert data["columns"] == [
-            {"name": "country", "type": "STR", "attributes": []},
+            {"name": "country", "type": "string", "attributes": []},
         ]
 
     def test_raise_on_multi_catalog_node(self, client_with_examples: TestClient):
@@ -653,8 +654,8 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "STR", "attributes": []},
-            {"name": "user_cnt", "type": "INT", "attributes": []},
+            {"name": "country", "type": "string", "attributes": []},
+            {"name": "user_cnt", "type": "long", "attributes": []},
         ]
 
         response = client.patch(
@@ -778,11 +779,11 @@ class TestNodeColumnsAttributes:
             "description": "A fact table with comments",
             "type": "source",
             "columns": {
-                "id": {"type": "INT"},
-                "user_id": {"type": "INT", "dimension": "basic.dimension.users"},
-                "event_timestamp": {"type": "TIMESTAMP"},
-                "post_processing_timestamp": {"type": "TIMESTAMP"},
-                "text": {"type": "STR"},
+                "id": {"type": "int"},
+                "user_id": {"type": "int", "dimension": "basic.dimension.users"},
+                "event_timestamp": {"type": "timestamp"},
+                "post_processing_timestamp": {"type": "timestamp"},
+                "text": {"type": "string"},
             },
             "mode": "published",
         }
@@ -808,8 +809,8 @@ class TestNodeColumnsAttributes:
             database=database,
             table="A",
             columns=[
-                Column(name="ds", type=ColumnType.STR),
-                Column(name="user_id", type=ColumnType.INT),
+                Column(name="ds", type=StringType()),
+                Column(name="user_id", type=IntegerType()),
             ],
         )
         node = Node(
@@ -824,13 +825,13 @@ class TestNodeColumnsAttributes:
             version="1",
             tables=[table],
             columns=[
-                Column(name="id", type=ColumnType.INT),
-                Column(name="created_at", type=ColumnType.TIMESTAMP),
-                Column(name="full_name", type=ColumnType.STR),
-                Column(name="age", type=ColumnType.INT),
-                Column(name="country", type=ColumnType.STR),
-                Column(name="gender", type=ColumnType.STR),
-                Column(name="preferred_language", type=ColumnType.STR),
+                Column(name="id", type=IntegerType()),
+                Column(name="created_at", type=TimestampType()),
+                Column(name="full_name", type=StringType()),
+                Column(name="age", type=IntegerType()),
+                Column(name="country", type=StringType()),
+                Column(name="gender", type=StringType()),
+                Column(name="preferred_language", type=StringType()),
             ],
         )
         session.add(node_revision)
@@ -858,7 +859,7 @@ class TestNodeColumnsAttributes:
         assert data == [
             {
                 "name": "id",
-                "type": "INT",
+                "type": "int",
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
@@ -884,14 +885,14 @@ class TestNodeColumnsAttributes:
         assert data == [
             {
                 "name": "id",
-                "type": "INT",
+                "type": "int",
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
             },
             {
                 "name": "created_at",
-                "type": "TIMESTAMP",
+                "type": "timestamp",
                 "attributes": [
                     {
                         "attribute_type": {
@@ -975,7 +976,7 @@ class TestNodeColumnsAttributes:
         assert data == [
             {
                 "name": "user_id",
-                "type": "INT",
+                "type": "int",
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
@@ -1007,21 +1008,21 @@ class TestNodeColumnsAttributes:
         response = client_with_examples.get("/nodes/basic.source.comments/")
         data = response.json()
         assert data["columns"] == [
-            {"name": "id", "type": "INT", "attributes": []},
+            {"name": "id", "type": "int", "attributes": []},
             {
                 "name": "user_id",
-                "type": "INT",
+                "type": "int",
                 "attributes": [
                     {"attribute_type": {"namespace": "system", "name": "primary_key"}},
                 ],
             },
-            {"name": "timestamp", "type": "TIMESTAMP", "attributes": []},
-            {"name": "text", "type": "STR", "attributes": []},
-            {"name": "event_timestamp", "type": "TIMESTAMP", "attributes": []},
-            {"name": "created_at", "type": "TIMESTAMP", "attributes": []},
+            {"name": "timestamp", "type": "timestamp", "attributes": []},
+            {"name": "text", "type": "string", "attributes": []},
+            {"name": "event_timestamp", "type": "timestamp", "attributes": []},
+            {"name": "created_at", "type": "timestamp", "attributes": []},
             {
                 "name": "post_processing_timestamp",
-                "type": "TIMESTAMP",
+                "type": "timestamp",
                 "attributes": [],
             },
         ]
@@ -1055,7 +1056,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "dimension_id": None,
                 "id": None,
                 "name": "payment_id",
-                "type": "INT",
+                "type": "int",
             },
         ]
         assert data["status"] == "valid"
@@ -1109,8 +1110,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert response.status_code == 500
         assert data == {
             "errors": [],
-            "message": "Query parsing failed.\n"
-            "\tsql parser error: Expected an SQL statement, found: SUPER",
+            "message": "('Parse error 1:0:', \"mismatched input 'SUPER' expecting "
+            "{'(', 'ADD', 'ALTER', 'ANALYZE', 'CACHE', 'CLEAR', 'COMMENT', "
+            "'COMMIT', 'CREATE', 'DELETE', 'DESC', 'DESCRIBE', 'DFS', 'DROP', "
+            "'EXPLAIN', 'EXPORT', 'FROM', 'GRANT', 'IMPORT', 'INSERT', 'LIST', "
+            "'LOAD', 'LOCK', 'MAP', 'MERGE', 'MSCK', 'REDUCE', 'REFRESH', "
+            "'REPAIR', 'REPLACE', 'RESET', 'REVOKE', 'ROLLBACK', 'SELECT', "
+            "'SET', 'SHOW', 'START', 'TABLE', 'TRUNCATE', 'UNCACHE', 'UNLOCK', "
+            "'UPDATE', 'USE', 'VALUES', 'WITH'}\")",
             "warnings": [],
         }
 
@@ -1170,7 +1177,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             {
                 "id": None,
                 "name": "col0",
-                "type": "INT",
+                "type": "int",
                 "dimension_id": None,
                 "dimension_column": None,
             },
@@ -1191,10 +1198,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "description": "This is my foo source node!",
                 "type": "source",
                 "columns": [
-                    {"name": "payment_id", "type": "INT"},
-                    {"name": "payment_amount", "type": "FLOAT"},
-                    {"name": "customer_id", "type": "INT"},
-                    {"name": "account_type", "type": "INT"},
+                    {"name": "payment_id", "type": "int"},
+                    {"name": "payment_amount", "type": "float"},
+                    {"name": "customer_id", "type": "int"},
+                    {"name": "account_type", "type": "int"},
                 ],
                 "tables": [
                     {
@@ -1341,7 +1348,7 @@ def test_node_similarity(session: Session, client: TestClient):
         query="SELECT 1 as num",
         type=a_transform.type,
         columns=[
-            Column(name="num", type=ColumnType.INT),
+            Column(name="num", type=IntegerType()),
         ],
     )
     another_transform = Node(
@@ -1356,7 +1363,7 @@ def test_node_similarity(session: Session, client: TestClient):
         query="SELECT 1 as num",
         type=another_transform.type,
         columns=[
-            Column(name="num", type=ColumnType.INT),
+            Column(name="num", type=IntegerType()),
         ],
     )
     yet_another_transform = Node(
@@ -1371,7 +1378,7 @@ def test_node_similarity(session: Session, client: TestClient):
         query="SELECT 2 as num",
         type=yet_another_transform.type,
         columns=[
-            Column(name="num", type=ColumnType.INT),
+            Column(name="num", type=IntegerType()),
         ],
     )
     session.add(source_data_rev)
@@ -1498,10 +1505,10 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
         "name": "comments",
         "description": "A fact table with comments",
         "columns": {
-            "id": {"type": "INT"},
-            "user_id": {"type": "INT"},
-            "timestamp": {"type": "TIMESTAMP"},
-            "text": {"type": "STR"},
+            "id": {"type": "int"},
+            "user_id": {"type": "int"},
+            "timestamp": {"type": "timestamp"},
+            "text": {"type": "string"},
         },
         "mode": "published",
         "catalog": "public",

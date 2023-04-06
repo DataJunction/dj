@@ -5,21 +5,25 @@
 #
 #    pip-compile-multi
 #
+--trusted-host pypi.org
+
 -e file:.
     # via -r requirements/test.in
 accept-types==0.4.1
     # via dj
-alembic==1.9.2
+alembic==1.10.2
     # via dj
 amqp==5.1.1
     # via kombu
+antlr4-python3-runtime==4.12.0
+    # via dj
 anyio==3.6.2
     # via
     #   starlette
     #   watchfiles
 asciidag==0.2.0
     # via dj
-astroid==2.13.3
+astroid==2.15.1
     # via pylint
 async-timeout==4.0.2
     # via redis
@@ -29,7 +33,7 @@ billiard==3.6.4.0
     # via celery
 build==0.10.0
     # via pip-tools
-cachelib==0.10.1
+cachelib==0.10.2
     # via dj
 celery==5.2.7
     # via dj
@@ -37,7 +41,7 @@ certifi==2022.12.7
     # via requests
 cfgv==3.3.1
     # via pre-commit
-charset-normalizer==3.0.1
+charset-normalizer==3.1.0
     # via requests
 click==8.1.3
     # via
@@ -52,9 +56,9 @@ click-plugins==1.1.1
     # via celery
 click-repl==0.2.0
     # via celery
-codespell==2.2.2
+codespell==2.2.4
     # via dj
-coverage[toml]==7.1.0
+coverage[toml]==7.2.2
     # via pytest-cov
 dill==0.3.6
     # via pylint
@@ -62,19 +66,17 @@ distlib==0.3.6
     # via virtualenv
 docopt==0.6.2
     # via dj
-exceptiongroup==1.1.0
+exceptiongroup==1.1.1
     # via pytest
 fastapi==0.70.1
     # via dj
-filelock==3.9.0
+filelock==3.10.7
     # via virtualenv
 freezegun==1.2.2
     # via dj
 graphql-core==3.2.3
     # via strawberry-graphql
-greenlet==2.0.2
-    # via sqlalchemy
-identify==2.5.15
+identify==2.5.22
     # via pre-commit
 idna==3.4
     # via
@@ -83,7 +85,7 @@ idna==3.4
     #   yarl
 iniconfig==2.0.0
     # via pytest
-isort==5.11.4
+isort==5.12.0
     # via pylint
 kombu==5.2.4
     # via celery
@@ -91,7 +93,7 @@ lazy-object-proxy==1.9.0
     # via astroid
 mako==1.2.4
     # via alembic
-markdown-it-py==2.1.0
+markdown-it-py==2.2.0
     # via rich
 markupsafe==2.1.2
     # via mako
@@ -99,7 +101,7 @@ mccabe==0.7.0
     # via pylint
 mdurl==0.1.2
     # via markdown-it-py
-msgpack==1.0.4
+msgpack==1.0.5
     # via dj
 multidict==6.0.4
     # via yarl
@@ -109,19 +111,19 @@ packaging==23.0
     # via
     #   build
     #   pytest
-pip-tools==6.12.1
+pip-tools==6.12.3
     # via dj
-platformdirs==2.6.2
+platformdirs==3.2.0
     # via
     #   pylint
     #   virtualenv
 pluggy==1.0.0
     # via pytest
-pre-commit==3.0.0
+pre-commit==3.2.1
     # via dj
-prompt-toolkit==3.0.36
+prompt-toolkit==3.0.38
     # via click-repl
-pydantic==1.10.4
+pydantic==1.10.7
     # via
     #   fastapi
     #   sqlmodel
@@ -131,11 +133,11 @@ pyfakefs==5.1.0
     # via dj
 pygments==2.14.0
     # via rich
-pylint==2.15.10
+pylint==2.17.1
     # via dj
 pyproject-hooks==1.0.0
     # via build
-pytest==7.2.1
+pytest==7.2.2
     # via
     #   dj
     #   pytest-asyncio
@@ -155,13 +157,13 @@ python-dateutil==2.8.2
     #   strawberry-graphql
 python-dotenv==0.19.0
     # via dj
-pytz==2022.7.1
+pytz==2023.3
     # via celery
 pyyaml==6.0
     # via
     #   dj
     #   pre-commit
-redis==4.4.2
+redis==4.5.4
     # via dj
 requests==2.28.2
     # via
@@ -170,7 +172,7 @@ requests==2.28.2
     #   requests-mock
 requests-mock==1.10.0
     # via dj
-rich==13.2.0
+rich==13.3.3
     # via dj
 six==1.16.0
     # via
@@ -179,19 +181,19 @@ six==1.16.0
     #   requests-mock
 sniffio==1.3.0
     # via anyio
-sqlalchemy==1.4.35
+sqlalchemy==1.4.41
     # via
     #   alembic
     #   dj
     #   sqlalchemy-utils
     #   sqlmodel
-sqlalchemy-utils==0.39.0
+sqlalchemy-utils==0.40.0
     # via dj
 sqlalchemy2-stubs==0.0.2a32
     # via sqlmodel
 sqlmodel==0.0.8
     # via dj
-sqloxide==0.1.15
+sqloxide==0.1.30
     # via dj
 sqlparse==0.4.3
     # via dj
@@ -206,32 +208,32 @@ tomli==2.0.1
     #   pylint
     #   pyproject-hooks
     #   pytest
-tomlkit==0.11.6
+tomlkit==0.11.7
     # via pylint
-typing-extensions==4.4.0
+typing-extensions==4.5.0
     # via
+    #   alembic
     #   astroid
     #   dj
     #   pydantic
-    #   pylint
     #   sqlalchemy2-stubs
     #   strawberry-graphql
-urllib3==1.26.14
+urllib3==1.26.15
     # via requests
 vine==5.0.0
     # via
     #   amqp
     #   celery
     #   kombu
-virtualenv==20.17.1
+virtualenv==20.21.0
     # via pre-commit
 watchfiles==0.18.1
     # via dj
 wcwidth==0.2.6
     # via prompt-toolkit
-wheel==0.38.4
+wheel==0.40.0
     # via pip-tools
-wrapt==1.14.1
+wrapt==1.15.0
     # via astroid
 yarl==1.8.2
     # via dj

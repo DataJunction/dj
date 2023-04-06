@@ -6,74 +6,27 @@ Tests for compiling nodes
 import pytest
 from sqlmodel import Session
 
-from dj.construction.compile import compile_node
-from dj.construction.exceptions import CompoundBuildException
-from dj.construction.extract import (
-    extract_dependencies_from_node,
-    extract_dependencies_from_query_ast,
-)
-from dj.construction.utils import make_name
 from dj.errors import DJException
-from dj.models import Column, NodeRevision
+from dj.models import NodeRevision
 from dj.models.node import Node
-from dj.sql.parsing import ast, parse
-from dj.typing import ColumnType
+from dj.sql.parsing.ast import CompileContext
+from dj.sql.parsing.backends.antlr4 import parse
+from dj.sql.parsing.backends.exceptions import DJParseException
 
 
 def test_get_table_node_is_none(construction_session: Session):
     """
     Test a nonexistent table node with compound exception ignore
     """
-    query = parse(
-        "select x from purchases",
-        "hive",
+
+    query = parse("select x from purchases")
+    ctx = CompileContext(
+        session=construction_session,
+        exception=DJException(),
     )
-    CompoundBuildException().reset()
-    CompoundBuildException().set_raise(False)
-    query.compile(construction_session)
-    assert "No node `purchases`" in str(CompoundBuildException().errors)
-    CompoundBuildException().reset()
+    query.compile(ctx)
 
-
-@pytest.mark.parametrize(
-    "namespace,name,expected_make_name",
-    [
-        (ast.Namespace([ast.Name("a"), ast.Name("b"), ast.Name("c")]), "d", "a.b.c.d"),
-        (ast.Namespace([ast.Name("a"), ast.Name("b")]), "node-name", "a.b.node-name"),
-        (ast.Namespace([]), "node-[name]", "node-[name]"),
-        (None, "node-[name]", "node-[name]"),
-        (ast.Namespace([ast.Name("a"), ast.Name("b"), ast.Name("c")]), None, "a.b.c"),
-        (
-            ast.Namespace([ast.Name("a"), ast.Name("b"), ast.Name("c")]),
-            "node&(name)",
-            "a.b.c.node&(name)",
-        ),
-        (
-            ast.Namespace([ast.Name("a"), ast.Name("b"), ast.Name("c")]),
-            "+d",
-            "a.b.c.+d",
-        ),
-        (
-            ast.Namespace([ast.Name("a"), ast.Name("b"), ast.Name("c")]),
-            "-d",
-            "a.b.c.-d",
-        ),
-        (
-            ast.Namespace([ast.Name("a"), ast.Name("b"), ast.Name("c")]),
-            "~~d",
-            "a.b.c.~~d",
-        ),
-    ],
-)
-def test_make_name(
-    namespace: ast.Optional[ast.Namespace],
-    name: str,
-    expected_make_name: str,
-):
-    """
-    Test making names from a namespace and a name
-    """
-    assert make_name(namespace, name) == expected_make_name
+    assert "No node `purchases`" in str(ctx.exception.errors)
 
 
 def test_missing_references(construction_session: Session):
@@ -81,10 +34,12 @@ def test_missing_references(construction_session: Session):
     Test getting dependencies from a query that has dangling references
     """
     query = parse("select a, b, c from does_not_exist")
-    _, _, missing_references = extract_dependencies_from_query_ast(
+    exception = DJException()
+    context = CompileContext(
         session=construction_session,
-        query=query,
+        exception=exception,
     )
+    _, missing_references = query.extract_dependencies(context)
     assert missing_references
 
 
@@ -93,32 +48,22 @@ def test_catching_dangling_refs_in_extract_dependencies(construction_session: Se
     Test getting dependencies from a query that has dangling references when set not to raise
     """
     query = parse("select a, b, c from does_not_exist")
-    _, _, danglers = extract_dependencies_from_query_ast(
+    exception = DJException()
+    context = CompileContext(
         session=construction_session,
-        query=query,
+        exception=exception,
     )
+    _, danglers = query.extract_dependencies(context)
     assert "does_not_exist" in danglers
 
 
-def test_raising_on_extract_from_node_with_no_query(construction_session: Session):
+def test_raising_on_extract_from_node_with_no_query():
     """
-    Test getting dependencies from a query that has dangling references when set not to raise
+    Test parsing an empty query fails
     """
-    node_foo = NodeRevision(
-        name="foo",
-        columns=[
-            Column(name="ds", type=ColumnType.TIMESTAMP),
-            Column(name="user_id", type=ColumnType.INT),
-            Column(name="foo", type=ColumnType.FLOAT),
-        ],
-    )
-    with pytest.raises(DJException) as exc_info:
-        extract_dependencies_from_node(
-            session=construction_session,
-            node=node_foo,
-        )
-
-    assert "Node has no query to extract from." in str(exc_info.value)
+    with pytest.raises(DJParseException) as exc_info:
+        parse(None)
+    assert "Empty query provided!" in str(exc_info.value)
 
 
 def test_raise_on_unnamed_subquery_in_implicit_join(construction_session: Session):
@@ -129,11 +74,15 @@ def test_raise_on_unnamed_subquery_in_implicit_join(construction_session: Sessio
         "SELECT country FROM basic.transform.country_agg, "
         "(SELECT country FROM basic.transform.country_agg)",
     )
-    with pytest.raises(DJException) as exc_info:
-        query.compile(
-            session=construction_session,
-        )
-    assert "You may only use an unnamed subquery alone for" in str(exc_info.value)
+
+    context = CompileContext(
+        session=construction_session,
+        exception=DJException(),
+    )
+    query.extract_dependencies(context)
+    assert "Column `country` found in multiple tables. Consider namespacing." in str(
+        context.exception.errors,
+    )
 
 
 def test_raise_on_ambiguous_column(construction_session: Session):
@@ -144,12 +93,13 @@ def test_raise_on_ambiguous_column(construction_session: Session):
         "SELECT country FROM basic.transform.country_agg a "
         "LEFT JOIN basic.dimension.countries b on a.country = b.country",
     )
-    with pytest.raises(DJException) as exc_info:
-        query.compile(
-            session=construction_session,
-        )
-    assert "`country` appears in multiple references and so must be namespaced" in str(
-        exc_info.value,
+    context = CompileContext(
+        session=construction_session,
+        exception=DJException(),
+    )
+    query.compile(context)
+    assert "Column `country` found in multiple tables. Consider namespacing." in str(
+        context.exception.errors,
     )
 
 
@@ -163,7 +113,9 @@ def test_compile_node(construction_session: Session):
         version="1",
         query="SELECT country FROM basic.transform.country_agg",
     )
-    compile_node(session=construction_session, node=node_a_rev)
+    query_ast = parse(node_a_rev.query)
+    ctx = CompileContext(session=construction_session, exception=DJException())
+    query_ast.compile(ctx)
 
 
 def test_raise_on_compile_node_with_no_query(construction_session: Session):
@@ -174,9 +126,11 @@ def test_raise_on_compile_node_with_no_query(construction_session: Session):
     node_a_rev = NodeRevision(node=node_a, version="1")
 
     with pytest.raises(DJException) as exc_info:
-        compile_node(session=construction_session, node=node_a_rev)
+        query_ast = parse(node_a_rev.query)
+        ctx = CompileContext(session=construction_session, exception=DJException())
+        query_ast.compile(ctx)
 
-    assert "Cannot compile node `A` with no query" in str(exc_info.value)
+    assert "Empty query provided" in str(exc_info.value)
 
 
 def test_raise_on_unjoinable_automatic_dimension_groupby(construction_session: Session):
@@ -193,11 +147,15 @@ def test_raise_on_unjoinable_automatic_dimension_groupby(construction_session: S
         ),
     )
 
-    with pytest.raises(DJException) as exc_info:
-        compile_node(session=construction_session, node=node_a_rev)
+    query_ast = parse(node_a_rev.query)
+    ctx = CompileContext(session=construction_session, exception=DJException())
+    query_ast.compile(ctx)
 
-    assert "Dimension `basic.dimension.countries` is not joinable" in str(
-        exc_info.value,
+    assert (
+        "Column`basic.dimension.countries.country` does not exist on any valid table."
+        in str(
+            ctx.exception.errors,
+        )
     )
 
 
@@ -214,10 +172,11 @@ def test_raise_on_having_without_a_groupby(construction_session: Session):
         ),
     )
 
-    with pytest.raises(DJException) as exc_info:
-        compile_node(session=construction_session, node=node_a_rev)
+    query_ast = parse(node_a_rev.query)
+    ctx = CompileContext(session=construction_session, exception=DJException())
+    query_ast.compile(ctx)
 
-    assert "HAVING without a GROUP BY is not allowed" in str(exc_info.value)
+    assert "HAVING without a GROUP BY is not allowed" in str(ctx.exception.errors)
 
 
 def test_having(construction_session: Session):
@@ -234,4 +193,6 @@ def test_having(construction_session: Session):
             "HAVING dbt.dimension.customers.id=1"
         ),
     )
-    compile_node(session=construction_session, node=node_a_rev)
+    query_ast = parse(node_a_rev.query)
+    ctx = CompileContext(session=construction_session, exception=DJException())
+    query_ast.compile(ctx)

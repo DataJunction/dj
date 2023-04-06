@@ -9,7 +9,7 @@ from dj.models.column import Column
 from dj.models.database import Database
 from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.table import Table
-from dj.typing import ColumnType
+from dj.sql.parsing.types import FloatType, IntegerType, StringType
 
 
 def test_read_metrics(client_with_examples: TestClient) -> None:
@@ -39,26 +39,26 @@ def test_read_metric(session: Session, client: TestClient) -> None:
                 database=Database(name="test", URI="sqlite://"),
                 table="A",
                 columns=[
-                    Column(name="ds", type=ColumnType.STR),
-                    Column(name="user_id", type=ColumnType.INT),
-                    Column(name="foo", type=ColumnType.FLOAT),
+                    Column(name="ds", type=StringType()),
+                    Column(name="user_id", type=IntegerType()),
+                    Column(name="foo", type=FloatType()),
                 ],
             ),
         ],
         columns=[
             Column(
                 name="ds",
-                type=ColumnType.STR,
+                type=StringType(),
                 attributes=[ColumnAttribute(attribute_type=dimension_attribute)],
             ),
             Column(
                 name="user_id",
-                type=ColumnType.INT,
+                type=IntegerType(),
                 attributes=[ColumnAttribute(attribute_type=dimension_attribute)],
             ),
             Column(
                 name="foo",
-                type=ColumnType.FLOAT,
+                type=FloatType(),
                 attributes=[ColumnAttribute(attribute_type=dimension_attribute)],
             ),
         ],
@@ -160,7 +160,6 @@ def test_common_dimensions(
             "municipality_dim.municipality_id",
             "municipality_dim.municipality_type_desc",
             "municipality_dim.municipality_type_id",
-            "municipality_dim.phone",
             "municipality_dim.state_id",
             "repair_order.dispatched_date",
             "repair_order.dispatcher_id",
@@ -246,7 +245,6 @@ def test_get_dimensions(client_with_examples: TestClient):
         "municipality_dim.municipality_id",
         "municipality_dim.municipality_type_desc",
         "municipality_dim.municipality_type_id",
-        "municipality_dim.phone",
         "municipality_dim.state_id",
         "repair_order.dispatched_date",
         "repair_order.dispatcher_id",

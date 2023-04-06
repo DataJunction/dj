@@ -5,7 +5,7 @@ from starlette.testclient import TestClient
 
 from dj.models import Column, Database, Node
 from dj.models.node import NodeRevision, NodeType
-from dj.typing import ColumnType
+from dj.sql.parsing.types import StringType
 from tests.sql.utils import compare_query_strings
 
 
@@ -25,7 +25,7 @@ def test_sql(
         version="1",
         schema_="rev",
         table="my_table",
-        columns=[Column(name="one", type=ColumnType["STR"])],
+        columns=[Column(name="one", type=StringType())],
         type=NodeType.SOURCE,
     )
 
@@ -44,7 +44,7 @@ def test_sql(
 
     response = client.get("/sql/a-metric/")
     assert response.json() == {
-        "sql": 'SELECT  COUNT(*) AS col0 \n FROM "rev"."my_table" AS my_table',
+        "sql": "SELECT  COUNT(*) col0 \n FROM rev.my_table AS my_table\n",
     }
 
 
@@ -57,31 +57,30 @@ def test_sql(
             [],
             ["hard_hat.state='CA'"],
             """
-            SELECT  repair_orders.repair_order_id,
-                repair_orders.municipality_id,
+            SELECT  repair_orders.dispatched_date,
+                repair_orders.dispatcher_id,
                 repair_orders.hard_hat_id,
+                repair_orders.municipality_id,
                 repair_orders.order_date,
-                repair_orders.required_date,
-                repair_orders.dispatched_date,
-                repair_orders.dispatcher_id
-             FROM "roads"."repair_orders" AS repair_orders
-            LEFT JOIN (SELECT  hard_hats.hard_hat_id,
-                hard_hats.last_name,
-                hard_hats.first_name,
-                hard_hats.title,
-                hard_hats.birth_date,
-                hard_hats.hire_date,
-                hard_hats.address,
-                hard_hats.city,
-                hard_hats.state,
-                hard_hats.postal_code,
-                hard_hats.country,
-                hard_hats.manager,
-                hard_hats.contractor_id
-             FROM "roads"."hard_hats" AS hard_hats
+                repair_orders.repair_order_id,
+                repair_orders.required_date
+             FROM roads.repair_orders AS repair_orders LEFT OUTER  JOIN (
 
-            ) AS hard_hat
-                    ON repair_orders.hard_hat_id = hard_hat.hard_hat_id
+            SELECT  hard_hats.address,
+                hard_hats.birth_date,
+                hard_hats.city,
+                hard_hats.contractor_id,
+                hard_hats.country,
+                hard_hats.first_name,
+                hard_hats.hard_hat_id,
+                hard_hats.hire_date,
+                hard_hats.last_name,
+                hard_hats.manager,
+                hard_hats.postal_code,
+                hard_hats.state,
+                hard_hats.title
+             FROM roads.hard_hats AS hard_hats
+            ) AS hard_hat ON repair_orders.hard_hat_id = hard_hat.hard_hat_id
              WHERE  hard_hat.state = 'CA'
             """,
         ),
@@ -91,16 +90,18 @@ def test_sql(
             [],
             ["repair_orders.order_date='2009-08-14'"],
             """
-                SELECT  repair_orders.repair_order_id,
-                    repair_orders.municipality_id,
-                    repair_orders.hard_hat_id,
-                    repair_orders.order_date,
-                    repair_orders.required_date,
-                    repair_orders.dispatched_date,
-                    repair_orders.dispatcher_id
-                 FROM "roads"."repair_orders" AS repair_orders
-                 WHERE  repair_orders.order_date = '2009-08-14'
-                """,
+            SELECT
+              repair_orders.repair_order_id,
+              repair_orders.municipality_id,
+              repair_orders.hard_hat_id,
+              repair_orders.order_date,
+              repair_orders.required_date,
+              repair_orders.dispatched_date,
+              repair_orders.dispatcher_id
+            FROM roads.repair_orders AS repair_orders
+            WHERE
+              repair_orders.order_date = '2009-08-14'
+            """,
         ),
         # querying transform node with filters on joinable dimension
         (
@@ -108,18 +109,24 @@ def test_sql(
             [],
             ["country_dim.events_cnt >= 20"],
             """
-            SELECT  event_source.event_id,
-                event_source.event_latency,
-                event_source.device_id,
-                event_source.country
-            FROM "logs"."log_events" AS event_source
-            LEFT JOIN (SELECT  event_source.country,
+            SELECT
+              event_source.event_id,
+              event_source.event_latency,
+              event_source.device_id,
+              event_source.country
+            FROM logs.log_events AS event_source
+            LEFT OUTER JOIN (
+              SELECT
+                event_source.country,
                 COUNT(DISTINCT event_source.event_id) AS events_cnt
-             FROM "logs"."log_events" AS event_source
-
-             GROUP BY  event_source.country) AS country_dim
+              FROM logs.log_events AS event_source
+              GROUP BY
+                event_source.country
+            ) AS country_dim
                     ON event_source.country = country_dim.country
-             WHERE  event_source.event_latency > 1000000 AND country_dim.events_cnt >= 20
+             WHERE
+               event_source.event_latency > 1000000 AND
+               country_dim.events_cnt >= 20
             """,
         ),
         # querying transform node with filters directly on the node
@@ -133,7 +140,7 @@ def test_sql(
               event_source.event_latency,
               event_source.device_id,
               event_source.country
-            FROM "logs"."log_events" AS event_source
+            FROM logs.log_events AS event_source
             WHERE event_source.event_latency > 1000000 AND event_source.device_id = 'Android'
             """,
         ),
@@ -142,56 +149,60 @@ def test_sql(
             [],
             ["state_id = 'CA'"],
             """
-            SELECT  municipality.municipality_id,
-                municipality.contact_name,
-                municipality.contact_title,
-                municipality.local_region,
-                municipality.phone,
-                municipality.state_id,
-                municipality_municipality_type.municipality_type_id,
-                municipality_type.municipality_type_desc
-             FROM "roads"."municipality" AS municipality
-            LEFT JOIN "roads"."municipality_municipality_type" AS municipality_municipality_type
-                    ON municipality.municipality_id = municipality_municipality_type.municipality_id
-            LEFT JOIN "roads"."municipality_type" AS municipality_type
-                    ON municipality_municipality_type.municipality_type_id
-                        = municipality_type.municipality_type_desc
-             WHERE  municipality.state_id = 'CA'
-            """,
+            SELECT
+              municipality.contact_name,
+              municipality.contact_title,
+              municipality.local_region,
+              municipality.municipality_id,
+              municipality_municipality_type.municipality_type_id,
+              municipality_type.municipality_type_desc,
+              municipality.state_id
+            FROM roads.municipality AS municipality
+            LEFT JOIN roads.municipality_municipality_type AS municipality_municipality_type
+            ON municipality.municipality_id = municipality_municipality_type.municipality_id
+            LEFT JOIN roads.municipality_type AS municipality_type
+            ON municipality_municipality_type.municipality_type_id
+               = municipality_type.municipality_type_desc
+            WHERE
+              municipality.state_id = 'CA'""",
         ),
         (
             "num_repair_orders",
             [],
             [],
-            """SELECT  count(repair_orders.repair_order_id) AS num_repair_orders
-               FROM "roads"."repair_orders" AS repair_orders
+            """
+            SELECT
+              count(repair_orders.repair_order_id) AS num_repair_orders
+            FROM roads.repair_orders AS repair_orders
             """,
         ),
         (
             "num_repair_orders",
             ["hard_hat.state"],
             ["repair_orders.dispatcher_id=1", "hard_hat.state='AZ'"],
-            """SELECT  count(repair_orders.repair_order_id) AS num_repair_orders,
-                 hard_hat.state
-               FROM "roads"."repair_orders" AS repair_orders
-               LEFT JOIN (SELECT  hard_hats.address,
-                 hard_hats.birth_date,
-                 hard_hats.city,
-                 hard_hats.contractor_id,
-                 hard_hats.country,
-                 hard_hats.first_name,
-                 hard_hats.hard_hat_id,
-                 hard_hats.hire_date,
-                 hard_hats.last_name,
-                 hard_hats.manager,
-                 hard_hats.postal_code,
-                 hard_hats.state,
-                 hard_hats.title
-               FROM "roads"."hard_hats" AS hard_hats
-            ) AS hard_hat
-                    ON repair_orders.hard_hat_id = hard_hat.hard_hat_id
+            """
+            SELECT  hard_hat.state,
+                count(repair_orders.repair_order_id) AS num_repair_orders
+             FROM roads.repair_orders AS repair_orders LEFT OUTER  JOIN (
+
+            SELECT  hard_hats.address,
+                hard_hats.birth_date,
+                hard_hats.city,
+                hard_hats.contractor_id,
+                hard_hats.country,
+                hard_hats.first_name,
+                hard_hats.hard_hat_id,
+                hard_hats.hire_date,
+                hard_hats.last_name,
+                hard_hats.manager,
+                hard_hats.postal_code,
+                hard_hats.state,
+                hard_hats.title
+             FROM roads.hard_hats AS hard_hats
+            ) AS hard_hat ON repair_orders.hard_hat_id = hard_hat.hard_hat_id
              WHERE  repair_orders.dispatcher_id = 1 AND hard_hat.state = 'AZ'
-             GROUP BY  hard_hat.state""",
+             GROUP BY  hard_hat.state
+            """,
         ),
         (
             "num_repair_orders",
@@ -207,56 +218,165 @@ def test_sql(
                 "dispatcher.phone = '4082021022'",
                 "repair_orders.order_date >= '2020-01-01'",
             ],
-            """SELECT  count(repair_orders.repair_order_id) AS num_repair_orders,
-                hard_hat.city,
-                municipality_dim.local_region,
-                dispatcher.company_name,
-                hard_hat.last_name
-             FROM "roads"."repair_orders" AS repair_orders
-            LEFT JOIN (SELECT  hard_hats.hard_hat_id,
-                hard_hats.last_name,
-                hard_hats.first_name,
-                hard_hats.title,
-                hard_hats.birth_date,
-                hard_hats.hire_date,
-                hard_hats.address,
-                hard_hats.city,
-                hard_hats.state,
-                hard_hats.postal_code,
-                hard_hats.country,
-                hard_hats.manager,
-                hard_hats.contractor_id
-             FROM "roads"."hard_hats" AS hard_hats
-
-            ) AS hard_hat
-                    ON repair_orders.hard_hat_id = hard_hat.hard_hat_id
-            LEFT JOIN (SELECT  dispatchers.dispatcher_id,
+            """
+            SELECT
+              dispatcher.company_name,
+              hard_hat.city,
+              hard_hat.last_name,
+              municipality_dim.local_region,
+              count(repair_orders.repair_order_id) AS num_repair_orders
+            FROM roads.repair_orders AS repair_orders
+            LEFT OUTER JOIN (
+              SELECT
                 dispatchers.company_name,
+                dispatchers.dispatcher_id,
                 dispatchers.phone
-             FROM "roads"."dispatchers" AS dispatchers
-
+              FROM roads.dispatchers AS dispatchers
             ) AS dispatcher
-                    ON repair_orders.dispatcher_id = dispatcher.dispatcher_id
-            LEFT JOIN (SELECT  municipality.municipality_id,
+              ON repair_orders.dispatcher_id = dispatcher.dispatcher_id
+            LEFT OUTER JOIN (
+              SELECT
+                hard_hats.address,
+                hard_hats.birth_date,
+                hard_hats.city,
+                hard_hats.contractor_id,
+                hard_hats.country,
+                hard_hats.first_name,
+                hard_hats.hard_hat_id,
+                hard_hats.hire_date,
+                hard_hats.last_name,
+                hard_hats.manager,
+                hard_hats.postal_code,
+                hard_hats.state,
+                hard_hats.title
+              FROM roads.hard_hats AS hard_hats
+            ) AS hard_hat
+              ON repair_orders.hard_hat_id = hard_hat.hard_hat_id
+            LEFT OUTER JOIN (
+              SELECT
                 municipality.contact_name,
                 municipality.contact_title,
                 municipality.local_region,
-                municipality.phone,
-                municipality.state_id,
+                municipality.municipality_id,
                 municipality_municipality_type.municipality_type_id,
-                municipality_type.municipality_type_desc
-             FROM "roads"."municipality" AS municipality
-            LEFT JOIN "roads"."municipality_municipality_type" AS municipality_municipality_type
-                    ON municipality.municipality_id = municipality_municipality_type.municipality_id
-            LEFT JOIN "roads"."municipality_type" AS municipality_type
-                    ON municipality_municipality_type.municipality_type_id
-                    = municipality_type.municipality_type_desc
+                municipality_type.municipality_type_desc,
+                municipality.state_id
+              FROM roads.municipality AS municipality
+              LEFT JOIN roads.municipality_municipality_type AS municipality_municipality_type
+                ON municipality.municipality_id =
+                   municipality_municipality_type.municipality_id
+              LEFT JOIN roads.municipality_type AS municipality_type
+                ON municipality_municipality_type.municipality_type_id =
+                   municipality_type.municipality_type_desc
             ) AS municipality_dim
-                    ON repair_orders.municipality_id = municipality_dim.municipality_id
-             WHERE  repair_orders.dispatcher_id = 1 AND hard_hat.state <> 'AZ'
-                AND dispatcher.phone = '4082021022' AND repair_orders.order_date >= '2020-01-01'
-             GROUP BY  hard_hat.city, hard_hat.last_name, dispatcher.company_name,
-             municipality_dim.local_region""",
+              ON repair_orders.municipality_id = municipality_dim.municipality_id
+            WHERE
+              repair_orders.dispatcher_id = 1
+              AND hard_hat.state != 'AZ'
+              AND dispatcher.phone = '4082021022'
+              AND repair_orders.order_date >= '2020-01-01'
+            GROUP BY
+              hard_hat.city,
+              hard_hat.last_name,
+              dispatcher.company_name,
+              municipality_dim.local_region
+            """,
+        ),
+        # metric with second-order dimension
+        (
+            "avg_repair_price",
+            ["hard_hat.city"],
+            [],
+            """
+            SELECT
+              avg(repair_order_details.price) AS avg_repair_price,
+              hard_hat.city
+            FROM roads.repair_order_details AS repair_order_details
+            LEFT OUTER  JOIN (
+              SELECT
+                repair_orders.dispatched_date,
+                repair_orders.dispatcher_id,
+                repair_orders.hard_hat_id,
+                repair_orders.municipality_id,
+                repair_orders.order_date,
+                repair_orders.repair_order_id,
+                repair_orders.required_date
+              FROM roads.repair_orders AS repair_orders
+            ) AS repair_order
+              ON repair_order_details.repair_order_id =
+                 repair_order.repair_order_id
+            LEFT OUTER JOIN (
+              SELECT
+                hard_hats.address,
+                hard_hats.birth_date,
+                hard_hats.city,
+                hard_hats.contractor_id,
+                hard_hats.country,
+                hard_hats.first_name,
+                hard_hats.hard_hat_id,
+                hard_hats.hire_date,
+                hard_hats.last_name,
+                hard_hats.manager,
+                hard_hats.postal_code,
+                hard_hats.state,
+                hard_hats.title
+              FROM roads.hard_hats AS hard_hats
+            ) AS hard_hat
+              ON repair_order.hard_hat_id = hard_hat.hard_hat_id
+            GROUP BY
+              hard_hat.city
+            """,
+        ),
+        # metric with multiple nth order dimensions that can share some of the joins
+        (
+            "avg_repair_price",
+            ["hard_hat.city", "dispatcher.company_name"],
+            [],
+            """
+            SELECT
+              avg(repair_order_details.price) AS avg_repair_price,
+              dispatcher.company_name,
+              hard_hat.city
+            FROM roads.repair_order_details AS repair_order_details
+            LEFT OUTER JOIN (
+              SELECT
+                repair_orders.dispatched_date,
+                repair_orders.dispatcher_id,
+                repair_orders.hard_hat_id,
+                repair_orders.municipality_id,
+                repair_orders.order_date,
+                repair_orders.repair_order_id,
+                repair_orders.required_date
+              FROM roads.repair_orders AS repair_orders
+            ) AS repair_order ON repair_order_details.repair_order_id = repair_order.repair_order_id
+            LEFT OUTER JOIN (
+              SELECT
+                dispatchers.company_name,
+                dispatchers.dispatcher_id,
+                dispatchers.phone
+              FROM roads.dispatchers AS dispatchers
+            ) AS dispatcher ON repair_order.dispatcher_id = dispatcher.dispatcher_id
+            LEFT OUTER JOIN (
+              SELECT
+                hard_hats.address,
+                hard_hats.birth_date,
+                hard_hats.city,
+                hard_hats.contractor_id,
+                hard_hats.country,
+                hard_hats.first_name,
+                hard_hats.hard_hat_id,
+                hard_hats.hire_date,
+                hard_hats.last_name,
+                hard_hats.manager,
+                hard_hats.postal_code,
+                hard_hats.state,
+                hard_hats.title
+              FROM roads.hard_hats AS hard_hats
+            ) AS hard_hat ON repair_order.hard_hat_id = hard_hat.hard_hat_id
+            GROUP BY
+              hard_hat.city,
+              dispatcher.company_name
+            """,
         ),
     ],
 )
@@ -268,13 +388,293 @@ def test_sql_with_filters(
     client_with_examples: TestClient,
 ):
     """
-    Test ``GET /sqk/{node_name}/`` with various filters and dimensions.
-    The cases to cover include:
-    * filters from
+    Test ``GET /sql/{node_name}/`` with various filters and dimensions.
     """
     response = client_with_examples.get(
         f"/sql/{node_name}/",
         params={"dimensions": dimensions, "filters": filters},
+    )
+    data = response.json()
+    print("DATA", data["sql"])
+    assert compare_query_strings(data["sql"], sql)
+
+
+@pytest.mark.parametrize(
+    "node_name, dimensions, filters, sql",
+    [
+        # querying on source node with filter on joinable dimension
+        (
+            "foo.bar.repair_orders",
+            [],
+            ["foo.bar.hard_hat.state='CA'"],
+            """
+            SELECT
+              foo_DOT_bar_DOT_repair_orders.dispatched_date,
+              foo_DOT_bar_DOT_repair_orders.dispatcher_id,
+              foo_DOT_bar_DOT_repair_orders.hard_hat_id,
+              foo_DOT_bar_DOT_repair_orders.municipality_id,
+              foo_DOT_bar_DOT_repair_orders.order_date,
+              foo_DOT_bar_DOT_repair_orders.repair_order_id,
+              foo_DOT_bar_DOT_repair_orders.required_date
+            FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+            LEFT OUTER JOIN (
+              SELECT
+                foo_DOT_bar_DOT_hard_hats.address,
+                foo_DOT_bar_DOT_hard_hats.birth_date,
+                foo_DOT_bar_DOT_hard_hats.city,
+                foo_DOT_bar_DOT_hard_hats.contractor_id,
+                foo_DOT_bar_DOT_hard_hats.country,
+                foo_DOT_bar_DOT_hard_hats.first_name,
+                foo_DOT_bar_DOT_hard_hats.hard_hat_id,
+                foo_DOT_bar_DOT_hard_hats.hire_date,
+                foo_DOT_bar_DOT_hard_hats.last_name,
+                foo_DOT_bar_DOT_hard_hats.manager,
+                foo_DOT_bar_DOT_hard_hats.postal_code,
+                foo_DOT_bar_DOT_hard_hats.state,
+                foo_DOT_bar_DOT_hard_hats.title
+              FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats
+            ) AS foo_DOT_bar_DOT_hard_hat
+            ON foo_DOT_bar_DOT_repair_orders.hard_hat_id =
+               foo_DOT_bar_DOT_hard_hat.hard_hat_id
+            WHERE  foo_DOT_bar_DOT_hard_hat.state = 'CA'
+            """,
+        ),
+        # querying source node with filters directly on the node
+        (
+            "foo.bar.repair_orders",
+            [],
+            ["foo.bar.repair_orders.order_date='2009-08-14'"],
+            """
+            SELECT
+              foo_DOT_bar_DOT_repair_orders.dispatched_date,
+              foo_DOT_bar_DOT_repair_orders.dispatcher_id,
+              foo_DOT_bar_DOT_repair_orders.hard_hat_id,
+              foo_DOT_bar_DOT_repair_orders.municipality_id,
+              foo_DOT_bar_DOT_repair_orders.order_date,
+              foo_DOT_bar_DOT_repair_orders.repair_order_id,
+              foo_DOT_bar_DOT_repair_orders.required_date
+            FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+            WHERE
+              foo_DOT_bar_DOT_repair_orders.order_date = '2009-08-14'
+            """,
+        ),
+        (
+            "foo.bar.municipality_dim",
+            [],
+            ["state_id = 'CA'"],
+            """
+            SELECT
+              foo_DOT_bar_DOT_municipality.contact_name,
+              foo_DOT_bar_DOT_municipality.contact_title,
+              foo_DOT_bar_DOT_municipality.local_region,
+              foo_DOT_bar_DOT_municipality.municipality_id,
+              foo_DOT_bar_DOT_municipality_municipality_type.municipality_type_id,
+              foo_DOT_bar_DOT_municipality_type.municipality_type_desc,
+              foo_DOT_bar_DOT_municipality.state_id
+            FROM roads.municipality AS foo_DOT_bar_DOT_municipality
+            LEFT JOIN roads.municipality_municipality_type
+              AS foo_DOT_bar_DOT_municipality_municipality_type
+              ON foo_DOT_bar_DOT_municipality.municipality_id =
+                 foo_DOT_bar_DOT_municipality_municipality_type.municipality_id
+            LEFT JOIN roads.municipality_type
+              AS foo_DOT_bar_DOT_municipality_type
+              ON foo_DOT_bar_DOT_municipality_municipality_type.municipality_type_id =
+                 foo_DOT_bar_DOT_municipality_type.municipality_type_desc
+            WHERE
+              foo_DOT_bar_DOT_municipality.state_id = 'CA'
+            """,
+        ),
+        (
+            "foo.bar.num_repair_orders",
+            [],
+            [],
+            """
+            SELECT
+              count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS num_repair_orders
+            FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+            """,
+        ),
+        (
+            "foo.bar.num_repair_orders",
+            ["foo.bar.hard_hat.state"],
+            ["foo.bar.repair_orders.dispatcher_id=1", "foo.bar.hard_hat.state='AZ'"],
+            """
+            SELECT
+              foo_DOT_bar_DOT_hard_hat.state,
+              count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS num_repair_orders
+            FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+            LEFT OUTER JOIN (
+              SELECT
+                foo_DOT_bar_DOT_hard_hats.address,
+                foo_DOT_bar_DOT_hard_hats.birth_date,
+                foo_DOT_bar_DOT_hard_hats.city,
+                foo_DOT_bar_DOT_hard_hats.contractor_id,
+                foo_DOT_bar_DOT_hard_hats.country,
+                foo_DOT_bar_DOT_hard_hats.first_name,
+                foo_DOT_bar_DOT_hard_hats.hard_hat_id,
+                foo_DOT_bar_DOT_hard_hats.hire_date,
+                foo_DOT_bar_DOT_hard_hats.last_name,
+                foo_DOT_bar_DOT_hard_hats.manager,
+                foo_DOT_bar_DOT_hard_hats.postal_code,
+                foo_DOT_bar_DOT_hard_hats.state,
+                foo_DOT_bar_DOT_hard_hats.title
+              FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats
+            ) AS foo_DOT_bar_DOT_hard_hat
+              ON foo_DOT_bar_DOT_repair_orders.hard_hat_id =
+                 foo_DOT_bar_DOT_hard_hat.hard_hat_id
+            WHERE
+              foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
+              AND foo_DOT_bar_DOT_hard_hat.state = 'AZ'
+            GROUP BY
+              foo_DOT_bar_DOT_hard_hat.state
+            """,
+        ),
+        (
+            "foo.bar.num_repair_orders",
+            [
+                "foo.bar.hard_hat.city",
+                "foo.bar.hard_hat.last_name",
+                "foo.bar.dispatcher.company_name",
+                "foo.bar.municipality_dim.local_region",
+            ],
+            [
+                "foo.bar.repair_orders.dispatcher_id=1",
+                "foo.bar.hard_hat.state != 'AZ'",
+                "foo.bar.dispatcher.phone = '4082021022'",
+                "foo.bar.repair_orders.order_date >= '2020-01-01'",
+            ],
+            """
+            SELECT
+              foo_DOT_bar_DOT_dispatcher.company_name,
+              foo_DOT_bar_DOT_hard_hat.city,
+              foo_DOT_bar_DOT_hard_hat.last_name,
+              foo_DOT_bar_DOT_municipality_dim.local_region,
+              count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS num_repair_orders
+            FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+            LEFT OUTER JOIN (
+              SELECT
+                foo_DOT_bar_DOT_dispatchers.company_name,
+                foo_DOT_bar_DOT_dispatchers.dispatcher_id,
+                foo_DOT_bar_DOT_dispatchers.phone
+              FROM roads.dispatchers AS foo_DOT_bar_DOT_dispatchers
+            ) AS foo_DOT_bar_DOT_dispatcher
+              ON foo_DOT_bar_DOT_repair_orders.dispatcher_id =
+                 foo_DOT_bar_DOT_dispatcher.dispatcher_id
+            LEFT OUTER JOIN (
+              SELECT
+                foo_DOT_bar_DOT_hard_hats.address,
+                foo_DOT_bar_DOT_hard_hats.birth_date,
+                foo_DOT_bar_DOT_hard_hats.city,
+                foo_DOT_bar_DOT_hard_hats.contractor_id,
+                foo_DOT_bar_DOT_hard_hats.country,
+                foo_DOT_bar_DOT_hard_hats.first_name,
+                foo_DOT_bar_DOT_hard_hats.hard_hat_id,
+                foo_DOT_bar_DOT_hard_hats.hire_date,
+                foo_DOT_bar_DOT_hard_hats.last_name,
+                foo_DOT_bar_DOT_hard_hats.manager,
+                foo_DOT_bar_DOT_hard_hats.postal_code,
+                foo_DOT_bar_DOT_hard_hats.state,
+                foo_DOT_bar_DOT_hard_hats.title
+              FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats
+            ) AS foo_DOT_bar_DOT_hard_hat
+              ON foo_DOT_bar_DOT_repair_orders.hard_hat_id =
+                 foo_DOT_bar_DOT_hard_hat.hard_hat_id
+            LEFT OUTER JOIN (
+              SELECT
+                foo_DOT_bar_DOT_municipality.contact_name,
+                foo_DOT_bar_DOT_municipality.contact_title,
+                foo_DOT_bar_DOT_municipality.local_region,
+                foo_DOT_bar_DOT_municipality.municipality_id,
+                foo_DOT_bar_DOT_municipality_municipality_type.municipality_type_id,
+                foo_DOT_bar_DOT_municipality_type.municipality_type_desc,
+                foo_DOT_bar_DOT_municipality.state_id
+              FROM roads.municipality AS foo_DOT_bar_DOT_municipality
+              LEFT JOIN roads.municipality_municipality_type
+                AS foo_DOT_bar_DOT_municipality_municipality_type
+                ON foo_DOT_bar_DOT_municipality.municipality_id =
+                   foo_DOT_bar_DOT_municipality_municipality_type.municipality_id
+              LEFT JOIN roads.municipality_type AS foo_DOT_bar_DOT_municipality_type
+                ON foo_DOT_bar_DOT_municipality_municipality_type.municipality_type_id =
+                   foo_DOT_bar_DOT_municipality_type.municipality_type_desc
+            ) AS foo_DOT_bar_DOT_municipality_dim
+              ON foo_DOT_bar_DOT_repair_orders.municipality_id =
+                 foo_DOT_bar_DOT_municipality_dim.municipality_id
+            WHERE
+              foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
+              AND foo_DOT_bar_DOT_hard_hat.state != 'AZ'
+              AND foo_DOT_bar_DOT_dispatcher.phone = '4082021022'
+              AND foo_DOT_bar_DOT_repair_orders.order_date >= '2020-01-01'
+            GROUP BY
+              foo_DOT_bar_DOT_hard_hat.city,
+              foo_DOT_bar_DOT_hard_hat.last_name,
+              foo_DOT_bar_DOT_dispatcher.company_name,
+              foo_DOT_bar_DOT_municipality_dim.local_region
+            """,
+        ),
+        (
+            "foo.bar.avg_repair_price",
+            ["foo.bar.hard_hat.city"],
+            [],
+            """
+            SELECT
+              avg(foo_DOT_bar_DOT_repair_order_details.price) AS avg_repair_price,
+              foo_DOT_bar_DOT_hard_hat.city
+            FROM roads.repair_order_details AS foo_DOT_bar_DOT_repair_order_details
+            LEFT OUTER JOIN (
+              SELECT
+                foo_DOT_bar_DOT_repair_orders.dispatched_date,
+                foo_DOT_bar_DOT_repair_orders.dispatcher_id,
+                foo_DOT_bar_DOT_repair_orders.hard_hat_id,
+                foo_DOT_bar_DOT_repair_orders.municipality_id,
+                foo_DOT_bar_DOT_repair_orders.order_date,
+                foo_DOT_bar_DOT_repair_orders.repair_order_id,
+                foo_DOT_bar_DOT_repair_orders.required_date
+              FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+            ) AS foo_DOT_bar_DOT_repair_order
+            ON foo_DOT_bar_DOT_repair_order_details.repair_order_id =
+               foo_DOT_bar_DOT_repair_order.repair_order_id
+            LEFT OUTER JOIN (
+              SELECT
+                foo_DOT_bar_DOT_hard_hats.address,
+                foo_DOT_bar_DOT_hard_hats.birth_date,
+                foo_DOT_bar_DOT_hard_hats.city,
+                foo_DOT_bar_DOT_hard_hats.contractor_id,
+                foo_DOT_bar_DOT_hard_hats.country,
+                foo_DOT_bar_DOT_hard_hats.first_name,
+                foo_DOT_bar_DOT_hard_hats.hard_hat_id,
+                foo_DOT_bar_DOT_hard_hats.hire_date,
+                foo_DOT_bar_DOT_hard_hats.last_name,
+                foo_DOT_bar_DOT_hard_hats.manager,
+                foo_DOT_bar_DOT_hard_hats.postal_code,
+                foo_DOT_bar_DOT_hard_hats.state,
+                foo_DOT_bar_DOT_hard_hats.title
+              FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats
+            ) AS foo_DOT_bar_DOT_hard_hat
+            ON foo_DOT_bar_DOT_repair_order.hard_hat_id =
+               foo_DOT_bar_DOT_hard_hat.hard_hat_id
+            GROUP BY
+              foo_DOT_bar_DOT_hard_hat.city
+            """,
+        ),
+    ],
+)
+def test_sql_with_filters_on_namespaced_nodes(
+    node_name,
+    dimensions,
+    filters,
+    sql,
+    client_with_examples: TestClient,
+):
+    """
+    Test ``GET /sql/{node_name}/`` with various filters and dimensions using a
+    version of the DJ roads database with namespaces.
+    """
+    response = client_with_examples.get(
+        f"/sql/{node_name}/",
+        params={
+            "dimensions": dimensions,
+            "filters": filters,
+        },
     )
     data = response.json()
     assert compare_query_strings(data["sql"], sql)

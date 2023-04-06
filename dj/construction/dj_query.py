@@ -7,12 +7,11 @@ from typing import List, Optional, Set, cast
 from sqlmodel import Session
 
 from dj.construction.build import build_ast
-from dj.construction.utils import amenable_name, get_dj_node, make_name
-from dj.errors import DJException
+from dj.construction.utils import amenable_name, get_dj_node
+from dj.errors import DJErrorException
 from dj.models.node import NodeRevision, NodeType
-from dj.sql.parsing import ast
+from dj.sql.parsing.backends.antlr4 import ast, parse
 from dj.sql.parsing.backends.exceptions import DJParseException
-from dj.sql.parsing.backends.sqloxide import parse
 
 
 def try_get_dj_node(
@@ -23,7 +22,7 @@ def try_get_dj_node(
     "wraps get dj node to return None if no node is found"
     try:
         return get_dj_node(session, name, kinds)
-    except DJException:
+    except DJErrorException:
         return None
 
 
@@ -33,7 +32,7 @@ def _resolve_metric_nodes(session, col):
     select accordingly
     """
     joins = []
-    col_name = make_name(col.namespace, col.name.name)
+    col_name = col.identifier(False)
     if metric_node := try_get_dj_node(
         session,
         col_name,
@@ -45,18 +44,19 @@ def _resolve_metric_nodes(session, col):
             parent_select,
             "_validated",
             False,
-        ):  # pragma: no cover# we haven't seen this
-            if len(parent_select.from_.tables) != 1 or parent_select.from_.joins:
+        ):  # pragma: no cover
+            if (
+                len(parent_select.from_.relations) != 1
+                or parent_select.from_.relations[0].primary.alias_or_name.name
+                != "metrics"
+            ):
                 raise DJParseException(
                     "Any SELECT referencing a Metric must source "
                     "from a single unaliased Table named `metrics`.",
                 )
-            metrics_ref = parent_select.from_.tables[0]
+            metrics_ref = parent_select.from_.relations[0].primary
             try:
-                metrics_ref_name = make_name(
-                    metrics_ref.namespace,  # type: ignore
-                    metrics_ref.name.name,  # type: ignore
-                )
+                metrics_ref_name = metrics_ref.alias_or_name.identifier(False)
             except AttributeError:  # pragma: no cover
                 metrics_ref_name = ""
             if metrics_ref_name != "metrics":
@@ -72,10 +72,8 @@ def _resolve_metric_nodes(session, col):
         metric_name = amenable_name(metric_node.name)
         metric_select = parse(  # pylint: disable=W0212
             cast(str, metric_node.query),
-        ).to_select()
-        tables = metric_select.from_.tables + [
-            join.table for join in metric_select.from_.joins
-        ]
+        ).select
+        tables = metric_select.from_.find_all(ast.Table)
         metric_table_expression = ast.Alias(
             ast.Name(metric_name),
             None,
@@ -93,11 +91,14 @@ def _resolve_metric_nodes(session, col):
         metric_column = ast.Column(
             ast.Name(metric_node.columns[0].name),
             _table=metric_table_expression,
+            as_=True,
         )
 
+        metric_table_expression.child.parenthesized = True
         parent_select.replace(col, metric_column)
-        parent_select.from_.tables = [metric_table_expression]
-        parent_select.from_.joins += joins
+        parent_select.from_.relations = [
+            ast.Relation(primary=metric_table_expression.child, extensions=joins),
+        ]
 
 
 def _hoist_metric_source_tables(
@@ -117,10 +118,10 @@ def _hoist_metric_source_tables(
     if isinstance(table, ast.Select):
         return []  # pragma: no cover
     if isinstance(table, ast.Alias):
-        if isinstance(table.child, ast.Select):
+        if isinstance(table.child, ast.Select):  # pragma: no cover
             return []  # pragma: no cover
-        table = table.child
-    table_name = make_name(table.namespace, table.name.name)
+        table = table.child  # pragma: no cover
+    table_name = table.identifier(False)
     if table_node := try_get_dj_node(  # pragma: no cover
         session,
         table_name,
@@ -144,9 +145,9 @@ def _hoist_metric_source_tables(
         if ons:  # pragma: no cover
             joins.append(
                 ast.Join(
-                    ast.JoinKind.LeftOuter,
-                    table.alias_or_self().copy(),
-                    on=ast.BinaryOp.And(*ons),  # type: ignore  # pylint: disable=no-value-for-parameter
+                    join_type="LEFT OUTER",
+                    right=table.copy(),
+                    criteria=ast.JoinCriteria(on=ast.BinaryOp.And(*ons)),  # type: ignore  # pylint: disable=no-value-for-parameter
                 ),
             )
     return joins
@@ -158,7 +159,8 @@ def _make_source_columns(tbl_col, table) -> ast.Alias[ast.Column]:
     """
     temp_col = ast.Column(
         ast.Name(tbl_col.name),
-        _table=table.alias_or_self(),
+        _table=table,
+        as_=True,
     )
     return ast.Alias(
         ast.Name(amenable_name(str(temp_col))),
@@ -175,43 +177,29 @@ def _source_column_join_on_expression(
     """
     return ast.BinaryOp.Eq(  # type: ignore
         ast.Column(
-            ast.Name(src_col.name.name),
+            src_col.alias_or_name,
             _table=metric_table_expression,
         ),
         src_col.child.copy(),
     )
 
 
-def _label_dimension_nodes(session, col):
-    """
-    Mark dimensions as api columns for compile to acknowledge them
-    """
-    col_name = make_name(col.namespace)
-    if try_get_dj_node(session, col_name, {NodeType.DIMENSION}):
-        col.set_api_column(True)
-
-
 def build_dj_metric_query(  # pylint: disable=R0914,R0912
     session: Session,
     query: str,
-    dialect: Optional[str] = None,
+    dialect: Optional[str] = None,  # pylint: disable=unused-argument
 ) -> ast.Query:
     """
     Build a dj query in SQL that may include dj metrics
     """
-    query_ast = parse(query, dialect)
-    select = query_ast.to_select()  # pylint: disable=W0212
+    query_ast = parse(query)
+    select = query_ast.select
     # we check all columns looking for metric nodes
     for col in select.find_all(ast.Column):
         _resolve_metric_nodes(session, col)
 
-    # make the ast aware of all dimensions that are mentioned
-    # that have come from the api
-    for col in select.find_all(ast.Column):
-        _label_dimension_nodes(session, col)
-
     return build_ast(
         session,
-        query=ast.Query(select),
+        query=ast.Query(select=select),
         build_criteria=None,
     )

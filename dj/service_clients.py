@@ -10,7 +10,7 @@ from urllib3 import Retry
 from dj.errors import DJQueryServiceClientException
 from dj.models.column import Column
 from dj.models.query import QueryCreate, QueryWithResults
-from dj.typing import ColumnType
+from dj.sql.parsing.types import ColumnType
 
 
 class RequestsSessionWithEndpoint(requests.Session):

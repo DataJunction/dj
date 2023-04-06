@@ -1,3 +1,5 @@
+--trusted-host pypi.org
+
 -e file:.
 # SHA1:5a9814b9cbe36dfeb3655659ecb0e8c821269e56
 #
@@ -8,13 +10,13 @@
 #
 -r test.txt
     # via -r requirements/test.in
-apsw==3.40.1.0
+apsw==3.41.2.0
     # via shillelagh
 asgiref==3.6.0
     # via uvicorn
 cachetools==5.3.0
     # via google-auth
-google-auth==2.16.0
+google-auth==2.17.1
     # via shillelagh
 h11==0.14.0
     # via uvicorn
@@ -28,9 +30,9 @@ pyasn1-modules==0.2.8
     # via google-auth
 rsa==4.9
     # via google-auth
-shillelagh[gsheetsapi]==1.1.5
+shillelagh[gsheetsapi]==1.2.0
     # via -r requirements/docker.in
-sqlalchemy-cockroachdb==1.4.4
+sqlalchemy-cockroachdb==2.0.0
     # via -r requirements/docker.in
 uvicorn==0.17.6
     # via -r requirements/docker.in
