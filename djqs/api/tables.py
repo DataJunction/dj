@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends
 from sqlmodel import Session
 
 from djqs.api.helpers import get_columns, get_engine
+from djqs.engine import describe_table_via_spark, get_spark_session
 from djqs.exceptions import DJInvalidTableRef
 from djqs.models.table import TableInfo
 from djqs.utils import get_session, get_settings

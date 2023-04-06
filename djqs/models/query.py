@@ -68,7 +68,7 @@ class ColumnMetadata(SQLModel):
     """
 
     name: str
-    type: ColumnType
+    type: str
 
 
 class StatementResults(SQLModel):

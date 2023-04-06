@@ -149,6 +149,19 @@ def run_spark_query(
     return output
 
 
+def describe_table_via_spark(
+    spark: SparkSession,
+    schema: str,
+    table: str,
+):
+    """
+    Gets the column schemas.
+    """
+    schema_df = spark.sql(f"DESCRIBE TABLE {schema}.{table};")
+    rows = schema_df.rdd.map(tuple).collect()
+    return [{"name": row[0], "type": row[1]} for row in rows]
+
+
 def process_query(
     session: Session,
     settings: Settings,
