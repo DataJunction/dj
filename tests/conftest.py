@@ -5,7 +5,7 @@ Fixtures for testing.
 
 import re
 from http.client import HTTPException
-from typing import Collection, Iterator, List
+from typing import Collection, Iterator, List, Optional
 
 import pytest
 from cachelib.simple import SimpleCache
@@ -17,7 +17,7 @@ from sqlmodel.pool import StaticPool
 
 from dj.api.main import app
 from dj.config import Settings
-from dj.models import Column
+from dj.models import Column, Engine
 from dj.models.query import QueryCreate
 from dj.service_clients import QueryServiceClient
 from dj.utils import get_query_service_client, get_session, get_settings
@@ -75,6 +75,7 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         catalog: str,
         schema: str,
         table: str,
+        engine: Optional[Engine] = None,  # pylint: disable=unused-argument
     ) -> List[Column]:
         return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
 

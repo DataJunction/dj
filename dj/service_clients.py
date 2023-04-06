@@ -1,5 +1,5 @@
 """Clients for various configurable services."""
-from typing import List
+from typing import TYPE_CHECKING, List, Optional
 from urllib.parse import urljoin
 from uuid import UUID
 
@@ -11,6 +11,9 @@ from dj.errors import DJQueryServiceClientException
 from dj.models.column import Column
 from dj.models.query import QueryCreate, QueryWithResults
 from dj.sql.parsing.types import ColumnType
+
+if TYPE_CHECKING:
+    from dj.models.engine import Engine
 
 
 class RequestsSessionWithEndpoint(requests.Session):
@@ -73,12 +76,19 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         catalog: str,
         schema: str,
         table: str,
+        engine: Optional["Engine"] = None,
     ) -> List[Column]:
         """
         Retrieves columns for a table.
         """
         response = self.requests_session.get(
             f"/table/{catalog}.{schema}.{table}/columns/",
+            params={
+                "engine": engine.name,
+                "engine_version": engine.version,
+            }
+            if engine
+            else {},
         )
         table_columns = response.json()["columns"]
         return [
