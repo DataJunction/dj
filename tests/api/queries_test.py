@@ -549,7 +549,7 @@ def test_spark_describe_tables(spark) -> None:
     """
     Test that using spark to describe tables works
     """
-    column_metadata = describe_table_via_spark(spark, "roads", "contractors")
+    column_metadata = describe_table_via_spark(spark, None, "contractors")
     assert column_metadata == [
         {"name": "contractor_id", "type": "int"},
         {"name": "company_name", "type": "string"},
