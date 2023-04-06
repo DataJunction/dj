@@ -4,7 +4,7 @@ Query related functions.
 
 import logging
 from datetime import datetime, timezone
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import sqlparse
 from pyspark.sql import SparkSession  # pylint: disable=import-error
@@ -151,7 +151,7 @@ def run_spark_query(
 
 def describe_table_via_spark(
     spark: SparkSession,
-    schema: str,
+    schema: Optional[str],
     table: str,
 ):
     """
