@@ -620,6 +620,13 @@ class AttributeOutput(BaseSQLModel):
     attribute_type: AttributeTypeName
 
 
+class NodeNameOutput(SQLModel):
+    """
+    Node name only
+    """
+    name: str
+
+
 class ColumnOutput(SQLModel):
     """
     A simplified column schema, without ID or dimensions.
@@ -628,6 +635,7 @@ class ColumnOutput(SQLModel):
     name: str
     type: ColumnType
     attributes: List[AttributeOutput]
+    dimension: Optional[NodeNameOutput]
 
     class Config:  # pylint: disable=too-few-public-methods
         """
@@ -688,6 +696,7 @@ class NodeRevisionOutput(SQLModel):
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
     materialization_configs: List[MaterializationConfigOutput]
+    parents: List[NodeNameOutput]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True
