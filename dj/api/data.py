@@ -13,7 +13,7 @@ from dj.api.helpers import get_node_by_name, get_query
 from dj.errors import DJException
 from dj.models.metric import TranslatedSQL
 from dj.models.node import AvailabilityState, AvailabilityStateBase, NodeType
-from dj.models.query import QueryCreate, QueryWithResults
+from dj.models.query import ColumnMetadata, QueryCreate, QueryWithResults
 from dj.service_clients import QueryServiceClient
 from dj.utils import get_query_service_client, get_session
 
@@ -109,7 +109,14 @@ def data_for_node(
         dimensions=dimensions,
         filters=filters,
     )
-    query = TranslatedSQL(sql=str(query_ast))
+    columns = [
+        ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
+        for col in query_ast.select.projection
+    ]
+    query = TranslatedSQL(
+        sql=str(query_ast),
+        columns=columns,
+    )
 
     available_engines = node.current.catalog.engines
     query_create = QueryCreate(
