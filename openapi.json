@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+g9dc3258"
+        "version": "0.0.post1.dev1+g15a6374"
     },
     "paths": {
         "/catalogs/": {
@@ -1921,8 +1921,7 @@
                         "type": "string"
                     },
                     "type": {
-                        "title": "Type",
-                        "type": "string"
+                        "$ref": "#/components/schemas/ColumnType"
                     },
                     "dimension_id": {
                         "title": "Dimension Id",
@@ -1973,8 +1972,7 @@
                         "type": "string"
                     },
                     "type": {
-                        "title": "Type",
-                        "type": "string"
+                        "$ref": "#/components/schemas/ColumnType"
                     },
                     "attributes": {
                         "title": "Attributes",
@@ -1985,6 +1983,12 @@
                     }
                 },
                 "description": "A simplified column schema, without ID or dimensions."
+            },
+            "ColumnType": {
+                "title": "ColumnType",
+                "type": "object",
+                "properties": {},
+                "description": "Base type for all Column Types"
             },
             "CreateCubeNode": {
                 "title": "CreateCubeNode",
@@ -2701,18 +2705,20 @@
             },
             "SourceNodeColumnType": {
                 "title": "SourceNodeColumnType",
+                "required": [
+                    "type"
+                ],
                 "type": "object",
                 "properties": {
                     "type": {
-                        "title": "Type",
-                        "type": "string"
+                        "$ref": "#/components/schemas/ColumnType"
                     },
                     "dimension": {
                         "title": "Dimension",
                         "type": "string"
                     }
                 },
-                "additionalProperties": false
+                "description": "Schema of a column for a table defined in a source node"
             },
             "Tag": {
                 "title": "Tag",
