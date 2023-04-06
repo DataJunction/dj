@@ -1459,7 +1459,7 @@ with djopenapi.ApiClient(configuration) as api_client:
         table="table_example",
         columns=dict(
             "key": SourceNodeColumnType(
-                type="type_example",
+                type=dict(),
                 dimension="dimension_example",
             ),
         ),
@@ -3916,7 +3916,7 @@ with djopenapi.ApiClient(configuration) as api_client:
         table="table_example",
         columns=dict(
             "key": SourceNodeColumnType(
-                type="type_example",
+                type=dict(),
                 dimension="dimension_example",
             ),
         ),
