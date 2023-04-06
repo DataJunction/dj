@@ -48,7 +48,8 @@ class TranslatedSQL(SQLModel):
     """
     Class for SQL generated from a given metric.
     """
-    # TODO once type-inference is added to /query/ endpoint
+
+    # TODO: once type-inference is added to /query/ endpoint  # pylint: disable=fixme
     # columns attribute can be required
     sql: str
     columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
