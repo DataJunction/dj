@@ -285,7 +285,12 @@ class TestCreateOrUpdateNodes:
         assert data["columns"] == [
             {"name": "id", "type": "int", "attributes": [], "dimension": None},
             {"name": "user_id", "type": "int", "attributes": [], "dimension": None},
-            {"name": "timestamp", "type": "timestamp", "attributes": [], "dimension": None},
+            {
+                "name": "timestamp",
+                "type": "timestamp",
+                "attributes": [],
+                "dimension": None,
+            },
             {"name": "text", "type": "string", "attributes": [], "dimension": None},
         ]
         assert response.status_code == 201
@@ -365,7 +370,12 @@ class TestCreateOrUpdateNodes:
         assert data["columns"] == [
             {"name": "id", "type": "int", "attributes": [], "dimension": None},
             {"name": "user_id", "type": "int", "attributes": [], "dimension": None},
-            {"name": "timestamp", "type": "timestamp", "attributes": [], "dimension": None},
+            {
+                "name": "timestamp",
+                "type": "timestamp",
+                "attributes": [],
+                "dimension": None,
+            },
             {"name": "text_v2", "type": "string", "attributes": [], "dimension": None},
         ]
 
@@ -528,7 +538,12 @@ class TestCreateOrUpdateNodes:
         assert data["columns"] == [
             {"name": "country", "type": "string", "attributes": [], "dimension": None},
             {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
-            {"name": "num_entries", "type": "long", "attributes": [], "dimension": None},
+            {
+                "name": "num_entries",
+                "type": "long",
+                "attributes": [],
+                "dimension": None,
+            },
         ]
 
         # Verify that asking for revisions for a non-existent transform fails
@@ -547,17 +562,52 @@ class TestCreateOrUpdateNodes:
         }
         assert {rev["version"]: rev["columns"] for rev in data} == {
             "v1.0": [
-                {"name": "country", "type": "string", "attributes": [], "dimension": None},
-                {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
+                {
+                    "name": "country",
+                    "type": "string",
+                    "attributes": [],
+                    "dimension": None,
+                },
+                {
+                    "name": "num_users",
+                    "type": "long",
+                    "attributes": [],
+                    "dimension": None,
+                },
             ],
             "v1.1": [
-                {"name": "country", "type": "string", "attributes": [], "dimension": None},
-                {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
+                {
+                    "name": "country",
+                    "type": "string",
+                    "attributes": [],
+                    "dimension": None,
+                },
+                {
+                    "name": "num_users",
+                    "type": "long",
+                    "attributes": [],
+                    "dimension": None,
+                },
             ],
             "v2.0": [
-                {"name": "country", "type": "string", "attributes": [], "dimension": None},
-                {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
-                {"name": "num_entries", "type": "long", "attributes": [], "dimension": None},
+                {
+                    "name": "country",
+                    "type": "string",
+                    "attributes": [],
+                    "dimension": None,
+                },
+                {
+                    "name": "num_users",
+                    "type": "long",
+                    "attributes": [],
+                    "dimension": None,
+                },
+                {
+                    "name": "num_entries",
+                    "type": "long",
+                    "attributes": [],
+                    "dimension": None,
+                },
             ],
         }
 
@@ -865,7 +915,7 @@ class TestNodeColumnsAttributes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
-
+                "dimension": None,
             },
         ]
 
@@ -892,6 +942,7 @@ class TestNodeColumnsAttributes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "dimension": None,
             },
             {
                 "name": "created_at",
@@ -904,6 +955,7 @@ class TestNodeColumnsAttributes:
                         },
                     },
                 ],
+                "dimension": None,
             },
         ]
 
@@ -983,6 +1035,7 @@ class TestNodeColumnsAttributes:
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
+                "dimension": {"name": "basic.dimension.users"},
             },
         ]
 
@@ -1011,18 +1064,39 @@ class TestNodeColumnsAttributes:
         response = client_with_examples.get("/nodes/basic.source.comments/")
         data = response.json()
         assert data["columns"] == [
-            {"name": "id", "type": "int", "attributes": []},
+            {
+                "name": "id",
+                "type": "int",
+                "attributes": [],
+                "dimension": None,
+            },
             {
                 "name": "user_id",
                 "type": "int",
                 "attributes": [
                     {"attribute_type": {"namespace": "system", "name": "primary_key"}},
                 ],
+                "dimension": {"name": "basic.dimension.users"},
             },
-            {"name": "timestamp", "type": "timestamp", "attributes": [], "dimension": None},
+            {
+                "name": "timestamp",
+                "type": "timestamp",
+                "attributes": [],
+                "dimension": None,
+            },
             {"name": "text", "type": "string", "attributes": [], "dimension": None},
-            {"name": "event_timestamp", "type": "timestamp", "attributes": [], "dimension": None},
-            {"name": "created_at", "type": "timestamp", "attributes": [], "dimension": None},
+            {
+                "name": "event_timestamp",
+                "type": "timestamp",
+                "attributes": [],
+                "dimension": None,
+            },
+            {
+                "name": "created_at",
+                "type": "timestamp",
+                "attributes": [],
+                "dimension": None,
+            },
             {
                 "name": "post_processing_timestamp",
                 "type": "timestamp",
