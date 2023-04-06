@@ -624,6 +624,7 @@ class NodeNameOutput(SQLModel):
     """
     Node name only
     """
+
     name: str
 
 
