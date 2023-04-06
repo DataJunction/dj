@@ -8,6 +8,7 @@ from pytest_mock import MockerFixture
 from requests import Request
 
 from dj.errors import DJQueryServiceClientException
+from dj.models import Engine
 from dj.models.query import QueryCreate
 from dj.service_clients import QueryServiceClient, RequestsSessionWithEndpoint
 
@@ -86,10 +87,23 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         mock_request = mocker.patch("requests.Session.request")
         query_service_client = QueryServiceClient(uri=self.endpoint)
         query_service_client.get_columns_for_table("hive", "test", "pies")
-
         mock_request.assert_called_with(
             "GET",
             "http://queryservice:8001/table/hive.test.pies/columns/",
+            params={},
+            allow_redirects=True,
+        )
+
+        query_service_client.get_columns_for_table(
+            "hive",
+            "test",
+            "pies",
+            engine=Engine(name="spark", version="2.4.4"),
+        )
+        mock_request.assert_called_with(
+            "GET",
+            "http://queryservice:8001/table/hive.test.pies/columns/",
+            params={"engine": "spark", "engine_version": "2.4.4"},
             allow_redirects=True,
         )
 

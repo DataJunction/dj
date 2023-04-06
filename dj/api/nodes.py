@@ -494,6 +494,7 @@ def create_source_node(
             data.catalog,
             data.schema_,  # type: ignore
             data.table,
+            catalog.engines[0] if len(catalog.engines) >= 1 else None,
         )
 
     node_revision = NodeRevision(
