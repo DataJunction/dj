@@ -4,7 +4,7 @@ Configuration for the metric repository.
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
-from typing import Optional
+from typing import Optional, List
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
@@ -23,6 +23,9 @@ class Settings(
     name: str = "DJ server"
     description: str = "A DataJunction metrics layer"
     url: str = "http://localhost:8000/"
+
+    # A list of hostnames that are allowed to make cross-site HTTP requests
+    cors_origin_whitelist: List[str] = ["http://localhost:3000"]
 
     # SQLAlchemy URI for the metadata database.
     index: str = "sqlite:///dj.db?check_same_thread=False"
