@@ -91,6 +91,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert nodes["not-a-metric"]["version"] == "1"
     assert nodes["not-a-metric"]["display_name"] == "Not-A-Metric"
     assert not nodes["not-a-metric"]["columns"]
+    assert nodes["not-a-metric"]["parents"] == []
 
     assert nodes["also-not-a-metric"]["query"] == "SELECT 42 AS answer"
     assert nodes["also-not-a-metric"]["display_name"] == "Also-Not-A-Metric"
@@ -113,6 +114,8 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
             "dimension": None,
         },
     ]
+    assert nodes["a-metric"]["parents"] == []
+
 
 
 class TestCreateOrUpdateNodes:
@@ -488,6 +491,7 @@ class TestCreateOrUpdateNodes:
             {"name": "country", "type": "string", "attributes": [], "dimension": None},
             {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
         ]
+        assert data["parents"] == [{"name": "basic.source.users"}]
 
         # Update the transform node with two minor changes
         response = client.patch(
