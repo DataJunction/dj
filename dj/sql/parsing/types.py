@@ -770,6 +770,7 @@ class WildcardType(PrimitiveType, Singleton):
 # Define the primitive data types and their corresponding Python classes
 PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "bool": BooleanType(),
+    "boolean": BooleanType(),
     "int": IntegerType(),
     "long": LongType(),
     "float": FloatType(),
