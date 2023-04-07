@@ -12,12 +12,12 @@
 import unittest
 
 import djopenapi
-from djopenapi.model.engine_info import EngineInfo
+from djopenapi.model.node_name_output import NodeNameOutput
 from djopenapi import configuration
 
 
-class TestEngineInfo(unittest.TestCase):
-    """EngineInfo unit test stubs"""
+class TestNodeNameOutput(unittest.TestCase):
+    """NodeNameOutput unit test stubs"""
     _configuration = configuration.Configuration()
 
 
