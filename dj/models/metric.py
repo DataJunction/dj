@@ -1,11 +1,12 @@
 """
 Models for metrics.
 """
-from typing import List
+from typing import List, Optional
 
 from sqlmodel import SQLModel
 
 from dj.models.node import Node
+from dj.models.query import ColumnMetadata
 from dj.sql.dag import get_dimensions
 from dj.typing import UTCDatetime
 
@@ -48,4 +49,7 @@ class TranslatedSQL(SQLModel):
     Class for SQL generated from a given metric.
     """
 
+    # TODO: once type-inference is added to /query/ endpoint  # pylint: disable=fixme
+    # columns attribute can be required
     sql: str
+    columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
