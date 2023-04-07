@@ -61,10 +61,12 @@ def test_max() -> None:
     assert Max.infer_type(
         ast.Column(ast.Name("x"), _type=DecimalType(8, 6)),
     ) == DecimalType(8, 6)
-    with pytest.raises(Exception):
-        Max.infer_type(  # pylint: disable=expression-not-assigned
+    assert (
+        Max.infer_type(
             ast.Column(ast.Name("x"), _type=StringType()),
-        ) == StringType()
+        )
+        == StringType()
+    )
 
 
 def test_now() -> None:
