@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+g15a6374"
+        "version": "0.0.post1.dev1+g1e86dc4"
     },
     "paths": {
         "/catalogs/": {
@@ -1958,6 +1958,25 @@
                 },
                 "description": "A column attribute input"
             },
+            "ColumnMetadata": {
+                "title": "ColumnMetadata",
+                "required": [
+                    "name",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "title": "Type",
+                        "type": "string"
+                    }
+                },
+                "description": "A simple model for column metadata."
+            },
             "ColumnOutput": {
                 "title": "ColumnOutput",
                 "required": [
@@ -2800,6 +2819,13 @@
                     "sql": {
                         "title": "Sql",
                         "type": "string"
+                    },
+                    "columns": {
+                        "title": "Columns",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ColumnMetadata"
+                        }
                     }
                 },
                 "description": "Class for SQL generated from a given metric."
