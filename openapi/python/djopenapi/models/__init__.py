@@ -20,6 +20,7 @@ from djopenapi.model.catalog import Catalog
 from djopenapi.model.catalog_info import CatalogInfo
 from djopenapi.model.column import Column
 from djopenapi.model.column_attribute_input import ColumnAttributeInput
+from djopenapi.model.column_metadata import ColumnMetadata
 from djopenapi.model.column_output import ColumnOutput
 from djopenapi.model.create_cube_node import CreateCubeNode
 from djopenapi.model.create_node import CreateNode

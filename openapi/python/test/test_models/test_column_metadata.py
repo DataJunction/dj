@@ -12,12 +12,12 @@
 import unittest
 
 import djopenapi
-from djopenapi.model.attribute_type_name import AttributeTypeName
+from djopenapi.model.column_metadata import ColumnMetadata
 from djopenapi import configuration
 
 
-class TestAttributeTypeName(unittest.TestCase):
-    """AttributeTypeName unit test stubs"""
+class TestColumnMetadata(unittest.TestCase):
+    """ColumnMetadata unit test stubs"""
     _configuration = configuration.Configuration()
 
 
