@@ -117,7 +117,6 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert nodes["a-metric"]["parents"] == []
 
 
-
 class TestCreateOrUpdateNodes:
     """
     Test ``POST /nodes/`` and ``PUT /nodes/{name}``.

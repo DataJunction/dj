@@ -4,7 +4,7 @@ Configuration for the metric repository.
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
-from typing import Optional, List
+from typing import List, Optional
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
