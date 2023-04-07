@@ -2,15 +2,14 @@
 weight: 10
 ---
 
------
-Nodes
------
+# Nodes
 
 In DJ, nodes play a central role. Understanding the relationships between nodes is key to understanding how DJ works.
 All node types are similar in many ways. Let’s start by covering their similarities.
 
-Similarities Between Node Types
--------------------------------
+---
+
+## Similarities Between Node Types
 
 A summary of things that are true of all nodes:
 
@@ -30,8 +29,9 @@ Some node types have unique attributes, behaviors, and restrictions. For example
 a single field in the select statement and that field must be used in an aggregation expression. Also, **source** nodes
 never have a query at all and instead must include a reference to an external table.
 
-Source Nodes
-------------
+---
+
+## Source Nodes
 
 Real tables in a database or data warehouse are represented in DJ as source nodes. Each source node has a name and that
 name can be used by transform and dimension nodes as a “virtual” reference to the real table. In fact, you can change
@@ -45,8 +45,9 @@ automatically updated to incorporate a change to the real table’s schema, this
 particular aspects of the table's schema that no longer exist. These breaking changes are communicated by labeling
 the impacted nodes as “invalid”.
 
-Transform Nodes
----------------
+---
+
+## Transform Nodes
 
 A lot of the heavy lifting in DJ is done by transform nodes. These nodes contain the queries that join, filter, and
 group data from various source nodes as well as other transform nodes. Although less common, transform nodes can even
@@ -59,36 +60,36 @@ produce different tables.
 
 *Query #1 - Recent Transaction Amounts by Customers with Active Accounts*
 
-.. code-block:: sql
-
-    SELECT
-    t.amount
-    ,t.purchase_date
-    ,c.id as customer_id
-    ,c.first_name as customer_first_name
-    ,c.last_name as customer_last_name
-    FROM transaction AS t
-    LEFT JOIN customer AS c
-    ON t.customer_id = c.id
-    WHERE c.status = 'active'
-    AND t.purchase_date >= (3 months ago)
+```sql
+SELECT
+t.amount
+,t.purchase_date
+,c.id as customer_id
+,c.first_name as customer_first_name
+,c.last_name as customer_last_name
+FROM transaction AS t
+LEFT JOIN customer AS c
+ON t.customer_id = c.id
+WHERE c.status = 'active'
+AND t.purchase_date >= (3 months ago)
+```
 
 *Query #2 - Recent Transaction Amounts by Customers with Non-Trial Active Accounts*
 
-.. code-block:: sql
-
-    SELECT
-    t.amount
-    ,t.purchase_date
-    ,c.id as customer_id
-    ,c.first_name as customer_first_name
-    ,c.last_name as customer_last_name
-    FROM transaction AS t
-    LEFT JOIN customer AS c
-    ON t.customer_id = c.id
-    WHERE c.status = 'active'
-    AND t.purchase_date >= (3 months ago)
-    AND c.account_type <> 'trial'
+```sql
+SELECT
+t.amount
+,t.purchase_date
+,c.id as customer_id
+,c.first_name as customer_first_name
+,c.last_name as customer_last_name
+FROM transaction AS t
+LEFT JOIN customer AS c
+ON t.customer_id = c.id
+WHERE c.status = 'active'
+AND t.purchase_date >= (3 months ago)
+AND c.account_type <> 'trial'
+```
 
 If you look closely, you can see similarities between both queries. Both queries are joining the transaction table to
 the customer table and filtering out transactions by customers who have since deleted their account as well as
@@ -101,42 +102,43 @@ transform node for query #1.
 
 *recent_transactions_active_customers*
 
-.. code-block:: sql
-
-    SELECT
-    t.amount
-    ,t.purchase_date
-    ,c.id as customer_id
-    ,c.first_name as customer_first_name
-    ,c.last_name as customer_last_name
-    FROM transaction AS t
-    LEFT JOIN customer AS c
-    ON t.customer_id = c.id
-    WHERE c.status = 'active'
-    AND t.purchase_date >= (3 months ago)
+```sql
+SELECT
+t.amount
+,t.purchase_date
+,c.id as customer_id
+,c.first_name as customer_first_name
+,c.last_name as customer_last_name
+FROM transaction AS t
+LEFT JOIN customer AS c
+ON t.customer_id = c.id
+WHERE c.status = 'active'
+AND t.purchase_date >= (3 months ago)
+```
 
 You can then create the equivalent of query #2 by defining a transform node that queries that transform node already
 defined.
 
 *recent_transactions_non_trial_active_customers*
 
-.. code-block:: sql
-
-    SELECT
-    amount
-    ,purchase_date
-    ,customer_id
-    ,customer_first_name
-    ,customer_last_name
-    FROM recent_transactions_active_customers
-    WHERE account_type <> 'trial'
+```sql
+SELECT
+amount
+,purchase_date
+,customer_id
+,customer_first_name
+,customer_last_name
+FROM recent_transactions_active_customers
+WHERE account_type <> 'trial'
+```
 
 With this design, materializing *recent_transactions_active_customers* is enough to no longer require performing a join
 to get the data for both nodes. If the filter to non-trial accounts is fast, you may choose not to materialize the
 second node at all!
 
-Dimension Nodes
----------------
+---
+
+## Dimension Nodes
 
 One of the benefits of DJ is that it can easily find all of the available dimensions that you can use to group metrics
 as well as all of the metrics that can be grouped by a set of dimensions. Defining a dimension node includes a query to
@@ -146,10 +148,11 @@ If another node includes a foreign key for an existing dimension node, you can i
 node’s primary key in the other node’s definition. Furthermore, a dimension itself can include a foreign key that
 includes a reference to another dimension node’s primary key, meaning that dimension is also available as a second-join
 dimension. This metadata is what allows DJ to understand the relationships between metrics and dimensions and allows
-abstracting away the :code:`JOIN` and :code:`GROUP BY` clauses required to bring metrics and dimensions together!
+abstracting away the `JOIN` and `GROUP BY` clauses required to bring metrics and dimensions together!
 
-Metric Nodes
-------------
+---
+
+## Metric Nodes
 
 The primary component of a request for SQL or data from a DJ server is always one or more metrics. A metric node is
 defined as a single column from another existing node as well as an aggregation expression. If the existing node has
@@ -157,14 +160,15 @@ other columns that are connected to dimension nodes, those dimensions will be re
 with which the metric can be grouped by. Additional dimensions will also be available if first-join dimensions contain
 foreign key(s) to other dimensions.
 
-Cube Nodes
-----------
+---
+
+## Cube Nodes
 
 In data analytics, a cube is a multi-dimensional dataset of one or more metrics. As more nodes are defined in DJ, a
 single metric can have a wide selection of dimension sets with which it can be grouped by. Also, many metrics will
 share common dimensions making it possible to create cubes of multiple metrics and multiple dimensions.
 Although materializing upstream transform nodes can serve as a huge performance optimization when creating these cubes,
-the final :code:`JOIN` and :code:`GROUP BY` operations happen at the moment a particular cube is requested.
+the final `JOIN` and `GROUP BY` operations happen at the moment a particular cube is requested.
 
 Since it’s not practical to schedule the materialization of all possible combinations of metrics and dimensions,
 cube nodes allow you to define specific sets of metrics and dimensions that should be materialized. This is useful
