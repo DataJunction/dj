@@ -11,6 +11,7 @@ import logging
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
+from starlette.middleware.cors import CORSMiddleware
 
 from dj import __version__
 from dj.api import (
@@ -49,6 +50,14 @@ app = FastAPI(
     },
     dependencies=[Depends(default_attribute_types)],
 )
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_whitelist,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.include_router(catalogs.router)
 app.include_router(engines.router)
 app.include_router(metrics.router)
