@@ -1,5 +1,5 @@
-# mypy: ignore-errors
 # pylint: disable=too-many-lines
+# mypy: ignore-errors
 
 """
 SQL functions for type inference.
@@ -234,6 +234,13 @@ class Max(Function):  # pylint: disable=abstract-method
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     arg: ct.NumberType,
 ) -> ct.NumberType:
+    return arg.type
+
+
+@Max.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.StringType,
+) -> ct.StringType:
     return arg.type
 
 
