@@ -13,7 +13,7 @@ from pytest_mock import MockerFixture
 from sqlmodel import Session
 
 from djqs.config import Settings
-from djqs.engine import process_query
+from djqs.engine import describe_table_via_spark, process_query
 from djqs.models.catalog import Catalog
 from djqs.models.engine import Engine
 from djqs.models.query import (
@@ -542,6 +542,25 @@ def test_spark_fixture_show_tables(spark) -> None:
         ("", "repair_type", True),
         ("", "us_region", True),
         ("", "us_states", True),
+    ]
+
+
+def test_spark_describe_tables(spark) -> None:
+    """
+    Test that using spark to describe tables works
+    """
+    column_metadata = describe_table_via_spark(spark, None, "contractors")
+    assert column_metadata == [
+        {"name": "contractor_id", "type": "int"},
+        {"name": "company_name", "type": "string"},
+        {"name": "contact_name", "type": "string"},
+        {"name": "contact_title", "type": "string"},
+        {"name": "address", "type": "string"},
+        {"name": "city", "type": "string"},
+        {"name": "state", "type": "string"},
+        {"name": "postal_code", "type": "string"},
+        {"name": "country", "type": "string"},
+        {"name": "phone", "type": "string"},
     ]
 
 

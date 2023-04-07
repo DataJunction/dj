@@ -14,7 +14,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy_utils import UUIDType
 from sqlmodel import Field, SQLModel
 
-from djqs.typing import ColumnType, QueryState, Row
+from djqs.typing import QueryState, Row
 
 
 class BaseQuery(SQLModel):
@@ -68,7 +68,7 @@ class ColumnMetadata(SQLModel):
     """
 
     name: str
-    type: ColumnType
+    type: str
 
 
 class StatementResults(SQLModel):

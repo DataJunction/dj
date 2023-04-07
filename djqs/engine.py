@@ -4,7 +4,7 @@ Query related functions.
 
 import logging
 from datetime import datetime, timezone
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 import sqlparse
 from pyspark.sql import SparkSession  # pylint: disable=import-error
@@ -147,6 +147,20 @@ def run_spark_query(
     ]
     output.append((query.submitted_query, columns, rows))
     return output
+
+
+def describe_table_via_spark(
+    spark: SparkSession,
+    schema: Optional[str],
+    table: str,
+):
+    """
+    Gets the column schemas.
+    """
+    schema_ = f"{schema}." if schema else ""
+    schema_df = spark.sql(f"DESCRIBE TABLE {schema_}{table};")
+    rows = schema_df.rdd.map(tuple).collect()
+    return [{"name": row[0], "type": row[1]} for row in rows]
 
 
 def process_query(
