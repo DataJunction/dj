@@ -38,7 +38,7 @@ services:
     networks:
       - core
     environment:
-      - DOTENV_FILE=.docker-env/.env
+      - DOTENV_FILE=.dj-env
     build: "${CORE_SERVICE}"
     volumes:
       - "${CORE_SERVICE}:/code"
