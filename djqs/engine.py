@@ -9,7 +9,6 @@ from typing import List, Optional, Tuple
 import duckdb
 import sqlparse
 from pyspark.sql import SparkSession  # pylint: disable=import-error
-from pyspark.sql.types import StructField  # pylint: disable=import-error
 from sqlalchemy import create_engine, text
 from sqlmodel import Session, select
 
@@ -90,7 +89,7 @@ def run_query(
         spark = get_spark_session()
         return run_spark_query(query, spark)
     if engine.uri == "duckdb://local[*]":
-        conn = duckdb.connect(database='/code/docker/default.duckdb', read_only=False)
+        conn = duckdb.connect(database="/code/docker/default.duckdb", read_only=False)
         return run_duckdb_query(query, conn)
     sqla_engine = create_engine(engine.uri, **catalog.extra_params)
     connection = sqla_engine.connect()
@@ -110,7 +109,7 @@ def run_query(
         output.append((sql, columns, stream))
 
     return output
- 
+
 
 def get_spark_session():
     """
@@ -136,7 +135,7 @@ def run_spark_query(
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     results_df = spark.sql(query.submitted_query)
     rows = results_df.rdd.map(tuple).collect()
-    columns = []
+    columns: List[ColumnMetadata] = []
     output.append((query.submitted_query, columns, rows))
     return output
 
@@ -154,6 +153,7 @@ def describe_table_via_spark(
     rows = schema_df.rdd.map(tuple).collect()
     return [{"name": row[0], "type": row[1]} for row in rows]
 
+
 def run_duckdb_query(
     query: Query,
     conn: duckdb.DuckDBPyConnection,
@@ -163,9 +163,10 @@ def run_duckdb_query(
     """
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     rows = conn.execute(query.submitted_query).fetchall()
-    columns = []
+    columns: List[ColumnMetadata] = []
     output.append((query.submitted_query, columns, rows))
     return output
+
 
 def process_query(
     session: Session,
