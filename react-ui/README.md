@@ -2,6 +2,8 @@
 
 This shows a read-only view into the DJ nodes DAG.
 
+<img src="dj-nodes-dag-ui.png" />
+
 ## Running Locally
 
 ### `docker compose`
