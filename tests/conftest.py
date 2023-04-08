@@ -6,6 +6,7 @@ Fixtures for testing.
 from pathlib import Path
 from typing import Iterator
 
+import duckdb
 import pytest
 from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
@@ -92,3 +93,11 @@ def spark():
             inferSchema=True,
         ).createOrReplaceTempView(Path(filepath).stem)
     yield spark
+
+
+@pytest.fixture(scope="session")
+def duckdb_conn():
+    """
+    A duckdb connection to a roads database
+    """
+    return duckdb.connect(database="docker/default.duckdb")

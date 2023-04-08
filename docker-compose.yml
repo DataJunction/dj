@@ -29,7 +29,7 @@ services:
       - "8001:8001"
     depends_on:
       - db-migration-djqs
-      - postgres-roads
+      - duckdb-roads
 
   db-migration-djqs:
     container_name: db-migration
@@ -43,17 +43,12 @@ services:
     command: alembic upgrade head
     restart: on-failure
 
-  postgres-roads:
-    container_name: postgres-roads
+  duckdb-roads:
+    container_name: duckdb-roads
     networks:
       - djqs-network
-    image: postgres:latest
+    build: .
     volumes:
-      - ./docker/postgres_init.roads.sql:/docker-entrypoint-initdb.d/init.sql
-      - postgres_roads_example:/var/lib/postgresql/data
-    environment:
-      - POSTGRES_PASSWORD=dj
-      - POSTGRES_USER=dj
-      - POSTGRES_DB=djdb
-    ports:
-      - "5435:5432"
+      - .:/code
+    command: /bin/bash -c "python /code/docker/duckdb_load_roads.py"
+    restart: on-failure

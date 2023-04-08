@@ -210,6 +210,65 @@ If running a [reflection service](https://github.com/DataJunction/djrs), that se
       ]
     }
 
+======
+DuckDB
+======
+
+DJQS includes an example of using DuckDB as an engine and it comes preloaded with the roads example database.
+
+Create a :code:`djduckdb` catalog and a :code:`duckdb` engine.
+
+.. code-block::
+
+    curl -X 'POST' \
+      'http://localhost:8001/catalogs/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "name": "djduckdb"
+    }'
+
+.. code-block::
+
+    curl -X 'POST' \
+      'http://localhost:8001/engines/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "name": "duckdb",
+      "version": "0.7.1",
+      "uri": "duckdb://local[*]"
+    }'
+
+.. code-block::
+
+    curl -X 'POST' \
+      'http://localhost:8001/catalogs/djduckdb/engines/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '[
+      {
+        "name": "duckdb",
+        "version": "0.7.1"
+      }
+    ]'
+
+Now you can submit DuckDB SQL queries.
+
+.. code-block::
+
+    curl -X 'POST' \
+      'http://localhost:8001/queries/' \
+      -H 'accept: application/json' \
+      -H 'Content-Type: application/json' \
+      -d '{
+      "catalog_name": "djduckdb",
+      "engine_name": "duckdb",
+      "engine_version": "0.7.1",
+      "submitted_query": "SELECT * FROM roads.us_states LIMIT 10",
+      "async_": false
+    }'
+
 =====
 Spark
 =====

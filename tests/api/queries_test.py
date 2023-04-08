@@ -539,10 +539,7 @@ def test_submit_spark_query(session: Session, client: TestClient) -> None:
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS int_col, 'a' as str_col"
-    assert data["results"][0]["columns"] == [
-        {"name": "int_col", "type": "INT"},
-        {"name": "str_col", "type": "STR"},
-    ]
+    assert data["results"][0]["columns"] == []
     assert data["results"][0]["rows"] == [[1, "a"]]
     assert data["errors"] == []
 
@@ -610,3 +607,63 @@ def test_spark_fixture_query(spark) -> None:
         (10004, datetime.date(2007, 7, 8)),
         (10005, datetime.date(2007, 7, 9)),
     ]
+
+
+@mock.patch("djqs.engine.duckdb.connect")
+def test_submit_duckdb_query(
+    mock_duckdb_connect,
+    session: Session,
+    client: TestClient,
+    duckdb_conn,
+) -> None:
+    """
+    Test submitting a Spark query
+    """
+    mock_duckdb_connect.return_value = duckdb_conn
+    engine = Engine(name="test_duckdb_engine", version="0.7.1", uri="duckdb://local[*]")
+    catalog = Catalog(name="test_catalog", engines=[engine])
+    session.add(catalog)
+    session.commit()
+    session.refresh(catalog)
+
+    query_create = QueryCreate(
+        catalog_name=catalog.name,
+        engine_name=engine.name,
+        engine_version=engine.version,
+        submitted_query="SELECT 1 AS int_col, 'a' as str_col",
+    )
+    payload = query_create.json(by_alias=True)
+    assert payload == json.dumps(
+        {
+            "catalog_name": "test_catalog",
+            "engine_name": "test_duckdb_engine",
+            "engine_version": "0.7.1",
+            "submitted_query": "SELECT 1 AS int_col, 'a' as str_col",
+            "async_": False,
+        },
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["catalog_name"] == "test_catalog"
+    assert data["engine_name"] == "test_duckdb_engine"
+    assert data["engine_version"] == "0.7.1"
+    assert data["submitted_query"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["executed_query"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["scheduled"] == "2021-01-01T00:00:00"
+    assert data["started"] == "2021-01-01T00:00:00"
+    assert data["finished"] == "2021-01-01T00:00:00"
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["results"][0]["columns"] == []
+    assert data["results"][0]["rows"] == [[1, "a"]]
+    assert data["errors"] == []

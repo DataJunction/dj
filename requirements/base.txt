@@ -17,6 +17,8 @@ certifi==2022.12.7
     # via requests
 charset-normalizer==3.1.0
     # via requests
+duckdb==0.7.1
+    # via djqs
 fastapi==0.70.1
     # via djqs
 idna==3.4
@@ -54,7 +56,7 @@ sqlalchemy==1.4.35
     #   sqlmodel
 sqlalchemy-utils==0.40.0
     # via djqs
-sqlalchemy2-stubs==0.0.2a32
+sqlalchemy2-stubs==0.0.2a33
     # via sqlmodel
 sqlmodel==0.0.8
     # via djqs

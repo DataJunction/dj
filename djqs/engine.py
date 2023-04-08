@@ -6,9 +6,9 @@ import logging
 from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 
+import duckdb
 import sqlparse
 from pyspark.sql import SparkSession  # pylint: disable=import-error
-from pyspark.sql.types import StructField  # pylint: disable=import-error
 from sqlalchemy import create_engine, text
 from sqlmodel import Session, select
 
@@ -88,6 +88,9 @@ def run_query(
     if engine.uri == "spark://local[*]":
         spark = get_spark_session()
         return run_spark_query(query, spark)
+    if engine.uri == "duckdb://local[*]":
+        conn = duckdb.connect(database="/code/docker/default.duckdb", read_only=False)
+        return run_duckdb_query(query, conn)
     sqla_engine = create_engine(engine.uri, **catalog.extra_params)
     connection = sqla_engine.connect()
 
@@ -106,15 +109,6 @@ def run_query(
         output.append((sql, columns, stream))
 
     return output
-
-
-def get_spark_field_type(field: StructField):
-    """
-    Get a DJ type for a Spark field
-    """
-    if field.dataType.simpleString() == "int":
-        return ColumnType.INT
-    return ColumnType.STR
 
 
 def get_spark_session():
@@ -141,10 +135,7 @@ def run_spark_query(
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     results_df = spark.sql(query.submitted_query)
     rows = results_df.rdd.map(tuple).collect()
-    columns = [
-        ColumnMetadata(name=field.name, type=get_spark_field_type(field))
-        for field in results_df.schema
-    ]
+    columns: List[ColumnMetadata] = []
     output.append((query.submitted_query, columns, rows))
     return output
 
@@ -161,6 +152,20 @@ def describe_table_via_spark(
     schema_df = spark.sql(f"DESCRIBE TABLE {schema_}{table};")
     rows = schema_df.rdd.map(tuple).collect()
     return [{"name": row[0], "type": row[1]} for row in rows]
+
+
+def run_duckdb_query(
+    query: Query,
+    conn: duckdb.DuckDBPyConnection,
+) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+    """
+    Run a duckdb query against the local duckdb database
+    """
+    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+    rows = conn.execute(query.submitted_query).fetchall()
+    columns: List[ColumnMetadata] = []
+    output.append((query.submitted_query, columns, rows))
+    return output
 
 
 def process_query(
