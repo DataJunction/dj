@@ -1,5 +1,5 @@
 {
-  "name": "react-flow-app",
+  "name": "dj-dag-ui",
   "version": "0.1.0",
   "private": true,
   "dependencies": {

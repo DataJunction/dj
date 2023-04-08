@@ -1,6 +1,4 @@
 import React, {useCallback, useEffect, useMemo} from 'react';
-import dagre from 'dagre';
-
 import ReactFlow, {
   addEdge,
   MiniMap,
@@ -8,27 +6,21 @@ import ReactFlow, {
   Background,
   useNodesState,
   useEdgesState,
-  MarkerType,
 } from 'reactflow';
-
-import { edges as initialEdges } from './initial-elements';
-
 import 'reactflow/dist/style.css';
 import './overview.css';
 import DJNode from "./DJNode";
+import {DataJunctionAPI} from "./services/DJService";
+import dagre from "dagre";
 
 const minimapStyle = {
   height: 120,
 };
 
-const DJ_URL = process.env.REACT_APP_DJ_URL;
-
-const onInit = (reactFlowInstance) => console.log('flow loaded:', reactFlowInstance);
-
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-const getLayoutedElements = (
+const setElementsLayout = (
   nodes,
   edges,
   direction = 'TB',
@@ -62,69 +54,29 @@ const getLayoutedElements = (
   return { nodes, edges };
 };
 
-
 const Flow = () => {
   const nodeTypes = useMemo(() => ({ DJNode: DJNode }), []);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
-
-  const { nodes: layoutedNodes, edges: layoutedEdges } = getLayoutedElements(
-    nodes,
-    edges
-  );
+  const [edges, setEdges, onEdgesChange] = useEdgesState([]);
 
   useEffect(() => {
     const dagFetch = async () => {
-      const data = await (
-        await fetch(
-          DJ_URL + "/nodes/"
-        )
-      ).json();
-
-      const edges = [];
-      data.forEach(
-        (obj) => {
-          obj.parents.forEach((parent) => {
-            if (parent.name) {
-              edges.push({
-                id: obj.name + "-" + parent.name,
-                target: obj.name,
-                source: parent.name,
-                markerEnd: {
-                  type: MarkerType.Arrow,
-                },
-              });
-            }
-          });
-
-          obj.columns.forEach((col) => {
-            if (col.dimension) {
-              edges.push({
-                id: obj.name + "-" + col.dimension.name,
-                target: obj.name,
-                source: col.dimension.name,
-                animated: true,
-                draggable: true,
-              });
-            }
-          });
-      });
-
-      setEdges(edges);
-
-      setNodes(data.map((node, index) => {
-        return {
-            id: String(node.name),
-            type: "DJNode",
-            data: {label: node.display_name, type: node.type},
-        }
-      }));
+      let dag = await DataJunctionAPI.dag();
+      setNodes(dag.nodes);
+      setEdges(dag.edges);
+      setElementsLayout(
+        dag.nodes,
+        dag.edges,
+      );
     };
+
     dagFetch();
   }, []);
 
-  const onConnect = useCallback((params) => setEdges((eds) => addEdge(params, eds)), []);
+  const onConnect = useCallback(
+    (params) => setEdges((eds) => addEdge(params, eds)), []
+  );
 
   return (
     <ReactFlow
