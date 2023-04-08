@@ -74,14 +74,3 @@
     box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
 }
 
-.custom-node__select {
-  position: relative;
-  margin-bottom: 10px;
-}
-
-.custom-node__select select {
-  width: 100%;
-  margin-top: 5px;
-  font-size: 10px;
-}
-
