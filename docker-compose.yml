@@ -38,7 +38,7 @@ services:
     networks:
       - core
     environment:
-      - DOTENV_FILE=.docker-env/.env
+      - DOTENV_FILE=.dj-env
     build: "${CORE_SERVICE}"
     volumes:
       - "${CORE_SERVICE}:/code"
@@ -155,3 +155,15 @@ services:
     environment:
       JUPYTER_ENABLE_LAB: "yes"
     command: "start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''"
+
+  react-ui:
+    build:
+      context: ./react-ui
+    ports:
+      - "3000:3000"
+    container_name: react-ui
+    stdin_open: true
+    volumes:
+      - ./react-ui:/usr/src/app/
+      - /usr/src/app/node_modules
+    command: ["npm", "start"]
