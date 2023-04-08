@@ -38,7 +38,7 @@ services:
     networks:
       - core
     environment:
-      - DOTENV_FILE=.dj-env
+      - DOTENV_FILE=.docker-env/.env
     build: "${CORE_SERVICE}"
     volumes:
       - "${CORE_SERVICE}:/code"
@@ -167,3 +167,41 @@ services:
       - ./react-ui:/usr/src/app/
       - /usr/src/app/node_modules
     command: ["npm", "start"]
+
+
+  chat_backend:
+    build:
+      context: ./chat-demo/chat-backend
+      dockerfile: Dockerfile
+    networks:
+      - core
+    ports:
+      - 8500:8500
+    restart: on-failure
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DJ_URL=http://dj:8000
+    volumes:
+      - ./chat-demo/chat-backend:/workspace
+    command: "python3 /workspace/app.py"
+    depends_on:
+      - dj
+
+  chat_ui:
+    build:
+      context: ./chat-demo/chat-frontend
+      dockerfile: Dockerfile
+    networks:
+      - core
+    ports:
+      - 8501:8501
+    restart: on-failure
+    volumes:
+      - ./chat-demo/chat-frontend:/app
+    working_dir: /app
+    environment:
+      - API_ENDPOINT=http://chat_backend:8500
+    depends_on:
+      - chat_backend
+    entrypoint: ["streamlit", "run"]
+    command: ["app.py", "--server.port", "8501", "--server.headless", "true", "--server.fileWatcherType", "none", "--browser.gatherUsageStats", "false"]
