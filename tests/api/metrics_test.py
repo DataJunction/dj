@@ -168,6 +168,11 @@ def test_common_dimensions(
             "repair_order.order_date",
             "repair_order.repair_order_id",
             "repair_order.required_date",
+            "us_state.state_id",
+            "us_state.state_name",
+            "us_state.state_region",
+            "us_state.state_region_description",
+            "us_state.state_short",
         ],
     )
 
@@ -253,4 +258,9 @@ def test_get_dimensions(client_with_examples: TestClient):
         "repair_order.order_date",
         "repair_order.repair_order_id",
         "repair_order.required_date",
+        "us_state.state_id",
+        "us_state.state_name",
+        "us_state.state_region",
+        "us_state.state_region_description",
+        "us_state.state_short",
     ]
