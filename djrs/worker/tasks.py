@@ -2,6 +2,7 @@
 import datetime
 import json
 from abc import ABC
+from typing import Dict
 
 import celery
 import requests
@@ -36,9 +37,9 @@ def refresh():
     dj_api = get_dj_client()
 
     catalogs_to_engines = {
-        catalog.name: catalog.engines[0] if catalog.engines else None
+        catalog["name"]: catalog["engines"][0] if catalog["engines"] else None
         for catalog in json.loads(
-            dj_api.list_catalogs_catalogs_get(),
+            dj_api.list_catalogs_catalogs_get(skip_deserialization=True).response.data,
         )
     }
 
@@ -70,12 +71,18 @@ def refresh():
     name="djrs.worker.tasks.reflect",
     base=ReflectionServiceTask,
 )
-def reflect(node_name: str, catalog: str, schema: str, table: str):
+def reflect(
+    node_name: str,
+    catalog: str,
+    schema: str,
+    table: str,
+    engine: Dict[str, str],
+):
     """
     This reflects the state of the node's associated table, whether
     external or materialized, back to the DJ core service.
     """
-    logger.info("Reflecting node={node_name}, table={table} to DJ core")
+    logger.info(f"Reflecting node={node_name}, table={table} to DJ core")
     settings = get_settings()
     dj_api = get_dj_client()
 
@@ -83,8 +90,8 @@ def reflect(node_name: str, catalog: str, schema: str, table: str):
     response = requests.get(
         f"{settings.query_service}/table/{catalog}.{schema}.{table}/columns/",
         params={
-            "engine": "",
-            "engine_version": "",
+            "engine": engine["name"],
+            "engine_version": engine["version"],
         },
         timeout=30,
     )

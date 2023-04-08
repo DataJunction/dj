@@ -1,6 +1,7 @@
 """Tests the celery app."""
 import datetime
 import json
+from dataclasses import dataclass
 from unittest.mock import call
 
 import pytest
@@ -13,37 +14,59 @@ def test_refresh(celery_app, mocker):
     """
     Tests that the reflection service refreshes DJ nodes' availability states.
     """
-    mock_requests = mocker.patch("urllib3.PoolManager.request")
-    mock_requests.return_value.data = """
-    [
-        {
-            "name": "random",
-            "catalog": {"name": "postgres"},
-            "schema_": "test",
-            "table": "revenue"
-        },
-        {
-            "name": "random2",
-            "catalog": {"name": "postgres"},
-            "schema_": null,
-            "table": null
-        }
-    ]
-    """
-    mock_requests.return_value.status = 200
-    refresh.apply(args=()).get()
-    mock_requests.assert_called_once_with(
-        "GET",
-        "http://dj:8000/nodes/",
-        preload_content=True,
-        timeout=None,
-        headers=HTTPHeaderDict(
+
+    @dataclass
+    class MockResponse:
+        """
+        Mocking responses to uri requests
+        """
+
+        data: str
+        status: int
+
+    def mock_requests(*args, **kwargs):  # pylint: disable=unused-argument
+        """
+        Mock out the different DJ API requests
+        """
+        if "http://dj:8000/catalogs/" in args:
+            return MockResponse(
+                data="""
+            [
+                {
+                    "name": "postgres",
+                    "engines": [
+                    {
+                        "name": "postgres",
+                        "version":"",
+                        "uri":""
+                    }]
+                }
+            ]
+            """,
+                status=200,
+            )
+        return MockResponse(
+            data="""
+        [
             {
-                "User-Agent": "OpenAPI-Generator/1.0.0/python",
-                "Accept": "application/json",
+                "name": "random",
+                "catalog": {"name": "postgres"},
+                "schema_": "test",
+                "table": "revenue"
             },
-        ),
-    )
+            {
+                "name": "random2",
+                "catalog": {"name": "postgres"},
+                "schema_": null,
+                "table": null
+            }
+        ]
+        """,
+            status=200,
+        )
+
+    mocker.patch("urllib3.PoolManager.request", mock_requests)
+    refresh.apply(args=()).get()
 
     assert {"djrs.worker.app.refresh", "djrs.worker.tasks.reflect"}.intersection(
         celery_app.tasks.keys(),
@@ -89,16 +112,26 @@ def test_reflect(celery_app, mocker, freezer):  # pylint: disable=unused-argumen
             "name": "random",
             "catalog": {"name": "postgres"},
             "schema_": "test",
-            "table": "revenue"
+            "table": "revenue",
+            "engines": [{"name":"spark","version":"3.3.2","uri":"spark://local[*]"}]
         }
     ]
     """
     mock_dj_requests.return_value.status = 200
 
-    reflect.apply(args=("random", "postgres", "test", "revenue")).get()
+    reflect.apply(
+        args=(
+            "random",
+            "postgres",
+            "test",
+            "revenue",
+            {"name": "spark", "version": "3.3.2", "uri": "spark://local[*]"},
+        ),
+    ).get()
 
     mock_djqs_requests.assert_called_once_with(
         "http://djqs:8001/table/postgres.test.revenue/columns/",
+        params={"engine": "spark", "engine_version": "3.3.2"},
         timeout=30,
     )
     assert mock_dj_requests.call_args_list == [
