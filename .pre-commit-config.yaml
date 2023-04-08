@@ -1,4 +1,4 @@
-exclude: (^docs/|^clients/)
+exclude: (^docs/|^clients/|^react-ui/)
 
 repos:
   # Autoformat: YAML, JSON, Markdown, etc.
