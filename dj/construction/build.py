@@ -160,10 +160,15 @@ def _build_joins_for_dimension(
                 left_table.add_ref_column(
                     cast(ast.Column, join_left_columns[join_col.name]),
                 )
+                join_right_col = join_right_columns[
+                    join_col.dimension_column or "id"
+                ].copy()
+                join_right_col.name = join_right_col.alias_or_name
+                join_right_col.alias = None
                 join_on.append(
                     ast.BinaryOp.Eq(
                         join_left_columns[join_col.name],
-                        join_right_columns[join_col.dimension_column or "id"],
+                        join_right_col,
                     ),
                 )
             else:
