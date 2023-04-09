@@ -127,4 +127,5 @@ def data_for_node(
         async_=async_,
     )
     result = query_service_client.submit_query(query_create)
+    result["results"]["columns"] = columns
     return result
