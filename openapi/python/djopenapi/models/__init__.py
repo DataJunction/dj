@@ -36,6 +36,7 @@ from djopenapi.model.materialization_config_output import MaterializationConfigO
 from djopenapi.model.metric import Metric
 from djopenapi.model.mutable_attribute_type_fields import MutableAttributeTypeFields
 from djopenapi.model.node_mode import NodeMode
+from djopenapi.model.node_name_output import NodeNameOutput
 from djopenapi.model.node_output import NodeOutput
 from djopenapi.model.node_revision import NodeRevision
 from djopenapi.model.node_revision_base import NodeRevisionBase

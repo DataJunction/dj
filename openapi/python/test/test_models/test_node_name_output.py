@@ -12,12 +12,12 @@
 import unittest
 
 import djopenapi
-from djopenapi.model.create_node import CreateNode
+from djopenapi.model.node_name_output import NodeNameOutput
 from djopenapi import configuration
 
 
-class TestCreateNode(unittest.TestCase):
-    """CreateNode unit test stubs"""
+class TestNodeNameOutput(unittest.TestCase):
+    """NodeNameOutput unit test stubs"""
     _configuration = configuration.Configuration()
 
 
