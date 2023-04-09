@@ -44,19 +44,37 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "submitted_query": "SELECT  payment_type_table.id,\n\tpayment_type_table."
-            "payment_type_classification,\n\tpayment_type_table."
-            'payment_type_name \n FROM "accounting"."payment_type_table"'
-            " AS payment_type_table",
+            "id": "0cb5478c-fd7d-4159-a414-68c50f4b9914",
+            "engine_name": None,
+            "engine_version": None,
+            "submitted_query": (
+                "SELECT  payment_type_table.id,\n\t"
+                "payment_type_table.payment_type_classification,"
+                "\n\tpayment_type_table.payment_type_name \n FROM "
+                '"accounting"."payment_type_table" '
+                "AS payment_type_table"
+            ),
+            "executed_query": None,
+            "scheduled": None,
+            "started": None,
+            "finished": None,
             "state": "FINISHED",
-            "results": {
-                "columns": [
-                    {"name": "id", "type": "int"},
-                    {"name": "payment_type_classification", "type": "string"},
-                    {"name": "payment_type_name", "type": "string"},
-                ],
-                "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
-            },
+            "progress": 0.0,
+            "output_table": None,
+            "results": [
+                {
+                    "sql": "",
+                    "columns": [
+                        {"name": "id", "type": "int"},
+                        {"name": "payment_type_classification", "type": "string"},
+                        {"name": "payment_type_name", "type": "string"},
+                    ],
+                    "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
+                    "row_count": 0,
+                },
+            ],
+            "next": None,
+            "previous": None,
             "errors": [],
         }
 
@@ -71,12 +89,27 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
+            "id": "8a8bb03a-74c8-448a-8630-e9439bd5a01b",
+            "engine_name": None,
+            "engine_version": None,
             "submitted_query": 'SELECT  * \n FROM "accounting"."revenue"',
+            "executed_query": None,
+            "scheduled": None,
+            "started": None,
+            "finished": None,
             "state": "FINISHED",
-            "results": {
-                "columns": [{"name": "*", "type": "wildcard"}],
-                "rows": [[129.19]],
-            },
+            "progress": 0.0,
+            "output_table": None,
+            "results": [
+                {
+                    "sql": "",
+                    "columns": [{"name": "*", "type": "wildcard"}],
+                    "rows": [[129.19]],
+                    "row_count": 0,
+                },
+            ],
+            "next": None,
+            "previous": None,
             "errors": [],
         }
 
@@ -91,25 +124,41 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "submitted_query": "SELECT  revenue.account_type,\n\trevenue.customer_id,"
-            "\n\trevenue.payment_amount,\n\trevenue.payment_id \n "
-            'FROM "accounting"."revenue" AS revenue\n \n WHERE  '
-            "revenue.payment_amount > 1000000",
+            "id": "1b049fb1-652e-458a-ba9d-3669412b34bd",
+            "engine_name": None,
+            "engine_version": None,
+            "submitted_query": (
+                "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
+                '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n WHERE  '
+                "revenue.payment_amount > 1000000"
+            ),
+            "executed_query": None,
+            "scheduled": None,
+            "started": None,
+            "finished": None,
             "state": "FINISHED",
-            "results": {
-                "columns": [
-                    {"name": "account_type", "type": "string"},
-                    {"name": "customer_id", "type": "int"},
-                    {"name": "payment_amount", "type": "float"},
-                    {"name": "payment_id", "type": "int"},
-                ],
-                "rows": [
-                    ["CHECKING", 2, "22.50", 1],
-                    ["SAVINGS", 2, "100.50", 1],
-                    ["CREDIT", 1, "11.50", 1],
-                    ["CHECKING", 2, "2.50", 1],
-                ],
-            },
+            "progress": 0.0,
+            "output_table": None,
+            "results": [
+                {
+                    "sql": "",
+                    "columns": [
+                        {"name": "account_type", "type": "string"},
+                        {"name": "customer_id", "type": "int"},
+                        {"name": "payment_amount", "type": "float"},
+                        {"name": "payment_id", "type": "int"},
+                    ],
+                    "rows": [
+                        ["CHECKING", 2, "22.50", 1],
+                        ["SAVINGS", 2, "100.50", 1],
+                        ["CREDIT", 1, "11.50", 1],
+                        ["CHECKING", 2, "2.50", 1],
+                    ],
+                    "row_count": 0,
+                },
+            ],
+            "next": None,
+            "previous": None,
             "errors": [],
         }
 
@@ -124,10 +173,30 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "submitted_query": 'SELECT  COUNT(1) AS cnt \n FROM "basic".'
-            '"comments" AS basic_DOT_source_DOT_comments',
+            "id": "ee41ea6c-2303-4fe1-8bf0-f0ce3d6a35ca",
+            "engine_name": None,
+            "engine_version": None,
+            "submitted_query": (
+                'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" '
+                "AS basic_DOT_source_DOT_comments"
+            ),
+            "executed_query": None,
+            "scheduled": None,
+            "started": None,
+            "finished": None,
             "state": "FINISHED",
-            "results": {"columns": [{"name": "cnt", "type": "long"}], "rows": [[1]]},
+            "progress": 0.0,
+            "output_table": None,
+            "results": [
+                {
+                    "sql": "",
+                    "columns": [{"name": "cnt", "type": "long"}],
+                    "rows": [[1]],
+                    "row_count": 0,
+                },
+            ],
+            "next": None,
+            "previous": None,
             "errors": [],
         }
 

@@ -127,5 +127,7 @@ def data_for_node(
         async_=async_,
     )
     result = query_service_client.submit_query(query_create)
-    result["results"]["columns"] = columns
+    # Inject column info if there are results
+    if result.results.__root__:  # pragma: no cover
+        result.results.__root__[0].columns = columns
     return result
