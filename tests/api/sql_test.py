@@ -379,6 +379,50 @@ def test_sql(
               dispatcher.company_name
             """,
         ),
+        # dimension with aliased join key should just use the alias directly
+        (
+            "num_repair_orders",
+            ["us_state.state_region_description"],
+            [],
+            """
+            SELECT
+              count(repair_orders.repair_order_id) AS num_repair_orders,
+              us_state.state_region_description
+            FROM roads.repair_orders AS repair_orders
+            LEFT OUTER JOIN (
+              SELECT
+                hard_hats.address,
+                hard_hats.birth_date,
+                hard_hats.city,
+                hard_hats.contractor_id,
+                hard_hats.country,
+                hard_hats.first_name,
+                hard_hats.hard_hat_id,
+                hard_hats.hire_date,
+                hard_hats.last_name,
+                hard_hats.manager,
+                hard_hats.postal_code,
+                hard_hats.state,
+                hard_hats.title
+              FROM roads.hard_hats AS hard_hats
+            ) AS hard_hat
+            ON repair_orders.hard_hat_id = hard_hat.hard_hat_id
+            LEFT OUTER JOIN (
+              SELECT
+                us_states.state_id,
+                us_states.state_name,
+                us_states.state_region,
+                us_region.us_region_description AS state_region_description,
+                us_states.state_abbr AS state_short
+              FROM roads.us_states AS us_states
+              LEFT JOIN roads.us_region AS us_region
+              ON us_states.state_region = us_region.us_region_id
+            ) AS us_state
+            ON hard_hat.state = us_state.state_short
+            GROUP BY
+              us_state.state_region_description
+            """,
+        ),
     ],
 )
 def test_sql_with_filters(

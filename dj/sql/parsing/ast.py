@@ -698,6 +698,12 @@ class Column(Aliasable, Named, Expression):
         self._api_column = api_column
         return self
 
+    def use_alias_as_name(self) -> "Column":
+        """Use the column's alias as its name"""
+        self.name = self.alias
+        self.alias = None
+        return self
+
     def is_compiled(self):
         return self._is_compiled or (self.table and self._type)
 
@@ -1120,6 +1126,7 @@ class BinaryOp(Operation):
     op: BinaryOpKind
     left: Expression
     right: Expression
+    use_alias_as_name: Optional[bool] = False
 
     @classmethod
     def And(  # pylint: disable=invalid-name,keyword-arg-before-vararg
@@ -1147,16 +1154,29 @@ class BinaryOp(Operation):
         cls,
         left: Expression,
         right: Optional[Expression],
+        use_alias_as_name: Optional[bool] = False,
     ) -> Union["BinaryOp", Expression]:
         """
         Create a BinaryOp of kind BinaryOpKind.Eq
         """
         if right is None:  # pragma: no cover
             return left
-        return BinaryOp(BinaryOpKind.Eq, left, right)
+        return BinaryOp(
+            BinaryOpKind.Eq,
+            left,
+            right,
+            use_alias_as_name=use_alias_as_name,
+        )
 
     def __str__(self) -> str:
-        ret = f"{self.left} {self.op.value} {self.right}"
+        left, right = self.left, self.right
+        if self.use_alias_as_name:
+            if isinstance(self.right, Column) and self.right.alias:
+                right = self.right.copy().use_alias_as_name()
+            if isinstance(self.left, Column) and self.left.alias:
+                left = self.left.copy().use_alias_as_name()
+        ret = f"{left} {self.op.value} {right}"
+
         if self.parenthesized:
             return f"({ret})"
         return ret

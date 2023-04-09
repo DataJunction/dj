@@ -164,6 +164,7 @@ def _build_joins_for_dimension(
                     ast.BinaryOp.Eq(
                         join_left_columns[join_col.name],
                         join_right_columns[join_col.dimension_column or "id"],
+                        use_alias_as_name=True,
                     ),
                 )
             else:

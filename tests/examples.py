@@ -355,7 +355,7 @@ EXAMPLES = (  # type: ignore
                         SELECT
                         state_id,
                         state_name,
-                        state_abbr,
+                        state_abbr AS state_short,
                         state_region,
                         r.us_region_description AS state_region_description
                         FROM us_states s
@@ -521,6 +521,13 @@ EXAMPLES = (  # type: ignore
         (
             "/nodes/local_hard_hats/columns/state_id/"
             "?dimension=us_state&dimension_column=state_id"
+        ),
+        {},
+    ),
+    (
+        (
+            "/nodes/hard_hat/columns/state/"
+            "?dimension=us_state&dimension_column=state_short"
         ),
         {},
     ),
