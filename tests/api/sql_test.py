@@ -440,6 +440,7 @@ def test_sql_with_filters(
         params={"dimensions": dimensions, "filters": filters},
     )
     data = response.json()
+    print("DATA", data["sql"])
     assert compare_query_strings(data["sql"], sql)
 
 
