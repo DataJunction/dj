@@ -20,6 +20,7 @@ Key | Input Type | Accessed Type | Description | Notes
 **version** | str,  | str,  |  | 
 **[materialization_configs](#materialization_configs)** | list, tuple,  | tuple,  |  | 
 **node_id** | decimal.Decimal, int,  | decimal.Decimal,  |  | 
+**[parents](#parents)** | list, tuple,  | tuple,  |  | 
 **status** | [**NodeStatus**](NodeStatus.md) | [**NodeStatus**](NodeStatus.md) |  | 
 **catalog** | [**Catalog**](Catalog.md) | [**Catalog**](Catalog.md) |  | [optional] 
 **schema_** | str,  | str,  |  | [optional] 
@@ -52,6 +53,18 @@ list, tuple,  | tuple,  |  |
 Class Name | Input Type | Accessed Type | Description | Notes
 ------------- | ------------- | ------------- | ------------- | -------------
 [**MaterializationConfigOutput**](MaterializationConfigOutput.md) | [**MaterializationConfigOutput**](MaterializationConfigOutput.md) | [**MaterializationConfigOutput**](MaterializationConfigOutput.md) |  | 
+
+# parents
+
+## Model Type Info
+Input Type | Accessed Type | Description | Notes
+------------ | ------------- | ------------- | -------------
+list, tuple,  | tuple,  |  | 
+
+### Tuple Items
+Class Name | Input Type | Accessed Type | Description | Notes
+------------- | ------------- | ------------- | ------------- | -------------
+[**NodeNameOutput**](NodeNameOutput.md) | [**NodeNameOutput**](NodeNameOutput.md) | [**NodeNameOutput**](NodeNameOutput.md) |  | 
 
 [[Back to Model list]](../../README.md#documentation-for-models) [[Back to API list]](../../README.md#documentation-for-api-endpoints) [[Back to README]](../../README.md)
 
