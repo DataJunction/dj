@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+g1e86dc4"
+        "version": "0.0.post1.dev1+g7537d5c"
     },
     "paths": {
         "/catalogs/": {
@@ -1999,6 +1999,9 @@
                         "items": {
                             "$ref": "#/components/schemas/AttributeOutput"
                         }
+                    },
+                    "dimension": {
+                        "$ref": "#/components/schemas/NodeNameOutput"
                     }
                 },
                 "description": "A simplified column schema, without ID or dimensions."
@@ -2423,6 +2426,20 @@
                 "type": "string",
                 "description": "Node mode.\n\nA node can be in one of the following modes:\n\n1. PUBLISHED - Must be valid and not cause any child nodes to be invalid\n2. DRAFT - Can be invalid, have invalid parents, and include dangling references"
             },
+            "NodeNameOutput": {
+                "title": "NodeNameOutput",
+                "required": [
+                    "name"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    }
+                },
+                "description": "Node name only"
+            },
             "NodeOutput": {
                 "title": "NodeOutput",
                 "required": [
@@ -2585,7 +2602,8 @@
                     "mode",
                     "columns",
                     "updated_at",
-                    "materialization_configs"
+                    "materialization_configs",
+                    "parents"
                 ],
                 "type": "object",
                 "properties": {
@@ -2658,6 +2676,13 @@
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/MaterializationConfigOutput"
+                        }
+                    },
+                    "parents": {
+                        "title": "Parents",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/NodeNameOutput"
                         }
                     }
                 },
