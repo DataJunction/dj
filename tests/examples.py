@@ -1090,7 +1090,7 @@ EXAMPLES = (  # type: ignore
             "columns": {
                 "id": {"type": "int"},
                 "payment_type_name": {"type": "string"},
-                "payment_type_classification": {"type": "int"},
+                "payment_type_classification": {"type": "string"},
             },
             "description": "A source table for different types of payments",
             "mode": "published",
@@ -1490,29 +1490,27 @@ QUERY_DATA_MAPPINGS = {
     .strip()
     .replace('"', "")
     .replace("\n", "")
-    .replace(" ", ""): [
-        {
-            "submitted_query": (
-                "SELECT  payment_type_table.id,\n\tpayment_type_table."
-                "payment_type_classification,\n\t"
-                'payment_type_table.payment_type_name \n FROM "accounting"."payment_type_table" '
-                "AS payment_type_table"
-            ),
-            "state": QueryState.FINISHED,
-            "results": {
-                "columns": [
-                    {"name": "id", "type": "int"},
-                    {"name": "payment_type_classification", "type": "string"},
-                    {"name": "payment_type_name", "type": "string"},
-                ],
-                "rows": [
-                    (1, "CARD", "VISA"),
-                    (2, "CARD", "MASTERCARD"),
-                ],
-            },
-            "errors": [],
+    .replace(" ", ""): {
+        "submitted_query": (
+            "SELECT  payment_type_table.id,\n\tpayment_type_table."
+            "payment_type_classification,\n\t"
+            'payment_type_table.payment_type_name \n FROM "accounting"."payment_type_table" '
+            "AS payment_type_table"
+        ),
+        "state": QueryState.FINISHED,
+        "results": {
+            "columns": [
+                {"name": "id", "type": "int"},
+                {"name": "payment_type_classification", "type": "string"},
+                {"name": "payment_type_name", "type": "string"},
+            ],
+            "rows": [
+                (1, "CARD", "VISA"),
+                (2, "CARD", "MASTERCARD"),
+            ],
         },
-    ],
+        "errors": [],
+    },
     'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" AS basic_DOT_source_DOT_comments'.strip()
     .replace('"', "")
     .replace("\n", "")
@@ -1522,7 +1520,7 @@ QUERY_DATA_MAPPINGS = {
         ),
         "state": QueryState.FINISHED,
         "results": {
-            "columns": [{"name": "cnt", "type": "int"}],
+            "columns": [{"name": "cnt", "type": "long"}],
             "rows": [
                 (1,),
             ],
