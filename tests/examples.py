@@ -3,8 +3,10 @@
 """
 Post requests for all example entities
 """
+import uuid
 
 from dj.models import Column
+from dj.models.query import QueryWithResults
 from dj.sql.parsing.types import IntegerType, StringType, TimestampType
 from dj.typing import QueryState
 
@@ -1497,57 +1499,76 @@ QUERY_DATA_MAPPINGS = {
     .strip()
     .replace('"', "")
     .replace("\n", "")
-    .replace(" ", ""): {
-        "submitted_query": (
-            "SELECT  payment_type_table.id,\n\tpayment_type_table."
-            "payment_type_classification,\n\t"
-            'payment_type_table.payment_type_name \n FROM "accounting"."payment_type_table" '
-            "AS payment_type_table"
-        ),
-        "state": QueryState.FINISHED,
-        "results": {
-            "columns": [
-                {"name": "id", "type": "int"},
-                {"name": "payment_type_classification", "type": "string"},
-                {"name": "payment_type_name", "type": "string"},
+    .replace(" ", ""): QueryWithResults(
+        **{
+            "id": uuid.UUID("0cb5478c-fd7d-4159-a414-68c50f4b9914"),
+            "submitted_query": (
+                "SELECT  payment_type_table.id,\n\tpayment_type_table."
+                "payment_type_classification,\n\t"
+                'payment_type_table.payment_type_name \n FROM "accounting"."payment_type_table" '
+                "AS payment_type_table"
+            ),
+            "state": QueryState.FINISHED,
+            "results": [
+                {
+                    "columns": [
+                        {"name": "id", "type": "int"},
+                        {"name": "payment_type_classification", "type": "string"},
+                        {"name": "payment_type_name", "type": "string"},
+                    ],
+                    "rows": [
+                        (1, "CARD", "VISA"),
+                        (2, "CARD", "MASTERCARD"),
+                    ],
+                    "sql": "",
+                },
             ],
-            "rows": [
-                (1, "CARD", "VISA"),
-                (2, "CARD", "MASTERCARD"),
-            ],
-        },
-        "errors": [],
-    },
+            "errors": [],
+        }
+    ),
     'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" AS basic_DOT_source_DOT_comments'.strip()
     .replace('"', "")
     .replace("\n", "")
-    .replace(" ", ""): {
-        "submitted_query": (
-            'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" AS basic_DOT_source_DOT_comments'
-        ),
-        "state": QueryState.FINISHED,
-        "results": {
-            "columns": [{"name": "cnt", "type": "long"}],
-            "rows": [
-                (1,),
+    .replace(" ", ""): QueryWithResults(
+        **{
+            "id": uuid.UUID("ee41ea6c-2303-4fe1-8bf0-f0ce3d6a35ca"),
+            "submitted_query": (
+                'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" '
+                "AS basic_DOT_source_DOT_comments"
+            ),
+            "state": QueryState.FINISHED,
+            "results": [
+                {
+                    "columns": [{"name": "cnt", "type": "long"}],
+                    "rows": [
+                        (1,),
+                    ],
+                    "sql": "",
+                },
             ],
-        },
-        "errors": [],
-    },
+            "errors": [],
+        }
+    ),
     'SELECT  * \n FROM "accounting"."revenue"'.strip()
     .replace('"', "")
     .replace("\n", "")
-    .replace(" ", ""): {
-        "submitted_query": ('SELECT  * \n FROM "accounting"."revenue"'),
-        "state": QueryState.FINISHED,
-        "results": {
-            "columns": [{"name": "profit", "type": "float"}],
-            "rows": [
-                (129.19,),
+    .replace(" ", ""): QueryWithResults(
+        **{
+            "id": uuid.UUID("8a8bb03a-74c8-448a-8630-e9439bd5a01b"),
+            "submitted_query": ('SELECT  * \n FROM "accounting"."revenue"'),
+            "state": QueryState.FINISHED,
+            "results": [
+                {
+                    "columns": [{"name": "profit", "type": "float"}],
+                    "rows": [
+                        (129.19,),
+                    ],
+                    "sql": "",
+                },
             ],
-        },
-        "errors": [],
-    },
+            "errors": [],
+        }
+    ),
     (
         "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
         '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n '
@@ -1556,27 +1577,33 @@ QUERY_DATA_MAPPINGS = {
     .strip()
     .replace('"', "")
     .replace("\n", "")
-    .replace(" ", ""): {
-        "submitted_query": (
-            "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
-            '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n '
-            "WHERE  revenue.payment_amount > 1000000"
-        ),
-        "state": QueryState.FINISHED,
-        "results": {
-            "columns": [
-                {"name": "account_type", "type": "string"},
-                {"name": "customer_id", "type": "int"},
-                {"name": "payment_amount", "type": "string"},
-                {"name": "payment_id", "type": "int"},
+    .replace(" ", ""): QueryWithResults(
+        **{
+            "id": uuid.UUID("1b049fb1-652e-458a-ba9d-3669412b34bd"),
+            "submitted_query": (
+                "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
+                '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n '
+                "WHERE  revenue.payment_amount > 1000000"
+            ),
+            "state": QueryState.FINISHED,
+            "results": [
+                {
+                    "columns": [
+                        {"name": "account_type", "type": "string"},
+                        {"name": "customer_id", "type": "int"},
+                        {"name": "payment_amount", "type": "string"},
+                        {"name": "payment_id", "type": "int"},
+                    ],
+                    "rows": [
+                        ("CHECKING", 2, "22.50", 1),
+                        ("SAVINGS", 2, "100.50", 1),
+                        ("CREDIT", 1, "11.50", 1),
+                        ("CHECKING", 2, "2.50", 1),
+                    ],
+                    "sql": "",
+                },
             ],
-            "rows": [
-                ("CHECKING", 2, "22.50", 1),
-                ("SAVINGS", 2, "100.50", 1),
-                ("CREDIT", 1, "11.50", 1),
-                ("CHECKING", 2, "2.50", 1),
-            ],
-        },
-        "errors": [],
-    },
+            "errors": [],
+        }
+    ),
 }
