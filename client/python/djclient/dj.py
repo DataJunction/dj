@@ -82,7 +82,9 @@ class DJClient:
         REGISTRY["_client"] = self
 
     def catalogs(self):
-        """Gets all catalogs."""
+        """
+        Gets all catalogs.
+        """
         response = self._session.get("/catalogs/", timeout=self._timeout)
         return response.json()
 
