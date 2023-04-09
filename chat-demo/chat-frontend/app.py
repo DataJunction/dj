@@ -59,7 +59,14 @@ def main():
         response = requests.get(f"{API_ENDPOINT}/query/{st.session_state.query}?n={st.session_state.num_answers}&rel={st.session_state.rel_thresh}")
         if response.status_code==200:
             data = response.json()
-            st.session_state.results = pd.DataFrame(data['results'][0]['rows'])
+            if 'sql' in data:
+                st.session_state.results = '```SQL\n'+data['sql']+'\n```'
+            elif 'message' in data:
+                st.session_state.results = data['message']
+            elif 'results' in data:
+                st.session_state.results = pd.DataFrame(data['results'][0]['rows'])
+            else:
+                st.session_state.results = "An unexpected error occurred."
             st.session_state.query_response_time = time.time()-start
             st.session_state.searched = True
             logging.info(f"Results for '{st.session_state.query}' fetched in {st.session_state.query_response_time:.2}s")
@@ -87,7 +94,14 @@ def main():
             fetched in {st.session_state.query_response_time:.2}s
             ```
             """
-            st.write(st.session_state.results)
-            st.bar_chart(st.session_state.results)
+            if isinstance(st.session_state.results, pd.DataFrame):
+                st.write(st.session_state.results)
+                st.bar_chart(st.session_state.results)
+            if isinstance(st.session_state.results, str):
+                if st.session_state.results.startswith('`'):
+                    st.write(st.session_state.results)
+                else:
+                    f"### {st.session_state.results}"
+                
 sidebar()
 main()
