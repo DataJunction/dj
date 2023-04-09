@@ -1,0 +1,146 @@
+"""Tests DJ client"""
+import pytest
+import responses
+
+from djclient.dj import DJClient, Source
+from djclient.exceptions import DJClientException
+
+
+class TestDJClient:
+    """
+    Tests for DJ client functionality.
+    """
+
+    @pytest.fixture
+    def client(self):
+        """
+        Returns a DJ client instance
+        """
+        return DJClient(uri="http://localhost:8000")
+
+    def test_client_not_initialized(self):
+        """
+        Verify that it raises an exception when the DJ client isn't initialized.
+        """
+        source = Source(
+            name="apples",
+            description="A record of all apples in the store.",
+            display_name="Apples",
+            catalog="prod",
+            schema_="store",
+            table="apples",
+        )
+        with pytest.raises(DJClientException) as exc_info:
+            source.publish()
+        assert "DJ client not initialized!" in str(exc_info)
+
+    @responses.activate
+    def test_catalogs(self, client):
+        """
+        Check that `client.catalogs()` works as expected.
+        """
+        expected = [
+            {
+                "name": "prod",
+                "engines": [{"name": "spark", "version": "123", "uri": "spark://"}],
+            },
+        ]
+        responses.add(responses.GET, "http://localhost:8000/catalogs/", json=expected)
+        result = client.catalogs()
+        assert result == expected
+
+    @responses.activate
+    def test_engines(self, client):
+        """
+        Check that `client.engines()` works as expected.
+        """
+        expected = [{"name": "spark", "version": "123", "uri": "spark://"}]
+        responses.add(responses.GET, "http://localhost:8000/engines/", json=expected)
+        result = client.engines()
+        assert result == expected
+
+    @responses.activate
+    def test_all_nodes(self, client):
+        """
+        Verifies that retrieving nodes with `client.nodes()` or node-type
+        specific calls like `client.sources()` work.
+        """
+        expected = [
+            {"name": "node1", "type": "source"},
+            {"name": "node2", "type": "dimension"},
+            {"name": "node3", "type": "transform"},
+            {"name": "node4", "type": "metric"},
+            {"name": "node5", "type": "cube"},
+        ]
+        responses.add(responses.GET, "http://localhost:8000/nodes/", json=expected)
+        result = client.nodes()
+        assert result == expected
+        expected_names_only = ["node1", "node2", "node3", "node4", "node5"]
+        result_names_only = client.nodes(names_only=True)
+        assert result_names_only == expected_names_only
+
+        # sources
+        result = client.sources()
+        assert result == [expected[0]]
+        result_names_only = client.sources(names_only=True)
+        assert result_names_only == ["node1"]
+
+        # dimensions
+        result = client.dimensions()
+        assert result == [expected[1]]
+        result_names_only = client.dimensions(names_only=True)
+        assert result_names_only == ["node2"]
+
+        # transforms
+        result = client.transforms()
+        assert result == [expected[2]]
+        result_names_only = client.transforms(names_only=True)
+        assert result_names_only == ["node3"]
+
+        # metrics
+        result = client.metrics()
+        assert result == [expected[3]]
+        result_names_only = client.metrics(names_only=True)
+        assert result_names_only == ["node4"]
+
+        # cubes
+        result = client.cubes()
+        assert result == [expected[4]]
+        result_names_only = client.cubes(names_only=True)
+        assert result_names_only == ["node5"]
+
+    @responses.activate
+    def test_create_node(self, client):  # pylint: disable=unused-argument
+        """
+        Verifies that retrieving nodes with `client.nodes()` or
+        node-type specific calls like `client.sources()` work.
+        """
+        source = Source(
+            name="apples",
+            description="A record of all apples in the store.",
+            display_name="Apples",
+            catalog="prod",
+            schema_="store",
+            table="apples",
+        )
+        expected = {
+            "name": "apples",
+            "description": "A record of all apples in the store.",
+            "type": "source",
+            "mode": None,
+            "display_name": "Apples",
+            "availability": None,
+            "tags": None,
+            "catalog": "prod",
+            "schema_": "store",
+            "table": "apples",
+            "columns": None,
+        }
+
+        responses.add(
+            responses.POST,
+            "http://localhost:8000/nodes/source/",
+            json=expected,
+        )
+        source.publish()
+        source.draft()
