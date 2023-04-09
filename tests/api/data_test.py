@@ -43,24 +43,22 @@ class TestDataForNode:
         )
         data = response.json()
         assert response.status_code == 200
-        assert data == [
-            {
-                "submitted_query": "SELECT  payment_type_table.id,\n\tpayment_type_table."
-                "payment_type_classification,\n\tpayment_type_table."
-                'payment_type_name \n FROM "accounting"."payment_type_table"'
-                " AS payment_type_table",
-                "state": "FINISHED",
-                "results": {
-                    "columns": [
-                        {"name": "id", "type": "int"},
-                        {"name": "payment_type_classification", "type": "string"},
-                        {"name": "payment_type_name", "type": "string"},
-                    ],
-                    "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
-                },
-                "errors": [],
+        assert data == {
+            "submitted_query": "SELECT  payment_type_table.id,\n\tpayment_type_table."
+            "payment_type_classification,\n\tpayment_type_table."
+            'payment_type_name \n FROM "accounting"."payment_type_table"'
+            " AS payment_type_table",
+            "state": "FINISHED",
+            "results": {
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "payment_type_classification", "type": "string"},
+                    {"name": "payment_type_name", "type": "string"},
+                ],
+                "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
             },
-        ]
+            "errors": [],
+        }
 
     def test_get_source_data(
         self,
@@ -76,7 +74,7 @@ class TestDataForNode:
             "submitted_query": 'SELECT  * \n FROM "accounting"."revenue"',
             "state": "FINISHED",
             "results": {
-                "columns": [{"name": "profit", "type": "float"}],
+                "columns": [{"name": "*", "type": "wildcard"}],
                 "rows": [[129.19]],
             },
             "errors": [],
@@ -102,7 +100,7 @@ class TestDataForNode:
                 "columns": [
                     {"name": "account_type", "type": "string"},
                     {"name": "customer_id", "type": "int"},
-                    {"name": "payment_amount", "type": "string"},
+                    {"name": "payment_amount", "type": "float"},
                     {"name": "payment_id", "type": "int"},
                 ],
                 "rows": [
@@ -129,7 +127,7 @@ class TestDataForNode:
             "submitted_query": 'SELECT  COUNT(1) AS cnt \n FROM "basic".'
             '"comments" AS basic_DOT_source_DOT_comments',
             "state": "FINISHED",
-            "results": {"columns": [{"name": "cnt", "type": "int"}], "rows": [[1]]},
+            "results": {"columns": [{"name": "cnt", "type": "long"}], "rows": [[1]]},
             "errors": [],
         }
 
