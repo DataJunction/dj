@@ -90,7 +90,7 @@ def main():
         if st.session_state.results is not None:
             f"""
             ```
-            Results for '{st.session_state.query}' 
+            Results for '{st.session_state.query}'
             fetched in {st.session_state.query_response_time:.2}s
             ```
             """
@@ -102,6 +102,6 @@ def main():
                     st.write(st.session_state.results)
                 else:
                     f"### {st.session_state.results}"
-                
+
 sidebar()
 main()

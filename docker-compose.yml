@@ -168,7 +168,6 @@ services:
       - /usr/src/app/node_modules
     command: ["npm", "start"]
 
-
   chat_backend:
     build:
       context: ./chat-demo/chat-backend
@@ -204,4 +203,15 @@ services:
     depends_on:
       - chat_backend
     entrypoint: ["streamlit", "run"]
-    command: ["app.py", "--server.port", "8501", "--server.headless", "true", "--server.fileWatcherType", "none", "--browser.gatherUsageStats", "false"]
+    command:
+      [
+        "app.py",
+        "--server.port",
+        "8501",
+        "--server.headless",
+        "true",
+        "--server.fileWatcherType",
+        "none",
+        "--browser.gatherUsageStats",
+        "false",
+      ]
