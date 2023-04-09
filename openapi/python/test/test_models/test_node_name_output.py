@@ -12,12 +12,12 @@
 import unittest
 
 import djopenapi
-from djopenapi.model.column_output import ColumnOutput
+from djopenapi.model.node_name_output import NodeNameOutput
 from djopenapi import configuration
 
 
-class TestColumnOutput(unittest.TestCase):
-    """ColumnOutput unit test stubs"""
+class TestNodeNameOutput(unittest.TestCase):
+    """NodeNameOutput unit test stubs"""
     _configuration = configuration.Configuration()
 
 
