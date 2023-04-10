@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import responses
 
-from djclient.dj import DJClient, Metric, Source, Transform
+from djclient.dj import Catalog, DJClient, Engine, Metric, Source, Transform
 from djclient.exceptions import DJClientException
 
 
@@ -164,6 +164,11 @@ class TestDJClient:
             "http://localhost:8000/nodes/source/",
             json=expected,
         )
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/apples/",
+            json={**expected, **{"node_revision_id": 1}},
+        )
         source.publish()
         source.draft()
 
@@ -247,3 +252,65 @@ class TestDJClient:
         )
         result = metric.dimensions()
         assert result == expected["dimensions"]
+
+    @responses.activate
+    def test_add_catalog(self, client):  # pylint: disable=unused-argument
+        """
+        Check that adding a catalog works.
+        """
+        expected = {}
+        responses.add(
+            responses.POST,
+            "http://localhost:8000/catalogs/",
+            json=expected,
+        )
+        catalog = Catalog(
+            name="prodhive",
+        )
+        result = catalog.publish()
+        assert result == expected
+
+    @responses.activate
+    def test_add_engine(self, client):  # pylint: disable=unused-argument
+        """
+        Check that adding an engine works.
+        """
+        expected = {}
+        responses.add(
+            responses.POST,
+            "http://localhost:8000/engines/",
+            json=expected,
+        )
+        engine = Engine(
+            name="spark",
+            version="2.4.4",
+            uri="",
+        )
+        result = engine.publish()
+        assert result == expected
+
+    @responses.activate
+    def test_add_engine_to_catalog(self, client):  # pylint: disable=unused-argument
+        """
+        Check that adding an engine works.
+        """
+        expected = {}
+        responses.add(
+            responses.POST,
+            "http://localhost:8000/catalogs/prodhive/",
+            json=expected,
+        )
+        engine = Engine(
+            name="prodhive",
+            version="",
+            uri="",
+        )
+
+        catalog = Catalog(
+            name="prodhive",
+        )
+        result = catalog.add_engine(engine)
+        assert result == expected
+
+        result = catalog.add_engines([engine])
+        assert result == expected
