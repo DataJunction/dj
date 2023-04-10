@@ -4,6 +4,7 @@ import platform
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin
 
+import pandas as pd
 import requests
 from pydantic import BaseModel
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
@@ -173,6 +174,59 @@ class DJClient:
             ]
         return [node for node in response.json() if not type_ or node["type"] == type_]
 
+    def link_dimension_to_node(
+        self,
+        node_name: str,
+        column_name: str,
+        dimension_name: str,
+        dimension_column: str,
+    ):
+        """
+        Helper function to link a dimension to the node.
+        """
+        response = self._session.post(
+            f"/nodes/{node_name}/columns/{column_name}/"
+            f"?dimension={dimension_name}&dimension_column={dimension_column}",
+            timeout=self._timeout,
+        )
+        return response.json()
+
+    def get_metric(self, node_name: str):
+        """
+        Helper function to retrieve metadata for the given metric node.
+        """
+        response = self._session.get(f"/metrics/{node_name}/")
+        return response.json()
+
+    def sql(self, node_name: str, dimensions: List[str], filters: List[str]):
+        """
+        Retrieves the SQL query built for the node with the provided dimensions and filters.
+        """
+        response = self._session.get(
+            f"/sql/{node_name}/",
+            params={
+                "dimensions": dimensions,
+                "filters": filters,
+            },
+        )
+        return response.json()["sql"]
+
+    def data(self, node_name: str, dimensions: List[str], filters: List[str]):
+        """
+        Retrieves the data for the node with the provided dimensions and filters.
+        """
+        response = self._session.get(
+            f"/data/{node_name}/",
+            params={
+                "dimensions": dimensions,
+                "filters": filters,
+            },
+        )
+        results = response.json()
+        columns = results["results"][0]["columns"]
+        rows = results["results"][0]["rows"]
+        return pd.DataFrame(rows, columns=[col["name"] for col in columns])
+
 
 class Column(BaseModel):
     """
@@ -208,7 +262,7 @@ class Node(BaseModel):
     """
 
     name: str
-    description: str
+    description: Optional[str]
     type: str
     mode: Optional[NodeMode]
     display_name: Optional[str]
@@ -219,28 +273,61 @@ class Node(BaseModel):
         """
         Retrieves the saved DJ client if one has been initialized.
         """
-        session = REGISTRY.get("_client")
-        if not session:
+        client = REGISTRY.get("_client")
+        if not client:
             raise DJClientException(
                 "DJ client not initialized! Please initialize "
                 "a client with the endpoint uri:"
                 "    client = DJClient(uri='...')",
             )
-        return session
+        return client
 
     def publish(self):
         """
         Sets the node's mode to PUBLISHED and pushes it to the server.
         """
-        session = self._get_initialized_client()
-        session.create_node(self, NodeMode.PUBLISHED)
+        client = self._get_initialized_client()
+        return client.create_node(self, NodeMode.PUBLISHED)
 
     def draft(self):
         """
         Sets the node's mode to DRAFT and pushes it to the server.
         """
-        session = self._get_initialized_client()
-        session.create_node(self, NodeMode.DRAFT)
+        client = self._get_initialized_client()
+        return client.create_node(self, NodeMode.DRAFT)
+
+    def link_dimension(
+        self,
+        column: str,
+        dimension: str,
+        dimension_column: Optional[str],
+    ):
+        """
+        Links the dimension to this node via the node's `column` and the dimension's
+        `dimension_column`. If no `dimension_column` is provided, the dimension's
+        primary key will be used automatically.
+        """
+        client = self._get_initialized_client()
+        return client.link_dimension_to_node(
+            self.name,
+            column,
+            dimension,
+            dimension_column,
+        )
+
+    def sql(self, dimensions: List[str], filters: List[str]):
+        """
+        Builds the SQL for this node, given the provided dimensions and filters.
+        """
+        client = self._get_initialized_client()
+        return client.sql(self.name, dimensions, filters)
+
+    def data(self, dimensions: List[str], filters: List[str]):
+        """
+        Gets data for this node, given the provided dimensions and filters.
+        """
+        client = self._get_initialized_client()
+        return client.data(self.name, dimensions, filters)
 
     def delete(self):
         """
@@ -271,7 +358,7 @@ class Transform(Node):
 
     type: str = "transform"
     query: str
-    columns: List[Column]
+    columns: Optional[List[Column]]
 
 
 class Metric(Node):
@@ -281,7 +368,15 @@ class Metric(Node):
 
     type: str = "metric"
     query: str
-    columns: List[Column]
+    columns: Optional[List[Column]]
+
+    def dimensions(self):
+        """
+        Returns the available dimensions for this metric.
+        """
+        client = self._get_initialized_client()
+        metric = client.get_metric(self.name)
+        return metric["dimensions"]
 
 
 class Dimension(Node):
@@ -291,7 +386,7 @@ class Dimension(Node):
 
     type: str = "dimension"
     query: str
-    columns: List[Column]
+    columns: Optional[List[Column]]
 
 
 class Cube(Node):
