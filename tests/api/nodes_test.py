@@ -219,6 +219,16 @@ class TestCreateOrUpdateNodes:
         session.commit()
         return node
 
+    def test_delete_node(
+        self,
+        client_with_examples: TestClient,
+    ):
+        """
+        Test deleting a node
+        """
+        response = client_with_examples.delete("/nodes/basic.source.users/")
+        assert response.status_code == 204
+
     def test_create_source_node_without_cols_or_query_service(
         self,
         client_with_examples: TestClient,
