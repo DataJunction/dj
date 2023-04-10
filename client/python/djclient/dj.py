@@ -157,6 +157,13 @@ class DJClient:
         )
         return response.json()
 
+    def get_node(self, node_name: str):
+        """
+        Retrieves a node.
+        """
+        response = self._session.get(f"/nodes/{node_name}/")
+        return response.json()
+
     def _nodes_by_type(
         self,
         type_: Optional[str] = None,
@@ -227,6 +234,30 @@ class DJClient:
         rows = results["results"][0]["rows"]
         return pd.DataFrame(rows, columns=[col["name"] for col in columns])
 
+    def create_catalog(self, catalog: "Catalog"):
+        """
+        Creates a catalog
+        """
+        response = self._session.post("/catalogs/", json=catalog.dict())
+        return response.json()
+
+    def create_engine(self, engine: "Engine"):
+        """
+        Creates an engine
+        """
+        response = self._session.post("/engines/", json=engine.dict())
+        return response.json()
+
+    def add_engines_to_catalog(self, catalog: "Catalog", engines: List["Engine"]):
+        """
+        Attaches the list of engines to a catalog
+        """
+        response = self._session.post(
+            f"/catalogs/{catalog.name}/",
+            json=[engine.dict() for engine in engines],
+        )
+        return response.json()
+
 
 class Column(BaseModel):
     """
@@ -256,18 +287,10 @@ class Tag(BaseModel):
     tag_type: str
 
 
-class Node(BaseModel):
+class ClientEntity(BaseModel):
     """
-    Represents a DJ node object
+    Any entity that uses the DJ client
     """
-
-    name: str
-    description: Optional[str]
-    type: str
-    mode: Optional[NodeMode]
-    display_name: Optional[str]
-    availability: Optional[Dict]
-    tags: Optional[List[Tag]]
 
     def _get_initialized_client(self):
         """
@@ -282,19 +305,48 @@ class Node(BaseModel):
             )
         return client
 
+
+class Node(ClientEntity):
+    """
+    Represents a DJ node object
+    """
+
+    name: str
+    description: Optional[str]
+    type: str
+    mode: Optional[NodeMode]
+    display_name: Optional[str]
+    availability: Optional[Dict]
+    tags: Optional[List[Tag]]
+
     def publish(self):
         """
         Sets the node's mode to PUBLISHED and pushes it to the server.
         """
         client = self._get_initialized_client()
-        return client.create_node(self, NodeMode.PUBLISHED)
+        create_response = client.create_node(self, NodeMode.PUBLISHED)
+        self.refresh()
+        return create_response
+
+    def refresh(self):
+        """
+        Refreshes a node with its latest version from the database.
+        """
+        client = self._get_initialized_client()
+        refreshed_node = client.get_node(self.name)
+        for key, value in refreshed_node.items():
+            if hasattr(self, key):
+                setattr(self, key, value)
+        return self
 
     def draft(self):
         """
         Sets the node's mode to DRAFT and pushes it to the server.
         """
         client = self._get_initialized_client()
-        return client.create_node(self, NodeMode.DRAFT)
+        create_response = client.create_node(self, NodeMode.DRAFT)
+        self.refresh()
+        return create_response
 
     def link_dimension(
         self,
@@ -337,6 +389,52 @@ class Node(BaseModel):
         response = session.delete_node(self)
         assert response.status_code == 204
         return f"Successfully deleted `{self.name}`"
+
+
+class Catalog(ClientEntity):
+    """
+    Represents a catalog in DJ
+    """
+
+    name: str
+
+    def publish(self):
+        """
+        Publishes the catalog by saving it via the API.
+        """
+        client = self._get_initialized_client()
+        return client.create_catalog(self)
+
+    def add_engines(self, engines: List["Engine"]):
+        """
+        Attaches the list of engines to a catalog
+        """
+        client = self._get_initialized_client()
+        return client.add_engines_to_catalog(self, engines)
+
+    def add_engine(self, engine: "Engine"):
+        """
+        Attaches the engine to a catalog
+        """
+        client = self._get_initialized_client()
+        return client.add_engines_to_catalog(self, [engine])
+
+
+class Engine(ClientEntity):
+    """
+    An engine
+    """
+
+    name: str
+    version: str
+    uri: Optional[str]
+
+    def publish(self):
+        """
+        Publishes the engine by saving it via the API
+        """
+        client = self._get_initialized_client()
+        return client.create_engine(self)
 
 
 class Source(Node):
