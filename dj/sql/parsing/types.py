@@ -782,6 +782,7 @@ PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "string": StringType(),
     "uuid": UUIDType(),
     "byte": BinaryType(),
+    "binary": BinaryType(),
     "none": NullType(),
     "null": NullType(),
 }

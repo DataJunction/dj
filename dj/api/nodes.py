@@ -213,6 +213,16 @@ def read_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutp
     return node  # type: ignore
 
 
+@router.delete("/nodes/{name}/", status_code=204)
+def delete_node(name: str, *, session: Session = Depends(get_session)):
+    """
+    Delete the specified node.
+    """
+    node = get_node_by_name(session, name, with_current=True)
+    session.delete(node)
+    return session.commit()
+
+
 @router.post("/nodes/{name}/materialization/", status_code=201)
 def upsert_node_materialization_config(
     name: str,
