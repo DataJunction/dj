@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.get("/engines/", response_model=List[EngineInfo])
-def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]:
+def get_an_engine(*, session: Session = Depends(get_session)) -> List[EngineInfo]:
     """
     List all available engines
     """
@@ -24,7 +24,7 @@ def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]
 
 
 @router.get("/engines/{name}/{version}/", response_model=EngineInfo)
-def list_engine(
+def get_engine_metadata(
     name: str, version: str, *, session: Session = Depends(get_session)
 ) -> EngineInfo:
     """

@@ -22,7 +22,7 @@ router = APIRouter()
 
 
 @router.post("/data/{node_name}/availability/")
-def add_availability(
+def add_an_availability(
     node_name: str,
     data: AvailabilityStateBase,
     *,
@@ -90,7 +90,7 @@ def add_availability(
 
 
 @router.get("/data/{node_name}/")
-def data_for_node(
+def get_data(
     node_name: str,
     *,
     dimensions: List[str] = Query([]),
