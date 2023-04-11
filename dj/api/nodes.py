@@ -214,7 +214,7 @@ def get_a_node(name: str, *, session: Session = Depends(get_session)) -> NodeOut
 
 
 @router.post("/nodes/{name}/materialization/", status_code=201)
-def upsert_materialization_config(
+def upsert_a_materialization_config(
     name: str,
     data: UpsertMaterializationConfig,
     *,
@@ -553,7 +553,7 @@ def create_a_cube(
 
 
 @router.post("/nodes/{name}/columns/{column}/", status_code=201)
-def link_a_dimension_node(
+def link_a_dimension(
     name: str,
     column: str,
     dimension: Optional[str] = None,
@@ -602,7 +602,7 @@ def link_a_dimension_node(
 
 
 @router.post("/nodes/{name}/tag/", status_code=201)
-def add_a_node_tag(
+def tag_a_node(
     name: str, tag_name: str, *, session: Session = Depends(get_session)
 ) -> JSONResponse:
     """
