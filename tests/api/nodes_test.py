@@ -10,7 +10,7 @@ from sqlmodel import Session
 
 from dj.models import Database, Table
 from dj.models.column import Column
-from dj.models.node import Node, NodeRevision, NodeType
+from dj.models.node import Node, NodeRevision, NodeStatus, NodeType
 from dj.sql.parsing.types import IntegerType, StringType, TimestampType
 
 
@@ -218,6 +218,44 @@ class TestCreateOrUpdateNodes:
         session.add(node_revision)
         session.commit()
         return node
+
+    def test_delete_node(
+        self,
+        client_with_examples: TestClient,
+    ):
+        """
+        Test deleting a node
+        """
+        response = client_with_examples.delete("/nodes/basic.source.users/")
+        assert response.status_code == 204
+
+        # All downstream nodes should be invalid
+        expected_downstreams = [
+            "basic.dimension.users",
+            "basic.transform.country_agg",
+            "basic.dimension.countries",
+            "basic.num_users",
+        ]
+        for downstream in expected_downstreams:
+            response = client_with_examples.get(f"/nodes/{downstream}/")
+            assert response.json()["status"] == NodeStatus.INVALID
+
+        node_with_link = client_with_examples.get("/nodes/repair_order_details/").json()
+        assert [
+            col["dimension"]["name"]
+            for col in node_with_link["columns"]
+            if col["name"] == "repair_order_id"
+        ] == ["repair_order"]
+
+        response = client_with_examples.delete("/nodes/repair_order/")
+        assert response.status_code == 204
+
+        node_with_link = client_with_examples.get("/nodes/repair_order_details/").json()
+        assert [
+            col["dimension"]
+            for col in node_with_link["columns"]
+            if col["name"] == "repair_order_id"
+        ] == [None]
 
     def test_create_source_node_without_cols_or_query_service(
         self,

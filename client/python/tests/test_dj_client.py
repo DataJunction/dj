@@ -110,6 +110,27 @@ class TestDJClient:
         assert result_names_only == ["node5"]
 
     @responses.activate
+    def test_delete_node(self, client):  # pylint: disable=unused-argument
+        """
+        Verifies that deleting a node works.
+        """
+        source = Source(
+            name="apples",
+            description="A record of all apples in the store.",
+            display_name="Apples",
+            catalog="prod",
+            schema_="store",
+            table="apples",
+        )
+        responses.add(
+            responses.DELETE,
+            "http://localhost:8000/nodes/apples/",
+            status=204,
+        )
+        response = source.delete()
+        assert response == "Successfully deleted `apples`"
+
+    @responses.activate
     def test_create_node(self, client):  # pylint: disable=unused-argument
         """
         Verifies that retrieving nodes with `client.nodes()` or

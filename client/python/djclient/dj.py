@@ -137,6 +137,13 @@ class DJClient:
         """
         return self._nodes_by_type(type_="cube", names_only=names_only)
 
+    def delete_node(self, node: "Node"):
+        """
+        Delete this node
+        """
+        response = self._session.delete(f"/nodes/{node.name}/", timeout=self._timeout)
+        return response
+
     def create_node(self, node: "Node", mode: "NodeMode"):
         """
         Helper function to create a node.
@@ -234,6 +241,15 @@ class Node(BaseModel):
         """
         session = self._get_initialized_client()
         session.create_node(self, NodeMode.DRAFT)
+
+    def delete(self):
+        """
+        Deletes the node
+        """
+        session = self._get_initialized_client()
+        response = session.delete_node(self)
+        assert response.status_code == 204
+        return f"Successfully deleted `{self.name}`"
 
 
 class Source(Node):
