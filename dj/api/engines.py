@@ -24,7 +24,7 @@ def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]
 
 
 @router.get("/engines/{name}/{version}/", response_model=EngineInfo)
-def list_engine(
+def get_an_engine(
     name: str, version: str, *, session: Session = Depends(get_session)
 ) -> EngineInfo:
     """

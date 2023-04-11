@@ -62,7 +62,7 @@ router = APIRouter()
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
-def validate_node(
+def validate_a_node(
     data: Union[NodeRevisionBase, NodeRevision],
     session: Session = Depends(get_session),
 ) -> NodeValidation:
@@ -196,7 +196,7 @@ def set_column_attributes(
 
 
 @router.get("/nodes/", response_model=List[NodeOutput])
-def read_nodes(*, session: Session = Depends(get_session)) -> List[NodeOutput]:
+def list_nodes(*, session: Session = Depends(get_session)) -> List[NodeOutput]:
     """
     List the available nodes.
     """
@@ -205,7 +205,7 @@ def read_nodes(*, session: Session = Depends(get_session)) -> List[NodeOutput]:
 
 
 @router.get("/nodes/{name}/", response_model=NodeOutput)
-def read_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutput:
+def get_a_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutput:
     """
     Show the active version of the specified node.
     """
@@ -214,7 +214,7 @@ def read_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutp
 
 
 @router.post("/nodes/{name}/materialization/", status_code=201)
-def upsert_node_materialization_config(
+def upsert_a_materialization_config(
     name: str,
     data: UpsertMaterializationConfig,
     *,
@@ -450,7 +450,7 @@ def save_node(
 
 
 @router.post("/nodes/source/", response_model=NodeOutput, status_code=201)
-def create_source_node(
+def create_a_source(
     data: CreateSourceNode,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -520,7 +520,7 @@ def create_source_node(
 @router.post("/nodes/transform/", response_model=NodeOutput, status_code=201)
 @router.post("/nodes/dimension/", response_model=NodeOutput, status_code=201)
 @router.post("/nodes/metric/", response_model=NodeOutput, status_code=201)
-def create_node(
+def create_a_node(
     data: CreateNode,
     request: Request,
     *,
@@ -538,7 +538,7 @@ def create_node(
 
 
 @router.post("/nodes/cube/", response_model=NodeOutput, status_code=201)
-def create_cube_node(
+def create_a_cube(
     data: CreateCubeNode,
     session: Session = Depends(get_session),
 ) -> NodeOutput:
@@ -553,7 +553,7 @@ def create_cube_node(
 
 
 @router.post("/nodes/{name}/columns/{column}/", status_code=201)
-def add_dimension_to_node(
+def link_a_dimension(
     name: str,
     column: str,
     dimension: Optional[str] = None,
@@ -602,7 +602,7 @@ def add_dimension_to_node(
 
 
 @router.post("/nodes/{name}/tag/", status_code=201)
-def add_tag_to_node(
+def tag_a_node(
     name: str, tag_name: str, *, session: Session = Depends(get_session)
 ) -> JSONResponse:
     """
@@ -740,7 +740,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
 
 
 @router.patch("/nodes/{name}/", response_model=NodeOutput)
-def update_node(
+def update_a_node(
     name: str,
     data: UpdateNode,
     *,
@@ -781,7 +781,7 @@ def update_node(
 
 
 @router.get("/nodes/similarity/{node1_name}/{node2_name}")
-def node_similarity(
+def calculate_node_similarity(
     node1_name: str, node2_name: str, *, session: Session = Depends(get_session)
 ) -> JSONResponse:
     """
@@ -801,7 +801,7 @@ def node_similarity(
 
 
 @router.get("/nodes/{name}/downstream/", response_model=List[NodeOutput])
-def downstream_nodes(
+def list_downstream_nodes(
     name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
 ) -> List[NodeOutput]:
     """

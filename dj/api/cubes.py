@@ -16,7 +16,7 @@ router = APIRouter()
 
 
 @router.get("/cubes/{name}/", response_model=CubeRevisionMetadata)
-def read_cube(
+def get_a_cube(
     name: str, *, session: Session = Depends(get_session)
 ) -> CubeRevisionMetadata:
     """
