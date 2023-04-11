@@ -47,7 +47,7 @@ async def database_health(session: Session) -> HealthcheckStatus:
 
 
 @router.get("/health/", response_model=List[HealthCheck])
-async def health(session: Session = Depends(get_session)) -> List[HealthCheck]:
+async def health_check(session: Session = Depends(get_session)) -> List[HealthCheck]:
     """
     Healthcheck for services.
     """

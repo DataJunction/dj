@@ -18,7 +18,7 @@ router = APIRouter()
 
 
 @router.get("/sql/{node_name}/", response_model=TranslatedSQL)
-def get_sql_for_node(
+def get_sql(
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),

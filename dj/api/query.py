@@ -14,7 +14,7 @@ router = APIRouter()
 
 
 @router.get("/query/{sql}", response_model=TranslatedSQL)
-def read_metrics_sql(
+def build_a_dj_query(
     sql: str,
     *,
     session: Session = Depends(get_session),
