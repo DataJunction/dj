@@ -10,24 +10,25 @@ pip install djclient
 
 To initialize the client:
 ```python
-from djclient.dj import DJClient, Source, Dimension, Transform, Metric
-client = DJClient("http://dj-endpoint:8000")
+from djclient import DJClient
+dj = DJClient("http://dj-endpoint:8000")
 ```
 
 ### Catalogs and Engines
 
 To list available catalogs for the DJ host:
 ```python
-client.catalogs()
+dj.catalogs()
 ```
 
 To list available engines for the DJ host:
 ```python
-client.engines()
+dj.engines()
 ```
 
 To create a catalog:
 ```python
+from djclient import Catalog
 catalog = Catalog(
     name="prod"
 )
@@ -36,6 +37,7 @@ catalog.publish()
 
 To create an engine:
 ```python
+from djclient import Engine
 engine = Engine(
     name="spark",
     version="3.2.2",
@@ -53,20 +55,21 @@ catalog.add_engine(engine)
 
 All nodes can be found with:
 ```python
-client.nodes()
+dj.nodes()
 ```
 
 Specific node types can be retrieved with:
 ```python
-client.sources()
-client.dimensions()
-client.metrics()
-client.transforms()
-client.cubes()
+dj.sources()
+dj.dimensions()
+dj.metrics()
+dj.transforms()
+dj.cubes()
 ```
 
 To create a source node:
 ```python
+from djclient import Source
 repair_orders = Source(
     name="repair_orders",
     display_name="Repair Orders",
@@ -85,6 +88,7 @@ repair_orders.draft()
 
 To create a dimension node:
 ```python
+from djclient import Dimension
 repair_order = Dimension(
     name="repair_order",
     query="""
@@ -102,6 +106,7 @@ repair_order.publish()
 
 To create a metric:
 ```python
+from djclient import Metric
 num_repair_orders = Metric(
     name="num_repair_orders",
     query="""
