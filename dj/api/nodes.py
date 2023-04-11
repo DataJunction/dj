@@ -219,6 +219,25 @@ def delete_node(name: str, *, session: Session = Depends(get_session)):
     Delete the specified node.
     """
     node = get_node_by_name(session, name, with_current=True)
+
+    # Find all downstream nodes and mark them as invalid
+    downstreams = get_downstream_nodes(session, node.name)
+    for downstream in downstreams:
+        downstream.current.status = NodeStatus.INVALID
+        session.add(downstream)
+
+    # If the node is a dimension, find all columns that
+    # are linked to this dimension and remove the link
+    if node.type == NodeType.DIMENSION:
+        columns = (
+            session.exec(select(Column).where(Column.dimension_id == node.id))
+            .unique()
+            .all()
+        )
+        for col in columns:
+            col.dimension_id = None
+            col.dimension_column = None
+            session.add(col)
     session.delete(node)
     return session.commit()
 
