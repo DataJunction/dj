@@ -34,7 +34,7 @@ def get_an_engine(
 
 
 @router.post("/engines/", response_model=EngineInfo, status_code=201)
-def add_engine(
+def add_an_engine(
     data: EngineInfo,
     *,
     session: Session = Depends(get_session),

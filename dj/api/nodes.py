@@ -214,7 +214,7 @@ def get_a_node(name: str, *, session: Session = Depends(get_session)) -> NodeOut
 
 
 @router.delete("/nodes/{name}/", status_code=204)
-def delete_node(name: str, *, session: Session = Depends(get_session)):
+def delete_a_node(name: str, *, session: Session = Depends(get_session)):
     """
     Delete the specified node.
     """
