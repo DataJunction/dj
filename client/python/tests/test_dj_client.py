@@ -297,7 +297,7 @@ class TestDJClient:
         expected = {}
         responses.add(
             responses.POST,
-            "http://localhost:8000/catalogs/prodhive/",
+            "http://localhost:8000/catalogs/prodhive/engines/",
             json=expected,
         )
         engine = Engine(
