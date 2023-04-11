@@ -244,7 +244,7 @@ class Node(BaseModel):
 
     def delete(self):
         """
-        Sets the node's mode to DRAFT and pushes it to the server.
+        Deletes the node
         """
         session = self._get_initialized_client()
         response = session.delete_node(self)
