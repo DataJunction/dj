@@ -33,7 +33,7 @@ def get_metric(session: Session, name: str) -> Node:
 
 
 @router.get("/metrics/", response_model=List[Metric])
-def read_metrics(*, session: Session = Depends(get_session)) -> List[Metric]:
+def list_metrics(*, session: Session = Depends(get_session)) -> List[Metric]:
     """
     List all available metrics.
     """
@@ -48,7 +48,7 @@ def read_metrics(*, session: Session = Depends(get_session)) -> List[Metric]:
 
 
 @router.get("/metrics/{name}/", response_model=Metric)
-def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric:
+def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metric:
     """
     Return a metric by name.
     """
@@ -57,7 +57,7 @@ def read_metric(name: str, *, session: Session = Depends(get_session)) -> Metric
 
 
 @router.get("/metrics/common/dimensions/", response_model=List[str])
-async def common_dimensions(
+async def get_common_dimensions(
     metric: List[str] = Query(
         title="List of metrics to find common dimensions for",
         default=[],

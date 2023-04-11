@@ -30,7 +30,7 @@ def list_attributes(*, session: Session = Depends(get_session)) -> List[Attribut
 
 
 @router.post("/attributes/", response_model=AttributeType, status_code=201)
-def add_attribute_type(
+def add_an_attribute_type(
     data: MutableAttributeTypeFields, *, session: Session = Depends(get_session)
 ) -> AttributeType:
     """

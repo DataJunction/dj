@@ -53,7 +53,7 @@ def list_tags(
 
 
 @router.get("/tags/{name}/", response_model=Tag)
-def read_tag(name: str, *, session: Session = Depends(get_session)) -> Tag:
+def get_a_tag(name: str, *, session: Session = Depends(get_session)) -> Tag:
     """
     Return a tag by name.
     """
@@ -62,7 +62,7 @@ def read_tag(name: str, *, session: Session = Depends(get_session)) -> Tag:
 
 
 @router.post("/tags/", response_model=Tag, status_code=201)
-def create_tag(
+def create_a_tag(
     data: CreateTag,
     session: Session = Depends(get_session),
 ) -> Tag:
@@ -83,7 +83,7 @@ def create_tag(
 
 
 @router.patch("/tags/{name}/", response_model=Tag)
-def update_tag(
+def update_a_tag(
     name: str,
     data: UpdateTag,
     session: Session = Depends(get_session),
@@ -104,7 +104,7 @@ def update_tag(
 
 
 @router.get("/tags/{name}/nodes/", response_model=List[str])
-def find_nodes_by_tag(
+def list_nodes_by_tag(
     name: str,
     node_type: Optional[NodeType] = None,
     *,

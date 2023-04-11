@@ -1,10 +1,5 @@
-name: Update OpenAPI Spec and Generate Clients
+name: Generate OpenAPI Client
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - dj/**
   workflow_dispatch:
 jobs:
   generate-python-client:

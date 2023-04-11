@@ -28,7 +28,7 @@ def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInf
 
 
 @router.get("/catalogs/{name}/", response_model=CatalogInfo)
-def read_catalog(name: str, *, session: Session = Depends(get_session)) -> CatalogInfo:
+def get_a_catalog(name: str, *, session: Session = Depends(get_session)) -> CatalogInfo:
     """
     Return a catalog by name
     """
@@ -36,7 +36,7 @@ def read_catalog(name: str, *, session: Session = Depends(get_session)) -> Catal
 
 
 @router.post("/catalogs/", response_model=CatalogInfo, status_code=201)
-def add_catalog(
+def add_a_catalog(
     data: CatalogInfo,
     *,
     session: Session = Depends(get_session),
@@ -70,7 +70,7 @@ def add_catalog(
 
 
 @router.post("/catalogs/{name}/engines/", response_model=CatalogInfo, status_code=201)
-def add_engines_to_catalog(
+def add_engines_to_a_catalog(
     name: str,
     data: List[EngineInfo],
     *,
