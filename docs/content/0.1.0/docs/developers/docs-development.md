@@ -71,7 +71,7 @@ for content pages.
 
 ## Updating the DataJunction API Specification Page
 
-[The DataJunction API Specification](./the-datajunction-specification) page is generated using the `openapi.json`
+[The DataJunction API Specification](../the-datajunction-api-specification) page is generated using the `openapi.json`
 spec file and the [widdershins](https://github.com/Mermade/widdershins) CLI tool.
 
 Install `dj` from source.
