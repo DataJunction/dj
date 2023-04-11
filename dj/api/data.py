@@ -22,7 +22,7 @@ router = APIRouter()
 
 
 @router.post("/data/{node_name}/availability/")
-def add_an_availability(
+def add_an_availability_state(
     node_name: str,
     data: AvailabilityStateBase,
     *,
