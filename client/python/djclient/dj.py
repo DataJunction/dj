@@ -253,7 +253,7 @@ class DJClient:
         Attaches the list of engines to a catalog
         """
         response = self._session.post(
-            f"/catalogs/{catalog.name}/",
+            f"/catalogs/{catalog.name}/engines/",
             json=[engine.dict() for engine in engines],
         )
         return response.json()
