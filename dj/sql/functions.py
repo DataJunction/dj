@@ -758,6 +758,18 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     return ct.DoubleType()
 
 
+class PercentRank(Function):
+    """
+    Window function: returns the relative rank (i.e. percentile) of rows within a window partition
+    """
+
+    is_aggregation = True
+
+    @staticmethod
+    def infer_type() -> ct.DoubleType:
+        return ct.DoubleType()
+
+
 class Quantile(Function):  # pragma: no cover
     """
     Computes the quantile of a numerical column or expression.
