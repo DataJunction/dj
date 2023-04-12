@@ -656,10 +656,21 @@ def link_a_dimension(
                 f"{node.current.catalog.name}, {dimension_node.current.catalog.name}"
             ),
         )
-    if dimension_column:  # Check that the column exists before linking
-        get_column(dimension_node.current, dimension_column)
 
     target_column = get_column(node.current, column)
+    if dimension_column:
+        # Check that the dimension column exists
+        column_from_dimension = get_column(dimension_node.current, dimension_column)
+
+        # Check the dimension column's type is compatible with the target column's type
+        if column_from_dimension.type != target_column.type:
+            raise DJInvalidInputException(
+                f"The column {target_column.name} has type {target_column.type} "
+                f"and is being linked to the dimension {dimension} via the dimension"
+                f" column {dimension_column}, which has type {column_from_dimension.type}."
+                " These column types are incompatible and the dimension cannot be linked!",
+            )
+
     target_column.dimension = dimension_node
     target_column.dimension_id = dimension_node.id
     target_column.dimension_column = dimension_column

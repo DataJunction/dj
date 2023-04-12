@@ -1427,11 +1427,13 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "?dimension=payment_type"
             "&dimension_column=payment_type_name",
         )
-        assert response.status_code == 201
+        assert response.status_code == 422
         data = response.json()
         assert data["message"] == (
-            "Dimension node payment_type has been successfully "
-            "linked to column payment_type on node revenue"
+            "The column payment_type has type int and is being linked "
+            "to the dimension payment_type via the dimension column "
+            "payment_type_name, which has type string. These column "
+            "types are incompatible and the dimension cannot be linked!"
         )
 
         response = client_with_examples.post(
