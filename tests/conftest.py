@@ -10,7 +10,6 @@ from typing import Collection, Iterator, List, Optional
 import pytest
 from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
-from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
