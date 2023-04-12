@@ -5,8 +5,6 @@
 #
 #    pip-compile-multi
 #
---trusted-host pypi.org
-
 -e file:.
     # via -r requirements/base.in
 accept-types==0.4.1
@@ -16,11 +14,11 @@ amqp==5.1.1
 antlr4-python3-runtime==4.12.0
     # via dj
 anyio==3.6.2
-    # via
-    #   starlette
-    #   watchfiles
+    # via starlette
 asciidag==0.2.0
     # via dj
+asgiref==3.6.0
+    # via opentelemetry-instrumentation-asgi
 async-timeout==4.0.2
     # via redis
 billiard==3.6.4.0
@@ -45,6 +43,8 @@ click-plugins==1.1.1
     # via celery
 click-repl==0.2.0
     # via celery
+deprecated==1.2.13
+    # via opentelemetry-api
 docopt==0.6.2
     # via dj
 fastapi==0.70.1
@@ -56,6 +56,8 @@ idna==3.4
     #   anyio
     #   requests
     #   yarl
+importlib-metadata==6.0.1
+    # via opentelemetry-api
 kombu==5.2.4
     # via celery
 markdown-it-py==2.2.0
@@ -66,13 +68,34 @@ msgpack==1.0.5
     # via dj
 multidict==6.0.4
     # via yarl
+opentelemetry-api==1.17.0
+    # via
+    #   opentelemetry-instrumentation
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation==0.38b0
+    # via
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-asgi==0.38b0
+    # via opentelemetry-instrumentation-fastapi
+opentelemetry-instrumentation-fastapi==0.38b0
+    # via dj
+opentelemetry-semantic-conventions==0.38b0
+    # via
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
+opentelemetry-util-http==0.38b0
+    # via
+    #   opentelemetry-instrumentation-asgi
+    #   opentelemetry-instrumentation-fastapi
 prompt-toolkit==3.0.38
     # via click-repl
 pydantic==1.10.7
     # via
     #   fastapi
     #   sqlmodel
-pygments==2.14.0
+pygments==2.15.0
     # via rich
 python-dateutil==2.8.2
     # via strawberry-graphql
@@ -101,11 +124,9 @@ sqlalchemy==1.4.41
     #   sqlmodel
 sqlalchemy-utils==0.40.0
     # via dj
-sqlalchemy2-stubs==0.0.2a32
+sqlalchemy2-stubs==0.0.2a33
     # via sqlmodel
 sqlmodel==0.0.8
-    # via dj
-sqloxide==0.1.30
     # via dj
 sqlparse==0.4.3
     # via dj
@@ -125,9 +146,16 @@ vine==5.0.0
     #   amqp
     #   celery
     #   kombu
-watchfiles==0.18.1
-    # via dj
 wcwidth==0.2.6
     # via prompt-toolkit
+wrapt==1.15.0
+    # via
+    #   deprecated
+    #   opentelemetry-instrumentation
 yarl==1.8.2
     # via dj
+zipp==3.15.0
+    # via importlib-metadata
+
+# The following packages are considered to be unsafe in a requirements file:
+# setuptools
