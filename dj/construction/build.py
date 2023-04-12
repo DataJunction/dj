@@ -154,13 +154,6 @@ def _build_joins_for_dimension(
         # Assemble join ON clause
         for join_col in join_columns:
             join_table_pk = table_node.primary_key()
-            if len(join_table_pk) > 1 and not join_col.dimension_column:
-                raise DJInvalidInputException(
-                    "Must provide an explicit `dimension_column` for each join "
-                    f"column that links to the dimension node `{table_node.name}`,"
-                    " as the dimensions node has a compound primary key: "
-                    f"`{','.join(join_table_pk)}`",
-                )
             if (
                 len(join_table_pk) == 1
                 and join_col.name in join_left_columns
