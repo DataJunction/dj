@@ -21,6 +21,8 @@ services:
       - core
     environment:
       - DOTENV_FILE=.docker-env/.env
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=datajunction.server
     build: "${CORE_SERVICE}"
     volumes:
       - "${CORE_SERVICE}:/code"
@@ -44,6 +46,18 @@ services:
       - "${CORE_SERVICE}:/code"
     command: alembic upgrade head
     restart: on-failure
+
+  jaeger:
+    container_name: jaeger
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=debug
+    networks:
+      - core
 
   postgres_examples:
     container_name: postgres_examples
