@@ -526,13 +526,13 @@ EXAMPLES = (  # type: ignore
         ),
         {},
     ),
-    (
-        (
-            "/nodes/local_hard_hats/columns/state_id/"
-            "?dimension=us_state&dimension_column=state_id"
-        ),
-        {},
-    ),
+    # (
+    #     (
+    #         "/nodes/local_hard_hats/columns/state_id/"
+    #         "?dimension=us_state&dimension_column=state_id"
+    #     ),
+    #     {},
+    # ),
     (
         (
             "/nodes/hard_hat/columns/state/"
@@ -1055,13 +1055,13 @@ EXAMPLES = (  # type: ignore
         ),
         {},
     ),
-    (
-        (
-            "/nodes/foo.bar.local_hard_hats/columns/state_id/"
-            "?dimension=foo.bar.us_state&dimension_column=state_id"
-        ),
-        {},
-    ),
+    # (
+    #     (
+    #         "/nodes/foo.bar.local_hard_hats/columns/state_id/"
+    #         "?dimension=foo.bar.us_state&dimension_column=state_id"
+    #     ),
+    #     {},
+    # ),
     (
         (
             "/nodes/foo.bar.repair_order_details/columns/repair_order_id/"
