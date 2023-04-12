@@ -134,6 +134,7 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country",
             "mode": "published",
             "name": "countries",
+            "primary_key": ["country"],
         }
 
     @pytest.fixture
@@ -652,6 +653,46 @@ class TestCreateOrUpdateNodes:
             ],
         }
 
+    def test_create_dimension_node_fails(
+        self,
+        database: Database,  # pylint: disable=unused-argument
+        source_node: Node,  # pylint: disable=unused-argument
+        client: TestClient,
+    ):
+        """
+        Test various failure cases for dimension node creation.
+        """
+        response = client.post(
+            "/nodes/dimension/",
+            json={
+                "description": "Country dimension",
+                "query": "SELECT country, COUNT(1) AS user_cnt "
+                "FROM basic.source.users GROUP BY country",
+                "mode": "published",
+                "name": "countries",
+            },
+        )
+        assert (
+            response.json()["message"] == "Dimension nodes must define a primary key!"
+        )
+
+        response = client.post(
+            "/nodes/dimension/",
+            json={
+                "description": "Country dimension",
+                "query": "SELECT country, COUNT(1) AS user_cnt "
+                "FROM basic.source.users GROUP BY country",
+                "mode": "published",
+                "name": "countries",
+                "primary_key": ["country", "id"],
+            },
+        )
+        assert response.json()["message"] == (
+            "Some columns in the primary key country,id were not "
+            "found in the list of available columns for the node "
+            "countries."
+        )
+
     def test_create_update_dimension_node(
         self,
         database: Database,  # pylint: disable=unused-argument
@@ -662,7 +703,6 @@ class TestCreateOrUpdateNodes:
         """
         Test creating and updating a dimension node that references an existing source.
         """
-
         response = client.post(
             "/nodes/dimension/",
             json=create_dimension_node_payload,
@@ -680,7 +720,14 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {
+                "name": "country",
+                "type": "string",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
             {"name": "user_cnt", "type": "long", "attributes": [], "dimension": None},
         ]
 
@@ -747,7 +794,14 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {
+                "name": "country",
+                "type": "string",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
             {"name": "user_cnt", "type": "long", "attributes": [], "dimension": None},
         ]
 
@@ -1373,11 +1427,13 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "?dimension=payment_type"
             "&dimension_column=payment_type_name",
         )
-        assert response.status_code == 201
+        assert response.status_code == 422
         data = response.json()
         assert data["message"] == (
-            "Dimension node payment_type has been successfully "
-            "linked to column payment_type on node revenue"
+            "The column payment_type has type int and is being linked "
+            "to the dimension payment_type via the dimension column "
+            "payment_type_name, which has type string. These column "
+            "types are incompatible and the dimension cannot be linked!"
         )
 
         response = client_with_examples.post(

@@ -271,6 +271,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "repair_order",
+            "primary_key": ["repair_order_id"],
         },
     ),
     (
@@ -293,6 +294,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "contractor",
+            "primary_key": ["contractor_id"],
         },
     ),
     (
@@ -318,6 +320,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "hard_hat",
+            "primary_key": ["hard_hat_id"],
         },
     ),
     (
@@ -347,6 +350,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "local_hard_hats",
+            "primary_key": ["hard_hat_id"],
         },
     ),
     (
@@ -366,6 +370,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "us_state",
+            "primary_key": ["state_id"],
         },
     ),
     (
@@ -381,6 +386,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "dispatcher",
+            "primary_key": ["dispatcher_id"],
         },
     ),
     (
@@ -404,6 +410,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "municipality_dim",
+            "primary_key": ["municipality_id"],
         },
     ),
     (
@@ -516,13 +523,6 @@ EXAMPLES = (  # type: ignore
         (
             "/nodes/repair_orders/columns/dispatcher_id/"
             "?dimension=dispatcher&dimension_column=dispatcher_id"
-        ),
-        {},
-    ),
-    (
-        (
-            "/nodes/local_hard_hats/columns/state_id/"
-            "?dimension=us_state&dimension_column=state_id"
         ),
         {},
     ),
@@ -793,6 +793,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "foo.bar.repair_order",
+            "primary_key": ["repair_order_id"],
         },
     ),
     (
@@ -815,6 +816,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "foo.bar.contractor",
+            "primary_key": ["contractor_id"],
         },
     ),
     (
@@ -840,6 +842,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "foo.bar.hard_hat",
+            "primary_key": ["hard_hat_id"],
         },
     ),
     (
@@ -869,6 +872,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "foo.bar.local_hard_hats",
+            "primary_key": ["hard_hat_id"],
         },
     ),
     (
@@ -888,6 +892,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "foo.bar.us_state",
+            "primary_key": ["state_id"],
         },
     ),
     (
@@ -903,6 +908,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "foo.bar.dispatcher",
+            "primary_key": ["dispatcher_id"],
         },
     ),
     (
@@ -926,6 +932,7 @@ EXAMPLES = (  # type: ignore
                     """,
             "mode": "published",
             "name": "foo.bar.municipality_dim",
+            "primary_key": ["municipality_id"],
         },
     ),
     (
@@ -1043,13 +1050,6 @@ EXAMPLES = (  # type: ignore
     ),
     (
         (
-            "/nodes/foo.bar.local_hard_hats/columns/state_id/"
-            "?dimension=foo.bar.us_state&dimension_column=state_id"
-        ),
-        {},
-    ),
-    (
-        (
             "/nodes/foo.bar.repair_order_details/columns/repair_order_id/"
             "?dimension=foo.bar.repair_order&dimension_column=repair_order_id"
         ),
@@ -1137,6 +1137,7 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "payment_type",
+            "primary_key": ["id"],
         },
     ),
     (
@@ -1150,6 +1151,7 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "account_type",
+            "primary_key": ["id"],
         },
     ),
     (
@@ -1220,6 +1222,7 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "basic.dimension.users",
+            "primary_key": ["id"],
         },
     ),
     (
@@ -1253,6 +1256,7 @@ EXAMPLES = (  # type: ignore
             "FROM basic.source.users GROUP BY country",
             "mode": "published",
             "name": "basic.dimension.countries",
+            "primary_key": ["country"],
         },
     ),
     (
@@ -1321,6 +1325,7 @@ EXAMPLES = (  # type: ignore
             "query": "SELECT country, COUNT(DISTINCT event_id) AS events_cnt "
             "FROM event_source GROUP BY country",
             "mode": "published",
+            "primary_key": ["country"],
         },
     ),
     (
@@ -1371,6 +1376,7 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "dbt.dimension.customers",
+            "primary_key": ["id"],
         },
     ),
     (
@@ -1458,6 +1464,7 @@ EXAMPLES = (  # type: ignore
             "query": ("SELECT item_name " "account_type_classification FROM " "sales"),
             "mode": "published",
             "name": "items",
+            "primary_key": ["account_type_classification"],
         },
     ),
     (

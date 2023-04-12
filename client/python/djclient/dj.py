@@ -294,6 +294,7 @@ class Node(ClientEntity):
     display_name: Optional[str]
     availability: Optional[Dict]
     tags: Optional[List[Tag]]
+    primary_key: Optional[List[str]]
 
     def publish(self):
         """

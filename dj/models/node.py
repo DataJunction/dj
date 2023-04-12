@@ -429,6 +429,16 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     def __hash__(self) -> int:
         return hash(self.id)
 
+    def primary_key(self) -> List[Column]:
+        """
+        Returns the primary key columns of this node.
+        """
+        primary_key_columns = []
+        for col in self.columns:  # pylint: disable=not-an-iterable
+            if "primary_key" in {attr.attribute_type.name for attr in col.attributes}:
+                primary_key_columns.append(col)
+        return primary_key_columns
+
     def extra_validation(self) -> None:
         """
         Extra validation for node data.
@@ -475,6 +485,7 @@ class MutableNodeFields(BaseSQLModel):
     display_name: Optional[str]
     description: str
     mode: NodeMode
+    primary_key: Optional[List[str]]
 
 
 class MutableNodeQueryField(BaseSQLModel):
