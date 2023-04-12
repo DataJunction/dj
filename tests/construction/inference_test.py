@@ -378,7 +378,8 @@ def test_infer_types_min_max_sum_ceil(construction_session: Session):
             (PARTITION BY first_name ORDER BY last_name),
           SUM(id) OVER
             (PARTITION BY first_name ORDER BY last_name),
-          CEIL(id)
+          CEIL(id),
+          PERCENT_RANK() OVER (PARTITION BY id ORDER BY id)
         FROM dbt.source.jaffle_shop.customers
     """,
     )
@@ -390,6 +391,7 @@ def test_infer_types_min_max_sum_ceil(construction_session: Session):
         IntegerType(),
         IntegerType(),
         IntegerType(),
+        DoubleType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
