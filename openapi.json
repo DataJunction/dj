@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev1+g7537d5c"
+        "version": "0.0.post1.dev763+gdf7a15b.d20230411"
     },
     "paths": {
         "/catalogs/": {
@@ -33,9 +33,9 @@
                 }
             },
             "post": {
-                "summary": "Add Catalog",
+                "summary": "Add A Catalog",
                 "description": "Add a Catalog",
-                "operationId": "add_catalog_catalogs__post",
+                "operationId": "add_a_catalog_catalogs__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -72,9 +72,9 @@
         },
         "/catalogs/{name}/": {
             "get": {
-                "summary": "Read Catalog",
+                "summary": "Get A Catalog",
                 "description": "Return a catalog by name",
-                "operationId": "read_catalog_catalogs__name___get",
+                "operationId": "get_a_catalog_catalogs__name___get",
                 "parameters": [
                     {
                         "required": true,
@@ -112,9 +112,9 @@
         },
         "/catalogs/{name}/engines/": {
             "post": {
-                "summary": "Add Engines To Catalog",
+                "summary": "Add Engines To A Catalog",
                 "description": "Attach one or more engines to a catalog",
-                "operationId": "add_engines_to_catalog_catalogs__name__engines__post",
+                "operationId": "add_engines_to_a_catalog_catalogs__name__engines__post",
                 "parameters": [
                     {
                         "required": true,
@@ -187,9 +187,9 @@
                 }
             },
             "post": {
-                "summary": "Add Engine",
+                "summary": "Add An Engine",
                 "description": "Add an Engine",
-                "operationId": "add_engine_engines__post",
+                "operationId": "add_an_engine_engines__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -226,9 +226,9 @@
         },
         "/engines/{name}/{version}/": {
             "get": {
-                "summary": "List Engine",
+                "summary": "Get An Engine",
                 "description": "Return an engine by name and version",
-                "operationId": "list_engine_engines__name___version___get",
+                "operationId": "get_an_engine_engines__name___version___get",
                 "parameters": [
                     {
                         "required": true,
@@ -275,16 +275,16 @@
         },
         "/metrics/": {
             "get": {
-                "summary": "Read Metrics",
+                "summary": "List Metrics",
                 "description": "List all available metrics.",
-                "operationId": "read_metrics_metrics__get",
+                "operationId": "list_metrics_metrics__get",
                 "responses": {
                     "200": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "title": "Response Read Metrics Metrics  Get",
+                                    "title": "Response List Metrics Metrics  Get",
                                     "type": "array",
                                     "items": {
                                         "$ref": "#/components/schemas/Metric"
@@ -298,9 +298,9 @@
         },
         "/metrics/{name}/": {
             "get": {
-                "summary": "Read Metric",
+                "summary": "Get A Metric",
                 "description": "Return a metric by name.",
-                "operationId": "read_metric_metrics__name___get",
+                "operationId": "get_a_metric_metrics__name___get",
                 "parameters": [
                     {
                         "required": true,
@@ -338,9 +338,9 @@
         },
         "/metrics/common/dimensions/": {
             "get": {
-                "summary": "Common Dimensions",
+                "summary": "Get Common Dimensions",
                 "description": "Return common dimensions for a set of metrics.",
-                "operationId": "common_dimensions_metrics_common_dimensions__get",
+                "operationId": "get_common_dimensions_metrics_common_dimensions__get",
                 "parameters": [
                     {
                         "required": false,
@@ -362,7 +362,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "title": "Response Common Dimensions Metrics Common Dimensions  Get",
+                                    "title": "Response Get Common Dimensions Metrics Common Dimensions  Get",
                                     "type": "array",
                                     "items": {
                                         "type": "string"
@@ -386,9 +386,9 @@
         },
         "/query/{sql}": {
             "get": {
-                "summary": "Read Metrics Sql",
+                "summary": "Build A Dj Query",
                 "description": "Return SQL for a DJ Query.\n\nA database can be optionally specified. If no database is specified the optimal one\nwill be used.",
-                "operationId": "read_metrics_sql_query__sql__get",
+                "operationId": "build_a_dj_query_query__sql__get",
                 "parameters": [
                     {
                         "required": true,
@@ -426,9 +426,9 @@
         },
         "/nodes/validate/": {
             "post": {
-                "summary": "Validate Node",
+                "summary": "Validate A Node",
                 "description": "Validate a node.",
-                "operationId": "validate_node_nodes_validate__post",
+                "operationId": "validate_a_node_nodes_validate__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -531,16 +531,16 @@
         },
         "/nodes/": {
             "get": {
-                "summary": "Read Nodes",
+                "summary": "List Nodes",
                 "description": "List the available nodes.",
-                "operationId": "read_nodes_nodes__get",
+                "operationId": "list_nodes_nodes__get",
                 "responses": {
                     "200": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "title": "Response Read Nodes Nodes  Get",
+                                    "title": "Response List Nodes Nodes  Get",
                                     "type": "array",
                                     "items": {
                                         "$ref": "#/components/schemas/NodeOutput"
@@ -554,9 +554,9 @@
         },
         "/nodes/{name}/": {
             "get": {
-                "summary": "Read Node",
+                "summary": "Get A Node",
                 "description": "Show the active version of the specified node.",
-                "operationId": "read_node_nodes__name___get",
+                "operationId": "get_a_node_nodes__name___get",
                 "parameters": [
                     {
                         "required": true,
@@ -591,10 +591,41 @@
                     }
                 }
             },
+            "delete": {
+                "summary": "Delete A Node",
+                "description": "Delete the specified node.",
+                "operationId": "delete_a_node_nodes__name___delete",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "204": {
+                        "description": "Successful Response"
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
             "patch": {
-                "summary": "Update Node",
+                "summary": "Update A Node",
                 "description": "Update a node.",
-                "operationId": "update_node_nodes__name___patch",
+                "operationId": "update_a_node_nodes__name___patch",
                 "parameters": [
                     {
                         "required": true,
@@ -642,9 +673,9 @@
         },
         "/nodes/{name}/materialization/": {
             "post": {
-                "summary": "Upsert Node Materialization Config",
+                "summary": "Upsert A Materialization Config",
                 "description": "Update materialization config of the specified node.",
-                "operationId": "upsert_node_materialization_config_nodes__name__materialization__post",
+                "operationId": "upsert_a_materialization_config_nodes__name__materialization__post",
                 "parameters": [
                     {
                         "required": true,
@@ -734,9 +765,9 @@
         },
         "/nodes/source/": {
             "post": {
-                "summary": "Create Source Node",
+                "summary": "Create A Source",
                 "description": "Create a source node. If columns are not provided, the source node's schema\nwill be inferred using the configured query service.",
-                "operationId": "create_source_node_nodes_source__post",
+                "operationId": "create_a_source_nodes_source__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -773,9 +804,9 @@
         },
         "/nodes/metric/": {
             "post": {
-                "summary": "Create Node",
+                "summary": "Create A Node",
                 "description": "Create a node.",
-                "operationId": "create_node_nodes_metric__post",
+                "operationId": "create_a_node_nodes_metric__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -812,9 +843,9 @@
         },
         "/nodes/dimension/": {
             "post": {
-                "summary": "Create Node",
+                "summary": "Create A Node",
                 "description": "Create a node.",
-                "operationId": "create_node_nodes_dimension__post",
+                "operationId": "create_a_node_nodes_dimension__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -851,9 +882,9 @@
         },
         "/nodes/transform/": {
             "post": {
-                "summary": "Create Node",
+                "summary": "Create A Node",
                 "description": "Create a node.",
-                "operationId": "create_node_nodes_transform__post",
+                "operationId": "create_a_node_nodes_transform__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -890,9 +921,9 @@
         },
         "/nodes/cube/": {
             "post": {
-                "summary": "Create Cube Node",
+                "summary": "Create A Cube",
                 "description": "Create a node.",
-                "operationId": "create_cube_node_nodes_cube__post",
+                "operationId": "create_a_cube_nodes_cube__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -929,9 +960,9 @@
         },
         "/nodes/{name}/columns/{column}/": {
             "post": {
-                "summary": "Add Dimension To Node",
+                "summary": "Link A Dimension",
                 "description": "Add information to a node column",
-                "operationId": "add_dimension_to_node_nodes__name__columns__column___post",
+                "operationId": "link_a_dimension_nodes__name__columns__column___post",
                 "parameters": [
                     {
                         "required": true,
@@ -994,9 +1025,9 @@
         },
         "/nodes/{name}/tag/": {
             "post": {
-                "summary": "Add Tag To Node",
+                "summary": "Tag A Node",
                 "description": "Add a tag to a node",
-                "operationId": "add_tag_to_node_nodes__name__tag__post",
+                "operationId": "tag_a_node_nodes__name__tag__post",
                 "parameters": [
                     {
                         "required": true,
@@ -1041,9 +1072,9 @@
         },
         "/nodes/similarity/{node1_name}/{node2_name}": {
             "get": {
-                "summary": "Node Similarity",
+                "summary": "Calculate Node Similarity",
                 "description": "Compare two nodes by how similar their queries are",
-                "operationId": "node_similarity_nodes_similarity__node1_name___node2_name__get",
+                "operationId": "calculate_node_similarity_nodes_similarity__node1_name___node2_name__get",
                 "parameters": [
                     {
                         "required": true,
@@ -1088,9 +1119,9 @@
         },
         "/nodes/{name}/downstream/": {
             "get": {
-                "summary": "Downstream Nodes",
+                "summary": "List Downstream Nodes",
                 "description": "List all nodes that are downstream from the given node, filterable by type.",
-                "operationId": "downstream_nodes_nodes__name__downstream__get",
+                "operationId": "list_downstream_nodes_nodes__name__downstream__get",
                 "parameters": [
                     {
                         "required": true,
@@ -1116,7 +1147,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "title": "Response Downstream Nodes Nodes  Name  Downstream  Get",
+                                    "title": "Response List Downstream Nodes Nodes  Name  Downstream  Get",
                                     "type": "array",
                                     "items": {
                                         "$ref": "#/components/schemas/NodeOutput"
@@ -1140,9 +1171,9 @@
         },
         "/data/{node_name}/availability/": {
             "post": {
-                "summary": "Add Availability",
+                "summary": "Add An Availability State",
                 "description": "Add an availability state to a node",
-                "operationId": "add_availability_data__node_name__availability__post",
+                "operationId": "add_an_availability_state_data__node_name__availability__post",
                 "parameters": [
                     {
                         "required": true,
@@ -1188,9 +1219,9 @@
         },
         "/data/{node_name}/": {
             "get": {
-                "summary": "Data For Node",
+                "summary": "Get Data",
                 "description": "Gets data for a node",
-                "operationId": "data_for_node_data__node_name___get",
+                "operationId": "get_data_data__node_name___get",
                 "parameters": [
                     {
                         "required": true,
@@ -1262,16 +1293,16 @@
         },
         "/health/": {
             "get": {
-                "summary": "Health",
+                "summary": "Health Check",
                 "description": "Healthcheck for services.",
-                "operationId": "health_health__get",
+                "operationId": "health_check_health__get",
                 "responses": {
                     "200": {
                         "description": "Successful Response",
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "title": "Response Health Health  Get",
+                                    "title": "Response Health Check Health  Get",
                                     "type": "array",
                                     "items": {
                                         "$ref": "#/components/schemas/HealthCheck"
@@ -1285,9 +1316,9 @@
         },
         "/cubes/{name}/": {
             "get": {
-                "summary": "Read Cube",
+                "summary": "Get A Cube",
                 "description": "Get information on a cube",
-                "operationId": "read_cube_cubes__name___get",
+                "operationId": "get_a_cube_cubes__name___get",
                 "parameters": [
                     {
                         "required": true,
@@ -1367,9 +1398,9 @@
                 }
             },
             "post": {
-                "summary": "Create Tag",
+                "summary": "Create A Tag",
                 "description": "Create a tag.",
-                "operationId": "create_tag_tags__post",
+                "operationId": "create_a_tag_tags__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -1406,9 +1437,9 @@
         },
         "/tags/{name}/": {
             "get": {
-                "summary": "Read Tag",
+                "summary": "Get A Tag",
                 "description": "Return a tag by name.",
-                "operationId": "read_tag_tags__name___get",
+                "operationId": "get_a_tag_tags__name___get",
                 "parameters": [
                     {
                         "required": true,
@@ -1444,9 +1475,9 @@
                 }
             },
             "patch": {
-                "summary": "Update Tag",
+                "summary": "Update A Tag",
                 "description": "Update a tag.",
-                "operationId": "update_tag_tags__name___patch",
+                "operationId": "update_a_tag_tags__name___patch",
                 "parameters": [
                     {
                         "required": true,
@@ -1494,9 +1525,9 @@
         },
         "/tags/{name}/nodes/": {
             "get": {
-                "summary": "Find Nodes By Tag",
+                "summary": "List Nodes For A Tag",
                 "description": "Find nodes tagged with the tag, filterable by node type.",
-                "operationId": "find_nodes_by_tag_tags__name__nodes__get",
+                "operationId": "list_nodes_for_a_tag_tags__name__nodes__get",
                 "parameters": [
                     {
                         "required": true,
@@ -1522,7 +1553,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "title": "Response Find Nodes By Tag Tags  Name  Nodes  Get",
+                                    "title": "Response List Nodes For A Tag Tags  Name  Nodes  Get",
                                     "type": "array",
                                     "items": {
                                         "type": "string"
@@ -1567,9 +1598,9 @@
                 }
             },
             "post": {
-                "summary": "Add Attribute Type",
+                "summary": "Add An Attribute Type",
                 "description": "Add a new attribute type",
-                "operationId": "add_attribute_type_attributes__post",
+                "operationId": "add_an_attribute_type_attributes__post",
                 "requestBody": {
                     "content": {
                         "application/json": {
@@ -1606,9 +1637,9 @@
         },
         "/sql/{node_name}/": {
             "get": {
-                "summary": "Get Sql For Node",
+                "summary": "Get Sql",
                 "description": "Return SQL for a node.",
-                "operationId": "get_sql_for_node_sql__node_name___get",
+                "operationId": "get_sql_sql__node_name___get",
                 "parameters": [
                     {
                         "required": true,
