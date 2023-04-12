@@ -653,6 +653,46 @@ class TestCreateOrUpdateNodes:
             ],
         }
 
+    def test_create_dimension_node_fails(
+        self,
+        database: Database,  # pylint: disable=unused-argument
+        source_node: Node,  # pylint: disable=unused-argument
+        client: TestClient,
+    ):
+        """
+        Test various failure cases for dimension node creation.
+        """
+        response = client.post(
+            "/nodes/dimension/",
+            json={
+                "description": "Country dimension",
+                "query": "SELECT country, COUNT(1) AS user_cnt "
+                "FROM basic.source.users GROUP BY country",
+                "mode": "published",
+                "name": "countries",
+            },
+        )
+        assert (
+            response.json()["message"] == "Dimension nodes must define a primary key!"
+        )
+
+        response = client.post(
+            "/nodes/dimension/",
+            json={
+                "description": "Country dimension",
+                "query": "SELECT country, COUNT(1) AS user_cnt "
+                "FROM basic.source.users GROUP BY country",
+                "mode": "published",
+                "name": "countries",
+                "primary_key": ["country", "id"],
+            },
+        )
+        assert response.json()["message"] == (
+            "Some columns in the primary key country,id were not "
+            "found in the list of available columns for the node "
+            "countries."
+        )
+
     def test_create_update_dimension_node(
         self,
         database: Database,  # pylint: disable=unused-argument
@@ -1037,7 +1077,6 @@ class TestNodeColumnsAttributes:
         response = client_with_examples.get(
             "/nodes/basic.source.comments/",
         )
-        print("BASIC.SOURCE", response.json())
 
         response = client_with_examples.post(
             "/nodes/basic.source.comments/attributes/",
@@ -1109,7 +1148,6 @@ class TestNodeColumnsAttributes:
             ],
         )
         data = response.json()
-        print("data", data)
         assert data == {
             "message": "The column attribute `event_time` is scoped to be unique to the "
             "`['node', 'column_type']` level, but there is more than one column"
