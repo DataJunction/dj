@@ -7,7 +7,14 @@ from typing import Dict, List, Optional, Tuple
 import pytest
 from sqlmodel import Session
 
-from dj.models import Column, Database, NodeRevision, Table
+from dj.models import (
+    AttributeType,
+    Column,
+    ColumnAttribute,
+    Database,
+    NodeRevision,
+    Table,
+)
 from dj.models.node import Node, NodeType
 from dj.sql.parsing.types import (
     DateType,
@@ -163,7 +170,7 @@ def construction_session(  # pylint: disable=too-many-locals
     postgres = Database(name="postgres", URI="", cost=10, id=1)
 
     gsheets = Database(name="gsheets", URI="", cost=100, id=2)
-
+    primary_key = AttributeType(namespace="system", name="primary_key", description="")
     countries_dim_ref = Node(
         name="basic.dimension.countries",
         type=NodeType.DIMENSION,
@@ -181,7 +188,11 @@ def construction_session(  # pylint: disable=too-many-locals
           GROUP BY country
         """,
         columns=[
-            Column(name="country", type=StringType()),
+            Column(
+                name="country",
+                type=StringType(),
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
             Column(name="user_cnt", type=IntegerType()),
         ],
     )
@@ -207,7 +218,11 @@ def construction_session(  # pylint: disable=too-many-locals
           FROM basic.source.users
         """,
         columns=[
-            Column(name="id", type=IntegerType()),
+            Column(
+                name="id",
+                type=IntegerType(),
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
             Column(name="full_name", type=StringType()),
             Column(name="age", type=IntegerType()),
             Column(name="country", type=StringType()),
@@ -480,7 +495,11 @@ def construction_session(  # pylint: disable=too-many-locals
           FROM dbt.source.jaffle_shop.customers
         """,
         columns=[
-            Column(name="id", type=IntegerType()),
+            Column(
+                name="id",
+                type=IntegerType(),
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
             Column(name="first_name", type=StringType()),
             Column(name="last_name", type=StringType()),
         ],

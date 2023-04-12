@@ -153,9 +153,21 @@ def _build_joins_for_dimension(
 
         # Assemble join ON clause
         for join_col in join_columns:
-            if join_col.name in join_left_columns and (
-                join_col.dimension_column in join_right_columns
-                or "id" in join_right_columns
+            join_table_pk = table_node.primary_key()
+            if len(join_table_pk) > 1 and not join_col.dimension_column:
+                raise DJInvalidInputException(
+                    "Must provide an explicit `dimension_column` for each join "
+                    f"column that links to the dimension node `{table_node.name}`,"
+                    " as the dimensions node has a compound primary key: "
+                    f"`{','.join(join_table_pk)}`",
+                )
+            if (
+                len(join_table_pk) == 1
+                and join_col.name in join_left_columns
+                and (
+                    join_col.dimension_column in join_right_columns
+                    or join_table_pk[0].name in join_right_columns
+                )
             ):
                 left_table.add_ref_column(
                     cast(ast.Column, join_left_columns[join_col.name]),
@@ -163,7 +175,9 @@ def _build_joins_for_dimension(
                 join_on.append(
                     ast.BinaryOp.Eq(
                         join_left_columns[join_col.name],
-                        join_right_columns[join_col.dimension_column or "id"],
+                        join_right_columns[
+                            join_col.dimension_column or join_table_pk[0].name
+                        ],
                         use_alias_as_name=True,
                     ),
                 )
