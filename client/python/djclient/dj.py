@@ -9,7 +9,6 @@ import requests
 from pydantic import BaseModel
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
-from djclient import __version__
 from djclient.exceptions import DJClientException
 
 DEFAULT_NAMESPACE = "default"
@@ -27,10 +26,11 @@ class RequestsSessionWithEndpoint(requests.Session):
         self.endpoint = endpoint
         self.mount("http://", HTTPAdapter())
         self.mount("https://", HTTPAdapter())
+
         self.headers = CaseInsensitiveDict(
             {
                 "User-Agent": (
-                    f"djclient;{__version__};N/A;"
+                    f"djclient;;N/A;"
                     f"{platform.processor() or platform.machine()};"
                     f"{platform.system()};"
                     f"{platform.release()} {platform.version()}"
@@ -234,30 +234,6 @@ class DJClient:
         rows = results["results"][0]["rows"]
         return pd.DataFrame(rows, columns=[col["name"] for col in columns])
 
-    def create_catalog(self, catalog: "Catalog"):
-        """
-        Creates a catalog
-        """
-        response = self._session.post("/catalogs/", json=catalog.dict())
-        return response.json()
-
-    def create_engine(self, engine: "Engine"):
-        """
-        Creates an engine
-        """
-        response = self._session.post("/engines/", json=engine.dict())
-        return response.json()
-
-    def add_engines_to_catalog(self, catalog: "Catalog", engines: List["Engine"]):
-        """
-        Attaches the list of engines to a catalog
-        """
-        response = self._session.post(
-            f"/catalogs/{catalog.name}/engines/",
-            json=[engine.dict() for engine in engines],
-        )
-        return response.json()
-
 
 class Column(BaseModel):
     """
@@ -389,52 +365,6 @@ class Node(ClientEntity):
         response = session.delete_node(self)
         assert response.status_code == 204
         return f"Successfully deleted `{self.name}`"
-
-
-class Catalog(ClientEntity):
-    """
-    Represents a catalog in DJ
-    """
-
-    name: str
-
-    def publish(self):
-        """
-        Publishes the catalog by saving it via the API.
-        """
-        client = self._get_initialized_client()
-        return client.create_catalog(self)
-
-    def add_engines(self, engines: List["Engine"]):
-        """
-        Attaches the list of engines to a catalog
-        """
-        client = self._get_initialized_client()
-        return client.add_engines_to_catalog(self, engines)
-
-    def add_engine(self, engine: "Engine"):
-        """
-        Attaches the engine to a catalog
-        """
-        client = self._get_initialized_client()
-        return client.add_engines_to_catalog(self, [engine])
-
-
-class Engine(ClientEntity):
-    """
-    An engine
-    """
-
-    name: str
-    version: str
-    uri: Optional[str]
-
-    def publish(self):
-        """
-        Publishes the engine by saving it via the API
-        """
-        client = self._get_initialized_client()
-        return client.create_engine(self)
 
 
 class Source(Node):

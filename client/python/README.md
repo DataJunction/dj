@@ -104,6 +104,25 @@ repair_order = Dimension(
 repair_order.publish()
 ```
 
+To create a transform node:
+```python
+from djclient import Transform
+large_revenue_payments_only = Transform(
+    name="large_revenue_payments_only",
+    query="""
+    SELECT
+      payment_id,
+      payment_amount,
+      customer_id,
+      account_type
+    FROM revenue
+    WHERE payment_amount > 1000000
+    """,
+    description="Only large revenue payments",
+)
+large_revenue_payments_only.publish()
+```
+
 To create a metric:
 ```python
 from djclient import Metric
