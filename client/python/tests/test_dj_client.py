@@ -1,8 +1,9 @@
 """Tests DJ client"""
+import pandas as pd
 import pytest
 import responses
 
-from djclient.dj import DJClient, Source
+from djclient import DJClient, Metric, Source, Transform
 from djclient.exceptions import DJClientException
 
 
@@ -163,5 +164,91 @@ class TestDJClient:
             "http://localhost:8000/nodes/source/",
             json=expected,
         )
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/apples/",
+            json={**expected, **{"node_revision_id": 1}},
+        )
         source.publish()
         source.draft()
+
+    @responses.activate
+    def test_link_dimension(self, client):  # pylint: disable=unused-argument
+        """
+        Check that `client.engines()` works as expected.
+        """
+        expected = {"message": "success"}
+        responses.add(
+            responses.POST,
+            "http://localhost:8000/nodes/fruit_purchases/columns/fruit/"
+            "?dimension=fruits&dimension_column=fruit",
+            json=expected,
+        )
+        transform_node = Transform(
+            name="fruit_purchases",
+            query="SELECT purchase_id, fruit, cost, cost_per_unit FROM purchase_records",
+        )
+        result = transform_node.link_dimension("fruit", "fruits", "fruit")
+        assert result == expected
+
+    @responses.activate
+    def test_sql(self, client):  # pylint: disable=unused-argument
+        """
+        Check that `client.engines()` works as expected.
+        """
+        expected = {"sql": "SELECT count(*) FROM fruit_purchases WHERE fruit='apple'"}
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/sql/apple_count/",
+            json=expected,
+        )
+        metric = Metric(
+            name="apple_count",
+            query="SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
+        )
+        result = metric.sql(dimensions=[], filters=[])
+        assert result == expected["sql"]
+
+    @responses.activate
+    def test_data(self, client):  # pylint: disable=unused-argument
+        """
+        Check that `client.engines()` works as expected.
+        """
+        expected = {
+            "results": [
+                {
+                    "sql": "SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
+                    "columns": [{"name": "apple_count"}],
+                    "rows": [[1], [2]],
+                },
+            ],
+        }
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/data/apple_count/",
+            json=expected,
+        )
+        metric = Metric(
+            name="apple_count",
+            query="SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
+        )
+        result = metric.data(dimensions=[], filters=[])
+        assert isinstance(result, pd.DataFrame)
+
+    @responses.activate
+    def test_get_dimensions(self, client):  # pylint: disable=unused-argument
+        """
+        Check that `client.engines()` works as expected.
+        """
+        expected = {"dimensions": ["fruit"]}
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/metrics/apple_count/",
+            json=expected,
+        )
+        metric = Metric(
+            name="apple_count",
+            query="SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
+        )
+        result = metric.dimensions()
+        assert result == expected["dimensions"]
