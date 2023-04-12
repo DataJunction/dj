@@ -13,6 +13,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 from starlette.requests import Request
+from starlette.responses import Response
 
 from dj.api.helpers import (
     get_attribute_type,
@@ -27,7 +28,7 @@ from dj.api.helpers import (
     validate_node_data,
 )
 from dj.api.tags import get_tag_by_name
-from dj.errors import DJDoesNotExistException, DJException
+from dj.errors import DJDoesNotExistException, DJException, DJInvalidInputException
 from dj.models import ColumnAttribute
 from dj.models.attribute import UniquenessScope
 from dj.models.base import generate_display_name
@@ -108,6 +109,9 @@ def validate_and_build_attribute(
             f"does not exist on node `{node.name}`!",
         )
     column = column_map[attribute_input.column_name]
+    existing_attributes = {attr.attribute_type.name: attr for attr in column.attributes}
+    if attribute_input.attribute_type_name in existing_attributes:
+        return existing_attributes[attribute_input.attribute_type_name]
 
     # Verify attribute type exists
     attribute_type = get_attribute_type(
@@ -136,6 +140,62 @@ def validate_and_build_attribute(
     )
 
 
+def set_column_attributes_on_node(
+    session: Session,
+    attributes: List[ColumnAttributeInput],
+    node: Node,
+) -> List[Column]:
+    """
+    Sets the column attributes on the node if allowed.
+    """
+    modified_columns_map = {}
+    for attribute_input in attributes:
+        new_attribute = validate_and_build_attribute(session, attribute_input, node)
+        # pylint: disable=no-member
+        modified_columns_map[new_attribute.column.name] = new_attribute.column
+
+    # Validate column attributes by building mapping between
+    # attribute scope and columns
+    attributes_columns_map = defaultdict(set)
+    modified_columns = modified_columns_map.values()
+
+    for column in modified_columns:
+        for attribute in column.attributes:
+            scopes_map = {
+                UniquenessScope.NODE: attribute.attribute_type,
+                UniquenessScope.COLUMN_TYPE: column.type,
+            }
+            attributes_columns_map[
+                (  # type: ignore
+                    attribute.attribute_type,
+                    tuple(
+                        scopes_map[item]
+                        for item in attribute.attribute_type.uniqueness_scope
+                    ),
+                )
+            ].add(column.name)
+
+    for (attribute, _), columns in attributes_columns_map.items():
+        if len(columns) > 1:
+            for col in columns:
+                modified_columns_map[col].attributes = []
+            raise DJException(
+                message=f"The column attribute `{attribute.name}` is scoped to be "
+                f"unique to the `{attribute.uniqueness_scope}` level, but there "
+                "is more than one column tagged with it: "
+                f"`{', '.join(sorted(list(columns)))}`",
+            )
+
+    session.add_all(modified_columns)
+    session.commit()
+    for col in modified_columns:
+        session.refresh(col)
+
+    session.refresh(node)
+    session.refresh(node.current)
+    return list(modified_columns)
+
+
 @router.post(
     "/nodes/{node_name}/attributes/",
     response_model=List[ColumnOutput],
@@ -151,48 +211,8 @@ def set_column_attributes(
     Set column attributes for the node.
     """
     node = get_node_by_name(session, node_name)
-    modified_columns_map = {}
-    for attribute_input in attributes:
-        new_attribute = validate_and_build_attribute(session, attribute_input, node)
-        # pylint: disable=no-member
-        modified_columns_map[new_attribute.column.name] = new_attribute.column
-
-    # Validate column attributes by building mapping between
-    # attribute scope and columns
-    attributes_columns_map = defaultdict(list)
-    modified_columns = modified_columns_map.values()
-    for column in modified_columns:
-        for attribute in column.attributes:
-            scopes_map = {
-                UniquenessScope.NODE: attribute.attribute_type,
-                UniquenessScope.COLUMN_TYPE: column.type,
-            }
-            attributes_columns_map[
-                (  # type: ignore
-                    attribute.attribute_type,
-                    tuple(
-                        scopes_map[item]
-                        for item in attribute.attribute_type.uniqueness_scope
-                    ),
-                )
-            ].append(column)
-
-    for (attribute, _), columns in attributes_columns_map.items():
-        if len(columns) > 1:
-            for col in columns:
-                col.attributes = []
-            raise DJException(
-                message=f"The column attribute `{attribute.name}` is scoped to be "
-                f"unique to the `{attribute.uniqueness_scope}` level, but there "
-                "is more than one column tagged with it: "
-                f"`{', '.join([col.name for col in columns])}`",
-            )
-
-    session.add_all(modified_columns)
-    session.commit()
-    for col in modified_columns:
-        session.refresh(col)
-    return list(modified_columns)
+    modified_columns = set_column_attributes_on_node(session, attributes, node)
+    return list(modified_columns)  # type: ignore
 
 
 @router.get("/nodes/", response_model=List[NodeOutput])
@@ -239,7 +259,8 @@ def delete_node(name: str, *, session: Session = Depends(get_session)):
             col.dimension_column = None
             session.add(col)
     session.delete(node)
-    return session.commit()
+    session.commit()
+    return Response(status_code=HTTPStatus.NO_CONTENT.value)
 
 
 @router.post("/nodes/{name}/materialization/", status_code=201)
@@ -559,10 +580,37 @@ def create_a_node(
     Create a node.
     """
     node_type = NodeType(os.path.basename(os.path.normpath(request.url.path)))
+
+    if node_type == NodeType.DIMENSION and not data.primary_key:
+        raise DJInvalidInputException("Dimension nodes must define a primary key!")
+
     raise_if_node_exists(session, data.name)
     node = Node(name=data.name, type=NodeType(node_type), current_version=0)
     node_revision = create_node_revision(data, node_type, session)
     save_node(session, node_revision, node, data.mode)
+    session.refresh(node)
+
+    column_names = {col.name for col in node_revision.columns}
+    if data.primary_key and any(
+        key_column not in column_names for key_column in data.primary_key
+    ):
+        raise DJInvalidInputException(
+            f"Some columns in the primary key {','.join(data.primary_key)} "
+            f"were not found in the list of available columns for the node {node.name}.",
+        )
+    if data.primary_key:
+        attributes = [
+            ColumnAttributeInput(
+                attribute_type_namespace="system",
+                attribute_type_name="primary_key",
+                column_name=key_column,
+            )
+            for key_column in data.primary_key
+            if key_column in column_names
+        ]
+        set_column_attributes_on_node(session, attributes, node)
+    session.refresh(node)
+    session.refresh(node.current)
     return node  # type: ignore
 
 

@@ -134,6 +134,7 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country",
             "mode": "published",
             "name": "countries",
+            "primary_key": ["country"],
         }
 
     @pytest.fixture
@@ -662,7 +663,6 @@ class TestCreateOrUpdateNodes:
         """
         Test creating and updating a dimension node that references an existing source.
         """
-
         response = client.post(
             "/nodes/dimension/",
             json=create_dimension_node_payload,
@@ -680,7 +680,14 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {
+                "name": "country",
+                "type": "string",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
             {"name": "user_cnt", "type": "long", "attributes": [], "dimension": None},
         ]
 
@@ -747,7 +754,14 @@ class TestCreateOrUpdateNodes:
             "FROM basic.source.users GROUP BY country"
         )
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {
+                "name": "country",
+                "type": "string",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
             {"name": "user_cnt", "type": "long", "attributes": [], "dimension": None},
         ]
 
@@ -1023,6 +1037,7 @@ class TestNodeColumnsAttributes:
         response = client_with_examples.get(
             "/nodes/basic.source.comments/",
         )
+        print("BASIC.SOURCE", response.json())
 
         response = client_with_examples.post(
             "/nodes/basic.source.comments/attributes/",
@@ -1094,6 +1109,7 @@ class TestNodeColumnsAttributes:
             ],
         )
         data = response.json()
+        print("data", data)
         assert data == {
             "message": "The column attribute `event_time` is scoped to be unique to the "
             "`['node', 'column_type']` level, but there is more than one column"

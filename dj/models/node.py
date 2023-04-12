@@ -475,6 +475,7 @@ class MutableNodeFields(BaseSQLModel):
     display_name: Optional[str]
     description: str
     mode: NodeMode
+    primary_key: Optional[List[str]]
 
 
 class MutableNodeQueryField(BaseSQLModel):
