@@ -104,7 +104,7 @@ def update_a_tag(
 
 
 @router.get("/tags/{name}/nodes/", response_model=List[str])
-def list_nodes_for_tag(
+def list_nodes_for_a_tag(
     name: str,
     node_type: Optional[NodeType] = None,
     *,

@@ -69,11 +69,82 @@ theme includes many configurations that can be used in the [front matter](https:
 for content pages.
 {{< /hint >}}
 
+## Updating the DataJunction API Specification Page
+
+[The DataJunction API Specification](../the-datajunction-api-specification) page is generated using the `openapi.json`
+spec file and the [widdershins](https://github.com/Mermade/widdershins) CLI tool.
+
+Install `dj` from source.
+```py
+pip install .
+```
+{{< hint info >}}
+The generated `openapi.json` file in the next step will be generated from the currently installed DJ library.
+{{< /hint >}}
+
+Use the `generate-openapi.py` script to update the `openapi.json` file.
+```py
+python ./scripts/generate-openapi.py -o openapi.json
+```
+
+Use `widdershins` to generate a markdown file from the `openapi.json` file.
+```sh
+widdershins openapi.json -o docs/content/0.1.0/docs/developers/the-datajunction-api-specification.md --code=true --omitBody=true --summary=true
+```
+
+Launch the hugo server locally to visually inspect the datajunction specification page.
+```sh
+cd docs
+hugo serve --contentDir=content/0.1.0
+```
+
+The following are a few manual cleanups that need to be performed on the generated file.
+
+Replace all of the front-matter with a single value `weight: 1`.
+```diff
+---
+- title: DJ server v0.0.post1.dev763+gdf7a15b.d20230411
+- language_tabs:
+-   - shell: Shell
+-   - http: HTTP
+-   - javascript: JavaScript
+-   - ruby: Ruby
+-   - python: Python
+-   - php: PHP
+-   - java: Java
+-   - go: Go
+- toc_footers: []
+- includes: []
+- search: true
+- highlight_theme: darkula
+- headingLevel: 2
++ weight: 11
+---
+```
+
+Replace the header with an H1 page title.
+```diff
+- <!-- Generator: Widdershins v4.0.1 -->
+- 
+- <h1 id="dj-server">DJ server v0.0.post1.dev763+gdf7a15b.d20230411</h1>
+- 
+- > Scroll down for code samples, example requests and responses. Select a language for code samples from the tabs above or the mobile navigation menu.
+- 
+- A DataJunction metrics layer
+- 
+- License: <a href="https://mit-license.org/">MIT License</a>
+- 
+- <h1 id="dj-server-default">Default</h1>
++ # The DataJunction API Specification
++
++ License: <a href="https://mit-license.org/">MIT License</a>
+```
+
 ## Adding New Pages
 
 A new page can be added by creating an `.md` file anywhere within the `docs/content` directory. By default, the
 page will appear in the side navigation menu and the title will be the file name converted to a display format. For
-example, the content for this page is defined in a file named `docs-development.md` and the titel automatically
+example, the content for this page is defined in a file named `docs-development.md` and the title automatically
 appears in the menu as `Docs Development`. The title can also be overriden by setting it explicitly in the pages
 front-matter.
 
