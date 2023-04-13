@@ -14,6 +14,25 @@ from dj.models.node import Node, NodeRevision, NodeStatus, NodeType
 from dj.sql.parsing.types import IntegerType, StringType, TimestampType
 
 
+def test_list_all_namespaces(client_with_examples: TestClient) -> None:
+    """
+    Test ``GET /nodes/namespace/all/``.
+    """
+    response = client_with_examples.get("/nodes/namespace/all")
+    assert response.ok
+    assert response.json() == [
+        {"namespace": "default"},
+        {"namespace": "foo.bar"},
+        {"namespace": "basic"},
+        {"namespace": "basic.source"},
+        {"namespace": "basic.transform"},
+        {"namespace": "basic.dimension"},
+        {"namespace": "dbt.source"},
+        {"namespace": "dbt.transform"},
+        {"namespace": "dbt.dimension"},
+    ]
+
+
 def test_read_node(client_with_examples: TestClient) -> None:
     """
     Test ``GET /nodes/{node_id}``.
@@ -488,7 +507,7 @@ class TestCreateOrUpdateNodes:
         """
         Test creating an invalid transform node in draft and published modes.
         """
-
+        client.post("/nodes/namespace/default/")
         response = client.post(
             "/nodes/transform/",
             json=create_invalid_transform_node_payload,
@@ -511,6 +530,7 @@ class TestCreateOrUpdateNodes:
         Test creating and updating a transform node that references an existing source.
         """
 
+        client.post("/nodes/namespace/default/")
         # Create a transform node
         response = client.post(
             "/nodes/transform/",
@@ -662,6 +682,7 @@ class TestCreateOrUpdateNodes:
         """
         Test various failure cases for dimension node creation.
         """
+        client.post("/nodes/namespace/default/")
         response = client.post(
             "/nodes/dimension/",
             json={
@@ -703,6 +724,7 @@ class TestCreateOrUpdateNodes:
         """
         Test creating and updating a dimension node that references an existing source.
         """
+        client.post("/nodes/namespace/default/")
         response = client.post(
             "/nodes/dimension/",
             json=create_dimension_node_payload,
@@ -776,7 +798,7 @@ class TestCreateOrUpdateNodes:
         """
         Test creating an invalid node in draft mode
         """
-
+        client.post("/nodes/namespace/default/")
         response = client.post(
             "/nodes/dimension/",
             json=create_dimension_node_payload,

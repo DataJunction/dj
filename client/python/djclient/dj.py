@@ -96,6 +96,12 @@ class DJClient:
         response = self._session.get("/engines/", timeout=self._timeout)
         return response.json()
 
+    def namespaces(self, names_only: bool = False):
+        """
+        Returns all node namespaces.
+        """
+        return self.get_node_namespaces()
+
     def nodes(self, names_only: bool = False):
         """
         Returns all source nodes. If `names_only` is set to true,
@@ -155,6 +161,13 @@ class DJClient:
             timeout=self._timeout,
             json=node.dict(exclude_none=True, exclude={"type"}),
         )
+        return response.json()
+
+    def get_node_namespaces(self):
+        """
+        Retrieves all node namespaces
+        """
+        response = self._session.get(f"/nodes/namespace/all/")
         return response.json()
 
     def get_node(self, node_name: str):
