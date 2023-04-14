@@ -148,3 +148,14 @@ class Version:
         Returns the next major version
         """
         return Version(self.major + 1, 0)
+
+
+def get_namespace_from_name(name: str) -> str:
+    """
+    Splits a qualified node name into it's namespace and name parts
+    """
+    if "." in name:
+        node_namespace, _ = name.rsplit(".", 1)
+    else:
+        node_namespace = "default"
+    return node_namespace

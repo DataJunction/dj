@@ -39,6 +39,10 @@ EXAMPLES = (  # type: ignore
         "/catalogs/public/engines/",
         [{"name": "postgres", "version": "15.2"}],
     ),
+    (  # DJ must be primed with a "default" namespace
+        "/namespaces/default/",
+        {},
+    ),
     (
         "/nodes/source/",
         {
@@ -562,6 +566,10 @@ EXAMPLES = (  # type: ignore
         {},
     ),
     (  # foo.bar Namespaced copy of roads database example
+        "/namespaces/foo.bar/",
+        {},
+    ),
+    (
         "/nodes/source/",
         {
             "columns": {
@@ -1189,7 +1197,23 @@ EXAMPLES = (  # type: ignore
             "name": "number_of_account_types",
         },
     ),
-    (  # Basic namespace
+    (
+        "/namespaces/basic/",
+        {},
+    ),
+    (
+        "/namespaces/basic.source/",
+        {},
+    ),
+    (
+        "/namespaces/basic.transform/",
+        {},
+    ),
+    (
+        "/namespaces/basic.dimension/",
+        {},
+    ),
+    (
         "/nodes/source/",
         {
             "name": "basic.source.users",
@@ -1349,6 +1373,26 @@ EXAMPLES = (  # type: ignore
             "query": "SELECT COUNT(DISTINCT country) " "FROM long_events",
             "mode": "published",
         },
+    ),
+    (
+        "/namespaces/dbt.source/",
+        {},
+    ),
+    (
+        "/namespaces/dbt.source.jaffle_shop/",
+        {},
+    ),
+    (
+        "/namespaces/dbt.transform/",
+        {},
+    ),
+    (
+        "/namespaces/dbt.dimension/",
+        {},
+    ),
+    (
+        "/namespaces/dbt.source.stripe/",
+        {},
     ),
     (  # DBT examples
         "/nodes/source/",

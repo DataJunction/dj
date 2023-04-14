@@ -65,6 +65,7 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     )
     parent_node = Node(
         name=parent_rev.name,
+        namespace="default",
         type=NodeType.SOURCE,
         current_version="1",
     )
@@ -72,6 +73,7 @@ def test_read_metric(session: Session, client: TestClient) -> None:
 
     child_node = Node(
         name="child",
+        namespace="default",
         type=NodeType.METRIC,
         current_version="1",
     )
@@ -102,6 +104,7 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
     database = Database(name="test", URI="sqlite://")
     node = Node(
         name="a-metric",
+        namespace="default",
         type=NodeType.TRANSFORM,
         current_version="1",
     )

@@ -286,13 +286,25 @@ class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
     )
 
 
+class NodeNamespace(SQLModel, table=True):  # type: ignore
+    """
+    A node namespace
+    """
+
+    namespace: str = Field(nullable=False, unique=True, primary_key=True)
+
+
 class Node(NodeBase, table=True):  # type: ignore
     """
     Node that acts as an umbrella for all node revisions
     """
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    __table_args__ = (
+        UniqueConstraint("name", "namespace", name="unique_node_namespace_name"),
+    )
 
+    id: Optional[int] = Field(default=None, primary_key=True)
+    namespace: Optional[str] = "default"
     current_version: str = Field(default=str(DEFAULT_DRAFT_VERSION))
     created_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
@@ -475,6 +487,7 @@ class ImmutableNodeFields(BaseSQLModel):
     """
 
     name: str
+    namespace: str = "default"
 
 
 class MutableNodeFields(BaseSQLModel):
@@ -719,6 +732,7 @@ class NodeOutput(OutputModel):
     Output for a node that shows the current revision.
     """
 
+    namespace: str
     current: NodeRevisionOutput = PydanticField(flatten=True)
     created_at: UTCDatetime
     tags: List["Tag"] = []

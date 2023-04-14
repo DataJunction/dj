@@ -22,6 +22,7 @@ from dj.api.helpers import (
     get_downstream_nodes,
     get_engine,
     get_node_by_name,
+    get_node_namespace,
     propagate_valid_status,
     raise_if_node_exists,
     resolve_downstream_references,
@@ -44,6 +45,7 @@ from dj.models.node import (
     MissingParent,
     Node,
     NodeMode,
+    NodeNamespace,
     NodeOutput,
     NodeRevision,
     NodeRevisionBase,
@@ -56,7 +58,13 @@ from dj.models.node import (
 )
 from dj.service_clients import QueryServiceClient
 from dj.sql.parsing.backends.antlr4 import parse
-from dj.utils import Version, VersionUpgrade, get_query_service_client, get_session
+from dj.utils import (
+    Version,
+    VersionUpgrade,
+    get_namespace_from_name,
+    get_query_service_client,
+    get_session,
+)
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -363,6 +371,7 @@ def create_node_revision(
     """
     node_revision = NodeRevision(
         name=data.name,
+        namespace=data.namespace,
         display_name=data.display_name
         if data.display_name
         else generate_display_name(data.name),
@@ -460,6 +469,7 @@ def create_cube_node_revision(
         )
     return NodeRevision(
         name=data.name,
+        namespace=data.namespace,
         description=data.description,
         type=NodeType.CUBE,
         cube_elements=metrics + dimensions,
@@ -510,8 +520,20 @@ def create_a_source(
     will be inferred using the configured query service.
     """
     raise_if_node_exists(session, data.name)
-    node = Node(name=data.name, type=NodeType.SOURCE, current_version=0)
+    node = Node(
+        name=data.name,
+        namespace=data.namespace,
+        type=NodeType.SOURCE,
+        current_version=0,
+    )
     catalog = get_catalog(session=session, name=data.catalog)
+
+    namespace = get_namespace_from_name(data.name)
+    get_node_namespace(
+        session=session,
+        namespace=namespace,
+    )  # Will return 404 if namespace doesn't exist
+    data.namespace = namespace
 
     # When no columns are provided, attempt to find actual table columns
     # if a query service is set
@@ -549,6 +571,7 @@ def create_a_source(
 
     node_revision = NodeRevision(
         name=data.name,
+        namespace=data.namespace,
         display_name=data.display_name
         if data.display_name
         else generate_display_name(data.name),
@@ -565,6 +588,51 @@ def create_a_source(
     # Point the node to the new node revision.
     save_node(session, node_revision, node, data.mode)
     return node  # type: ignore
+
+
+@router.post("/namespaces/{namespace}/", status_code=201)
+def create_a_node_namespace(
+    namespace: str,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
+    """
+    Create a node namespace
+    """
+    if get_node_namespace(
+        session=session,
+        namespace=namespace,
+        raise_if_not_exists=False,
+    ):  # pragma: no cover
+        return JSONResponse(
+            status_code=409,
+            content={
+                "message": (f"Node namespace`{namespace}` already exists"),
+            },
+        )
+    node_namespace = NodeNamespace(namespace=namespace)
+    session.add(node_namespace)
+    session.commit()
+    return JSONResponse(
+        status_code=201,
+        content={
+            "message": (f"Node namespace`{namespace}` has been successfully created"),
+        },
+    )
+
+
+@router.get(
+    "/namespaces/all/",
+    response_model=List[NodeNamespace],
+    status_code=201,
+)
+def list_node_namespaces(
+    session: Session = Depends(get_session),
+) -> List[NodeNamespace]:
+    """
+    List node namespaces
+    """
+    namespaces = session.exec(select(NodeNamespace)).all()
+    return namespaces
 
 
 @router.post("/nodes/transform/", response_model=NodeOutput, status_code=201)
@@ -585,7 +653,20 @@ def create_a_node(
         raise DJInvalidInputException("Dimension nodes must define a primary key!")
 
     raise_if_node_exists(session, data.name)
-    node = Node(name=data.name, type=NodeType(node_type), current_version=0)
+
+    namespace = get_namespace_from_name(data.name)
+    get_node_namespace(
+        session=session,
+        namespace=namespace,
+    )  # Will return 404 if namespace doesn't exist
+    data.namespace = namespace
+
+    node = Node(
+        name=data.name,
+        namespace=data.namespace,
+        type=NodeType(node_type),
+        current_version=0,
+    )
     node_revision = create_node_revision(data, node_type, session)
     save_node(session, node_revision, node, data.mode)
     session.refresh(node)
@@ -623,7 +704,12 @@ def create_a_cube(
     Create a node.
     """
     raise_if_node_exists(session, data.name)
-    node = Node(name=data.name, type=NodeType.CUBE, current_version=0)
+    node = Node(
+        name=data.name,
+        namespace=data.namespace,
+        type=NodeType.CUBE,
+        current_version=0,
+    )
     node_revision = create_cube_node_revision(session=session, data=data)
     save_node(session, node_revision, node, data.mode)
     return node  # type: ignore
