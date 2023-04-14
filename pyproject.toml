@@ -6,3 +6,24 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools_scm]
 # See configuration details in https://github.com/pypa/setuptools_scm
 version_scheme = "no-guess-dev"
+
+[tool.poetry]
+name = "datajunction"
+version = "0.0.1a1"
+readme = "README.rst"
+repository = "https://github.com/DataJunction/dj"
+description = "DataJunction server library for running to a DataJunction server"
+authors = ["DataJunction Authors"]
+license = "MIT"
+packages = [
+    { include = "dj" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
