@@ -528,6 +528,13 @@ def create_a_source(
     )
     catalog = get_catalog(session=session, name=data.catalog)
 
+    namespace = get_namespace_from_name(data.name)
+    get_node_namespace(
+        session=session,
+        namespace=namespace,
+    )  # Will return 404 if namespace doesn't exist
+    data.namespace = namespace
+
     # When no columns are provided, attempt to find actual table columns
     # if a query service is set
     columns = (

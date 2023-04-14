@@ -28,8 +28,10 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
         {"namespace": "basic.transform"},
         {"namespace": "basic.dimension"},
         {"namespace": "dbt.source"},
+        {"namespace": "dbt.source.jaffle_shop"},
         {"namespace": "dbt.transform"},
         {"namespace": "dbt.dimension"},
+        {"namespace": "dbt.source.stripe"},
     ]
 
 

@@ -1379,11 +1379,19 @@ EXAMPLES = (  # type: ignore
         {},
     ),
     (
+        "/nodes/namespace/dbt.source.jaffle_shop/",
+        {},
+    ),
+    (
         "/nodes/namespace/dbt.transform/",
         {},
     ),
     (
         "/nodes/namespace/dbt.dimension/",
+        {},
+    ),
+    (
+        "/nodes/namespace/dbt.source.stripe/",
         {},
     ),
     (  # DBT examples
