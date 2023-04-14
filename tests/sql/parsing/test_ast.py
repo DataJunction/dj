@@ -408,6 +408,7 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
     """
     Test lateral view explode of an upstream column
     """
+    client.post("/namespaces/default/")
     response = client.post("/catalogs/", json={"name": "default"})
     assert response.ok
     response = client.post(

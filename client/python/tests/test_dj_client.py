@@ -36,6 +36,22 @@ class TestDJClient:
         assert "DJ client not initialized!" in str(exc_info)
 
     @responses.activate
+    def test_namespaces(self, client):
+        """
+        Check that `client.namespaces()` works as expected.
+        """
+        expected = [
+            {
+                "namespace": "default",
+            },
+        ]
+        responses.add(
+            responses.GET, "http://localhost:8000/namespaces/all/", json=expected,
+        )
+        result = client.namespaces()
+        assert result == expected
+
+    @responses.activate
     def test_catalogs(self, client):
         """
         Check that `client.catalogs()` works as expected.

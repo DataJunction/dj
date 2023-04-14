@@ -91,9 +91,7 @@ async def test_raise_on_build_without_required_dimension_column(request):
     construction_session: Session = request.getfixturevalue("construction_session")
     country_dim: Node = next(
         construction_session.exec(
-            select(Node).filter(
-                Node.name == "basic.dimension.countries",
-            ),
+            select(Node).filter(Node.name == "basic.dimension.countries"),
         ),
     )[0]
     node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version="1")

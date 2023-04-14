@@ -19,6 +19,7 @@ from dj.models.node import (
     Node,
     NodeMissingParents,
     NodeMode,
+    NodeNamespace,
     NodeRelationship,
     NodeRevision,
     NodeRevisionBase,
@@ -28,6 +29,25 @@ from dj.models.node import (
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from dj.sql.parsing.backends.exceptions import DJParseException
+
+
+def get_node_namespace(  # pylint: disable=too-many-arguments
+    session: Session,
+    namespace: str,
+    raise_if_not_exists: bool = True,
+) -> str:
+    """
+    Get a node namespace
+    """
+    statement = select(NodeNamespace).where(NodeNamespace.namespace == namespace)
+    node_namespace = session.exec(statement).one_or_none()
+    if raise_if_not_exists:  # pragma: no cover
+        if not node_namespace:
+            raise DJException(
+                message=(f"node namespace `{namespace}` does not exist."),
+                http_status_code=404,
+            )
+    return node_namespace
 
 
 def get_node_by_name(  # pylint: disable=too-many-arguments
