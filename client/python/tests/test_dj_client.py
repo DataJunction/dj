@@ -46,7 +46,7 @@ class TestDJClient:
             },
         ]
         responses.add(
-            responses.GET, "http://localhost:8000/nodes/namespace/all/", json=expected,
+            responses.GET, "http://localhost:8000/namespaces/all/", json=expected,
         )
         result = client.namespaces()
         assert result == expected

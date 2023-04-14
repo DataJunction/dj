@@ -40,7 +40,7 @@ EXAMPLES = (  # type: ignore
         [{"name": "postgres", "version": "15.2"}],
     ),
     (  # DJ must be primed with a "default" namespace
-        "/nodes/namespace/default/",
+        "/namespaces/default/",
         {},
     ),
     (
@@ -566,7 +566,7 @@ EXAMPLES = (  # type: ignore
         {},
     ),
     (  # foo.bar Namespaced copy of roads database example
-        "/nodes/namespace/foo.bar/",
+        "/namespaces/foo.bar/",
         {},
     ),
     (
@@ -1198,19 +1198,19 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
-        "/nodes/namespace/basic/",
+        "/namespaces/basic/",
         {},
     ),
     (
-        "/nodes/namespace/basic.source/",
+        "/namespaces/basic.source/",
         {},
     ),
     (
-        "/nodes/namespace/basic.transform/",
+        "/namespaces/basic.transform/",
         {},
     ),
     (
-        "/nodes/namespace/basic.dimension/",
+        "/namespaces/basic.dimension/",
         {},
     ),
     (
@@ -1375,23 +1375,23 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
-        "/nodes/namespace/dbt.source/",
+        "/namespaces/dbt.source/",
         {},
     ),
     (
-        "/nodes/namespace/dbt.source.jaffle_shop/",
+        "/namespaces/dbt.source.jaffle_shop/",
         {},
     ),
     (
-        "/nodes/namespace/dbt.transform/",
+        "/namespaces/dbt.transform/",
         {},
     ),
     (
-        "/nodes/namespace/dbt.dimension/",
+        "/namespaces/dbt.dimension/",
         {},
     ),
     (
-        "/nodes/namespace/dbt.source.stripe/",
+        "/namespaces/dbt.source.stripe/",
         {},
     ),
     (  # DBT examples

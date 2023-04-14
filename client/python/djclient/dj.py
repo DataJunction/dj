@@ -167,7 +167,7 @@ class DJClient:
         """
         Retrieves all node namespaces
         """
-        response = self._session.get(f"/nodes/namespace/all/")
+        response = self._session.get(f"/namespaces/all/")
         return response.json()
 
     def get_node(self, node_name: str):

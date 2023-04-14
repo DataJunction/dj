@@ -590,7 +590,7 @@ def create_a_source(
     return node  # type: ignore
 
 
-@router.post("/nodes/namespace/{namespace}/", status_code=201)
+@router.post("/namespaces/{namespace}/", status_code=201)
 def create_a_node_namespace(
     namespace: str,
     session: Session = Depends(get_session),
@@ -621,7 +621,7 @@ def create_a_node_namespace(
 
 
 @router.get(
-    "/nodes/namespace/all/",
+    "/namespaces/all/",
     response_model=List[NodeNamespace],
     status_code=201,
 )
