@@ -161,14 +161,15 @@ def get_query(  # pylint: disable=too-many-arguments
             )
 
     # Builds the node for the engine's dialect if one is set or defaults to Spark
-    if not engine and node.current and node.current.catalog and node.current.catalog.engines:
+    if (
+        not engine
+        and node.current
+        and node.current.catalog
+        and node.current.catalog.engines
+    ):
         engine = node.current.catalog.engines[0]
     build_criteria = BuildCriteria(
-        dialect=(
-            engine.dialect
-            if engine and engine.dialect
-            else Dialect.SPARK
-        ),
+        dialect=(engine.dialect if engine and engine.dialect else Dialect.SPARK),
     )
 
     query_ast = build_node(
