@@ -597,3 +597,109 @@ def test_sql_with_filters_on_namespaced_nodes(
     )
     data = response.json()
     assert compare_query_strings(data["sql"], sql)
+
+
+def test_cross_join_unnest(client_with_examples: TestClient):
+    """
+    Verify cross join unnest on a joined in dimension works
+    """
+    client_with_examples.post(
+        "/nodes/basic.corrected_patches/columns/color_id/"
+        "?dimension=basic.paint_colors_trino&dimension_column=color_id",
+    )
+    response = client_with_examples.get(
+        "/sql/basic.avg_luminosity_patches/",
+        params={
+            "filters": [],
+            "dimensions": [
+                "basic.paint_colors_trino.color_id",
+                "basic.paint_colors_trino.color_name",
+            ],
+        },
+    )
+    expected = """
+    SELECT
+      paint_colors_trino.color_id,
+      basic_DOT_paint_colors_trino.color_name,
+      AVG(basic_DOT_corrected_patches.luminosity) AS cnt
+    FROM (
+      SELECT
+        CAST(basic_DOT_patches.color_id AS VARCHAR) color_id,
+        basic_DOT_patches.color_name,
+        basic_DOT_patches.garishness,
+        basic_DOT_patches.luminosity,
+        basic_DOT_patches.opacity
+      FROM basic.patches AS basic_DOT_patches
+    ) AS basic_DOT_corrected_patches
+    LEFT OUTER JOIN (
+      SELECT
+        t.color_name color_name,
+        t.color_id
+      FROM (
+        SELECT
+          basic_DOT_murals.id,
+          basic_DOT_murals.colors
+        FROM basic.murals AS basic_DOT_murals
+      ) murals
+      CROSS JOIN UNNEST(murals.colors) t( color_id, color_name)
+    ) AS basic_DOT_paint_colors_trino
+    ON basic_DOT_corrected_patches.color_id = basic_DOT_paint_colors_trino.color_id
+    GROUP BY
+      paint_colors_trino.color_id,
+      basic_DOT_paint_colors_trino.color_name
+    """
+    query = response.json()["sql"]
+    compare_query_strings(query, expected)
+
+
+def test_lateral_view_explode(client_with_examples: TestClient):
+    """
+    Verify lateral view explode on a joined in dimension works
+    """
+    client_with_examples.post(
+        "/nodes/basic.corrected_patches/columns/color_id/"
+        "?dimension=basic.paint_colors_spark&dimension_column=color_id",
+    )
+    response = client_with_examples.get(
+        "/sql/basic.avg_luminosity_patches/",
+        params={
+            "filters": [],
+            "dimensions": [
+                "basic.paint_colors_spark.color_id",
+                "basic.paint_colors_spark.color_name",
+            ],
+        },
+    )
+    expected = """
+    SELECT
+      paint_colors_spark.color_id,
+      basic_DOT_paint_colors_spark.color_name,
+      AVG(basic_DOT_corrected_patches.luminosity) AS cnt
+    FROM (
+      SELECT
+        CAST(basic_DOT_patches.color_id AS VARCHAR) color_id,
+        basic_DOT_patches.color_name,
+        basic_DOT_patches.garishness,
+        basic_DOT_patches.luminosity,
+        basic_DOT_patches.opacity
+      FROM basic.patches AS basic_DOT_patches
+    ) AS basic_DOT_corrected_patches
+    LEFT OUTER JOIN (
+      SELECT
+        color_name color_name,
+        color_id
+      FROM (
+        SELECT
+          basic_DOT_murals.id,
+          basic_DOT_murals.colors
+        FROM basic.murals AS basic_DOT_murals
+      ) murals
+      LATERAL VIEW EXPLODE(murals.colors) AS color_id, color_name
+    ) AS basic_DOT_paint_colors_spark
+    ON basic_DOT_corrected_patches.color_id = basic_DOT_paint_colors_trino.color_id
+    GROUP BY
+      paint_colors_spark.color_id,
+      basic_DOT_paint_colors_trino.color_name
+    """
+    query = response.json()["sql"]
+    compare_query_strings(query, expected)
