@@ -372,7 +372,12 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     node_id: Optional[int] = Field(foreign_key="node.id")
     node: Node = Relationship(back_populates="revisions")
     catalog_id: int = Field(default=None, foreign_key="catalog.id")
-    catalog: Catalog = Relationship(back_populates="node_revisions")
+    catalog: Catalog = Relationship(
+        back_populates="node_revisions",
+        sa_relationship_kwargs={
+            "lazy": "joined",
+        },
+    )
     schema_: Optional[str] = None
     table: Optional[str] = None
     cube_elements: List["Node"] = Relationship(  # Only used by cube nodes

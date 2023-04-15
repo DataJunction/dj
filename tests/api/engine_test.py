@@ -16,11 +16,17 @@ def test_engine_adding_a_new_engine(
         json={
             "name": "spark",
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     data = response.json()
     assert response.status_code == 201
-    assert data == {"name": "spark", "uri": None, "version": "3.3.1"}
+    assert data == {
+        "dialect": "spark",
+        "name": "spark",
+        "uri": None,
+        "version": "3.3.1",
+    }
 
 
 def test_engine_list(
@@ -34,6 +40,7 @@ def test_engine_list(
         json={
             "name": "spark",
             "version": "2.4.4",
+            "dialect": "spark",
         },
     )
     assert response.status_code == 201
@@ -43,6 +50,7 @@ def test_engine_list(
         json={
             "name": "spark",
             "version": "3.3.0",
+            "dialect": "spark",
         },
     )
     assert response.status_code == 201
@@ -52,6 +60,7 @@ def test_engine_list(
         json={
             "name": "spark",
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     assert response.status_code == 201
@@ -64,16 +73,19 @@ def test_engine_list(
             "name": "spark",
             "uri": None,
             "version": "2.4.4",
+            "dialect": "spark",
         },
         {
             "name": "spark",
             "uri": None,
             "version": "3.3.0",
+            "dialect": "spark",
         },
         {
             "name": "spark",
             "uri": None,
             "version": "3.3.1",
+            "dialect": "spark",
         },
     ]
 
@@ -89,6 +101,7 @@ def test_engine_get_engine(
         json={
             "name": "spark",
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     assert response.status_code == 201
@@ -98,7 +111,12 @@ def test_engine_get_engine(
     )
     assert response.status_code == 200
     data = response.json()
-    assert data == {"name": "spark", "uri": None, "version": "3.3.1"}
+    assert data == {
+        "name": "spark",
+        "uri": None,
+        "version": "3.3.1",
+        "dialect": "spark",
+    }
 
 
 def test_engine_raise_on_engine_already_exists(
@@ -112,6 +130,7 @@ def test_engine_raise_on_engine_already_exists(
         json={
             "name": "spark",
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     assert response.status_code == 201
@@ -121,6 +140,7 @@ def test_engine_raise_on_engine_already_exists(
         json={
             "name": "spark",
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     assert response.status_code == 409

@@ -14,6 +14,7 @@ from dj.construction.dj_query import build_dj_metric_query
 from dj.errors import DJError, DJException, DJInvalidInputException, ErrorCode
 from dj.models import AttributeType, Catalog, Column, Engine
 from dj.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
+from dj.models.engine import Dialect
 from dj.models.node import (
     MissingParent,
     Node,
@@ -145,6 +146,7 @@ def get_query(  # pylint: disable=too-many-arguments
     node_name: str,
     dimensions: List[str],
     filters: List[str],
+    dialect: Optional[Dialect],
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -160,7 +162,7 @@ def get_query(  # pylint: disable=too-many-arguments
     query_ast = build_node(
         session=session,
         node=node.current,
-        dialect=None,
+        dialect=dialect,
         filters=filters,
         dimensions=dimensions,
         build_criteria=None,

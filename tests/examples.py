@@ -21,11 +21,11 @@ EXAMPLES = (  # type: ignore
     ),
     (
         "/engines/",
-        {"name": "spark", "version": "3.1.1"},
+        {"name": "spark", "version": "3.1.1", "dialect": "spark"},
     ),
     (
         "/catalogs/default/engines/",
-        [{"name": "spark", "version": "3.1.1"}],
+        [{"name": "spark", "version": "3.1.1", "dialect": "spark"}],
     ),
     (
         "/catalogs/",

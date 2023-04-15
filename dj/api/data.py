@@ -3,7 +3,7 @@ Data related APIs.
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
@@ -11,6 +11,7 @@ from sqlmodel import Session
 
 from dj.api.helpers import get_node_by_name, get_query
 from dj.errors import DJException
+from dj.models.engine import Dialect
 from dj.models.metric import TranslatedSQL
 from dj.models.node import AvailabilityState, AvailabilityStateBase, NodeType
 from dj.models.query import ColumnMetadata, QueryCreate, QueryWithResults
@@ -98,6 +99,7 @@ def get_data(
     async_: bool = False,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    dialect: Optional[Dialect] = None,
 ) -> QueryWithResults:
     """
     Gets data for a node
@@ -108,6 +110,7 @@ def get_data(
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
+        dialect=dialect,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
