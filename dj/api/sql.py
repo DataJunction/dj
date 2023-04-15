@@ -8,7 +8,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
-from dj.api.helpers import get_query
+from dj.api.helpers import get_query, get_engine
 from dj.models.engine import Dialect
 from dj.models.metric import TranslatedSQL
 from dj.models.query import ColumnMetadata
@@ -25,17 +25,19 @@ def get_sql(
     filters: List[str] = Query([]),
     *,
     session: Session = Depends(get_session),
-    dialect: Optional[Dialect] = None,
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
 ) -> TranslatedSQL:
     """
     Return SQL for a node.
     """
+    engine = get_engine(session, engine_name, engine_version) if engine_name else None
     query_ast = get_query(
         session=session,
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
-        dialect=dialect,
+        engine=engine,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
@@ -44,5 +46,5 @@ def get_sql(
     return TranslatedSQL(
         sql=str(query_ast),
         columns=columns,
-        dialect=dialect,
+        dialect=engine.dialect if engine else None,
     )

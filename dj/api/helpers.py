@@ -147,7 +147,7 @@ def get_query(  # pylint: disable=too-many-arguments
     node_name: str,
     dimensions: List[str],
     filters: List[str],
-    dialect: Optional[Dialect],
+    engine: Optional[Engine],
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -160,12 +160,23 @@ def get_query(  # pylint: disable=too-many-arguments
                 message=f"Cannot set dimensions for node type {node.type}!",
             )
 
+    # Builds the node for the engine's dialect if one is set or defaults to Spark
+    if not engine and node.current and node.current.catalog and node.current.catalog.engines:
+        engine = node.current.catalog.engines[0]
+    build_criteria = BuildCriteria(
+        dialect=(
+            engine.dialect
+            if engine and engine.dialect
+            else Dialect.SPARK
+        ),
+    )
+
     query_ast = build_node(
         session=session,
         node=node.current,
         filters=filters,
         dimensions=dimensions,
-        build_criteria=BuildCriteria(dialect=dialect if dialect else Dialect.SPARK),
+        build_criteria=build_criteria,
     )
     return query_ast
 

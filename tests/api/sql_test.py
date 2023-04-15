@@ -9,7 +9,7 @@ from dj.sql.parsing.types import StringType
 from tests.sql.utils import compare_query_strings
 
 
-def test_sql00(
+def test_sql(
     session: Session,
     client: TestClient,
 ) -> None:
