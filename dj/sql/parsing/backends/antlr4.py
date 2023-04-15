@@ -682,7 +682,7 @@ def _(ctx: sbp.LateralViewContext):
     table_name = visit(ctx.tblName)
     function_table_name = table_name if table_name != ast.Name(name="AS") else None
     func = ast.FunctionTable(func_name, args=func_args, alias=function_table_name)
-    func.set_alias(table_name)
+    func.set_alias(function_table_name)
     if function_table_name:
         func.column_list = [
             ast.Column(name=ast.Name(name=name.name, namespace=function_table_name))
@@ -690,7 +690,7 @@ def _(ctx: sbp.LateralViewContext):
         ]
     else:
         func.column_list = [ast.Column(name=name) for name in visit(ctx.colName)]
-    if ctx.AS():
+    if ctx.AS() or table_name == ast.Name(name="AS"):
         func.set_as(True)
     return ast.LateralView(outer, func)
 
@@ -743,11 +743,15 @@ def _(ctx: sbp.FunctionTableContext):
     name = visit(ctx.funcName)
     args = visit(ctx.expression())
     alias, cols = visit(ctx.tableAlias())
-    return ast.FunctionTable(
+    func_table = ast.FunctionTable(
         name,
         args=args,
         column_list=[ast.Column(name) for name in cols],
-    ).set_alias(alias)
+        alias=alias,
+    )
+    if not cols:
+        func_table.column_list = alias
+    return func_table
 
 
 @visit.register

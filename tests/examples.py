@@ -21,11 +21,11 @@ EXAMPLES = (  # type: ignore
     ),
     (
         "/engines/",
-        {"name": "spark", "version": "3.1.1"},
+        {"name": "spark", "version": "3.1.1", "dialect": "spark"},
     ),
     (
         "/catalogs/default/engines/",
-        [{"name": "spark", "version": "3.1.1"}],
+        [{"name": "spark", "version": "3.1.1", "dialect": "spark"}],
     ),
     (
         "/catalogs/",
@@ -1527,6 +1527,123 @@ EXAMPLES = (  # type: ignore
             "query": "SELECT SUM(sold_count * price_per_unit) as num_sold FROM sales",
             "mode": "published",
             "name": "total_profit",
+        },
+    ),
+    # lateral view explode/cross join unnest examples
+    (
+        "/nodes/source/",
+        {
+            "columns": {
+                "id": {"type": "int"},
+                "painter": {"type": "string"},
+                "colors": {
+                    "type": "map<string, string>",
+                },
+            },
+            "description": "Murals",
+            "mode": "published",
+            "name": "basic.murals",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "murals",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "columns": {
+                "color_id": {"type": "int"},
+                "color_name": {"type": "string"},
+                "opacity": {
+                    "type": "float",
+                },
+                "luminosity": {
+                    "type": "float",
+                },
+                "garishness": {
+                    "type": "float",
+                },
+            },
+            "description": "Patch",
+            "mode": "published",
+            "name": "basic.patches",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "patches",
+        },
+    ),
+    (
+        "/nodes/transform/",
+        {
+            "query": """
+            SELECT
+              cast(color_id as varchar) color_id,
+              color_name,
+              opacity,
+              luminosity,
+              garishness
+            FROM basic.patches
+            """,
+            "description": "Corrected patches",
+            "mode": "published",
+            "name": "basic.corrected_patches",
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "query": """
+            SELECT
+              id AS mural_id,
+              t.color_id,
+              t.color_name color_name
+            FROM
+            (
+              select
+                id,
+                colors
+              from basic.murals
+             ) murals
+             CROSS JOIN UNNEST(colors) AS t(color_id, color_name)
+            """,
+            "description": "Mural paint colors",
+            "mode": "published",
+            "name": "basic.paint_colors_trino",
+            "primary_key": ["color_id", "color_name"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "query": """
+            SELECT
+              id AS mural_id,
+              color_id,
+              color_name color_name
+            FROM
+            (
+              select
+                id,
+                colors
+              from basic.murals
+            ) murals
+            LATERAL VIEW EXPLODE(colors) AS color_id, color_name
+            """,
+            "description": "Mural paint colors",
+            "mode": "published",
+            "name": "basic.paint_colors_spark",
+            "primary_key": ["color_id", "color_name"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "query": """
+        SELECT AVG(luminosity) as cnt FROM basic.corrected_patches
+        """,
+            "description": "Average luminosity of color patch",
+            "mode": "published",
+            "name": "basic.avg_luminosity_patches",
         },
     ),
 )

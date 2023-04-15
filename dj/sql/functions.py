@@ -1231,6 +1231,28 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     return [arg.key, arg.value]
 
 
+class Unnest(TableFunction):  # pylint: disable=abstract-method
+    """
+    The unnest function is used to explode the specified array,
+    nested array, or map column into multiple rows.
+    It will generate a new row for each element in the specified column.
+    """
+
+
+@Unnest.register
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    return [arg.element]  # pragma: no cover
+
+
+@Unnest.register
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.MapType,
+) -> List[ct.NestedField]:
+    return [arg.key, arg.value]
+
+
 function_registry = FunctionRegistryDict()
 for cls in Function.__subclasses__():
     snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)

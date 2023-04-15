@@ -14,7 +14,9 @@ from dj.construction.dj_query import build_dj_metric_query
 from dj.errors import DJError, DJException, DJInvalidInputException, ErrorCode
 from dj.models import AttributeType, Catalog, Column, Engine
 from dj.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
+from dj.models.engine import Dialect
 from dj.models.node import (
+    BuildCriteria,
     MissingParent,
     Node,
     NodeMissingParents,
@@ -145,6 +147,7 @@ def get_query(  # pylint: disable=too-many-arguments
     node_name: str,
     dimensions: List[str],
     filters: List[str],
+    engine: Optional[Engine],
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -157,13 +160,24 @@ def get_query(  # pylint: disable=too-many-arguments
                 message=f"Cannot set dimensions for node type {node.type}!",
             )
 
+    # Builds the node for the engine's dialect if one is set or defaults to Spark
+    if (
+        not engine
+        and node.current
+        and node.current.catalog
+        and node.current.catalog.engines
+    ):
+        engine = node.current.catalog.engines[0]
+    build_criteria = BuildCriteria(
+        dialect=(engine.dialect if engine and engine.dialect else Dialect.SPARK),
+    )
+
     query_ast = build_node(
         session=session,
         node=node.current,
-        dialect=None,
         filters=filters,
         dimensions=dimensions,
-        build_criteria=None,
+        build_criteria=build_criteria,
     )
     return query_ast
 

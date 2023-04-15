@@ -74,17 +74,12 @@ async def test_build_dj_metric_query(request):
         AND basic_DOT_num_users_us.b_DOT_secret_number = basic_DOT_source_DOT_users.secret_number
     LEFT OUTER JOIN (
       SELECT
-        basic_DOT_source_DOT_users.age,
         basic_DOT_source_DOT_users.country,
-        basic_DOT_source_DOT_users.full_name,
-        basic_DOT_source_DOT_users.gender,
-        basic_DOT_source_DOT_users.id,
-        basic_DOT_source_DOT_users.preferred_language,
-        basic_DOT_source_DOT_users.secret_number
+        basic_DOT_source_DOT_users.id
       FROM basic.source.users AS basic_DOT_source_DOT_users
     ) AS basic_DOT_dimension_DOT_users
       ON basic_DOT_transform_DOT_country_agg.country = basic_DOT_dimension_DOT_users.country
-    GROUP BY  basic_DOT_dimension_DOT_users.country
+    GROUP BY basic_DOT_dimension_DOT_users.country
     """
     query_ast = build_dj_metric_query(construction_session, query)
     assert compare_query_strings(expected, str(query_ast))

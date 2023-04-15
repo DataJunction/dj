@@ -70,15 +70,16 @@ async def test_build_metric_with_dimensions_aggs(request):
           basic_DOT_dimension_DOT_users.country,
           basic_DOT_dimension_DOT_users.gender,
           COUNT(1) AS cnt
-        FROM basic.source.comments AS basic_DOT_source_DOT_comments LEFT OUTER JOIN (SELECT  basic_DOT_source_DOT_users.age,
-        basic_DOT_source_DOT_users.country,
-        basic_DOT_source_DOT_users.full_name,
-        basic_DOT_source_DOT_users.gender,
-        basic_DOT_source_DOT_users.id,
-        basic_DOT_source_DOT_users.preferred_language,
-        basic_DOT_source_DOT_users.secret_number
-         FROM basic.source.users AS basic_DOT_source_DOT_users) AS basic_DOT_dimension_DOT_users ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
-         GROUP BY  basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
+        FROM basic.source.comments AS basic_DOT_source_DOT_comments
+        LEFT OUTER JOIN (
+          SELECT
+            basic_DOT_source_DOT_users.country,
+            basic_DOT_source_DOT_users.gender,
+            basic_DOT_source_DOT_users.id
+          FROM basic.source.users AS basic_DOT_source_DOT_users
+        ) AS basic_DOT_dimension_DOT_users ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+         GROUP BY
+           basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
     """
     assert compare_query_strings(str(query), expected)
 
@@ -160,12 +161,7 @@ async def test_build_metric_with_dimensions_filters(request):
     LEFT OUTER JOIN (
       SELECT
         basic_DOT_source_DOT_users.age,
-        basic_DOT_source_DOT_users.country,
-        basic_DOT_source_DOT_users.full_name,
-        basic_DOT_source_DOT_users.gender,
-        basic_DOT_source_DOT_users.id,
-        basic_DOT_source_DOT_users.preferred_language,
-        basic_DOT_source_DOT_users.secret_number
+        basic_DOT_source_DOT_users.id
       FROM basic.source.users AS basic_DOT_source_DOT_users
     ) AS basic_DOT_dimension_DOT_users
       ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
