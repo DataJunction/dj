@@ -107,6 +107,37 @@ class ColumnType(BaseModel):
         """
         return hash(str(self))
 
+    def is_compatible(self, other: "ColumnType") -> bool:
+        """
+        Returns whether the two types are compatible with each other by
+        checking their ancestors.
+        """
+
+        def has_common_ancestor(type1, type2) -> bool:
+            """
+            Helper function to check whether two column types have common ancestors,
+            other than the highest-level ancestor types like ColumnType itself. This
+            determines whether they're part of the same type group and are compatible
+            with each other when performing type compatibility checks.
+            """
+            base_types = (ColumnType, Singleton, PrimitiveType)
+            if type1 in base_types or type2 in base_types:
+                return False
+            if type1 == type2:
+                return True
+            current_has = False
+            for ancestor in type1.__bases__:
+                for ancestor2 in type2.__bases__:
+                    current_has = current_has or has_common_ancestor(
+                        ancestor,
+                        ancestor2,
+                    )
+                    if current_has:
+                        return current_has
+            return False
+
+        return has_common_ancestor(self.__class__, other.__class__)
+
 
 class PrimitiveType(ColumnType):  # pylint: disable=too-few-public-methods
     """Base class for all Column Primitive Types"""
@@ -522,6 +553,17 @@ class LongType(IntegerBase):
             super().__init__("long", "LongType()")
 
 
+class BigIntType(IntegerBase):
+    """Bigint type, as known as Long."""
+
+    max: ClassVar[int] = 9223372036854775807
+
+    min: ClassVar[int] = -9223372036854775808
+
+    def __init__(self):
+        super().__init__("bigint", "BigIntType()")
+
+
 class IntervalTypeBase(PrimitiveType):
     """A base class for all interval types"""
 
@@ -648,7 +690,13 @@ class DoubleType(FloatingBase):
             super().__init__("double", "DoubleType()")
 
 
-class DateType(PrimitiveType, Singleton):
+class DateTimeBase(PrimitiveType, Singleton):
+    """
+    Date time base type
+    """
+
+
+class DateType(DateTimeBase):
     """A Date data type can be represented using an instance of this class. Dates are
     calendar dates without a timezone or time.
 
@@ -663,7 +711,7 @@ class DateType(PrimitiveType, Singleton):
             super().__init__("date", "DateType()")
 
 
-class TimeType(PrimitiveType, Singleton):
+class TimeType(DateTimeBase):
     """A Time data type can be represented using an instance of this class. Times
     have microsecond precision and are a time of day without a date or timezone.
 
@@ -708,7 +756,11 @@ class TimestamptzType(PrimitiveType, Singleton):
             super().__init__("timestamptz", "TimestamptzType()")
 
 
-class StringType(PrimitiveType, Singleton):
+class StringBase(PrimitiveType, Singleton):
+    """Base class for all string types"""
+
+
+class StringType(StringBase):
     """A String data type can be represented using an instance of this class. Strings in
     Column are arbitrary-length character sequences and are encoded with UTF-8.
 
@@ -721,6 +773,22 @@ class StringType(PrimitiveType, Singleton):
     def __init__(self):
         if not self._initialized:
             super().__init__("string", "StringType()")
+
+
+class VarcharType(StringBase):
+    """A VarcharType data type can be represented using an instance of this class.
+    Varchars in Column are arbitrary-length character sequences and are
+    encoded with UTF-8.
+
+    Example:
+        >>> column_foo = VarcharType()
+        >>> isinstance(column_foo, VarcharType)
+        True
+    """
+
+    def __init__(self):
+        if not self._initialized:
+            super().__init__("varchar", "VarcharType()")
 
 
 class UUIDType(PrimitiveType, Singleton):
@@ -771,6 +839,8 @@ class WildcardType(PrimitiveType, Singleton):
 PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "bool": BooleanType(),
     "boolean": BooleanType(),
+    "varchar": VarcharType(),
+    "bigint": BigIntType(),
     "int": IntegerType(),
     "long": LongType(),
     "float": FloatType(),

@@ -81,6 +81,15 @@ def upgrade():
         sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("version", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("uri", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column(
+            "dialect",
+            sa.Enum(
+                "SPARK",
+                "TRINO",
+                name="dialect",
+            ),
+            nullable=True,
+        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_engine")),
     )
     op.create_table(

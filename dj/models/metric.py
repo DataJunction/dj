@@ -5,6 +5,7 @@ from typing import List, Optional
 
 from sqlmodel import SQLModel
 
+from dj.models.engine import Dialect
 from dj.models.node import Node
 from dj.models.query import ColumnMetadata
 from dj.sql.dag import get_dimensions
@@ -53,3 +54,4 @@ class TranslatedSQL(SQLModel):
     # columns attribute can be required
     sql: str
     columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
+    dialect: Optional[Dialect] = None

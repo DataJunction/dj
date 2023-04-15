@@ -3,14 +3,14 @@ Data related APIs.
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
-from dj.api.helpers import get_node_by_name, get_query
-from dj.errors import DJException
+from dj.api.helpers import get_engine, get_node_by_name, get_query
+from dj.errors import DJException, DJInvalidInputException
 from dj.models.metric import TranslatedSQL
 from dj.models.node import AvailabilityState, AvailabilityStateBase, NodeType
 from dj.models.query import ColumnMetadata, QueryCreate, QueryWithResults
@@ -90,7 +90,7 @@ def add_an_availability_state(
 
 
 @router.get("/data/{node_name}/")
-def get_data(
+def get_data(  # pylint: disable=too-many-locals
     node_name: str,
     *,
     dimensions: List[str] = Query([]),
@@ -98,16 +98,32 @@ def get_data(
     async_: bool = False,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
 ) -> QueryWithResults:
     """
     Gets data for a node
     """
     node = get_node_by_name(session, node_name)
+
+    available_engines = node.current.catalog.engines
+    engine = (
+        get_engine(session, engine_name, engine_version)  # type: ignore
+        if engine_name
+        else available_engines[0]
+    )
+    if engine not in available_engines:
+        raise DJInvalidInputException(  # pragma: no cover
+            f"The selected engine is not available for the node {node_name}. "
+            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
+        )
+
     query_ast = get_query(
         session=session,
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
+        engine=engine,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
@@ -118,11 +134,10 @@ def get_data(
         columns=columns,
     )
 
-    available_engines = node.current.catalog.engines
     query_create = QueryCreate(
-        engine_name=available_engines[0].name,
+        engine_name=engine.name,
         catalog_name=node.current.catalog.name,
-        engine_version=available_engines[0].version,
+        engine_version=engine.version,
         submitted_query=query.sql,
         async_=async_,
     )

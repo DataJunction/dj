@@ -184,7 +184,7 @@ def set_column_attributes_on_node(
             ].add(column.name)
 
     for (attribute, _), columns in attributes_columns_map.items():
-        if len(columns) > 1:
+        if len(columns) > 1 and attribute.uniqueness_scope:
             for col in columns:
                 modified_columns_map[col].attributes = []
             raise DJException(
@@ -606,7 +606,7 @@ def create_a_node_namespace(
         return JSONResponse(
             status_code=409,
             content={
-                "message": (f"Node namespace`{namespace}` already exists"),
+                "message": (f"Node namespace `{namespace}` already exists"),
             },
         )
     node_namespace = NodeNamespace(namespace=namespace)
@@ -615,7 +615,7 @@ def create_a_node_namespace(
     return JSONResponse(
         status_code=201,
         content={
-            "message": (f"Node namespace`{namespace}` has been successfully created"),
+            "message": (f"Node namespace `{namespace}` has been successfully created"),
         },
     )
 
@@ -749,7 +749,7 @@ def link_a_dimension(
         column_from_dimension = get_column(dimension_node.current, dimension_column)
 
         # Check the dimension column's type is compatible with the target column's type
-        if column_from_dimension.type != target_column.type:
+        if not column_from_dimension.type.is_compatible(target_column.type):
             raise DJInvalidInputException(
                 f"The column {target_column.name} has type {target_column.type} "
                 f"and is being linked to the dimension {dimension} via the dimension"

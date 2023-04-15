@@ -23,7 +23,7 @@ from dj.models.base import BaseSQLModel, generate_display_name
 from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
-from dj.models.engine import Engine, EngineInfo
+from dj.models.engine import Dialect, Engine, EngineInfo
 from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parse import is_metric
 from dj.sql.parsing.types import ColumnType
@@ -42,6 +42,7 @@ class BuildCriteria:
     """
 
     timestamp: Optional[UTCDatetime] = None
+    dialect: Dialect = Dialect.SPARK
 
 
 class NodeRelationship(BaseSQLModel, table=True):  # type: ignore
@@ -372,7 +373,12 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     node_id: Optional[int] = Field(foreign_key="node.id")
     node: Node = Relationship(back_populates="revisions")
     catalog_id: int = Field(default=None, foreign_key="catalog.id")
-    catalog: Catalog = Relationship(back_populates="node_revisions")
+    catalog: Catalog = Relationship(
+        back_populates="node_revisions",
+        sa_relationship_kwargs={
+            "lazy": "joined",
+        },
+    )
     schema_: Optional[str] = None
     table: Optional[str] = None
     cube_elements: List["Node"] = Relationship(  # Only used by cube nodes
