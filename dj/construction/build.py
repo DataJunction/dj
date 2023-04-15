@@ -9,6 +9,7 @@ from sqlmodel import Session
 from dj.construction.utils import amenable_name, to_namespaced_name
 from dj.errors import DJException, DJInvalidInputException
 from dj.models.column import Column
+from dj.models.engine import Dialect
 from dj.models.node import BuildCriteria, NodeRevision, NodeType
 from dj.sql.parsing.ast import CompileContext
 from dj.sql.parsing.backends.antlr4 import ast, parse
@@ -100,8 +101,8 @@ def _get_or_build_join_table(
         join_table = build_ast(session, join_query)  # type: ignore
         join_table.parenthesized = True  # type: ignore
 
-    ctx = CompileContext(session=session, exception=DJException())
-    join_table.compile(ctx)  # type: ignore
+    for col in join_table.columns:
+        col._table = join_table  # pylint: disable=protected-access
 
     join_table = cast(ast.TableExpression, join_table)  # type: ignore
     right_alias = ast.Name(table_node_alias)
@@ -143,7 +144,32 @@ def _build_joins_for_dimension(
         }
 
         # Assemble table on right of join
-        join_right = _get_or_build_join_table(session, table_node, build_criteria)
+        join_right = _get_or_build_join_table(
+            session,
+            table_node,
+            build_criteria,
+        )
+
+        # Optimize query by filtering down to only the necessary columns
+        selected_columns = {col.name.name for col in required_dimension_columns}
+        available_join_columns = {
+            col.dimension_column for col in join_columns if col.dimension_column
+        }
+        primary_key_columns = {col.name for col in table_node.primary_key()}
+        joinable_dim_columns = {
+            col.name for col in table_node.columns if col.dimension_id
+        }
+        required_mapping = (
+            selected_columns.union(available_join_columns)
+            .union(primary_key_columns)
+            .union(joinable_dim_columns)
+        )
+        join_right.child.select.projection = [
+            col
+            for col in join_right.child.select.projection
+            if col.alias_or_name.name in required_mapping
+        ]
+
         initial_nodes.add(table_node)
         tables[table_node].append(join_right)  # type: ignore
         join_right_columns = {
@@ -154,13 +180,9 @@ def _build_joins_for_dimension(
         # Assemble join ON clause
         for join_col in join_columns:
             join_table_pk = table_node.primary_key()
-            if (
-                len(join_table_pk) == 1
-                and join_col.name in join_left_columns
-                and (
-                    join_col.dimension_column in join_right_columns
-                    or join_table_pk[0].name in join_right_columns
-                )
+            if join_col.name in join_left_columns and (
+                join_col.dimension_column in join_right_columns
+                or join_table_pk[0].name in join_right_columns
             ):
                 left_table.add_ref_column(
                     cast(ast.Column, join_left_columns[join_col.name]),
@@ -210,7 +232,6 @@ def join_tables_for_dimensions(
     the select, it will traverse through available linked tables (via dimension
     nodes) and join them in.
     """
-
     for dim_node, required_dimension_columns in sorted(
         dimension_nodes_to_columns.items(),
         key=lambda x: x[0].name,
@@ -268,6 +289,12 @@ def _build_tables_on_select(
 
         node_ast = ast.Alias(ast.Name(alias), child=node_table, as_=True)  # type: ignore
         for tbl in tbls:
+            if isinstance(node_ast.child, ast.Select) and isinstance(tbl, ast.Alias):
+                node_ast.child.projection = [
+                    col
+                    for col in node_ast.child.projection
+                    if col in set(tbl.child.select.projection)
+                ]
             node_ast.compile(context)
             select.replace(tbl, node_ast)
 
@@ -358,7 +385,7 @@ def _get_node_table(
     as_select: bool = False,
 ) -> Optional[Union[ast.Select, ast.Table]]:
     """
-    If a node is available, return a table for the available state
+    If a node has a materialization available, return the materialized table
     """
     table = None
     if node.type == NodeType.SOURCE:
@@ -395,7 +422,7 @@ def _get_node_table(
 def build_node(  # pylint: disable=too-many-arguments
     session: Session,
     node: NodeRevision,
-    dialect: Optional[str] = None,
+    dialect: Optional[Dialect] = None,
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
     build_criteria: Optional[BuildCriteria] = None,
@@ -403,6 +430,14 @@ def build_node(  # pylint: disable=too-many-arguments
     """
     Determines the optimal way to build the Node and does so
     """
+    # Set the dialect by finding available engines for this node, or default to Spark
+    if not dialect:
+        if node.catalog and node.catalog.engines:
+            engine = node.catalog.engines[0]
+            dialect = engine.dialect
+        else:
+            dialect = Dialect.SPARK
+
     # if no dimensions need to be added then we can see if the node is directly materialized
     if not (filters or dimensions):
         if select := cast(

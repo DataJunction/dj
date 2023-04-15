@@ -33,6 +33,7 @@ def test_catalog_list(
         json={
             "name": "spark",
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     assert response.status_code == 201
@@ -45,6 +46,7 @@ def test_catalog_list(
                 {
                     "name": "spark",
                     "version": "3.3.1",
+                    "dialect": "spark",
                 },
             ],
         },
@@ -72,7 +74,9 @@ def test_catalog_list(
     assert response.json() == [
         {
             "name": "dev",
-            "engines": [{"name": "spark", "version": "3.3.1", "uri": None}],
+            "engines": [
+                {"name": "spark", "version": "3.3.1", "uri": None, "dialect": "spark"},
+            ],
         },
         {"name": "test", "engines": []},
         {"name": "prod", "engines": []},
@@ -90,6 +94,7 @@ def test_catalog_get_catalog(
         json={
             "name": "spark",
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     assert response.status_code == 201
@@ -102,6 +107,7 @@ def test_catalog_get_catalog(
                 {
                     "name": "spark",
                     "version": "3.3.1",
+                    "dialect": "spark",
                 },
             ],
         },
@@ -115,7 +121,9 @@ def test_catalog_get_catalog(
     data = response.json()
     assert data == {
         "name": "dev",
-        "engines": [{"name": "spark", "uri": None, "version": "3.3.1"}],
+        "engines": [
+            {"name": "spark", "uri": None, "version": "3.3.1", "dialect": "spark"},
+        ],
     }
 
 
@@ -131,6 +139,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
             "name": "spark",
             "uri": None,
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     data = response.json()
@@ -144,6 +153,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
                 {
                     "name": "spark",
                     "version": "3.3.1",
+                    "dialect": "spark",
                 },
             ],
         },
@@ -157,6 +167,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
                 "name": "spark",
                 "uri": None,
                 "version": "3.3.1",
+                "dialect": "spark",
             },
         ],
     }
@@ -174,6 +185,7 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
             "name": "spark",
             "uri": None,
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     data = response.json()
@@ -193,6 +205,7 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
             {
                 "name": "spark",
                 "version": "3.3.1",
+                "dialect": "spark",
             },
         ],
     )
@@ -206,6 +219,7 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
                 "name": "spark",
                 "uri": None,
                 "version": "3.3.1",
+                "dialect": "spark",
             },
         ],
     }
@@ -223,6 +237,7 @@ def test_catalog_adding_without_duplicating(
             "name": "spark",
             "uri": None,
             "version": "2.4.4",
+            "dialect": "spark",
         },
     )
     data = response.json()
@@ -233,6 +248,7 @@ def test_catalog_adding_without_duplicating(
         json={
             "name": "spark",
             "version": "3.3.0",
+            "dialect": "spark",
         },
     )
     data = response.json()
@@ -243,6 +259,7 @@ def test_catalog_adding_without_duplicating(
         json={
             "name": "spark",
             "version": "3.3.1",
+            "dialect": "spark",
         },
     )
     data = response.json()
@@ -252,6 +269,7 @@ def test_catalog_adding_without_duplicating(
         "/catalogs/",
         json={
             "name": "dev",
+            "dialect": "spark",
         },
     )
     assert response.status_code == 201
@@ -262,14 +280,17 @@ def test_catalog_adding_without_duplicating(
             {
                 "name": "spark",
                 "version": "2.4.4",
+                "dialect": "spark",
             },
             {
                 "name": "spark",
                 "version": "3.3.0",
+                "dialect": "spark",
             },
             {
                 "name": "spark",
                 "version": "3.3.1",
+                "dialect": "spark",
             },
         ],
     )
@@ -281,14 +302,17 @@ def test_catalog_adding_without_duplicating(
             {
                 "name": "spark",
                 "version": "2.4.4",
+                "dialect": "spark",
             },
             {
                 "name": "spark",
                 "version": "3.3.0",
+                "dialect": "spark",
             },
             {
                 "name": "spark",
                 "version": "3.3.1",
+                "dialect": "spark",
             },
         ],
     )
@@ -301,16 +325,19 @@ def test_catalog_adding_without_duplicating(
                 "name": "spark",
                 "uri": None,
                 "version": "2.4.4",
+                "dialect": "spark",
             },
             {
                 "name": "spark",
                 "uri": None,
                 "version": "3.3.0",
+                "dialect": "spark",
             },
             {
                 "name": "spark",
                 "uri": None,
                 "version": "3.3.1",
+                "dialect": "spark",
             },
         ],
     }
@@ -330,6 +357,7 @@ def test_catalog_raise_on_adding_a_new_catalog_with_nonexistent_engines(
                 {
                     "name": "spark",
                     "version": "4.0.0",
+                    "dialect": "spark",
                 },
             ],
         },

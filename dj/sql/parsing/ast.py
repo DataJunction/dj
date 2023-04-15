@@ -825,7 +825,7 @@ class Column(Aliasable, Named, Expression):
     def __str__(self) -> str:
         as_ = " AS " if self.as_ else " "
         alias = "" if not self.alias else f"{as_}{self.alias}"
-        if self.table is not None:
+        if self.table is not None and not isinstance(self.table, FunctionTable):
             ret = f"{self.table.alias_or_name.name}.{self.name.quote_style}{self.name.name}{self.name.quote_style}"
         else:
             ret = str(self.name)
@@ -919,9 +919,10 @@ class TableExpression(Aliasable, Expression):
                 )
             self.compile(ctx)
 
+        # SOMEWHERE IN HERE LIES THE GOLDEN EGG, gets called from add_ref_column(self, ctx) under correlation_tables
         if isinstance(self, FunctionTable):
             matched = False
-            if not self.alias and not column.namespace:
+            if not self.alias and not column.name.namespace:
                 matched = True
             elif (
                 self.alias
@@ -931,10 +932,7 @@ class TableExpression(Aliasable, Expression):
                 matched = True
             if matched:
                 for col in self.column_list:
-                    if (
-                        column.name == col.alias_or_name
-                        and column.name.namespace == col.alias_or_name.namespace
-                    ):
+                    if column.name.name == col.alias_or_name.name:
                         self._ref_columns.append(column)
                         column.add_table(self)
                         column.add_expression(col)
@@ -942,15 +940,13 @@ class TableExpression(Aliasable, Expression):
                         return True
 
         for col in self.columns:
-            if not isinstance(col, (Aliasable, Named)):
-                continue
-
-            if column.name.name == col.alias_or_name.identifier(False):
-                self._ref_columns.append(column)
-                column.add_table(self)
-                column.add_expression(col)
-                column.add_type(col.type)
-                return True
+            if isinstance(col, (Aliasable, Named)):
+                if column.name.name == col.alias_or_name.identifier(False):
+                    self._ref_columns.append(column)
+                    column.add_table(self)
+                    column.add_expression(col)
+                    column.add_type(col.type)
+                    return True
         return False
 
     def is_compiled(self) -> bool:  # noqa: F811
@@ -1848,13 +1844,11 @@ class FunctionTable(FunctionTableExpression):
             if self.column_list
             else ""
         )
-        if len(self.column_list) > 1:
-            cols = f"({cols})"
         args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
-        return f"{self.name}{args_str}{alias}{as_}{cols}"
+        return f"{self.name}{args_str}{alias}{as_}({cols})"
 
-    def set_alias(self: TNode, alias: List[Column]) -> TNode:
-        self.column_list = alias
+    def set_alias(self: TNode, alias: Name) -> TNode:
+        self.alias = alias
         return self
 
     def _type(self, ctx: Optional[CompileContext] = None) -> List[NestedField]:

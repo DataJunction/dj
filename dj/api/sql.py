@@ -3,12 +3,13 @@ SQL related APIs.
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
 from dj.api.helpers import get_query
+from dj.models.engine import Dialect
 from dj.models.metric import TranslatedSQL
 from dj.models.query import ColumnMetadata
 from dj.utils import get_session
@@ -24,6 +25,7 @@ def get_sql(
     filters: List[str] = Query([]),
     *,
     session: Session = Depends(get_session),
+    dialect: Optional[Dialect] = None,
 ) -> TranslatedSQL:
     """
     Return SQL for a node.
@@ -33,6 +35,7 @@ def get_sql(
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
+        dialect=dialect,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
@@ -41,4 +44,5 @@ def get_sql(
     return TranslatedSQL(
         sql=str(query_ast),
         columns=columns,
+        dialect=dialect,
     )

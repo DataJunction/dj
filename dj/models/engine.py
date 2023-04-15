@@ -1,12 +1,24 @@
 """
 Models for columns.
 """
-
+import enum
 from typing import Optional
 
+from sqlalchemy.sql.schema import Column as SqlaColumn
+from sqlalchemy.types import Enum
 from sqlmodel import Field, SQLModel
 
 from dj.models.base import BaseSQLModel
+
+
+class Dialect(str, enum.Enum):
+    """
+    SQL dialect
+    """
+
+    SPARK = "spark"
+    TRINO = "trino"
+    POSTGRES = "postgres"
 
 
 class Engine(BaseSQLModel, table=True):  # type: ignore
@@ -18,6 +30,7 @@ class Engine(BaseSQLModel, table=True):  # type: ignore
     name: str
     version: str
     uri: Optional[str]
+    dialect: Optional[Dialect] = Field(sa_column=SqlaColumn(Enum(Dialect)))
 
 
 class EngineInfo(SQLModel):
@@ -28,3 +41,4 @@ class EngineInfo(SQLModel):
     name: str
     version: str
     uri: Optional[str]
+    dialect: Optional[Dialect]
