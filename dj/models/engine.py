@@ -18,7 +18,6 @@ class Dialect(str, enum.Enum):
 
     SPARK = "spark"
     TRINO = "trino"
-    POSTGRES = "postgres"
 
 
 class Engine(BaseSQLModel, table=True):  # type: ignore
