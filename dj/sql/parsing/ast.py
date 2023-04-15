@@ -919,18 +919,13 @@ class TableExpression(Aliasable, Expression):
                 )
             self.compile(ctx)
 
-        # SOMEWHERE IN HERE LIES THE GOLDEN EGG, gets called from add_ref_column(self, ctx) under correlation_tables
+        # For table-valued functions, add the list of columns that gets
+        # returned as reference columns and compile them
         if isinstance(self, FunctionTable):
-            matched = False
-            if not self.alias and not column.name.namespace:
-                matched = True
-            elif (
-                self.alias
-                and column.name.namespace
+            if not self.alias and not column.name.namespace or (
+                self.alias and column.name.namespace
                 and self.alias == column.name.namespace
             ):
-                matched = True
-            if matched:
                 for col in self.column_list:
                     if column.name.name == col.alias_or_name.name:
                         self._ref_columns.append(column)
