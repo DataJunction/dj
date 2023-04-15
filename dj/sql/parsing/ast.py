@@ -1844,10 +1844,7 @@ class FunctionTable(FunctionTableExpression):
             if self.column_list
             else ""
         )
-        if alias:
-            column_list_str = f"({cols})"
-        else:
-            column_list_str = str(cols)
+        column_list_str = f"({cols})" if alias else str(cols)
         args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
         return f"{self.name}{args_str}{alias}{as_}{column_list_str}"
 

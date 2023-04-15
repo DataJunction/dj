@@ -1243,7 +1243,7 @@ class Unnest(TableFunction):  # pylint: disable=abstract-method
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     arg: ct.ListType,
 ) -> List[ct.NestedField]:
-    return [arg.element]
+    return [arg.element]  # pragma: no cover
 
 
 @Unnest.register
