@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
-from dj.api.helpers import get_node_by_name, get_query, get_engine
+from dj.api.helpers import get_engine, get_node_by_name, get_query
 from dj.errors import DJException, DJInvalidInputException
 from dj.models.metric import TranslatedSQL
 from dj.models.node import AvailabilityState, AvailabilityStateBase, NodeType
@@ -90,7 +90,7 @@ def add_an_availability_state(
 
 
 @router.get("/data/{node_name}/")
-def get_data(
+def get_data(  # pylint: disable=too-many-locals
     node_name: str,
     *,
     dimensions: List[str] = Query([]),
@@ -107,11 +107,15 @@ def get_data(
     node = get_node_by_name(session, node_name)
 
     available_engines = node.current.catalog.engines
-    engine = get_engine(session, engine_name, engine_version) if engine_name else available_engines[0]
+    engine = (
+        get_engine(session, engine_name, engine_version)  # type: ignore
+        if engine_name
+        else available_engines[0]
+    )
     if engine not in available_engines:
         raise DJInvalidInputException(  # pragma: no cover
             f"The selected engine is not available for the node {node_name}. "
-            f"Available engines include: {', '.join(engine.name for engine in available_engines)}"
+            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
 
     query_ast = get_query(
