@@ -16,6 +16,7 @@ from dj.models import AttributeType, Catalog, Column, Engine
 from dj.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from dj.models.engine import Dialect
 from dj.models.node import (
+    BuildCriteria,
     MissingParent,
     Node,
     NodeMissingParents,
@@ -162,10 +163,9 @@ def get_query(  # pylint: disable=too-many-arguments
     query_ast = build_node(
         session=session,
         node=node.current,
-        dialect=dialect,
         filters=filters,
         dimensions=dimensions,
-        build_criteria=None,
+        build_criteria=BuildCriteria(dialect=dialect if dialect else Dialect.SPARK),
     )
     return query_ast
 

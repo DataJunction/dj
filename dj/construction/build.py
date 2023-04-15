@@ -422,7 +422,6 @@ def _get_node_table(
 def build_node(  # pylint: disable=too-many-arguments
     session: Session,
     node: NodeRevision,
-    dialect: Optional[Dialect] = None,
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
     build_criteria: Optional[BuildCriteria] = None,
@@ -431,12 +430,16 @@ def build_node(  # pylint: disable=too-many-arguments
     Determines the optimal way to build the Node and does so
     """
     # Set the dialect by finding available engines for this node, or default to Spark
-    if not dialect:
-        if node.catalog and node.catalog.engines:
-            engine = node.catalog.engines[0]
-            dialect = engine.dialect
-        else:
-            dialect = Dialect.SPARK
+    if not build_criteria:
+        build_criteria = BuildCriteria(
+            dialect=(
+                node.catalog.engines[0].dialect
+                if node.catalog
+                and node.catalog.engines
+                and node.catalog.engines[0].dialect
+                else Dialect.SPARK
+            ),
+        )
 
     # if no dimensions need to be added then we can see if the node is directly materialized
     if not (filters or dimensions):
@@ -453,7 +456,7 @@ def build_node(  # pylint: disable=too-many-arguments
 
     add_filters_and_dimensions_to_query_ast(
         query,
-        dialect,
+        build_criteria.dialect,
         filters,
         dimensions,
     )

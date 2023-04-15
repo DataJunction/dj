@@ -922,9 +922,14 @@ class TableExpression(Aliasable, Expression):
         # For table-valued functions, add the list of columns that gets
         # returned as reference columns and compile them
         if isinstance(self, FunctionTable):
-            if not self.alias and not column.name.namespace or (
-                self.alias and column.name.namespace
-                and self.alias == column.name.namespace
+            if (
+                not self.alias
+                and not column.name.namespace
+                or (
+                    self.alias
+                    and column.name.namespace
+                    and self.alias == column.name.namespace
+                )
             ):
                 for col in self.column_list:
                     if column.name.name == col.alias_or_name.name:
@@ -1839,8 +1844,12 @@ class FunctionTable(FunctionTableExpression):
             if self.column_list
             else ""
         )
+        if alias:
+            column_list_str = f"({cols})"
+        else:
+            column_list_str = str(cols)
         args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
-        return f"{self.name}{args_str}{alias}{as_}({cols})"
+        return f"{self.name}{args_str}{alias}{as_}{column_list_str}"
 
     def set_alias(self: TNode, alias: Name) -> TNode:
         self.alias = alias
