@@ -9,10 +9,10 @@ def test_types_compatible():
     Checks whether type compatibility checks work
     """
     assert ct.IntegerType().is_compatible(ct.IntegerType())
-    assert ct.IntegerType().is_compatible(ct.LongType())
-    assert ct.LongType().is_compatible(ct.IntegerType())
+    assert ct.IntegerType().is_compatible(ct.BigIntType())
+    assert ct.BigIntType().is_compatible(ct.IntegerType())
     assert ct.TinyIntType().is_compatible(ct.BigIntType())
-    assert ct.LongType().is_compatible(ct.BigIntType())
+    assert ct.BigIntType().is_compatible(ct.BigIntType())
     assert ct.BigIntType().is_compatible(ct.IntegerType())
     assert ct.FloatType().is_compatible(ct.DoubleType())
     assert ct.StringType().is_compatible(ct.VarcharType())

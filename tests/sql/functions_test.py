@@ -9,11 +9,11 @@ from dj.errors import DJNotImplementedException
 from dj.sql.functions import Avg, Coalesce, Count, Max, Min, Now, Sum, function_registry
 from dj.sql.parsing import ast
 from dj.sql.parsing.types import (
+    BigIntType,
     DecimalType,
     DoubleType,
     FloatType,
     IntegerType,
-    LongType,
     NullType,
     StringType,
     TimestamptzType,
@@ -26,7 +26,8 @@ def test_count() -> None:
     Test ``Count`` function.
     """
     assert (
-        Count.infer_type(ast.Column(ast.Name("x"), _type=WildcardType())) == LongType()
+        Count.infer_type(ast.Column(ast.Name("x"), _type=WildcardType()))
+        == BigIntType()
     )
     assert Count.is_aggregation is True
 
@@ -38,7 +39,7 @@ def test_min() -> None:
     assert (
         Min.infer_type(ast.Column(ast.Name("x"), _type=IntegerType())) == IntegerType()
     )
-    assert Min.infer_type(ast.Column(ast.Name("x"), _type=LongType())) == LongType()
+    assert Min.infer_type(ast.Column(ast.Name("x"), _type=BigIntType())) == BigIntType()
     assert Min.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == FloatType()
     assert Min.infer_type(
         ast.Column(ast.Name("x"), _type=DecimalType(8, 6)),
@@ -56,7 +57,7 @@ def test_max() -> None:
     assert (
         Max.infer_type(ast.Column(ast.Name("x"), _type=IntegerType())) == IntegerType()
     )
-    assert Max.infer_type(ast.Column(ast.Name("x"), _type=LongType())) == LongType()
+    assert Max.infer_type(ast.Column(ast.Name("x"), _type=BigIntType())) == BigIntType()
     assert Max.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == FloatType()
     assert Max.infer_type(
         ast.Column(ast.Name("x"), _type=DecimalType(8, 6)),
@@ -93,7 +94,7 @@ def test_coalesce_infer_type() -> None:
         Coalesce.infer_type(
             ast.Column(ast.Name("x"), _type=IntegerType()),
             ast.Column(ast.Name("x"), _type=NullType()),
-            ast.Column(ast.Name("x"), _type=LongType()),
+            ast.Column(ast.Name("x"), _type=BigIntType()),
         )
         == IntegerType()
     )
@@ -136,12 +137,12 @@ def test_sum() -> None:
     Test ``sum`` function.
     """
     assert (
-        Sum.infer_type(ast.Column(ast.Name("x"), _type=IntegerType())) == IntegerType()
+        Sum.infer_type(ast.Column(ast.Name("x"), _type=IntegerType())) == BigIntType()
     )
-    assert Sum.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == FloatType()
+    assert Sum.infer_type(ast.Column(ast.Name("x"), _type=FloatType())) == DoubleType()
     assert Sum.infer_type(
         ast.Column(ast.Name("x"), _type=DecimalType(8, 6)),
-    ) == DecimalType(8, 6)
+    ) == DecimalType(18, 6)
 
 
 def test_avg() -> None:

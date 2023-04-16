@@ -549,7 +549,7 @@ class TestCreateOrUpdateNodes:
         )
         assert data["columns"] == [
             {"name": "country", "type": "string", "attributes": [], "dimension": None},
-            {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
+            {"name": "num_users", "type": "bigint", "attributes": [], "dimension": None},
         ]
         assert data["parents"] == [{"name": "basic.source.users"}]
 
@@ -601,10 +601,10 @@ class TestCreateOrUpdateNodes:
         )
         assert data["columns"] == [
             {"name": "country", "type": "string", "attributes": [], "dimension": None},
-            {"name": "num_users", "type": "long", "attributes": [], "dimension": None},
+            {"name": "num_users", "type": "bigint", "attributes": [], "dimension": None},
             {
                 "name": "num_entries",
-                "type": "long",
+                "type": "bigint",
                 "attributes": [],
                 "dimension": None,
             },
@@ -634,7 +634,7 @@ class TestCreateOrUpdateNodes:
                 },
                 {
                     "name": "num_users",
-                    "type": "long",
+                    "type": "bigint",
                     "attributes": [],
                     "dimension": None,
                 },
@@ -648,7 +648,7 @@ class TestCreateOrUpdateNodes:
                 },
                 {
                     "name": "num_users",
-                    "type": "long",
+                    "type": "bigint",
                     "attributes": [],
                     "dimension": None,
                 },
@@ -662,13 +662,13 @@ class TestCreateOrUpdateNodes:
                 },
                 {
                     "name": "num_users",
-                    "type": "long",
+                    "type": "bigint",
                     "attributes": [],
                     "dimension": None,
                 },
                 {
                     "name": "num_entries",
-                    "type": "long",
+                    "type": "bigint",
                     "attributes": [],
                     "dimension": None,
                 },
@@ -752,7 +752,7 @@ class TestCreateOrUpdateNodes:
                 ],
                 "dimension": None,
             },
-            {"name": "user_cnt", "type": "long", "attributes": [], "dimension": None},
+            {"name": "user_cnt", "type": "bigint", "attributes": [], "dimension": None},
         ]
 
         # Test updating the dimension node with a new query
@@ -826,7 +826,7 @@ class TestCreateOrUpdateNodes:
                 ],
                 "dimension": None,
             },
-            {"name": "user_cnt", "type": "long", "attributes": [], "dimension": None},
+            {"name": "user_cnt", "type": "bigint", "attributes": [], "dimension": None},
         ]
 
         response = client.patch(

@@ -12,6 +12,9 @@ https://github.com/apache/spark/tree/74cddcfda3ac4779de80696cdae2ba64d53fc635/sq
 
 Java strictmath reference
 https://docs.oracle.com/javase/8/docs/api/java/lang/StrictMath.html
+
+Databricks reference:
+https://docs.databricks.com/sql/language-manual/sql-ref-functions-builtin-alpha.html
 """
 
 import inspect
@@ -244,26 +247,90 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     return arg.type
 
 
-class Sum(Function):
+class Sum(Function):  # pylint: disable=abstract-method
     """
     Computes the sum of the input column or expression.
     """
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.ColumnType:  # type: ignore
-        return arg.type  # type: ignore
+
+@Sum.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.IntegerBase,
+) -> ct.BigIntType:
+    return ct.BigIntType()
 
 
-class Ceil(Function):
+@Sum.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.DecimalType,
+) -> ct.DecimalType:
+    precision = arg.type.precision
+    scale = arg.type.scale
+    return ct.DecimalType(precision + min(10, 31 - precision), scale)
+
+
+@Sum.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: Union[ct.NumberType, ct.IntervalTypeBase],
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Ceil(Function):  # pylint: disable=abstract-method
     """
     Computes the smallest integer greater than or equal to the input value.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.IntegerType:  # type: ignore
-        return ct.IntegerType()
+@Ceil.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.DecimalType,
+) -> ct.DecimalType:
+    return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
+
+
+@Ceil.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.NumberType,
+) -> ct.BigIntType:
+    return ct.BigIntType()
+
+@Ceil.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.NumberType,
+    _target_scale: ct.IntegerType,
+) -> ct.DecimalType:
+    target_scale = _target_scale.value
+    if isinstance(args.type, ct.DecimalType):  # pylint: disable=R1705
+        precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
+        scale = min(args.type.scale, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    elif args.type == ct.TinyIntType():
+        precision = max(3, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    elif args.type == ct.SmallIntType():
+        precision = max(5, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    elif args.type == ct.IntegerType():
+        precision = max(10, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    elif args.type == ct.BigIntType():
+        precision = max(20, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    elif args.type == ct.FloatType():
+        precision = max(14, -target_scale + 1)
+        scale = min(7, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    elif args.type == ct.DoubleType():
+        precision = max(30, -target_scale + 1)
+        scale = min(15, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    else:
+        raise DJParseException(f"Unhandled numeric type in Ceil `{args.type}`")
+
+
+
 
 
 class Count(Function):  # pylint: disable=abstract-method
@@ -277,8 +344,8 @@ class Count(Function):  # pylint: disable=abstract-method
 @Count.register  # type: ignore
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     *args: ct.ColumnType,
-) -> ct.LongType:
-    return ct.LongType()
+) -> ct.BigIntType:
+    return ct.BigIntType()
 
 
 class Coalesce(Function):  # pylint: disable=abstract-method
@@ -454,36 +521,6 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     return ct.IntegerType()
 
 
-class DatetimeAdd(Function):
-    """
-    Adds a specified number of seconds to a timestamp.
-    """
-
-    @staticmethod
-    def infer_type(*arg: "Expression") -> ct.TimestampType:
-        return ct.TimestampType()
-
-
-class DatetimeSub(Function):
-    """
-    Subtracts a specified number of seconds from a timestamp.
-    """
-
-    @staticmethod
-    def infer_type(*arg: "Expression") -> ct.TimestampType:
-        return ct.TimestampType()
-
-
-class DatetimeDiff(Function):
-    """
-    Computes the difference in seconds between two timestamps.
-    """
-
-    @staticmethod
-    def infer_type(*arg: "Expression") -> ct.IntegerType:
-        return ct.IntegerType()
-
-
 class Extract(Function):
     """
     Returns a specified component of a timestamp, such as year, month or day.
@@ -499,114 +536,32 @@ class Extract(Function):
         return ct.IntegerType()
 
 
-class TimestampAdd(Function):
-    """
-    Adds a specified amount of time to a timestamp.
-    """
 
-    @staticmethod
-    def infer_type(*arg: "Expression") -> ct.TimestampType:
-        return ct.TimestampType()
-
-
-class TimestampSub(Function):
-    """
-    Subtracts a specified amount of time from a timestamp.
-    """
-
-    @staticmethod
-    def infer_type(*arg: "Expression") -> ct.TimestampType:
-        return ct.TimestampType()
-
-
-class TimestampDiff(Function):
-    """
-    Computes the difference in seconds between two timestamps.
-    """
-
-    @staticmethod
-    def infer_type(*arg: "Expression") -> ct.IntegerType:
-        return ct.IntegerType()
-
-
-class TimeAdd(Function):
-    """
-    Adds a specified amount of time to a time value.
-    """
-
-    @staticmethod
-    def infer_type(*arg: "Expression") -> ct.TimestampType:
-        return ct.TimestampType()
-
-
-class TimeSub(Function):
-    """
-    Subtracts a specified amount of time from a time value.
-    """
-
-    @staticmethod
-    def infer_type(*arg: "Expression") -> ct.TimestampType:
-        return ct.TimestampType()
-
-
-class TimeDiff(Function):
-    """
-    Computes the difference in seconds between two time values.
-    """
-
-    @staticmethod
-    def infer_type(*arg: "Expression") -> ct.IntegerType:
-        return ct.IntegerType()
-
-
-class DateStrToDate(Function):  # pragma: no cover
+class ToDate(Function):  # pragma: no cover # pylint: disable=abstract-method
     """
     Converts a date string to a date value.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DateType:  # type: ignore
-        return ct.DateType()
+
+@ToDate.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    expr: ct.StringType,
+    fmt: Optional[ct.StringType],
+) -> ct.DateType:
+    return ct.DateType()
 
 
-class DateToDateStr(Function):  # pragma: no cover
-    """
-    Converts a date value to a date string.
-    """
-
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.StringType:  # type: ignore
-        return ct.StringType()
-
-
-class DateToDi(Function):  # pragma: no cover
-    """
-    Returns the day of the year for a specified date.
-    """
-
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.IntegerType:  # type: ignore
-        return ct.IntegerType()
-
-
-class Day(Function):
+class Day(Function):  # pylint: disable=abstract-method
     """
     Returns the day of the month for a specified date.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.TinyIntType:  # type: ignore
-        return ct.TinyIntType()
 
-
-class DiToDate(Function):  # pragma: no cover
-    """
-    Converts a day of the year and a year to a date value.
-    """
-
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DateType:  # type: ignore
-        return ct.DateType()
+@Day.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: Union[ct.StringType, ct.DateType, ct.TimestampType],
+) -> ct.IntegerType:  # type: ignore
+    return ct.IntegerType()
 
 
 class Exp(Function):  # pylint: disable=abstract-method
@@ -622,14 +577,59 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     return ct.DoubleType()
 
 
-class Floor(Function):
+class Floor(Function):  # pylint: disable=abstract-method
     """
     Returns the largest integer less than or equal to a specified number.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.IntegerType:  # type: ignore
-        return ct.IntegerType()
+@Floor.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.DecimalType,
+) -> ct.DecimalType:
+    return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
+
+
+@Floor.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.NumberType,
+) -> ct.BigIntType:
+    return ct.BigIntType()
+
+@Floor.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.NumberType,
+    _target_scale: ct.IntegerType,
+) -> ct.DecimalType:
+    target_scale = _target_scale.value
+    if isinstance(args.type, ct.DecimalType):  # pylint: disable=R1705
+        precision = max(args.type.precision - args.scale + 1, -target_scale + 1)
+        scale = min(args.type.scale, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    elif args.type == ct.TinyIntType():
+        precision = max(3, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    elif args.type == ct.SmallIntType():
+        precision = max(5, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    elif args.type == ct.IntegerType():
+        precision = max(10, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    elif args.type == ct.BigIntType():
+        precision = max(20, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    elif args.type == ct.FloatType():
+        precision = max(14, -target_scale + 1)
+        scale = min(7, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    elif args.type == ct.DoubleType():
+        precision = max(30, -target_scale + 1)
+        scale = min(15, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    else:
+        raise DJParseException(f"Unhandled numeric type in Floor `{args.type}`")
+
+
+
 
 
 class IfNull(Function):

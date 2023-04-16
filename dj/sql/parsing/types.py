@@ -13,6 +13,7 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
 """
 
 import re
+from enum import Enum
 from typing import TYPE_CHECKING, Any, ClassVar, Dict, Generator, Optional, Tuple, cast
 
 from pydantic import BaseModel, Extra
@@ -156,8 +157,7 @@ class NullType(PrimitiveType, Singleton):  # pylint: disable=too-few-public-meth
     """
 
     def __init__(self):
-        if not self._initialized:
-            super().__init__("NULL", "NullType()")
+        super().__init__("NULL", "NullType()")
 
 
 class FixedType(PrimitiveType):
@@ -212,12 +212,14 @@ class DecimalType(NumberType):
         return cls._instances[key]
 
     def __init__(self, precision: int, scale: int):
-        super().__init__(
-            f"decimal({precision}, {scale})",
-            f"DecimalType(precision={precision}, scale={scale})",
-        )
-        self._precision = min(precision, DecimalType.max_precision)
-        self._scale = min(scale, DecimalType.max_scale)
+
+        if not self._initialized:
+            super().__init__(
+                f"decimal({precision}, {scale})",
+                f"DecimalType(precision={precision}, scale={scale})",
+            )
+            self._precision = min(precision, DecimalType.max_precision)
+            self._scale = min(scale, DecimalType.max_scale)
 
     @property
     def precision(self) -> int:  # pragma: no cover
@@ -270,14 +272,13 @@ class NestedField(ColumnType):
         is_optional: bool = True,
         doc: Optional[str] = None,
     ):
-        if isinstance(name, str):  # pragma: no cover
-            from dj.sql.parsing.ast import (  # pylint: disable=import-outside-toplevel
-                Name,
-            )
-
-            name = Name(name)
-
         if not self._initialized:
+            if isinstance(name, str):  # pragma: no cover
+                from dj.sql.parsing.ast import (  # pylint: disable=import-outside-toplevel
+                    Name,
+                )
+
+                name = Name(name)
             doc_string = "" if doc is None else f", doc={repr(doc)}"
             super().__init__(
                 (
@@ -389,12 +390,12 @@ class ListType(ColumnType):
         self,
         element_type: ColumnType,
     ):
+
         if not self._initialized:
             super().__init__(
                 f"array<{element_type}>",
                 f"ListType(element_type={repr(element_type)})",
             )
-
             self._element_field = NestedField(
                 name="col",  # type: ignore
                 field_type=element_type,
@@ -428,6 +429,7 @@ class MapType(ColumnType):
         key_type: ColumnType,
         value_type: ColumnType,
     ):
+        
         if not self._initialized:
             super().__init__(
                 f"map<{key_type}, {value_type}>",
@@ -468,7 +470,6 @@ class BooleanType(PrimitiveType, Singleton):
     """
 
     def __init__(self):
-        # if not self._initialized:
         super().__init__("boolean", "BooleanType()")
 
 
@@ -499,8 +500,7 @@ class IntegerType(IntegerBase):
     min: ClassVar[int] = -2147483648
 
     def __init__(self):
-        if not self._initialized:
-            super().__init__("int", "IntegerType()")
+        super().__init__("int", "IntegerType()")
 
 
 class TinyIntType(IntegerBase):
@@ -522,17 +522,38 @@ class TinyIntType(IntegerBase):
     min: ClassVar[int] = -128
 
     def __init__(self):
-        if not self._initialized:
-            super().__init__("tinyint", "TinyIntType()")
+        super().__init__("tinyint", "TinyIntType()")
 
 
-class LongType(IntegerBase):
+class SmallIntType(IntegerBase):  # pylint: disable=R0901
+    """A SmallInt data type can be represented using an instance of this class. SmallInts are
+    16-bit signed integers.
+
+    Example:
+        >>> column_foo = SmallIntType()
+        >>> isinstance(column_foo, SmallIntType)
+        True
+
+    Attributes:
+        max (int): The maximum allowed value for SmallInts (returns `32767`).
+        min (int): The minimum allowed value for SmallInts (returns `-32768`).
+    """
+
+    max: ClassVar[int] = 32767
+
+    min: ClassVar[int] = -32768
+
+    def __init__(self):
+        super().__init__("smallint", "SmallIntType()")
+
+
+class BigIntType(IntegerBase):
     """A Long data type can be represented using an instance of this class. Longs are
     64-bit signed integers.
 
     Example:
-        >>> column_foo = LongType()
-        >>> isinstance(column_foo, LongType)
+        >>> column_foo = BigIntType()
+        >>> isinstance(column_foo, BigIntType)
         True
 
     Attributes:
@@ -549,19 +570,121 @@ class LongType(IntegerBase):
     min: ClassVar[int] = -9223372036854775808
 
     def __init__(self):
-        if not self._initialized:
-            super().__init__("long", "LongType()")
+        super().__init__("bigint", "BigIntType()")
 
 
-class BigIntType(IntegerBase):
-    """Bigint type, as known as Long."""
+class FloatingBase(NumberType, Singleton):
+    """Base class for all floating types"""
 
-    max: ClassVar[int] = 9223372036854775807
 
-    min: ClassVar[int] = -9223372036854775808
+class FloatType(FloatingBase):
+    """A Float data type can be represented using an instance of this class. Floats are
+    32-bit IEEE 754 floating points and can be promoted to Doubles.
+
+    Example:
+        >>> column_foo = FloatType()
+        >>> isinstance(column_foo, FloatType)
+        True
+    """
 
     def __init__(self):
-        super().__init__("bigint", "BigIntType()")
+        super().__init__("float", "FloatType()")
+
+
+class DoubleType(FloatingBase):
+    """A Double data type can be represented using an instance of this class. Doubles are
+    64-bit IEEE 754 floating points.
+
+    Example:
+        >>> column_foo = DoubleType()
+        >>> isinstance(column_foo, DoubleType)
+        True
+    """
+
+    def __init__(self):
+        super().__init__("double", "DoubleType()")
+
+
+class DateTimeBase(PrimitiveType, Singleton):
+    """
+    Base class for date and time types.
+    """
+
+    # pylint: disable=invalid-name
+    class Unit(str, Enum):
+        """
+        Units used for date and time functions and intervals
+        """
+
+        dayofyear = "DAYOFYEAR"
+        year = "YEAR"
+        day = "DAY"
+        microsecond = "MICROSECOND"
+        month = "MONTH"
+        week = "WEEK"
+        minute = "MINUTE"
+        second = "SECOND"
+        quarter = "QUARTER"
+        hour = "HOUR"
+        millisecond = "MILLISECOND"
+
+    # pylint: enable=invalid-name
+
+
+class DateType(DateTimeBase):
+    """A Date data type can be represented using an instance of this class. Dates are
+    calendar dates without a timezone or time.
+
+    Example:
+        >>> column_foo = DateType()
+        >>> isinstance(column_foo, DateType)
+        True
+    """
+
+    def __init__(self):
+        super().__init__("date", "DateType()")
+
+
+class TimeType(DateTimeBase):
+    """A Time data type can be represented using an instance of this class. Times
+    have microsecond precision and are a time of day without a date or timezone.
+
+    Example:
+        >>> column_foo = TimeType()
+        >>> isinstance(column_foo, TimeType)
+        True
+    """
+
+    def __init__(self):
+        super().__init__("time", "TimeType()")
+
+
+class TimestampType(PrimitiveType, Singleton):
+    """A Timestamp data type can be represented using an instance of this class. Timestamps in
+    Column have microsecond precision and include a date and a time of day without a timezone.
+
+    Example:
+        >>> column_foo = TimestampType()
+        >>> isinstance(column_foo, TimestampType)
+        True
+    """
+
+    def __init__(self):
+        super().__init__("timestamp", "TimestampType()")
+
+
+class TimestamptzType(PrimitiveType, Singleton):
+    """A Timestamptz data type can be represented using an instance of this class. Timestamptzs in
+    Column are stored as UTC and include a date and a time of day with a timezone.
+
+    Example:
+        >>> column_foo = TimestamptzType()
+        >>> isinstance(column_foo, TimestamptzType)
+        True
+    """
+
+    def __init__(self):
+        super().__init__("timestamptz", "TimestamptzType()")
 
 
 class IntervalTypeBase(PrimitiveType):
@@ -580,8 +703,8 @@ class DayTimeIntervalType(IntervalTypeBase):
 
     def __new__(
         cls,
-        from_: Optional[str] = "DAY",
-        to_: Optional[str] = "SECOND",
+        from_: DateTimeBase.Unit = DateTimeBase.Unit.day,
+        to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.second,
     ):
         key = (from_.upper(), to_.upper())  # type: ignore
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
@@ -589,19 +712,20 @@ class DayTimeIntervalType(IntervalTypeBase):
 
     def __init__(
         self,
-        from_: str = "DAY",
-        to_: Optional[str] = "SECOND",
+        from_: DateTimeBase.Unit = DateTimeBase.Unit.day,
+        to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.second,
     ):
-        from_ = from_.upper()
-        to_ = to_.upper()  # type: ignore
-        to_str = f" TO {to_}" if to_ else ""
-        to_repr = f', to="{to_}"' if to_ else ""
-        super().__init__(
-            f"INTERVAL {from_}{to_str}",
-            f'DayTimeIntervalType(from="{from_}"{to_repr})',
-        )
-        self._from = from_
-        self._to = to_
+        if not self._initialized:
+            from_ = from_.upper()  # type: ignore
+            to_ = to_.upper()  # type: ignore
+            to_str = f" TO {to_}" if to_ else ""
+            to_repr = f', to="{to_}"' if to_ else ""
+            super().__init__(
+                f"INTERVAL {from_}{to_str}",
+                f'DayTimeIntervalType(from="{from_}"{to_repr})',
+            )
+            self._from = from_
+            self._to = to_
 
     @property
     def from_(self) -> str:  # pylint: disable=missing-function-docstring
@@ -624,26 +748,31 @@ class YearMonthIntervalType(IntervalTypeBase):
 
     _instances: Dict[Tuple[str, str], "YearMonthIntervalType"] = {}
 
-    def __new__(cls, from_: Optional[str] = "YEAR", to_: Optional[str] = "MONTH"):
+    def __new__(
+        cls,
+        from_: DateTimeBase.Unit = DateTimeBase.Unit.year,
+        to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.month,
+    ):
         key = (from_.upper(), to_.upper())  # type: ignore
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
         return cls._instances[key]
 
     def __init__(
         self,
-        from_: str = "YEAR",
-        to_: Optional[str] = "MONTH",
+        from_: DateTimeBase.Unit = DateTimeBase.Unit.year,
+        to_: Optional[DateTimeBase.Unit] = DateTimeBase.Unit.month,
     ):
-        from_ = from_.upper()
-        to_ = to_.upper()  # type: ignore
-        to_str = f" TO {to_}" if to_ else ""
-        to_repr = f', to="{to_}"' if to_ else ""
-        super().__init__(
-            f"INTERVAL {from_}{to_str}",
-            f'YearMonthIntervalType(from="{from_}"{to_repr})',
-        )
-        self._from = from_
-        self._to = to_
+        if not self._initialized:
+            from_ = from_.upper()  # type: ignore
+            to_ = to_.upper()  # type: ignore
+            to_str = f" TO {to_}" if to_ else ""
+            to_repr = f', to="{to_}"' if to_ else ""
+            super().__init__(
+                f"INTERVAL {from_}{to_str}",
+                f'YearMonthIntervalType(from="{from_}"{to_repr})',
+            )
+            self._from = from_
+            self._to = to_
 
     @property
     def from_(self) -> str:  # pylint: disable=missing-function-docstring
@@ -654,106 +783,6 @@ class YearMonthIntervalType(IntervalTypeBase):
         self,
     ) -> Optional[str]:
         return self._to  # pragma: no cover
-
-
-class FloatingBase(NumberType, Singleton):
-    """Base class for all floating types"""
-
-
-class FloatType(FloatingBase):
-    """A Float data type can be represented using an instance of this class. Floats are
-    32-bit IEEE 754 floating points and can be promoted to Doubles.
-
-    Example:
-        >>> column_foo = FloatType()
-        >>> isinstance(column_foo, FloatType)
-        True
-    """
-
-    def __init__(self):
-        if not self._initialized:
-            super().__init__("float", "FloatType()")
-
-
-class DoubleType(FloatingBase):
-    """A Double data type can be represented using an instance of this class. Doubles are
-    64-bit IEEE 754 floating points.
-
-    Example:
-        >>> column_foo = DoubleType()
-        >>> isinstance(column_foo, DoubleType)
-        True
-    """
-
-    def __init__(self):
-        if not self._initialized:
-            super().__init__("double", "DoubleType()")
-
-
-class DateTimeBase(PrimitiveType, Singleton):
-    """
-    Date time base type
-    """
-
-
-class DateType(DateTimeBase):
-    """A Date data type can be represented using an instance of this class. Dates are
-    calendar dates without a timezone or time.
-
-    Example:
-        >>> column_foo = DateType()
-        >>> isinstance(column_foo, DateType)
-        True
-    """
-
-    def __init__(self):
-        if not self._initialized:
-            super().__init__("date", "DateType()")
-
-
-class TimeType(DateTimeBase):
-    """A Time data type can be represented using an instance of this class. Times
-    have microsecond precision and are a time of day without a date or timezone.
-
-    Example:
-        >>> column_foo = TimeType()
-        >>> isinstance(column_foo, TimeType)
-        True
-    """
-
-    def __init__(self):
-        if not self._initialized:
-            super().__init__("time", "TimeType()")
-
-
-class TimestampType(PrimitiveType, Singleton):
-    """A Timestamp data type can be represented using an instance of this class. Timestamps in
-    Column have microsecond precision and include a date and a time of day without a timezone.
-
-    Example:
-        >>> column_foo = TimestampType()
-        >>> isinstance(column_foo, TimestampType)
-        True
-    """
-
-    def __init__(self):
-        if not self._initialized:
-            super().__init__("timestamp", "TimestampType()")
-
-
-class TimestamptzType(PrimitiveType, Singleton):
-    """A Timestamptz data type can be represented using an instance of this class. Timestamptzs in
-    Column are stored as UTC and include a date and a time of day with a timezone.
-
-    Example:
-        >>> column_foo = TimestamptzType()
-        >>> isinstance(column_foo, TimestamptzType)
-        True
-    """
-
-    def __init__(self):
-        if not self._initialized:
-            super().__init__("timestamptz", "TimestamptzType()")
 
 
 class StringBase(PrimitiveType, Singleton):
@@ -771,8 +800,7 @@ class StringType(StringBase):
     """
 
     def __init__(self):
-        if not self._initialized:
-            super().__init__("string", "StringType()")
+        super().__init__("string", "StringType()")
 
 
 class VarcharType(StringBase):
@@ -787,8 +815,7 @@ class VarcharType(StringBase):
     """
 
     def __init__(self):
-        if not self._initialized:
-            super().__init__("varchar", "VarcharType()")
+        super().__init__("varchar", "VarcharType()")
 
 
 class UUIDType(PrimitiveType, Singleton):
@@ -802,8 +829,7 @@ class UUIDType(PrimitiveType, Singleton):
     """
 
     def __init__(self):
-        if not self._initialized:
-            super().__init__("uuid", "UUIDType()")
+        super().__init__("uuid", "UUIDType()")
 
 
 class BinaryType(PrimitiveType, Singleton):
@@ -817,8 +843,7 @@ class BinaryType(PrimitiveType, Singleton):
     """
 
     def __init__(self):
-        if not self._initialized:
-            super().__init__("binary", "BinaryType()")
+        super().__init__("binary", "BinaryType()")
 
 
 class WildcardType(PrimitiveType, Singleton):
@@ -831,8 +856,7 @@ class WildcardType(PrimitiveType, Singleton):
     """
 
     def __init__(self):
-        if not self._initialized:
-            super().__init__("wildcard", "WildcardType()")
+        super().__init__("wildcard", "WildcardType()")
 
 
 # Define the primitive data types and their corresponding Python classes
@@ -842,7 +866,7 @@ PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "varchar": VarcharType(),
     "bigint": BigIntType(),
     "int": IntegerType(),
-    "long": LongType(),
+    "long": BigIntType(),
     "float": FloatType(),
     "double": DoubleType(),
     "date": DateType(),

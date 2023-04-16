@@ -44,7 +44,7 @@ from dj.sql.parsing.types import (
     DoubleType,
     FloatType,
     IntegerType,
-    LongType,
+    BigIntType,
     MapType,
     NestedField,
     NullType,
@@ -1195,7 +1195,7 @@ class BinaryOp(Operation):
                 [
                     str(DoubleType()),
                     str(FloatType()),
-                    str(LongType()),
+                    str(BigIntType()),
                     str(IntegerType()),
                 ],
             )
@@ -1422,7 +1422,7 @@ class Number(Value):
         # We won't assume that anyone wants SHORT by default
         if isinstance(self.value, int):
             if self.value <= IntegerType.min or self.value >= IntegerType.max:
-                return LongType()
+                return BigIntType()
             return IntegerType()
         #
         # # Arbitrary-precision floating point
