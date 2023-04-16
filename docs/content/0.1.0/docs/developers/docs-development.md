@@ -214,3 +214,25 @@ out the root directory. Subsequent non-latest builds will happen in sub-director
 After the builds are completed, the entire site will be deployed to the `docs/public` directory. Any local server
 can be used to render the entire site from the public directory locally such as the popular
 [Live Server](https://marketplace.visualstudio.com/items?itemName=ritwickdey.LiveServer) extension for VSCode.
+
+# Adding Excalidraw Diagrams
+
+The DataJunction docs site uses [excalidraw](https://docs.excalidraw.com/) to create diagrams and renders them within the docs pages
+using an excalidraw shortcode. You can create new excalidraw diagrams by developing them either on [excalidraw.com](https://excalidraw.com/)
+or using the [Excalidraw VSCode extension](https://marketplace.visualstudio.com/items?itemName=pomdtr.excalidraw-editor).
+
+To add diagrams to the docs site, export the diagram as a `.excalidraw` file and place it in the `static/excalidraw-drawings/` directory. You
+can then add the diagram in using the `excalidraw` shortcode.
+
+As an example, if you've added an excalidraw file named `excalidraw_is_awesome.excalidraw`, you can add it to any markdown page with the following
+shortcode.
+```sh
+{{</* excalidraw excalidraw_is_awesome */>}}
+```
+Here's an example of how the excalidraw diagram will appear.
+{{< excalidraw excalidraw_is_awesome >}}
+{{< hint info >}}
+**Tip: Finding the Center**  
+The excalidraw diagram will always render in the center of the canvas. It may take some repositioning of the components to find
+the exact location where you want the initial rendering to focus when the page is loaded.
+{{< /hint >}}
