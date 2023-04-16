@@ -571,7 +571,28 @@ class BigIntType(IntegerBase):
 
     def __init__(self):
         super().__init__("bigint", "BigIntType()")
+        
+class LongType(BigIntType):
+    """A Long data type can be represented using an instance of this class. Longs are
+    64-bit signed integers.
 
+    Example:
+        >>> column_foo = LongType()
+        >>> isinstance(column_foo, LongType)
+        True
+
+    Attributes:
+        max (int): The maximum allowed value for Longs, inherited from the
+        canonical Column implementation
+          in Java. (returns `9223372036854775807`)
+        min (int): The minimum allowed value for Longs, inherited from the
+        canonical Column implementation
+          in Java (returns `-9223372036854775808`)
+    """
+    def __new__(cls, *args, **kwargs):
+        self = super().__new__(BigIntType, *args, **kwargs)
+        super(BigIntType, self).__init__("long", "LongType()")
+        return self
 
 class FloatingBase(NumberType, Singleton):
     """Base class for all floating types"""
