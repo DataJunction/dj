@@ -621,9 +621,9 @@ def create_a_node_namespace(
 
 
 @router.get(
-    "/namespaces/all/",
+    "/namespaces/",
     response_model=List[NodeNamespace],
-    status_code=201,
+    status_code=200,
 )
 def list_node_namespaces(
     session: Session = Depends(get_session),
@@ -633,6 +633,27 @@ def list_node_namespaces(
     """
     namespaces = session.exec(select(NodeNamespace)).all()
     return namespaces
+
+
+@router.get(
+    "/namespaces/{namespace}/",
+    response_model=List[NodeOutput],
+    status_code=200,
+)
+def list_nodes_in_namespace(
+    namespace: str,
+    session: Session = Depends(get_session),
+) -> List[NodeOutput]:
+    """
+    List nodes in namespace
+    """
+    nodes = (
+        session.exec(
+            select(Node).options(joinedload(Node.current))
+            .where(Node.namespace.like(f"{namespace}%"))
+        ).unique().all()
+    )
+    return nodes  # type: ignore
 
 
 @router.post("/nodes/transform/", response_model=NodeOutput, status_code=201)

@@ -96,53 +96,61 @@ class DJClient:
         response = self._session.get("/engines/", timeout=self._timeout)
         return response.json()
 
-    def namespaces(self, names_only: bool = False):
+    def namespaces(self):
         """
         Returns all node namespaces.
         """
-        return self.get_node_namespaces()
+        return [
+            Namespace.parse_obj(namespace) for namespace in self.get_node_namespaces()
+        ]
 
     def nodes(self, names_only: bool = False):
         """
         Returns all source nodes. If `names_only` is set to true,
         it will return a list of node names.
         """
-        return self._nodes_by_type(names_only=names_only)
+        response = self._session.get("/nodes/", timeout=self._timeout)
+        return self._nodes_by_type(response.json(), names_only=names_only)
 
     def sources(self, names_only: bool = False):
         """
         Returns all source nodes. If `names_only` is set to true,
         it will return a list of node names.
         """
-        return self._nodes_by_type(type_="source", names_only=names_only)
+        response = self._session.get("/nodes/", timeout=self._timeout)
+        return self._nodes_by_type(response.json(), type_="source", names_only=names_only)
 
     def dimensions(self, names_only: bool = False):
         """
         Returns all dimension nodes. If `names_only` is set to true,
         it will return a list of node names.
         """
-        return self._nodes_by_type(type_="dimension", names_only=names_only)
+        response = self._session.get("/nodes/", timeout=self._timeout)
+        return self._nodes_by_type(response.json(), type_="dimension", names_only=names_only)
 
     def transforms(self, names_only: bool = False):
         """
         Returns all transform nodes. If `names_only` is set to true,
         it will return a list of node names.
         """
-        return self._nodes_by_type(type_="transform", names_only=names_only)
+        response = self._session.get("/nodes/", timeout=self._timeout)
+        return self._nodes_by_type(response.json(), type_="transform", names_only=names_only)
 
     def metrics(self, names_only: bool = False):
         """
         Returns all metric nodes. If `names_only` is set to true,
         it will return a list of node names.
         """
-        return self._nodes_by_type(type_="metric", names_only=names_only)
+        response = self._session.get("/nodes/", timeout=self._timeout)
+        return self._nodes_by_type(response.json(), type_="metric", names_only=names_only)
 
     def cubes(self, names_only: bool = False):
         """
         Returns all cube nodes. If `names_only` is set to true,
         it will return a list of node names.
         """
-        return self._nodes_by_type(type_="cube", names_only=names_only)
+        response = self._session.get("/nodes/", timeout=self._timeout)
+        return self._nodes_by_type(response.json(), type_="cube", names_only=names_only)
 
     def delete_node(self, node: "Node"):
         """
@@ -167,8 +175,15 @@ class DJClient:
         """
         Retrieves all node namespaces
         """
-        response = self._session.get(f"/namespaces/all/")
+        response = self._session.get("/namespaces/")
         return response.json()
+
+    def get_nodes_in_namespace(self, namespace: str, type_: Optional[str] = None, names_only: bool = False):
+        """
+        Retrieves all nodes in the namespace
+        """
+        response = self._session.get(f"/namespaces/{namespace}/")
+        return self._nodes_by_type(response.json(), type_, names_only)
 
     def get_node(self, node_name: str):
         """
@@ -179,20 +194,21 @@ class DJClient:
 
     def _nodes_by_type(
         self,
+        nodes_list: List[Dict[str, Any]],
         type_: Optional[str] = None,
         names_only: bool = False,
     ) -> Union[List[str], List[Dict[str, Any]]]:
         """
         Helper function to retrieve DJ nodes by its type.
         """
-        response = self._session.get("/nodes/", timeout=self._timeout)
+        # response = self._session.get("/nodes/", timeout=self._timeout)
         if names_only:
             return [
                 node["name"]
-                for node in response.json()
+                for node in nodes_list
                 if not type_ or node["type"] == type_
             ]
-        return [node for node in response.json() if not type_ or node["type"] == type_]
+        return [node for node in nodes_list if not type_ or node["type"] == type_]
 
     def link_dimension_to_node(
         self,
@@ -439,3 +455,34 @@ class Cube(Node):
     metrics: List[str]
     dimensions: List[str]
     filters: List[str]
+
+
+class Namespace(ClientEntity):
+    """
+    Represents a namespace
+    """
+    namespace: str
+
+    def nodes(self, names_only: bool = False):
+        client = self._get_initialized_client()
+        return client.get_nodes_in_namespace(self.namespace, names_only=names_only)
+
+    def metrics(self, names_only: bool = False):
+        client = self._get_initialized_client()
+        return client.get_nodes_in_namespace(self.namespace, type_="metric", names_only=names_only)
+
+    def sources(self, names_only: bool = False):
+        client = self._get_initialized_client()
+        return client.get_nodes_in_namespace(self.namespace, type_="source", names_only=names_only)
+
+    def transforms(self, names_only: bool = False):
+        client = self._get_initialized_client()
+        return client.get_nodes_in_namespace(self.namespace, type_="transform", names_only=names_only)
+
+    def cubes(self, names_only: bool = False):
+        client = self._get_initialized_client()
+        return client.get_nodes_in_namespace(self.namespace, type_="cube", names_only=names_only)
+
+    def dimensions(self, names_only: bool = False):
+        client = self._get_initialized_client()
+        return client.get_nodes_in_namespace(self.namespace, type_="dimension", names_only=names_only)
