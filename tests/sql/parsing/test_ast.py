@@ -414,9 +414,9 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
     response = client.post(
         "/nodes/source/",
         json={
-            "columns": {
-                "a": {"type": "int"},
-            },
+            "columns": [
+                {"name": "a", "type": "int"},
+            ],
             "description": "Placeholder source node",
             "mode": "published",
             "name": "a",

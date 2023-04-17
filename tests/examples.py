@@ -46,15 +46,15 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "repair_order_id": {"type": "int"},
-                "municipality_id": {"type": "string"},
-                "hard_hat_id": {"type": "int"},
-                "order_date": {"type": "timestamp"},
-                "required_date": {"type": "timestamp"},
-                "dispatched_date": {"type": "timestamp"},
-                "dispatcher_id": {"type": "int"},
-            },
+            "columns": [
+                {"name": "repair_order_id", "type": "int"},
+                {"name": "municipality_id", "type": "string"},
+                {"name": "hard_hat_id", "type": "int"},
+                {"name": "order_date", "type": "timestamp"},
+                {"name": "required_date", "type": "timestamp"},
+                {"name": "dispatched_date", "type": "timestamp"},
+                {"name": "dispatcher_id", "type": "int"},
+            ],
             "description": "All repair orders",
             "mode": "published",
             "name": "repair_orders",
@@ -66,13 +66,13 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "repair_order_id": {"type": "int"},
-                "repair_type_id": {"type": "int"},
-                "price": {"type": "float"},
-                "quantity": {"type": "int"},
-                "discount": {"type": "float"},
-            },
+            "columns": [
+                {"name": "repair_order_id", "type": "int"},
+                {"name": "repair_type_id", "type": "int"},
+                {"name": "price", "type": "float"},
+                {"name": "quantity", "type": "int"},
+                {"name": "discount", "type": "float"},
+            ],
             "description": "Details on repair orders",
             "mode": "published",
             "name": "repair_order_details",
@@ -84,11 +84,11 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "repair_type_id": {"type": "int"},
-                "repair_type_name": {"type": "string"},
-                "contractor_id": {"type": "int"},
-            },
+            "columns": [
+                {"name": "repair_type_id", "type": "int"},
+                {"name": "repair_type_name", "type": "string"},
+                {"name": "contractor_id", "type": "int"},
+            ],
             "description": "Information on types of repairs",
             "mode": "published",
             "name": "repair_type",
@@ -100,18 +100,18 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "contractor_id": {"type": "int"},
-                "company_name": {"type": "string"},
-                "contact_name": {"type": "string"},
-                "contact_title": {"type": "string"},
-                "address": {"type": "string"},
-                "city": {"type": "string"},
-                "state": {"type": "string"},
-                "postal_code": {"type": "string"},
-                "country": {"type": "string"},
-                "phone": {"type": "string"},
-            },
+            "columns": [
+                {"name": "contractor_id", "type": "int"},
+                {"name": "company_name", "type": "string"},
+                {"name": "contact_name", "type": "string"},
+                {"name": "contact_title", "type": "string"},
+                {"name": "address", "type": "string"},
+                {"name": "city", "type": "string"},
+                {"name": "state", "type": "string"},
+                {"name": "postal_code", "type": "string"},
+                {"name": "country", "type": "string"},
+                {"name": "phone", "type": "string"},
+            ],
             "description": "Information on contractors",
             "mode": "published",
             "name": "contractors",
@@ -123,10 +123,10 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "municipality_id": {"type": "string"},
-                "municipality_type_id": {"type": "string"},
-            },
+            "columns": [
+                {"name": "municipality_id", "type": "string"},
+                {"name": "municipality_type_id", "type": "string"},
+            ],
             "description": "Lookup table for municipality and municipality types",
             "mode": "published",
             "name": "municipality_municipality_type",
@@ -138,10 +138,10 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "municipality_type_id": {"type": "string"},
-                "municipality_type_desc": {"type": "string"},
-            },
+            "columns": [
+                {"name": "municipality_type_id", "type": "string"},
+                {"name": "municipality_type_desc", "type": "string"},
+            ],
             "description": "Information on municipality types",
             "mode": "published",
             "name": "municipality_type",
@@ -153,14 +153,14 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "municipality_id": {"type": "string"},
-                "contact_name": {"type": "string"},
-                "contact_title": {"type": "string"},
-                "local_region": {"type": "string"},
-                "phone": {"type": "string"},
-                "state_id": {"type": "int"},
-            },
+            "columns": [
+                {"name": "municipality_id", "type": "string"},
+                {"name": "contact_name", "type": "string"},
+                {"name": "contact_title", "type": "string"},
+                {"name": "local_region", "type": "string"},
+                {"name": "phone", "type": "string"},
+                {"name": "state_id", "type": "int"},
+            ],
             "description": "Information on municipalities",
             "mode": "published",
             "name": "municipality",
@@ -172,11 +172,11 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "dispatcher_id": {"type": "int"},
-                "company_name": {"type": "string"},
-                "phone": {"type": "string"},
-            },
+            "columns": [
+                {"name": "dispatcher_id", "type": "int"},
+                {"name": "company_name", "type": "string"},
+                {"name": "phone", "type": "string"},
+            ],
             "description": "Information on dispatchers",
             "mode": "published",
             "name": "dispatchers",
@@ -188,21 +188,21 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "hard_hat_id": {"type": "int"},
-                "last_name": {"type": "string"},
-                "first_name": {"type": "string"},
-                "title": {"type": "string"},
-                "birth_date": {"type": "timestamp"},
-                "hire_date": {"type": "timestamp"},
-                "address": {"type": "string"},
-                "city": {"type": "string"},
-                "state": {"type": "string"},
-                "postal_code": {"type": "string"},
-                "country": {"type": "string"},
-                "manager": {"type": "int"},
-                "contractor_id": {"type": "int"},
-            },
+            "columns": [
+                {"name": "hard_hat_id", "type": "int"},
+                {"name": "last_name", "type": "string"},
+                {"name": "first_name", "type": "string"},
+                {"name": "title", "type": "string"},
+                {"name": "birth_date", "type": "timestamp"},
+                {"name": "hire_date", "type": "timestamp"},
+                {"name": "address", "type": "string"},
+                {"name": "city", "type": "string"},
+                {"name": "state", "type": "string"},
+                {"name": "postal_code", "type": "string"},
+                {"name": "country", "type": "string"},
+                {"name": "manager", "type": "int"},
+                {"name": "contractor_id", "type": "int"},
+            ],
             "description": "Information on employees",
             "mode": "published",
             "name": "hard_hats",
@@ -214,10 +214,10 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "hard_hat_id": {"type": "int"},
-                "state_id": {"type": "string"},
-            },
+            "columns": [
+                {"name": "hard_hat_id", "type": "int"},
+                {"name": "state_id", "type": "string"},
+            ],
             "description": "Lookup table for employee's current state",
             "mode": "published",
             "name": "hard_hat_state",
@@ -229,12 +229,12 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "state_id": {"type": "int"},
-                "state_name": {"type": "string"},
-                "state_abbr": {"type": "string"},
-                "state_region": {"type": "int"},
-            },
+            "columns": [
+                {"name": "state_id", "type": "int"},
+                {"name": "state_name", "type": "string"},
+                {"name": "state_abbr", "type": "string"},
+                {"name": "state_region", "type": "int"},
+            ],
             "description": "Information on different types of repairs",
             "mode": "published",
             "name": "us_states",
@@ -246,10 +246,10 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "us_region_id": {"type": "int"},
-                "us_region_description": {"type": "string"},
-            },
+            "columns": [
+                {"name": "us_region_id", "type": "int"},
+                {"name": "us_region_description", "type": "string"},
+            ],
             "description": "Information on US regions",
             "mode": "published",
             "name": "us_region",
@@ -572,15 +572,15 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "repair_order_id": {"type": "int"},
-                "municipality_id": {"type": "string"},
-                "hard_hat_id": {"type": "int"},
-                "order_date": {"type": "timestamp"},
-                "required_date": {"type": "timestamp"},
-                "dispatched_date": {"type": "timestamp"},
-                "dispatcher_id": {"type": "int"},
-            },
+            "columns": [
+                {"name": "repair_order_id", "type": "int"},
+                {"name": "municipality_id", "type": "string"},
+                {"name": "hard_hat_id", "type": "int"},
+                {"name": "order_date", "type": "timestamp"},
+                {"name": "required_date", "type": "timestamp"},
+                {"name": "dispatched_date", "type": "timestamp"},
+                {"name": "dispatcher_id", "type": "int"},
+            ],
             "description": "All repair orders",
             "mode": "published",
             "name": "foo.bar.repair_orders",
@@ -592,13 +592,13 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "repair_order_id": {"type": "int"},
-                "repair_type_id": {"type": "int"},
-                "price": {"type": "float"},
-                "quantity": {"type": "int"},
-                "discount": {"type": "float"},
-            },
+            "columns": [
+                {"name": "repair_order_id", "type": "int"},
+                {"name": "repair_type_id", "type": "int"},
+                {"name": "price", "type": "float"},
+                {"name": "quantity", "type": "int"},
+                {"name": "discount", "type": "float"},
+            ],
             "description": "Details on repair orders",
             "mode": "published",
             "name": "foo.bar.repair_order_details",
@@ -610,11 +610,11 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "repair_type_id": {"type": "int"},
-                "repair_type_name": {"type": "string"},
-                "contractor_id": {"type": "int"},
-            },
+            "columns": [
+                {"name": "repair_type_id", "type": "int"},
+                {"name": "repair_type_name", "type": "string"},
+                {"name": "contractor_id", "type": "int"},
+            ],
             "description": "Information on types of repairs",
             "mode": "published",
             "name": "foo.bar.repair_type",
@@ -626,18 +626,18 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "contractor_id": {"type": "int"},
-                "company_name": {"type": "string"},
-                "contact_name": {"type": "string"},
-                "contact_title": {"type": "string"},
-                "address": {"type": "string"},
-                "city": {"type": "string"},
-                "state": {"type": "string"},
-                "postal_code": {"type": "string"},
-                "country": {"type": "string"},
-                "phone": {"type": "string"},
-            },
+            "columns": [
+                {"name": "contractor_id", "type": "int"},
+                {"name": "company_name", "type": "string"},
+                {"name": "contact_name", "type": "string"},
+                {"name": "contact_title", "type": "string"},
+                {"name": "address", "type": "string"},
+                {"name": "city", "type": "string"},
+                {"name": "state", "type": "string"},
+                {"name": "postal_code", "type": "string"},
+                {"name": "country", "type": "string"},
+                {"name": "phone", "type": "string"},
+            ],
             "description": "Information on contractors",
             "mode": "published",
             "name": "foo.bar.contractors",
@@ -649,10 +649,10 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "municipality_id": {"type": "string"},
-                "municipality_type_id": {"type": "string"},
-            },
+            "columns": [
+                {"name": "municipality_id", "type": "string"},
+                {"name": "municipality_type_id", "type": "string"},
+            ],
             "description": "Lookup table for municipality and municipality types",
             "mode": "published",
             "name": "foo.bar.municipality_municipality_type",
@@ -664,10 +664,10 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "municipality_type_id": {"type": "string"},
-                "municipality_type_desc": {"type": "string"},
-            },
+            "columns": [
+                {"name": "municipality_type_id", "type": "string"},
+                {"name": "municipality_type_desc", "type": "string"},
+            ],
             "description": "Information on municipality types",
             "mode": "published",
             "name": "foo.bar.municipality_type",
@@ -679,14 +679,14 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "municipality_id": {"type": "string"},
-                "contact_name": {"type": "string"},
-                "contact_title": {"type": "string"},
-                "local_region": {"type": "string"},
-                "phone": {"type": "string"},
-                "state_id": {"type": "int"},
-            },
+            "columns": [
+                {"name": "municipality_id", "type": "string"},
+                {"name": "contact_name", "type": "string"},
+                {"name": "contact_title", "type": "string"},
+                {"name": "local_region", "type": "string"},
+                {"name": "phone", "type": "string"},
+                {"name": "state_id", "type": "int"},
+            ],
             "description": "Information on municipalities",
             "mode": "published",
             "name": "foo.bar.municipality",
@@ -698,11 +698,11 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "dispatcher_id": {"type": "int"},
-                "company_name": {"type": "string"},
-                "phone": {"type": "string"},
-            },
+            "columns": [
+                {"name": "dispatcher_id", "type": "int"},
+                {"name": "company_name", "type": "string"},
+                {"name": "phone", "type": "string"},
+            ],
             "description": "Information on dispatchers",
             "mode": "published",
             "name": "foo.bar.dispatchers",
@@ -714,21 +714,21 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "hard_hat_id": {"type": "int"},
-                "last_name": {"type": "string"},
-                "first_name": {"type": "string"},
-                "title": {"type": "string"},
-                "birth_date": {"type": "timestamp"},
-                "hire_date": {"type": "timestamp"},
-                "address": {"type": "string"},
-                "city": {"type": "string"},
-                "state": {"type": "string"},
-                "postal_code": {"type": "string"},
-                "country": {"type": "string"},
-                "manager": {"type": "int"},
-                "contractor_id": {"type": "int"},
-            },
+            "columns": [
+                {"name": "hard_hat_id", "type": "int"},
+                {"name": "last_name", "type": "string"},
+                {"name": "first_name", "type": "string"},
+                {"name": "title", "type": "string"},
+                {"name": "birth_date", "type": "timestamp"},
+                {"name": "hire_date", "type": "timestamp"},
+                {"name": "address", "type": "string"},
+                {"name": "city", "type": "string"},
+                {"name": "state", "type": "string"},
+                {"name": "postal_code", "type": "string"},
+                {"name": "country", "type": "string"},
+                {"name": "manager", "type": "int"},
+                {"name": "contractor_id", "type": "int"},
+            ],
             "description": "Information on employees",
             "mode": "published",
             "name": "foo.bar.hard_hats",
@@ -740,10 +740,10 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "hard_hat_id": {"type": "int"},
-                "state_id": {"type": "string"},
-            },
+            "columns": [
+                {"name": "hard_hat_id", "type": "int"},
+                {"name": "state_id", "type": "string"},
+            ],
             "description": "Lookup table for employee's current state",
             "mode": "published",
             "name": "foo.bar.hard_hat_state",
@@ -755,12 +755,12 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "state_id": {"type": "int"},
-                "state_name": {"type": "string"},
-                "state_abbr": {"type": "string"},
-                "state_region": {"type": "int"},
-            },
+            "columns": [
+                {"name": "state_id", "type": "int"},
+                {"name": "state_name", "type": "string"},
+                {"name": "state_abbr", "type": "string"},
+                {"name": "state_region", "type": "int"},
+            ],
             "description": "Information on different types of repairs",
             "mode": "published",
             "name": "foo.bar.us_states",
@@ -772,10 +772,10 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "us_region_id": {"type": "int"},
-                "us_region_description": {"type": "string"},
-            },
+            "columns": [
+                {"name": "us_region_id", "type": "int"},
+                {"name": "us_region_description", "type": "string"},
+            ],
             "description": "Information on US regions",
             "mode": "published",
             "name": "foo.bar.us_region",
@@ -1087,12 +1087,12 @@ EXAMPLES = (  # type: ignore
     (  # Accounts/Revenue examples begin
         "/nodes/source/",
         {
-            "columns": {
-                "id": {"type": "int"},
-                "account_type_name": {"type": "string"},
-                "account_type_classification": {"type": "int"},
-                "preferred_payment_method": {"type": "int"},
-            },
+            "columns": [
+                {"name": "id", "type": "int"},
+                {"name": "account_type_name", "type": "string"},
+                {"name": "account_type_classification", "type": "int"},
+                {"name": "preferred_payment_method", "type": "int"},
+            ],
             "description": "A source table for account type data",
             "mode": "published",
             "name": "account_type_table",
@@ -1104,11 +1104,11 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "id": {"type": "int"},
-                "payment_type_name": {"type": "string"},
-                "payment_type_classification": {"type": "string"},
-            },
+            "columns": [
+                {"name": "id", "type": "int"},
+                {"name": "payment_type_name", "type": "string"},
+                {"name": "payment_type_classification", "type": "string"},
+            ],
             "description": "A source table for different types of payments",
             "mode": "published",
             "name": "payment_type_table",
@@ -1120,13 +1120,13 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "payment_id": {"type": "int"},
-                "payment_amount": {"type": "float"},
-                "payment_type": {"type": "int"},
-                "customer_id": {"type": "int"},
-                "account_type": {"type": "string"},
-            },
+            "columns": [
+                {"name": "payment_id", "type": "int"},
+                {"name": "payment_amount", "type": "float"},
+                {"name": "payment_type", "type": "int"},
+                {"name": "customer_id", "type": "int"},
+                {"name": "account_type", "type": "string"},
+            ],
             "description": "All repair orders",
             "mode": "published",
             "name": "revenue",
@@ -1218,17 +1218,17 @@ EXAMPLES = (  # type: ignore
         {
             "name": "basic.source.users",
             "description": "A user table",
-            "columns": {
-                "id": {"type": "int"},
-                "full_name": {"type": "string"},
-                "age": {"type": "int"},
-                "country": {"type": "string"},
-                "gender": {"type": "string"},
-                "preferred_language": {"type": "string"},
-                "secret_number": {"type": "float"},
-                "created_at": {"type": "timestamp"},
-                "post_processing_timestamp": {"type": "timestamp"},
-            },
+            "columns": [
+                {"name": "id", "type": "int"},
+                {"name": "full_name", "type": "string"},
+                {"name": "age", "type": "int"},
+                {"name": "country", "type": "string"},
+                {"name": "gender", "type": "string"},
+                {"name": "preferred_language", "type": "string"},
+                {"name": "secret_number", "type": "float"},
+                {"name": "created_at", "type": "timestamp"},
+                {"name": "post_processing_timestamp", "type": "timestamp"},
+            ],
             "mode": "published",
             "catalog": "public",
             "schema_": "basic",
@@ -1254,18 +1254,19 @@ EXAMPLES = (  # type: ignore
         {
             "name": "basic.source.comments",
             "description": "A fact table with comments",
-            "columns": {
-                "id": {"type": "int"},
-                "user_id": {
+            "columns": [
+                {"name": "id", "type": "int"},
+                {
+                    "name": "user_id",
                     "type": "int",
                     "dimension": "basic.dimension.users",
                 },
-                "timestamp": {"type": "timestamp"},
-                "text": {"type": "string"},
-                "event_timestamp": {"type": "timestamp"},
-                "created_at": {"type": "timestamp"},
-                "post_processing_timestamp": {"type": "timestamp"},
-            },
+                {"name": "timestamp", "type": "timestamp"},
+                {"name": "text", "type": "string"},
+                {"name": "event_timestamp", "type": "timestamp"},
+                {"name": "created_at", "type": "timestamp"},
+                {"name": "post_processing_timestamp", "type": "timestamp"},
+            ],
             "mode": "published",
             "catalog": "public",
             "schema_": "basic",
@@ -1319,12 +1320,12 @@ EXAMPLES = (  # type: ignore
         {
             "name": "event_source",
             "description": "Events",
-            "columns": {
-                "event_id": {"type": "int"},
-                "event_latency": {"type": "int"},
-                "device_id": {"type": "int"},
-                "country": {"type": "string"},
-            },
+            "columns": [
+                {"name": "event_id", "type": "int"},
+                {"name": "event_latency", "type": "int"},
+                {"name": "device_id", "type": "int"},
+                {"name": "country", "type": "string"},
+            ],
             "mode": "published",
             "catalog": "default",
             "schema_": "logs",
@@ -1397,11 +1398,11 @@ EXAMPLES = (  # type: ignore
     (  # DBT examples
         "/nodes/source/",
         {
-            "columns": {
-                "id": {"type": "int"},
-                "first_name": {"type": "string"},
-                "last_name": {"type": "string"},
-            },
+            "columns": [
+                {"name": "id", "type": "int"},
+                {"name": "first_name", "type": "string"},
+                {"name": "last_name", "type": "string"},
+            ],
             "description": "Customer table",
             "mode": "published",
             "name": "dbt.source.jaffle_shop.customers",
@@ -1426,16 +1427,17 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "id": {"type": "int"},
-                "user_id": {
+            "columns": [
+                {"name": "id", "type": "int"},
+                {
+                    "name": "user_id",
                     "type": "int",
                     "dimension": "dbt.dimension.customers",
                 },
-                "order_date": {"type": "date"},
-                "status": {"type": "string"},
-                "_etl_loaded_at": {"type": "timestamp"},
-            },
+                {"name": "order_date", "type": "date"},
+                {"name": "status", "type": "string"},
+                {"name": "_etl_loaded_at", "type": "timestamp"},
+            ],
             "description": "Orders fact table",
             "mode": "published",
             "name": "dbt.source.jaffle_shop.orders",
@@ -1447,15 +1449,15 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "id": {"type": "int"},
-                "orderid": {"type": "int"},
-                "paymentmethod": {"type": "string"},
-                "status": {"type": "string"},
-                "amount": {"type": "int"},
-                "created": {"type": "date"},
-                "_batched_at": {"type": "timestamp"},
-            },
+            "columns": [
+                {"name": "id", "type": "int"},
+                {"name": "orderid", "type": "int"},
+                {"name": "paymentmethod", "type": "string"},
+                {"name": "status", "type": "string"},
+                {"name": "amount", "type": "int"},
+                {"name": "created", "type": "date"},
+                {"name": "_batched_at", "type": "timestamp"},
+            ],
             "description": "Payments fact table.",
             "mode": "published",
             "name": "dbt.source.stripe.payments",
@@ -1486,13 +1488,13 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "id": {"type": "int"},
-                "item_name": {"type": "string"},
-                "sold_count": {"type": "int"},
-                "price_per_unit": {"type": "float"},
-                "psp": {"type": "string"},
-            },
+            "columns": [
+                {"name": "id", "type": "int"},
+                {"name": "item_name", "type": "string"},
+                {"name": "sold_count", "type": "int"},
+                {"name": "price_per_unit", "type": "float"},
+                {"name": "psp", "type": "string"},
+            ],
             "description": "A source table for sales",
             "mode": "published",
             "name": "sales",
@@ -1533,13 +1535,14 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "id": {"type": "int"},
-                "painter": {"type": "string"},
-                "colors": {
+            "columns": [
+                {"name": "id", "type": "int"},
+                {"name": "painter", "type": "string"},
+                {
+                    "name": "colors",
                     "type": "map<string, string>",
                 },
-            },
+            ],
             "description": "Murals",
             "mode": "published",
             "name": "basic.murals",
@@ -1551,19 +1554,22 @@ EXAMPLES = (  # type: ignore
     (
         "/nodes/source/",
         {
-            "columns": {
-                "color_id": {"type": "int"},
-                "color_name": {"type": "string"},
-                "opacity": {
+            "columns": [
+                {"name": "color_id", "type": "int"},
+                {"name": "color_name", "type": "string"},
+                {
+                    "name": "opacity",
                     "type": "float",
                 },
-                "luminosity": {
+                {
+                    "name": "luminosity",
                     "type": "float",
                 },
-                "garishness": {
+                {
+                    "name": "garishness",
                     "type": "float",
                 },
-            },
+            ],
             "description": "Patch",
             "mode": "published",
             "name": "basic.patches",

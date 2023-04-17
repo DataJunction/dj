@@ -515,13 +515,81 @@ class MutableNodeQueryField(BaseSQLModel):
     query: str
 
 
-class SourceNodeColumnType(BaseSQLModel):
+class NodeNameOutput(SQLModel):
     """
-    Schema of a column for a table defined in a source node
+    Node name only
     """
 
+    name: str
+
+
+class AttributeTypeName(BaseSQLModel):
+    """
+    Attribute type name.
+    """
+
+    namespace: str
+    name: str
+
+
+class AttributeOutput(BaseSQLModel):
+    """
+    Column attribute output.
+    """
+
+    attribute_type: AttributeTypeName
+
+
+class ColumnOutput(SQLModel):
+    """
+    A simplified column schema, without ID or dimensions.
+    """
+
+    name: str
     type: ColumnType
+    attributes: Optional[List[AttributeOutput]]
+    dimension: Optional[NodeNameOutput]
+
+    class Config:  # pylint: disable=too-few-public-methods
+        """
+        Should perform validation on assignment
+        """
+
+        validate_assignment = True
+
+    @root_validator
+    def type_string(cls, values):  # pylint: disable=no-self-argument
+        """
+        Extracts the type as a string
+        """
+        values["type"] = str(values.get("type"))
+        return values
+
+
+class SourceColumnOutput(SQLModel):
+    """
+    A column used in creation of a source node
+    """
+
+    name: str
+    type: ColumnType
+    attributes: Optional[List[AttributeOutput]]
     dimension: Optional[str]
+
+    class Config:  # pylint: disable=too-few-public-methods
+        """
+        Should perform validation on assignment
+        """
+
+        validate_assignment = True
+
+    @root_validator
+    def type_string(cls, values):  # pylint: disable=no-self-argument
+        """
+        Extracts the type as a string
+        """
+        values["type"] = str(values.get("type"))
+        return values
 
 
 class SourceNodeFields(BaseSQLModel):
@@ -532,7 +600,7 @@ class SourceNodeFields(BaseSQLModel):
     catalog: str
     schema_: str
     table: str
-    columns: Optional[Dict[str, SourceNodeColumnType]]
+    columns: Optional[List["SourceColumnOutput"]] = []
 
 
 class CubeNodeFields(BaseSQLModel):
@@ -631,57 +699,6 @@ class OutputModel(BaseModel):
                     yield key, val
             else:
                 yield dict_key, value
-
-
-class AttributeTypeName(BaseSQLModel):
-    """
-    Attribute type name.
-    """
-
-    namespace: str
-    name: str
-
-
-class AttributeOutput(BaseSQLModel):
-    """
-    Column attribute output.
-    """
-
-    attribute_type: AttributeTypeName
-
-
-class NodeNameOutput(SQLModel):
-    """
-    Node name only
-    """
-
-    name: str
-
-
-class ColumnOutput(SQLModel):
-    """
-    A simplified column schema, without ID or dimensions.
-    """
-
-    name: str
-    type: ColumnType
-    attributes: List[AttributeOutput]
-    dimension: Optional[NodeNameOutput]
-
-    class Config:  # pylint: disable=too-few-public-methods
-        """
-        Should perform validation on assignment
-        """
-
-        validate_assignment = True
-
-    @root_validator
-    def type_string(cls, values):  # pylint: disable=no-self-argument
-        """
-        Extracts the type as a string
-        """
-        values["type"] = str(values.get("type"))
-        return values
 
 
 class TableOutput(SQLModel):
