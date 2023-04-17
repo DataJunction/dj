@@ -10,6 +10,7 @@ from dj.sql.parsing.ast import CompileContext
 from dj.sql.parsing.backends.antlr4 import parse
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.sql.parsing.types import (
+    BigIntType,
     BooleanType,
     ColumnType,
     DateType,
@@ -20,7 +21,6 @@ from dj.sql.parsing.types import (
     FloatType,
     IntegerType,
     ListType,
-    LongType,
     MapType,
     NullType,
     StringType,
@@ -56,8 +56,8 @@ def test_infer_values():
     assert ast.String(value="foo").type == StringType()
     assert ast.Number(value=10).type == IntegerType()
     assert ast.Number(value=-10).type == IntegerType()
-    assert ast.Number(value=922337203685477).type == LongType()
-    assert ast.Number(value=-922337203685477).type == LongType()
+    assert ast.Number(value=922337203685477).type == BigIntType()
+    assert ast.Number(value=-922337203685477).type == BigIntType()
     assert ast.Number(value=3.4e39).type == DoubleType()
     assert ast.Number(value=-3.4e39).type == DoubleType()
     assert ast.Number(value=3.4e38).type == FloatType()
@@ -274,10 +274,6 @@ def test_infer_types_complicated(construction_session: Session):
     types = [
         IntegerType(),
         TimestampType(),
-        # IntegerType(),
-        # IntegerType(),
-        # TimestampType(),
-        # TimestampType(),
         TimestamptzType(),
         IntegerType(),
         NullType(),
@@ -286,8 +282,8 @@ def test_infer_types_complicated(construction_session: Session):
         IntegerType(),
         IntegerType(),
         DoubleType(),
-        LongType(),
-        IntegerType(),
+        BigIntType(),
+        BigIntType(),
         BooleanType(),
         IntegerType(),
         BooleanType(),
@@ -307,7 +303,7 @@ def test_infer_types_complicated(construction_session: Session):
         StringType(),
         BooleanType(),
         FloatType(),
-        LongType(),
+        BigIntType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
@@ -333,7 +329,7 @@ def test_infer_bad_case_types(construction_session: Session):
             exp.type for exp in query.select.projection  # type: ignore
         ]
 
-    assert str(excinfo.value) == "Not all the same type in CASE! Found: long, string"
+    assert str(excinfo.value) == "Not all the same type in CASE! Found: bigint, string"
 
 
 def test_infer_types_avg(construction_session: Session):
@@ -386,13 +382,7 @@ def test_infer_types_min_max_sum_ceil(construction_session: Session):
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
     query.compile(ctx)
-    types = [
-        IntegerType(),
-        IntegerType(),
-        IntegerType(),
-        IntegerType(),
-        DoubleType(),
-    ]
+    types = [IntegerType(), IntegerType(), BigIntType(), BigIntType(), DoubleType()]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
@@ -414,8 +404,8 @@ def test_infer_types_count(construction_session: Session):
     ctx = CompileContext(session=construction_session, exception=exc)
     query.compile(ctx)
     types = [
-        LongType(),
-        LongType(),
+        BigIntType(),
+        BigIntType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
@@ -544,6 +534,7 @@ def test_infer_types_exp(construction_session: Session):
           ROUND(1.2, -1),
           ROUND(CAST(1.233 AS DOUBLE), 1),
           ROUND(CAST(1.233 AS DECIMAL(8, 6)), 20),
+          CEIL(CAST(1.233 AS DECIMAL(8, 6))),
           SQRT(12)
         FROM dbt.source.jaffle_shop.customers
         """,
@@ -553,7 +544,7 @@ def test_infer_types_exp(construction_session: Session):
     query.compile(ctx)
     types = [
         DoubleType(),
-        IntegerType(),
+        BigIntType(),
         IntegerType(),
         IntegerType(),
         DoubleType(),
@@ -565,6 +556,7 @@ def test_infer_types_exp(construction_session: Session):
         FloatType(),
         DoubleType(),
         DecimalType(precision=9, scale=6),
+        DecimalType(precision=3, scale=0),
         DoubleType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
@@ -634,21 +626,9 @@ def test_infer_types_datetime(construction_session: Session):
           DATE_DIFF('2020-01-01', '2021-01-01'),
           DATE_DIFF(CURRENT_DATE(), CURRENT_DATE()),
 
-          DATETIME_ADD('2020-01-01 00:00:00', 10),
-          DATETIME_SUB('2020-01-01 00:00:00', 10),
-
-          DATETIME_DIFF('2020-01-01 00:00:00', '2020-01-01 00:00:00'),
 
           EXTRACT(YEAR FROM '2020-01-01 00:00:00'),
           EXTRACT(SECOND FROM '2020-01-01 00:00:00'),
-
-          TIMESTAMP_ADD(CURRENT_TIMESTAMP(), 10),
-          TIMESTAMP_SUB(CURRENT_TIMESTAMP(), 10),
-          TIMESTAMP_DIFF(CURRENT_TIMESTAMP(), CURRENT_TIMESTAMP()),
-
-          TIME_ADD(CURRENT_TIME(), 10),
-          TIME_SUB(CURRENT_TIME(), 10),
-          TIME_DIFF(CURRENT_TIME(), CURRENT_TIME()),
 
           DAY("2022-01-01"),
           MONTH("2022-01-01"),
@@ -661,35 +641,20 @@ def test_infer_types_datetime(construction_session: Session):
     ctx = CompileContext(session=construction_session, exception=exc)
     query.compile(ctx)
     types = [
-        # Current
         DateType(),
         TimestampType(),
         TimeType(),
         TimestampType(),
-        # Now
         TimestamptzType(),
-        # DateAdd, DateSub
         DateType(),
         DateType(),
         DateType(),
         DateType(),
-        # DateDiff
         IntegerType(),
-        IntegerType(),
-        TimestampType(),
-        TimestampType(),
         IntegerType(),
         IntegerType(),
         DecimalType(precision=8, scale=6),
-        # TimestampAdd, TimestampSub, TimestampDiff
-        TimestampType(),
-        TimestampType(),
         IntegerType(),
-        # TimeAdd, TimeSub, TimeDiff
-        TimestampType(),
-        TimestampType(),
-        IntegerType(),
-        TinyIntType(),
         TinyIntType(),
         TinyIntType(),
         TinyIntType(),

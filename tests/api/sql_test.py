@@ -45,7 +45,7 @@ def test_sql(
     response = client.get("/sql/a-metric/")
     assert response.json() == {
         "sql": "SELECT  COUNT(*) col0 \n FROM rev.my_table AS my_table\n",
-        "columns": [{"name": "col0", "type": "long"}],
+        "columns": [{"name": "col0", "type": "bigint"}],
         "dialect": None,
     }
 
