@@ -190,7 +190,7 @@ class TestDataForNode:
             "results": [
                 {
                     "sql": "",
-                    "columns": [{"name": "cnt", "type": "long"}],
+                    "columns": [{"name": "cnt", "type": "bigint"}],
                     "rows": [[1]],
                     "row_count": 0,
                 },
