@@ -1,7 +1,7 @@
+# pylint: disable=too-many-lines
 """
 Tests for the nodes API.
 """
-# pylint: disable=too-many-lines
 from typing import Any, Dict
 
 import pytest
@@ -12,27 +12,6 @@ from dj.models import Database, Table
 from dj.models.column import Column
 from dj.models.node import Node, NodeRevision, NodeStatus, NodeType
 from dj.sql.parsing.types import IntegerType, StringType, TimestampType
-
-
-def test_list_all_namespaces(client_with_examples: TestClient) -> None:
-    """
-    Test ``GET /namespaces/all/``.
-    """
-    response = client_with_examples.get("/namespaces/all")
-    assert response.ok
-    assert response.json() == [
-        {"namespace": "default"},
-        {"namespace": "foo.bar"},
-        {"namespace": "basic"},
-        {"namespace": "basic.source"},
-        {"namespace": "basic.transform"},
-        {"namespace": "basic.dimension"},
-        {"namespace": "dbt.source"},
-        {"namespace": "dbt.source.jaffle_shop"},
-        {"namespace": "dbt.transform"},
-        {"namespace": "dbt.dimension"},
-        {"namespace": "dbt.source.stripe"},
-    ]
 
 
 def test_read_node(client_with_examples: TestClient) -> None:

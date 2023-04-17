@@ -3,7 +3,7 @@ import pandas as pd
 import pytest
 import responses
 
-from djclient import DJClient, Metric, Source, Transform
+from djclient import DJClient, Metric, Namespace, Source, Transform
 from djclient.exceptions import DJClientException
 
 
@@ -46,10 +46,52 @@ class TestDJClient:
             },
         ]
         responses.add(
-            responses.GET, "http://localhost:8000/namespaces/all/", json=expected,
+            responses.GET,
+            "http://localhost:8000/namespaces/",
+            json=expected,
         )
         result = client.namespaces()
         assert result == expected
+
+    @responses.activate
+    def test_nodes_in_namespace(self):
+        """
+        Check that `client.get_nodes_in_namespace()` works as expected.
+        """
+        expected = [
+            {"name": "basic.example", "type": "source"},
+            {"name": "basic.example_dimension", "type": "dimension"},
+            {"name": "basic.example_metric", "type": "metric"},
+            {"name": "basic.example_transform", "type": "transform"},
+            {"name": "basic.example_cube", "type": "cube"},
+        ]
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/namespaces/basic/",
+            json=expected,
+        )
+        assert Namespace(namespace="basic").nodes(names_only=True) == [
+            "basic.example",
+            "basic.example_dimension",
+            "basic.example_metric",
+            "basic.example_transform",
+            "basic.example_cube",
+        ]
+        assert Namespace(namespace="basic").sources(names_only=True) == [
+            "basic.example",
+        ]
+        assert Namespace(namespace="basic").dimensions(names_only=True) == [
+            "basic.example_dimension",
+        ]
+        assert Namespace(namespace="basic").metrics(names_only=True) == [
+            "basic.example_metric",
+        ]
+        assert Namespace(namespace="basic").transforms(names_only=True) == [
+            "basic.example_transform",
+        ]
+        assert Namespace(namespace="basic").cubes(names_only=True) == [
+            "basic.example_cube",
+        ]
 
     @responses.activate
     def test_catalogs(self, client):
@@ -224,6 +266,24 @@ class TestDJClient:
         )
         result = metric.sql(dimensions=[], filters=[])
         assert result == expected["sql"]
+
+    @responses.activate
+    def test_sql_failed(self, client):  # pylint: disable=unused-argument
+        """
+        Check that `client.engines()` works as expected.
+        """
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/sql/apple_count/",
+            json={"message": "Metric not found"},
+            status=404,
+        )
+        metric = Metric(
+            name="apple_count",
+            query="SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
+        )
+        result = metric.sql(dimensions=[], filters=[])
+        assert result == {"message": "Metric not found"}
 
     @responses.activate
     def test_data(self, client):  # pylint: disable=unused-argument
