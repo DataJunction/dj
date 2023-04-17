@@ -113,6 +113,8 @@ class ColumnType(BaseModel):
         Returns whether the two types are compatible with each other by
         checking their ancestors.
         """
+        if self == other:
+            return True  # quick return
 
         def has_common_ancestor(type1, type2) -> bool:
             """
@@ -429,7 +431,7 @@ class MapType(ColumnType):
         key_type: ColumnType,
         value_type: ColumnType,
     ):
-        
+
         if not self._initialized:
             super().__init__(
                 f"map<{key_type}, {value_type}>",
@@ -475,6 +477,15 @@ class BooleanType(PrimitiveType, Singleton):
 
 class IntegerBase(NumberType, Singleton):
     """Base class for all integer types"""
+
+    max: ClassVar[int]
+    min: ClassVar[int]
+
+    def check_bounds(self, value: int) -> bool:
+        """
+        Check whether a value fits within the Integer min and max
+        """
+        return self.__class__.min < value < self.__class__.max
 
 
 class IntegerType(IntegerBase):
@@ -571,14 +582,15 @@ class BigIntType(IntegerBase):
 
     def __init__(self):
         super().__init__("bigint", "BigIntType()")
-        
-class LongType(BigIntType):
+
+
+class LongType(BigIntType):  # pylint: disable=R0901
     """A Long data type can be represented using an instance of this class. Longs are
     64-bit signed integers.
 
     Example:
         >>> column_foo = LongType()
-        >>> isinstance(column_foo, LongType)
+        >>> column_foo == LongType()
         True
 
     Attributes:
@@ -589,10 +601,12 @@ class LongType(BigIntType):
         canonical Column implementation
           in Java (returns `-9223372036854775808`)
     """
+
     def __new__(cls, *args, **kwargs):
         self = super().__new__(BigIntType, *args, **kwargs)
         super(BigIntType, self).__init__("long", "LongType()")
         return self
+
 
 class FloatingBase(NumberType, Singleton):
     """Base class for all floating types"""

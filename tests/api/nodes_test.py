@@ -549,7 +549,12 @@ class TestCreateOrUpdateNodes:
         )
         assert data["columns"] == [
             {"name": "country", "type": "string", "attributes": [], "dimension": None},
-            {"name": "num_users", "type": "bigint", "attributes": [], "dimension": None},
+            {
+                "name": "num_users",
+                "type": "bigint",
+                "attributes": [],
+                "dimension": None,
+            },
         ]
         assert data["parents"] == [{"name": "basic.source.users"}]
 
@@ -601,7 +606,12 @@ class TestCreateOrUpdateNodes:
         )
         assert data["columns"] == [
             {"name": "country", "type": "string", "attributes": [], "dimension": None},
-            {"name": "num_users", "type": "bigint", "attributes": [], "dimension": None},
+            {
+                "name": "num_users",
+                "type": "bigint",
+                "attributes": [],
+                "dimension": None,
+            },
             {
                 "name": "num_entries",
                 "type": "bigint",

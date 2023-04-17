@@ -271,7 +271,40 @@ def test_infer_types_complicated(construction_session: Session):
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
     query.compile(ctx)
-    types = [IntegerType(), TimestampType(), TimestamptzType(), IntegerType(), NullType(), NullType(), IntegerType(), IntegerType(), IntegerType(), DoubleType(), BigIntType(), BigIntType(), BooleanType(), IntegerType(), BooleanType(), BooleanType(), BooleanType(), BooleanType(), BooleanType(), BooleanType(), BooleanType(), BooleanType(), BooleanType(), BooleanType(), BooleanType(), StringType(), StringType(), BooleanType(), StringType(), BooleanType(), FloatType(), BigIntType()]
+    types = [
+        IntegerType(),
+        TimestampType(),
+        TimestamptzType(),
+        IntegerType(),
+        NullType(),
+        NullType(),
+        IntegerType(),
+        IntegerType(),
+        IntegerType(),
+        DoubleType(),
+        BigIntType(),
+        BigIntType(),
+        BooleanType(),
+        IntegerType(),
+        BooleanType(),
+        BooleanType(),
+        BooleanType(),
+        BooleanType(),
+        BooleanType(),
+        BooleanType(),
+        BooleanType(),
+        BooleanType(),
+        BooleanType(),
+        BooleanType(),
+        BooleanType(),
+        StringType(),
+        StringType(),
+        BooleanType(),
+        StringType(),
+        BooleanType(),
+        FloatType(),
+        BigIntType(),
+    ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
@@ -509,7 +542,23 @@ def test_infer_types_exp(construction_session: Session):
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
     query.compile(ctx)
-    types = [DoubleType(), BigIntType(), IntegerType(), IntegerType(), DoubleType(), DoubleType(), DoubleType(), DoubleType(), DoubleType(), FloatType(), FloatType(), DoubleType(), DecimalType(precision=9, scale=6), DoubleType()]
+    types = [
+        DoubleType(),
+        BigIntType(),
+        IntegerType(),
+        IntegerType(),
+        DoubleType(),
+        DoubleType(),
+        DoubleType(),
+        DoubleType(),
+        DoubleType(),
+        FloatType(),
+        FloatType(),
+        DoubleType(),
+        DecimalType(precision=9, scale=6),
+        DecimalType(precision=3, scale=0),
+        DoubleType(),
+    ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
 
 
@@ -591,5 +640,23 @@ def test_infer_types_datetime(construction_session: Session):
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
     query.compile(ctx)
-    types = [DateType(), TimestampType(), TimeType(), TimestampType(), TimestamptzType(), DateType(), DateType(), DateType(), DateType(), IntegerType(), IntegerType(), IntegerType(), DecimalType(precision=8, scale=6), IntegerType(), TinyIntType(), TinyIntType(), TinyIntType()]
+    types = [
+        DateType(),
+        TimestampType(),
+        TimeType(),
+        TimestampType(),
+        TimestamptzType(),
+        DateType(),
+        DateType(),
+        DateType(),
+        DateType(),
+        IntegerType(),
+        IntegerType(),
+        IntegerType(),
+        DecimalType(precision=8, scale=6),
+        IntegerType(),
+        TinyIntType(),
+        TinyIntType(),
+        TinyIntType(),
+    ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore

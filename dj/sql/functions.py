@@ -52,20 +52,19 @@ def compare_registers(types, register) -> bool:
     """
     Comparing registers
     """
-    saved_a = None
-    for ((_, register_a), (type_b, register_b)) in zip_longest(
+    for ((type_a, register_a), (type_b, register_b)) in zip_longest(
         types,
         register,
-        fillvalue=register[-1],
+        fillvalue=(-1, None),
     ):
-        if register_a is None:
-            if type_b != -1:  # pragma: no cover
+        if type_b == -1 and register_b is None:
+            if register[-1][0] == -1:  # args
+                register_b = register[-1][1]
+            else:
                 return False  # pragma: no cover
-        else:
-            saved_a = register_a
-        if register_b is None:
-            return False  # pragma: no cover
-        if not issubclass(saved_a, register_b):  # type: ignore
+        if type_a == -1:
+            register_a = type(register_a)
+        if not issubclass(register_a, register_b):  # type: ignore
             return False
     return True
 
@@ -190,9 +189,7 @@ class Avg(Function):  # pylint: disable=abstract-method
 def infer_type(
     arg: ct.DecimalType,
 ) -> ct.DecimalType:  # noqa: F811  # pylint: disable=function-redefined
-    type_ = arg
-    if hasattr(arg, "type") and isinstance(arg.type, ct.DecimalType):
-        type_ = arg.type
+    type_ = arg.type
     return ct.DecimalType(type_.precision + 4, type_.scale + 4)
 
 
@@ -205,7 +202,7 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
 
 @Avg.register  # type: ignore
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
-    arg: ct.ColumnType,
+    arg: ct.NumberType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
 
@@ -283,54 +280,55 @@ class Ceil(Function):  # pylint: disable=abstract-method
     Computes the smallest integer greater than or equal to the input value.
     """
 
-@Ceil.register  # type: ignore
+
+@Ceil.register
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    args: ct.NumberType,
+    _target_scale: ct.IntegerType,
+) -> ct.DecimalType:
+    target_scale = _target_scale.value
+    if isinstance(args.type, ct.DecimalType):
+        precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
+        scale = min(args.type.scale, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    if args.type == ct.TinyIntType():
+        precision = max(3, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    if args.type == ct.SmallIntType():
+        precision = max(5, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    if args.type == ct.IntegerType():
+        precision = max(10, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    if args.type == ct.BigIntType():
+        precision = max(20, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    if args.type == ct.FloatType():
+        precision = max(14, -target_scale + 1)
+        scale = min(7, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    if args.type == ct.DoubleType():
+        precision = max(30, -target_scale + 1)
+        scale = min(15, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+
+    raise DJParseException(
+        f"Unhandled numeric type in Ceil `{args.type}`",
+    )  # pragma: no cover
+
+
+@Ceil.register
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     args: ct.DecimalType,
 ) -> ct.DecimalType:
     return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
 
 
-@Ceil.register  # type: ignore
+@Ceil.register
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     args: ct.NumberType,
 ) -> ct.BigIntType:
     return ct.BigIntType()
-
-@Ceil.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
-    args: ct.NumberType,
-    _target_scale: ct.IntegerType,
-) -> ct.DecimalType:
-    target_scale = _target_scale.value
-    if isinstance(args.type, ct.DecimalType):  # pylint: disable=R1705
-        precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
-        scale = min(args.type.scale, max(0, target_scale))
-        return ct.DecimalType(precision, scale)
-    elif args.type == ct.TinyIntType():
-        precision = max(3, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    elif args.type == ct.SmallIntType():
-        precision = max(5, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    elif args.type == ct.IntegerType():
-        precision = max(10, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    elif args.type == ct.BigIntType():
-        precision = max(20, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    elif args.type == ct.FloatType():
-        precision = max(14, -target_scale + 1)
-        scale = min(7, max(0, target_scale))
-        return ct.DecimalType(precision, scale)
-    elif args.type == ct.DoubleType():
-        precision = max(30, -target_scale + 1)
-        scale = min(15, max(0, target_scale))
-        return ct.DecimalType(precision, scale)
-    else:
-        raise DJParseException(f"Unhandled numeric type in Ceil `{args.type}`")
-
-
-
 
 
 class Count(Function):  # pylint: disable=abstract-method
@@ -536,7 +534,6 @@ class Extract(Function):
         return ct.IntegerType()
 
 
-
 class ToDate(Function):  # pragma: no cover # pylint: disable=abstract-method
     """
     Converts a date string to a date value.
@@ -546,7 +543,7 @@ class ToDate(Function):  # pragma: no cover # pylint: disable=abstract-method
 @ToDate.register  # type: ignore
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     expr: ct.StringType,
-    fmt: Optional[ct.StringType],
+    fmt: Optional[ct.StringType] = None,
 ) -> ct.DateType:
     return ct.DateType()
 
@@ -582,6 +579,7 @@ class Floor(Function):  # pylint: disable=abstract-method
     Returns the largest integer less than or equal to a specified number.
     """
 
+
 @Floor.register  # type: ignore
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     args: ct.DecimalType,
@@ -595,6 +593,7 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
 ) -> ct.BigIntType:
     return ct.BigIntType()
 
+
 @Floor.register  # type: ignore
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     args: ct.NumberType,
@@ -602,34 +601,33 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
 ) -> ct.DecimalType:
     target_scale = _target_scale.value
     if isinstance(args.type, ct.DecimalType):  # pylint: disable=R1705
-        precision = max(args.type.precision - args.scale + 1, -target_scale + 1)
+        precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
         scale = min(args.type.scale, max(0, target_scale))
         return ct.DecimalType(precision, scale)
-    elif args.type == ct.TinyIntType():
+    if args.type == ct.TinyIntType():
         precision = max(3, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    elif args.type == ct.SmallIntType():
+    if args.type == ct.SmallIntType():
         precision = max(5, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    elif args.type == ct.IntegerType():
+    if args.type == ct.IntegerType():
         precision = max(10, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    elif args.type == ct.BigIntType():
+    if args.type == ct.BigIntType():
         precision = max(20, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    elif args.type == ct.FloatType():
+    if args.type == ct.FloatType():
         precision = max(14, -target_scale + 1)
         scale = min(7, max(0, target_scale))
         return ct.DecimalType(precision, scale)
-    elif args.type == ct.DoubleType():
+    if args.type == ct.DoubleType():
         precision = max(30, -target_scale + 1)
         scale = min(15, max(0, target_scale))
         return ct.DecimalType(precision, scale)
-    else:
-        raise DJParseException(f"Unhandled numeric type in Floor `{args.type}`")
 
-
-
+    raise DJParseException(
+        f"Unhandled numeric type in Floor `{args.type}`",
+    )  # pragma: no cover
 
 
 class IfNull(Function):

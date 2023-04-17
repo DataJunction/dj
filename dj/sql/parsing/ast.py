@@ -37,14 +37,15 @@ from dj.models.node import NodeType as DJNodeType
 from dj.sql.functions import function_registry, table_function_registry
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.sql.parsing.types import (
+    BigIntType,
     BooleanType,
     ColumnType,
     DayTimeIntervalType,
     DecimalType,
     DoubleType,
     FloatType,
+    IntegerBase,
     IntegerType,
-    BigIntType,
     MapType,
     NestedField,
     NullType,
@@ -1391,6 +1392,7 @@ class Number(Value):
     """
 
     value: Union[float, int, decimal.Decimal]
+    _type: Optional[IntegerBase] = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -1421,9 +1423,14 @@ class Number(Value):
         """
         # We won't assume that anyone wants SHORT by default
         if isinstance(self.value, int):
-            if self.value <= IntegerType.min or self.value >= IntegerType.max:
-                return BigIntType()
-            return IntegerType()
+            check_types = (self._type,) if self._type else (IntegerType(), BigIntType())
+            for integer_type in check_types:
+                if integer_type.check_bounds(self.value):
+                    return integer_type
+
+            raise DJParseException(
+                f"No Integer type of {check_types} can hold the value {self.value}.",
+            )
         #
         # # Arbitrary-precision floating point
         # if isinstance(self.value, decimal.Decimal):
