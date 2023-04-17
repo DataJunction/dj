@@ -24,6 +24,7 @@ from dj.api import (
     engines,
     health,
     metrics,
+    namespaces,
     nodes,
     query,
     sql,
@@ -74,6 +75,7 @@ def get_dj_app(
     application.include_router(metrics.router)
     application.include_router(query.router)
     application.include_router(nodes.router)
+    application.include_router(namespaces.router)
     application.include_router(data.router)
     application.include_router(health.router)
     application.include_router(cubes.router)

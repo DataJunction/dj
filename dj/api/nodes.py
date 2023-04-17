@@ -45,7 +45,6 @@ from dj.models.node import (
     MissingParent,
     Node,
     NodeMode,
-    NodeNamespace,
     NodeOutput,
     NodeRevision,
     NodeRevisionBase,
@@ -520,6 +519,15 @@ def create_a_source(
     will be inferred using the configured query service.
     """
     raise_if_node_exists(session, data.name)
+
+    # Extract and assign namespace if one exists
+    namespace = get_namespace_from_name(data.name)
+    get_node_namespace(
+        session=session,
+        namespace=namespace,
+    )  # Will return 404 if namespace doesn't exist
+    data.namespace = namespace
+
     node = Node(
         name=data.name,
         namespace=data.namespace,
@@ -527,13 +535,6 @@ def create_a_source(
         current_version=0,
     )
     catalog = get_catalog(session=session, name=data.catalog)
-
-    namespace = get_namespace_from_name(data.name)
-    get_node_namespace(
-        session=session,
-        namespace=namespace,
-    )  # Will return 404 if namespace doesn't exist
-    data.namespace = namespace
 
     # When no columns are provided, attempt to find actual table columns
     # if a query service is set
@@ -588,72 +589,6 @@ def create_a_source(
     # Point the node to the new node revision.
     save_node(session, node_revision, node, data.mode)
     return node  # type: ignore
-
-
-@router.post("/namespaces/{namespace}/", status_code=201)
-def create_a_node_namespace(
-    namespace: str,
-    session: Session = Depends(get_session),
-) -> JSONResponse:
-    """
-    Create a node namespace
-    """
-    if get_node_namespace(
-        session=session,
-        namespace=namespace,
-        raise_if_not_exists=False,
-    ):  # pragma: no cover
-        return JSONResponse(
-            status_code=409,
-            content={
-                "message": (f"Node namespace `{namespace}` already exists"),
-            },
-        )
-    node_namespace = NodeNamespace(namespace=namespace)
-    session.add(node_namespace)
-    session.commit()
-    return JSONResponse(
-        status_code=201,
-        content={
-            "message": (f"Node namespace `{namespace}` has been successfully created"),
-        },
-    )
-
-
-@router.get(
-    "/namespaces/",
-    response_model=List[NodeNamespace],
-    status_code=200,
-)
-def list_node_namespaces(
-    session: Session = Depends(get_session),
-) -> List[NodeNamespace]:
-    """
-    List node namespaces
-    """
-    namespaces = session.exec(select(NodeNamespace)).all()
-    return namespaces
-
-
-@router.get(
-    "/namespaces/{namespace}/",
-    response_model=List[NodeOutput],
-    status_code=200,
-)
-def list_nodes_in_namespace(
-    namespace: str,
-    session: Session = Depends(get_session),
-) -> List[NodeOutput]:
-    """
-    List nodes in namespace
-    """
-    nodes = (
-        session.exec(
-            select(Node).options(joinedload(Node.current))
-            .where(Node.namespace.like(f"{namespace}%"))
-        ).unique().all()
-    )
-    return nodes  # type: ignore
 
 
 @router.post("/nodes/transform/", response_model=NodeOutput, status_code=201)
