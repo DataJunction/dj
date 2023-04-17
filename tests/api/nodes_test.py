@@ -1,7 +1,7 @@
+# pylint: disable=too-many-lines
 """
 Tests for the nodes API.
 """
-# pylint: disable=too-many-lines
 from typing import Any, Dict
 
 import pytest
