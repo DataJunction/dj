@@ -79,7 +79,7 @@ a `POST` request to the columns. For example, let's assume you have a `hard_hats
 employee information. The state in which the employee works is stored in a separate lookup table
 that includes a mapping of `hard_hat_id` to `state_id`.
 
-{{< dbdiagram "642e4e6b5758ac5f1727221e" >}}
+{{< excalidraw connecting_a_dimension >}}
 
 This connection in DJ can be added using the following request.
 {{< tabs "connecting dimension" >}}

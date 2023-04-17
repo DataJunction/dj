@@ -1,0 +1,32 @@
+<div class="container">
+    <div id={{ .Get 0 }}></div>
+</div>
+<script>
+    fetch("/excalidraw-drawings/{{ .Get 0 }}.excalidraw")
+    .then(response => response.json())
+    .then(initialData => {
+    const {{ .Get 0 | safeJS }}App = () => {
+        return React.createElement(
+            React.Fragment,
+            null,
+            React.createElement(
+            "div",
+            {
+                style: { height: "500px" },
+            },
+            React.createElement(ExcalidrawLib.Excalidraw, {
+                    name: {{ .Get 0 }},
+                    initialData: initialData,
+                    zenModeEnabled: true,
+                    gridModeEnabled: false,
+                    viewModeEnabled: true,
+                }
+            ),
+            ),
+        );
+    };
+    
+    const {{ .Get 0 | safeJS }} = ReactDOM.createRoot(document.getElementById({{ .Get 0 }}));
+    {{ .Get 0 | safeJS }}.render(React.createElement({{ .Get 0 | safeJS }}App));
+    });
+</script>
