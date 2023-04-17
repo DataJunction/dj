@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev763+gdf7a15b.d20230411"
+        "version": "0.0.post1.dev792+g76f08b5.d20230417"
     },
     "paths": {
         "/catalogs/": {
@@ -802,6 +802,67 @@
                 }
             }
         },
+        "/namespaces/{namespace}/": {
+            "post": {
+                "summary": "Create A Node Namespace",
+                "description": "Create a node namespace",
+                "operationId": "create_a_node_namespace_namespaces__namespace___post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Namespace",
+                            "type": "string"
+                        },
+                        "name": "namespace",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/namespaces/all/": {
+            "get": {
+                "summary": "List Node Namespaces",
+                "description": "List node namespaces",
+                "operationId": "list_node_namespaces_namespaces_all__get",
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response List Node Namespaces Namespaces All  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/NodeNamespace"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/nodes/metric/": {
             "post": {
                 "summary": "Create A Node",
@@ -1267,6 +1328,24 @@
                         },
                         "name": "async_",
                         "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Engine Name",
+                            "type": "string"
+                        },
+                        "name": "engine_name",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Engine Version",
+                            "type": "string"
+                        },
+                        "name": "engine_version",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -1675,6 +1754,24 @@
                         },
                         "name": "filters",
                         "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Engine Name",
+                            "type": "string"
+                        },
+                        "name": "engine_name",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Engine Version",
+                            "type": "string"
+                        },
+                        "name": "engine_version",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -2012,8 +2109,7 @@
                 "title": "ColumnOutput",
                 "required": [
                     "name",
-                    "type",
-                    "attributes"
+                    "type"
                 ],
                 "type": "object",
                 "properties": {
@@ -2074,6 +2170,11 @@
                     "name": {
                         "title": "Name",
                         "type": "string"
+                    },
+                    "namespace": {
+                        "title": "Namespace",
+                        "type": "string",
+                        "default": "default"
                     }
                 },
                 "additionalProperties": false,
@@ -2104,9 +2205,21 @@
                     "mode": {
                         "$ref": "#/components/schemas/NodeMode"
                     },
+                    "primary_key": {
+                        "title": "Primary Key",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "name": {
                         "title": "Name",
                         "type": "string"
+                    },
+                    "namespace": {
+                        "title": "Namespace",
+                        "type": "string",
+                        "default": "default"
                     }
                 },
                 "description": "Create non-source node object."
@@ -2137,10 +2250,11 @@
                     },
                     "columns": {
                         "title": "Columns",
-                        "type": "object",
-                        "additionalProperties": {
-                            "$ref": "#/components/schemas/SourceNodeColumnType"
-                        }
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SourceColumnOutput"
+                        },
+                        "default": []
                     },
                     "display_name": {
                         "title": "Display Name",
@@ -2153,9 +2267,21 @@
                     "mode": {
                         "$ref": "#/components/schemas/NodeMode"
                     },
+                    "primary_key": {
+                        "title": "Primary Key",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
                     "name": {
                         "title": "Name",
                         "type": "string"
+                    },
+                    "namespace": {
+                        "title": "Namespace",
+                        "type": "string",
+                        "default": "default"
                     }
                 },
                 "description": "A create object for source nodes"
@@ -2277,6 +2403,15 @@
                 },
                 "description": "Metadata for a cube node"
             },
+            "Dialect": {
+                "title": "Dialect",
+                "enum": [
+                    "spark",
+                    "trino"
+                ],
+                "type": "string",
+                "description": "SQL dialect"
+            },
             "EngineInfo": {
                 "title": "EngineInfo",
                 "required": [
@@ -2296,6 +2431,9 @@
                     "uri": {
                         "title": "Uri",
                         "type": "string"
+                    },
+                    "dialect": {
+                        "$ref": "#/components/schemas/Dialect"
                     }
                 },
                 "description": "Class for engine creation"
@@ -2471,14 +2609,33 @@
                 },
                 "description": "Node name only"
             },
+            "NodeNamespace": {
+                "title": "NodeNamespace",
+                "required": [
+                    "namespace"
+                ],
+                "type": "object",
+                "properties": {
+                    "namespace": {
+                        "title": "Namespace",
+                        "type": "string"
+                    }
+                },
+                "description": "A node namespace"
+            },
             "NodeOutput": {
                 "title": "NodeOutput",
                 "required": [
+                    "namespace",
                     "current",
                     "created_at"
                 ],
                 "type": "object",
                 "properties": {
+                    "namespace": {
+                        "title": "Namespace",
+                        "type": "string"
+                    },
                     "current": {
                         "title": "Current",
                         "allOf": [
@@ -2778,22 +2935,34 @@
                 },
                 "description": "A validation of a provided node definition"
             },
-            "SourceNodeColumnType": {
-                "title": "SourceNodeColumnType",
+            "SourceColumnOutput": {
+                "title": "SourceColumnOutput",
                 "required": [
+                    "name",
                     "type"
                 ],
                 "type": "object",
                 "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
                     "type": {
                         "$ref": "#/components/schemas/ColumnType"
+                    },
+                    "attributes": {
+                        "title": "Attributes",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/AttributeOutput"
+                        }
                     },
                     "dimension": {
                         "title": "Dimension",
                         "type": "string"
                     }
                 },
-                "description": "Schema of a column for a table defined in a source node"
+                "description": "A column used in creation of a source node"
             },
             "Tag": {
                 "title": "Tag",
@@ -2882,6 +3051,9 @@
                         "items": {
                             "$ref": "#/components/schemas/ColumnMetadata"
                         }
+                    },
+                    "dialect": {
+                        "$ref": "#/components/schemas/Dialect"
                     }
                 },
                 "description": "Class for SQL generated from a given metric."
@@ -2913,9 +3085,9 @@
                     },
                     "columns": {
                         "title": "Columns",
-                        "type": "object",
-                        "additionalProperties": {
-                            "$ref": "#/components/schemas/SourceNodeColumnType"
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SourceColumnOutput"
                         }
                     },
                     "display_name": {
@@ -2928,6 +3100,13 @@
                     },
                     "mode": {
                         "$ref": "#/components/schemas/NodeMode"
+                    },
+                    "primary_key": {
+                        "title": "Primary Key",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     },
                     "query": {
                         "title": "Query",

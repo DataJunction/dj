@@ -290,7 +290,7 @@ class TestCreateOrUpdateNodes:
         basic_source_comments = {
             "name": "comments",
             "description": "A fact table with comments",
-            "columns": {},
+            "columns": [],
             "mode": "published",
             "catalog": "public",
             "schema_": "basic",
@@ -321,7 +321,7 @@ class TestCreateOrUpdateNodes:
         basic_source_comments = {
             "name": "comments",
             "description": "A fact table with comments",
-            "columns": {},
+            "columns": [],
             "mode": "published",
             "catalog": "public",
             "schema_": "basic",
@@ -367,12 +367,16 @@ class TestCreateOrUpdateNodes:
         basic_source_comments = {
             "name": "basic.source.comments",
             "description": "A fact table with comments",
-            "columns": {
-                "id": {"type": "int"},
-                "user_id": {"type": "int", "dimension": "basic.dimension.users"},
-                "timestamp": {"type": "timestamp"},
-                "text": {"type": "string"},
-            },
+            "columns": [
+                {"name": "id", "type": "int"},
+                {
+                    "name": "user_id",
+                    "type": "int",
+                    "dimension": "basic.dimension.users",
+                },
+                {"name": "timestamp", "type": "timestamp"},
+                {"name": "text", "type": "string"},
+            ],
             "mode": "published",
             "catalog": "public",
             "schema_": "basic",
@@ -419,12 +423,16 @@ class TestCreateOrUpdateNodes:
         response = client_with_examples.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={
-                "columns": {
-                    "id": {"type": "int"},
-                    "user_id": {"type": "int", "dimension": "basic.dimension.users"},
-                    "timestamp": {"type": "timestamp"},
-                    "text_v2": {"type": "string"},
-                },
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {
+                        "name": "user_id",
+                        "type": "int",
+                        "dimension": "basic.dimension.users",
+                    },
+                    {"name": "timestamp", "type": "timestamp"},
+                    {"name": "text_v2", "type": "string"},
+                ],
             },
         )
         data = response.json()
@@ -469,12 +477,16 @@ class TestCreateOrUpdateNodes:
             json={
                 "name": "basic.source.comments",
                 "description": "A fact table with comments",
-                "columns": {
-                    "id": {"type": "int"},
-                    "user_id": {"type": "int", "dimension": "basic.dimension.users"},
-                    "timestamp": {"type": "timestamp"},
-                    "text": {"type": "string"},
-                },
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {
+                        "name": "user_id",
+                        "type": "int",
+                        "dimension": "basic.dimension.users",
+                    },
+                    {"name": "timestamp", "type": "timestamp"},
+                    {"name": "text", "type": "string"},
+                ],
                 "mode": "published",
             },
         )
@@ -959,13 +971,17 @@ class TestNodeColumnsAttributes:
             "name": "comments",
             "description": "A fact table with comments",
             "type": "source",
-            "columns": {
-                "id": {"type": "int"},
-                "user_id": {"type": "int", "dimension": "basic.dimension.users"},
-                "event_timestamp": {"type": "timestamp"},
-                "post_processing_timestamp": {"type": "timestamp"},
-                "text": {"type": "string"},
-            },
+            "columns": [
+                {"name": "id", "type": "int"},
+                {
+                    "name": "user_id",
+                    "type": "int",
+                    "dimension": "basic.dimension.users",
+                },
+                {"name": "event_timestamp", "type": "timestamp"},
+                {"name": "post_processing_timestamp", "type": "timestamp"},
+                {"name": "text", "type": "string"},
+            ],
             "mode": "published",
         }
 
@@ -1713,12 +1729,12 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     missing_parent_node = {
         "name": "comments",
         "description": "A fact table with comments",
-        "columns": {
-            "id": {"type": "int"},
-            "user_id": {"type": "int"},
-            "timestamp": {"type": "timestamp"},
-            "text": {"type": "string"},
-        },
+        "columns": [
+            {"name": "id", "type": "int"},
+            {"name": "user_id", "type": "int"},
+            {"name": "timestamp", "type": "timestamp"},
+            {"name": "text", "type": "string"},
+        ],
         "mode": "published",
         "catalog": "public",
         "schema_": "basic",
