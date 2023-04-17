@@ -118,7 +118,11 @@ class DJClient:
         it will return a list of node names.
         """
         response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(response.json(), type_="source", names_only=names_only)
+        return self._nodes_by_type(
+            response.json(),
+            type_="source",
+            names_only=names_only,
+        )
 
     def dimensions(self, names_only: bool = False):
         """
@@ -126,7 +130,11 @@ class DJClient:
         it will return a list of node names.
         """
         response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(response.json(), type_="dimension", names_only=names_only)
+        return self._nodes_by_type(
+            response.json(),
+            type_="dimension",
+            names_only=names_only,
+        )
 
     def transforms(self, names_only: bool = False):
         """
@@ -134,7 +142,11 @@ class DJClient:
         it will return a list of node names.
         """
         response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(response.json(), type_="transform", names_only=names_only)
+        return self._nodes_by_type(
+            response.json(),
+            type_="transform",
+            names_only=names_only,
+        )
 
     def metrics(self, names_only: bool = False):
         """
@@ -142,7 +154,11 @@ class DJClient:
         it will return a list of node names.
         """
         response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(response.json(), type_="metric", names_only=names_only)
+        return self._nodes_by_type(
+            response.json(),
+            type_="metric",
+            names_only=names_only,
+        )
 
     def cubes(self, names_only: bool = False):
         """
@@ -178,7 +194,12 @@ class DJClient:
         response = self._session.get("/namespaces/")
         return response.json()
 
-    def get_nodes_in_namespace(self, namespace: str, type_: Optional[str] = None, names_only: bool = False):
+    def get_nodes_in_namespace(
+        self,
+        namespace: str,
+        type_: Optional[str] = None,
+        names_only: bool = False,
+    ):
         """
         Retrieves all nodes in the namespace
         """
@@ -234,7 +255,14 @@ class DJClient:
         response = self._session.get(f"/metrics/{node_name}/")
         return response.json()
 
-    def sql(self, node_name: str, dimensions: List[str], filters: List[str]):
+    def sql(  # pylint: disable=too-many-arguments
+        self,
+        node_name: str,
+        dimensions: List[str],
+        filters: List[str],
+        engine_name: Optional[str] = "TRINO_DIRECT",
+        engine_version: Optional[str] = "",
+    ):
         """
         Retrieves the SQL query built for the node with the provided dimensions and filters.
         """
@@ -243,11 +271,22 @@ class DJClient:
             params={
                 "dimensions": dimensions,
                 "filters": filters,
+                "engine_name": engine_name,
+                "engine_version": engine_version,
             },
         )
-        return response.json()["sql"]
+        if response.status_code == 200:
+            return response.json()["sql"]
+        return response.json()
 
-    def data(self, node_name: str, dimensions: List[str], filters: List[str]):
+    def data(  # pylint: disable=too-many-arguments
+        self,
+        node_name: str,
+        dimensions: List[str],
+        filters: List[str],
+        engine_name: Optional[str] = "TRINO_DIRECT",
+        engine_version: Optional[str] = "",
+    ):
         """
         Retrieves the data for the node with the provided dimensions and filters.
         """
@@ -256,6 +295,8 @@ class DJClient:
             params={
                 "dimensions": dimensions,
                 "filters": filters,
+                "engine_name": engine_name,
+                "engine_version": engine_version,
             },
         )
         results = response.json()
@@ -373,19 +414,31 @@ class Node(ClientEntity):
             dimension_column,
         )
 
-    def sql(self, dimensions: List[str], filters: List[str]):
+    def sql(
+        self,
+        dimensions: List[str],
+        filters: List[str],
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+    ):
         """
         Builds the SQL for this node, given the provided dimensions and filters.
         """
         client = self._get_initialized_client()
-        return client.sql(self.name, dimensions, filters)
+        return client.sql(self.name, dimensions, filters, engine_name, engine_version)
 
-    def data(self, dimensions: List[str], filters: List[str]):
+    def data(
+        self,
+        dimensions: List[str],
+        filters: List[str],
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+    ):
         """
         Gets data for this node, given the provided dimensions and filters.
         """
         client = self._get_initialized_client()
-        return client.data(self.name, dimensions, filters)
+        return client.data(self.name, dimensions, filters, engine_name, engine_version)
 
     def delete(self):
         """
@@ -461,28 +514,67 @@ class Namespace(ClientEntity):
     """
     Represents a namespace
     """
+
     namespace: str
 
     def nodes(self, names_only: bool = False):
+        """
+        Retrieves all nodes under this namespace.
+        """
         client = self._get_initialized_client()
         return client.get_nodes_in_namespace(self.namespace, names_only=names_only)
 
     def metrics(self, names_only: bool = False):
+        """
+        Retrieves metric nodes under this namespace.
+        """
         client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(self.namespace, type_="metric", names_only=names_only)
+        return client.get_nodes_in_namespace(
+            self.namespace,
+            type_="metric",
+            names_only=names_only,
+        )
 
     def sources(self, names_only: bool = False):
+        """
+        Retrieves source nodes under this namespace.
+        """
         client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(self.namespace, type_="source", names_only=names_only)
+        return client.get_nodes_in_namespace(
+            self.namespace,
+            type_="source",
+            names_only=names_only,
+        )
 
     def transforms(self, names_only: bool = False):
+        """
+        Retrieves transform nodes under this namespace.
+        """
         client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(self.namespace, type_="transform", names_only=names_only)
+        return client.get_nodes_in_namespace(
+            self.namespace,
+            type_="transform",
+            names_only=names_only,
+        )
 
     def cubes(self, names_only: bool = False):
+        """
+        Retrieves cubes under this namespace.
+        """
         client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(self.namespace, type_="cube", names_only=names_only)
+        return client.get_nodes_in_namespace(
+            self.namespace,
+            type_="cube",
+            names_only=names_only,
+        )
 
     def dimensions(self, names_only: bool = False):
+        """
+        Retrieves dimension nodes under this namespace.
+        """
         client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(self.namespace, type_="dimension", names_only=names_only)
+        return client.get_nodes_in_namespace(
+            self.namespace,
+            type_="dimension",
+            names_only=names_only,
+        )
