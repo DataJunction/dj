@@ -540,7 +540,7 @@ def create_a_source(
     columns = (
         [
             Column(
-                name=column_name,
+                name=column_data.name,
                 type=column_data.type,
                 dimension=(
                     get_node_by_name(
@@ -551,7 +551,7 @@ def create_a_source(
                     )
                 ),
             )
-            for column_name, column_data in data.columns.items()
+            for column_data in data.columns
         ]
         if data.columns
         else None
@@ -859,11 +859,11 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
         type=old_revision.type,
         columns=[
             Column(
-                name=column_name,
+                name=column_data.name,
                 type=column_data.type,
                 dimension_column=column_data.dimension,
             )
-            for column_name, column_data in data.columns.items()
+            for column_data in data.columns
         ]
         if data and data.columns
         else old_revision.columns,
