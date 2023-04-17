@@ -222,7 +222,7 @@ using an excalidraw shortcode. You can create new excalidraw diagrams by develop
 or using the [Excalidraw VSCode extension](https://marketplace.visualstudio.com/items?itemName=pomdtr.excalidraw-editor).
 
 To add diagrams to the docs site, export the diagram as a `.excalidraw` file and place it in the `static/excalidraw-drawings/` directory. You
-can then add the diagram in using the `excalidraw` shortcode.
+can then add the diagram using the `excalidraw` shortcode.
 
 As an example, if you've added an excalidraw file named `excalidraw_is_awesome.excalidraw`, you can add it to any markdown page with the following
 shortcode.
