@@ -400,8 +400,8 @@ class DJClient:  # pylint: disable=too-many-public-methods
             "cube": Cube,
         }
         return [
-            node_type_to_classes[node["type"]].parse_obj(  # type: ignore
-                {**node, **{"dj_client": self}},
+            node_type_to_classes[node["type"]](  # type: ignore
+                **{**node, **{"dj_client": self}},
             )
             for node in nodes_list
             if not type_ or node["type"] == type_
@@ -632,16 +632,18 @@ class Source(Node):
     table: str
     columns: Optional[List[Column]]
 
-    @classmethod
     @validator("catalog", pre=True)
-    def parse_cls(cls, value: Union[str, Dict[str, Any]]) -> str:
+    def parse_cls(  # pylint: disable=no-self-argument
+        cls,
+        value: Union[str, Dict[str, Any]],
+    ) -> str:
         """
         When `catalog` is a dictionary, parse out the catalog's
         name, otherwise just return the string.
         """
-        if isinstance(value, str):  # pragma: no cover
+        if isinstance(value, str):
             return value
-        return value["name"]  # pragma: no cover
+        return value["name"]
 
 
 class Transform(Node):
