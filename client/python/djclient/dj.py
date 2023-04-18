@@ -1,18 +1,19 @@
 """DataJunction client setup."""
 import enum
+import logging
 import platform
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin
 
 import pandas as pd
 import requests
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, validator
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
 from djclient.exceptions import DJClientException
 
 DEFAULT_NAMESPACE = "default"
-REGISTRY = {}
+_logger = logging.getLogger(__name__)
 
 
 class RequestsSessionWithEndpoint(requests.Session):
@@ -63,7 +64,7 @@ class RequestsSessionWithEndpoint(requests.Session):
         return urljoin(self.endpoint, url)
 
 
-class DJClient:
+class DJClient:  # pylint: disable=too-many-public-methods
     """
     Client for access to the DJ core service
     """
@@ -71,16 +72,166 @@ class DJClient:
     def __init__(
         self,
         uri: str = "http://localhost:8000",
-        namespace: str = DEFAULT_NAMESPACE,
+        requests_session: RequestsSessionWithEndpoint = None,
+        target_namespace: str = DEFAULT_NAMESPACE,
         timeout=2 * 60,
     ):
-        self.namespace = namespace
+        self.target_namespace = target_namespace
         self.uri = uri
-        self._session = RequestsSessionWithEndpoint(
-            endpoint=self.uri,
-        )
+        if not requests_session:
+            self._session = RequestsSessionWithEndpoint(
+                endpoint=self.uri,
+            )
+        else:  # pragma: no cover
+            self._session = requests_session
         self._timeout = timeout
-        REGISTRY["_client"] = self
+
+    def source(self, node_name: str) -> "Source":
+        """
+        Retrieves a source node with that name if one exists.
+        """
+        node_dict = self.verify_node_exists(node_name, "source")
+        return Source(
+            **node_dict,
+            dj_client=self,
+        )
+
+    def new_source(  # pylint: disable=too-many-arguments
+        self,
+        name: str,
+        catalog: str,
+        schema_: str,
+        table: str,
+        description: Optional[str] = None,
+        display_name: Optional[str] = None,
+        columns: Optional[List["Column"]] = None,
+        primary_key: Optional[List[str]] = None,
+        tags: Optional[List["Tag"]] = None,
+    ) -> "Source":
+        """
+        Instantiates a new Source object with the given parameters.
+        """
+        return Source(
+            dj_client=self,
+            name=name,
+            description=description,
+            display_name=display_name,
+            tags=tags,
+            primary_key=primary_key,
+            catalog=catalog,
+            schema_=schema_,
+            table=table,
+            columns=columns,
+        )
+
+    def transform(self, node_name: str) -> "Transform":
+        """
+        Retrieves a transform node with that name if one exists.
+        """
+        node_dict = self.verify_node_exists(node_name, "transform")
+        return Transform(
+            **node_dict,
+            dj_client=self,
+        )
+
+    def new_transform(  # pylint: disable=too-many-arguments
+        self,
+        name: str,
+        query: str,
+        description: Optional[str] = None,
+        display_name: Optional[str] = None,
+        primary_key: Optional[List[str]] = None,
+        tags: Optional[List["Tag"]] = None,
+    ) -> "Transform":
+        """
+        Instantiates a new Transform object with the given parameters.
+        """
+        return Transform(
+            dj_client=self,
+            name=name,
+            description=description,
+            display_name=display_name,
+            tags=tags,
+            primary_key=primary_key,
+            query=query,
+        )
+
+    def dimension(self, node_name: str) -> "Dimension":
+        """
+        Retrieves a dimension node with that name if one exists.
+        """
+        node_dict = self.verify_node_exists(node_name, "dimension")
+        return Dimension(
+            **node_dict,
+            dj_client=self,
+        )
+
+    def new_dimension(  # pylint: disable=too-many-arguments
+        self,
+        name: str,
+        query: str,
+        primary_key: Optional[List[str]],
+        description: Optional[str] = None,
+        display_name: Optional[str] = None,
+        tags: Optional[List["Tag"]] = None,
+    ) -> "Dimension":
+        """
+        Instantiates a new Dimension object with the given parameters.
+        """
+        return Dimension(
+            dj_client=self,
+            name=name,
+            description=description,
+            display_name=display_name,
+            tags=tags,
+            primary_key=primary_key,
+            query=query,
+        )
+
+    def metric(self, node_name: str) -> "Metric":
+        """
+        Retrieves a metric node with that name if one exists.
+        """
+        node_dict = self.verify_node_exists(node_name, "metric")
+        return Metric(
+            **node_dict,
+            dj_client=self,
+        )
+
+    def new_metric(  # pylint: disable=too-many-arguments
+        self,
+        name: str,
+        query: str,
+        description: Optional[str] = None,
+        display_name: Optional[str] = None,
+        primary_key: Optional[List[str]] = None,
+        tags: Optional[List["Tag"]] = None,
+    ) -> "Metric":
+        """
+        Instantiates a new Metric object with the given parameters.
+        """
+        return Metric(
+            dj_client=self,
+            name=name,
+            description=description,
+            display_name=display_name,
+            tags=tags,
+            primary_key=primary_key,
+            query=query,
+        )
+
+    def verify_node_exists(self, node_name: str, type_: str) -> Dict[str, Any]:
+        """
+        Retrieves a node and verifies that it exists and has the expected node type.
+        """
+        node = self.get_node(node_name)
+        if "name" not in node:
+            raise DJClientException(f"No node with name {node_name} exists!")
+        if "name" in node and node["type"] != type_:
+            raise DJClientException(
+                f"A node with name {node_name} exists, but it is not a {type_} node!",
+            )
+        return node
 
     def catalogs(self):
         """
@@ -96,23 +247,30 @@ class DJClient:
         response = self._session.get("/engines/", timeout=self._timeout)
         return response.json()
 
-    def namespaces(self):
+    def namespaces(self) -> List["Namespace"]:
         """
         Returns all node namespaces.
         """
         return [
-            Namespace.parse_obj(namespace) for namespace in self.get_node_namespaces()
+            Namespace.parse_obj({**namespace, **{"dj_client": self}})
+            for namespace in self.get_node_namespaces()
         ]
 
-    def nodes(self, names_only: bool = False):
+    def namespace(self, _namespace):
         """
-        Returns all source nodes. If `names_only` is set to true,
+        Returns the specified node namespace.
+        """
+        return Namespace(namespace=_namespace, dj_client=self)
+
+    def nodes(self, names_only: bool = False) -> Union[List[str], List["Node"]]:
+        """
+        Returns all nodes. If `names_only` is set to true,
         it will return a list of node names.
         """
         response = self._session.get("/nodes/", timeout=self._timeout)
         return self._nodes_by_type(response.json(), names_only=names_only)
 
-    def sources(self, names_only: bool = False):
+    def sources(self, names_only: bool = False) -> Union[List[str], List["Source"]]:
         """
         Returns all source nodes. If `names_only` is set to true,
         it will return a list of node names.
@@ -124,7 +282,10 @@ class DJClient:
             names_only=names_only,
         )
 
-    def dimensions(self, names_only: bool = False):
+    def dimensions(
+        self,
+        names_only: bool = False,
+    ) -> Union[List[str], List["Dimension"]]:
         """
         Returns all dimension nodes. If `names_only` is set to true,
         it will return a list of node names.
@@ -136,7 +297,10 @@ class DJClient:
             names_only=names_only,
         )
 
-    def transforms(self, names_only: bool = False):
+    def transforms(
+        self,
+        names_only: bool = False,
+    ) -> Union[List[str], List["Transform"]]:
         """
         Returns all transform nodes. If `names_only` is set to true,
         it will return a list of node names.
@@ -148,7 +312,7 @@ class DJClient:
             names_only=names_only,
         )
 
-    def metrics(self, names_only: bool = False):
+    def metrics(self, names_only: bool = False) -> Union[List[str], List["Metric"]]:
         """
         Returns all metric nodes. If `names_only` is set to true,
         it will return a list of node names.
@@ -160,7 +324,7 @@ class DJClient:
             names_only=names_only,
         )
 
-    def cubes(self, names_only: bool = False):
+    def cubes(self, names_only: bool = False) -> Union[List[str], List["Cube"]]:
         """
         Returns all cube nodes. If `names_only` is set to true,
         it will return a list of node names.
@@ -218,25 +382,37 @@ class DJClient:
         nodes_list: List[Dict[str, Any]],
         type_: Optional[str] = None,
         names_only: bool = False,
-    ) -> Union[List[str], List[Dict[str, Any]]]:
+    ) -> Union[List[str], List["Node"]]:
         """
         Helper function to retrieve DJ nodes by its type.
         """
-        # response = self._session.get("/nodes/", timeout=self._timeout)
         if names_only:
             return [
                 node["name"]
                 for node in nodes_list
                 if not type_ or node["type"] == type_
             ]
-        return [node for node in nodes_list if not type_ or node["type"] == type_]
+        node_type_to_classes = {
+            "source": Source,
+            "dimension": Dimension,
+            "transform": Transform,
+            "metric": Metric,
+            "cube": Cube,
+        }
+        return [
+            node_type_to_classes[node["type"]].parse_obj(  # type: ignore
+                {**node, **{"dj_client": self}},
+            )
+            for node in nodes_list
+            if not type_ or node["type"] == type_
+        ]
 
     def link_dimension_to_node(
         self,
         node_name: str,
         column_name: str,
         dimension_name: str,
-        dimension_column: str,
+        dimension_column: Optional[str] = None,
     ):
         """
         Helper function to link a dimension to the node.
@@ -338,18 +514,16 @@ class ClientEntity(BaseModel):
     Any entity that uses the DJ client
     """
 
-    def _get_initialized_client(self):
+    dj_client: DJClient = Field(exclude=True)
+
+    class Config:  # pylint: disable=too-few-public-methods
         """
-        Retrieves the saved DJ client if one has been initialized.
+        Allow arbitrary types to support DJClient but exclude
+        it from the output.
         """
-        client = REGISTRY.get("_client")
-        if not client:
-            raise DJClientException(
-                "DJ client not initialized! Please initialize "
-                "a client with the endpoint uri:"
-                "    client = DJClient(uri='...')",
-            )
-        return client
+
+        arbitrary_types_allowed = True
+        exclude = {"dj_client"}
 
 
 class Node(ClientEntity):
@@ -366,34 +540,23 @@ class Node(ClientEntity):
     tags: Optional[List[Tag]]
     primary_key: Optional[List[str]]
 
-    def publish(self):
+    def save(self, mode: NodeMode = NodeMode.PUBLISHED):
         """
         Sets the node's mode to PUBLISHED and pushes it to the server.
         """
-        client = self._get_initialized_client()
-        create_response = client.create_node(self, NodeMode.PUBLISHED)
-        self.refresh()
+        create_response = self.dj_client.create_node(self, mode)
+        self.sync()
         return create_response
 
-    def refresh(self):
+    def sync(self):
         """
         Refreshes a node with its latest version from the database.
         """
-        client = self._get_initialized_client()
-        refreshed_node = client.get_node(self.name)
+        refreshed_node = self.dj_client.get_node(self.name)
         for key, value in refreshed_node.items():
             if hasattr(self, key):
                 setattr(self, key, value)
         return self
-
-    def draft(self):
-        """
-        Sets the node's mode to DRAFT and pushes it to the server.
-        """
-        client = self._get_initialized_client()
-        create_response = client.create_node(self, NodeMode.DRAFT)
-        self.refresh()
-        return create_response
 
     def link_dimension(
         self,
@@ -406,8 +569,7 @@ class Node(ClientEntity):
         `dimension_column`. If no `dimension_column` is provided, the dimension's
         primary key will be used automatically.
         """
-        client = self._get_initialized_client()
-        return client.link_dimension_to_node(
+        return self.dj_client.link_dimension_to_node(
             self.name,
             column,
             dimension,
@@ -424,8 +586,13 @@ class Node(ClientEntity):
         """
         Builds the SQL for this node, given the provided dimensions and filters.
         """
-        client = self._get_initialized_client()
-        return client.sql(self.name, dimensions, filters, engine_name, engine_version)
+        return self.dj_client.sql(
+            self.name,
+            dimensions,
+            filters,
+            engine_name,
+            engine_version,
+        )
 
     def data(
         self,
@@ -437,15 +604,19 @@ class Node(ClientEntity):
         """
         Gets data for this node, given the provided dimensions and filters.
         """
-        client = self._get_initialized_client()
-        return client.data(self.name, dimensions, filters, engine_name, engine_version)
+        return self.dj_client.data(
+            self.name,
+            dimensions,
+            filters,
+            engine_name,
+            engine_version,
+        )
 
     def delete(self):
         """
         Deletes the node
         """
-        session = self._get_initialized_client()
-        response = session.delete_node(self)
+        response = self.dj_client.delete_node(self)
         assert response.status_code == 204
         return f"Successfully deleted `{self.name}`"
 
@@ -460,6 +631,17 @@ class Source(Node):
     schema_: str
     table: str
     columns: Optional[List[Column]]
+
+    @classmethod
+    @validator("catalog", pre=True)
+    def parse_cls(cls, value: Union[str, Dict[str, Any]]) -> str:
+        """
+        When `catalog` is a dictionary, parse out the catalog's
+        name, otherwise just return the string.
+        """
+        if isinstance(value, str):  # pragma: no cover
+            return value
+        return value["name"]  # pragma: no cover
 
 
 class Transform(Node):
@@ -485,8 +667,7 @@ class Metric(Node):
         """
         Returns the available dimensions for this metric.
         """
-        client = self._get_initialized_client()
-        metric = client.get_metric(self.name)
+        metric = self.dj_client.get_metric(self.name)
         return metric["dimensions"]
 
 
@@ -521,15 +702,16 @@ class Namespace(ClientEntity):
         """
         Retrieves all nodes under this namespace.
         """
-        client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(self.namespace, names_only=names_only)
+        return self.dj_client.get_nodes_in_namespace(
+            self.namespace,
+            names_only=names_only,
+        )
 
     def metrics(self, names_only: bool = False):
         """
         Retrieves metric nodes under this namespace.
         """
-        client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(
+        return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="metric",
             names_only=names_only,
@@ -539,8 +721,7 @@ class Namespace(ClientEntity):
         """
         Retrieves source nodes under this namespace.
         """
-        client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(
+        return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="source",
             names_only=names_only,
@@ -550,8 +731,7 @@ class Namespace(ClientEntity):
         """
         Retrieves transform nodes under this namespace.
         """
-        client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(
+        return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="transform",
             names_only=names_only,
@@ -561,8 +741,7 @@ class Namespace(ClientEntity):
         """
         Retrieves cubes under this namespace.
         """
-        client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(
+        return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="cube",
             names_only=names_only,
@@ -572,8 +751,7 @@ class Namespace(ClientEntity):
         """
         Retrieves dimension nodes under this namespace.
         """
-        client = self._get_initialized_client()
-        return client.get_nodes_in_namespace(
+        return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="dimension",
             names_only=names_only,

@@ -47,27 +47,25 @@ curl -X POST http://localhost:8000/nodes/dimension/ \
 {{< /tab >}}
 {{< tab "python" >}}
 ```py
-from djclient import DJ, Dimension
+from djclient import DJClient, NodeMode
 
-client = DJ("http://localhost:8000/")
-client.push(
-    Dimension(
-        name="us_state",
-        description="US state dimension",
-        mode="published",
-        query="""
-            SELECT
-            state_id,
-            state_name,
-            state_abbr,
-            state_region,
-            r.us_region_description AS state_region_description
-            FROM us_states s
-            LEFT JOIN us_region r
-            ON s.state_region = r.us_region_id
-        """,
-    )
+dj = DJClient("http://localhost:8000/")
+dimension = dj.new_dimension(
+    name="us_state",
+    description="US state dimension",
+    query="""
+        SELECT
+        state_id,
+        state_name,
+        state_abbr,
+        state_region,
+        r.us_region_description AS state_region_description
+        FROM us_states s
+        LEFT JOIN us_region r
+        ON s.state_region = r.us_region_id
+    """,
 )
+dimension.save(NodeMode.PUBLISHED)
 ```
 {{< /tab >}}
 {{< /tabs >}}
