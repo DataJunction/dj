@@ -53,24 +53,24 @@ catalog.add_engine(engine)
 
 ### Nodes
 
-All nodes can be found with:
+All nodes for a given namespace can be found with:
 ```python
-dj.nodes()
+dj.namespace("default").nodes()
 ```
 
 Specific node types can be retrieved with:
 ```python
-dj.sources()
-dj.dimensions()
-dj.metrics()
-dj.transforms()
-dj.cubes()
+dj.namespace("default").sources()
+dj.namespace("default").dimensions()
+dj.namespace("default").metrics()
+dj.namespace("default").transforms()
+dj.namespace("default").cubes()
 ```
 
 To create a source node:
 ```python
-from djclient import Source
-repair_orders = Source(
+from djclient import NodeMode
+repair_orders = dj.new_source(
     name="repair_orders",
     display_name="Repair Orders",
     description="Repair orders",
@@ -78,18 +78,17 @@ repair_orders = Source(
     schema_="roads",
     table="repair_orders",
 )
-repair_orders.publish()
+repair_orders.save(mode=NodeMode.PUBLISHED)
 ```
 
 Nodes can also be created as drafts with:
 ```python
-repair_orders.draft()
+repair_orders.save(mode=NodeMode.DRAFT)
 ```
 
 To create a dimension node:
 ```python
-from djclient import Dimension
-repair_order = Dimension(
+repair_order = dj.new_dimension(
     name="repair_order",
     query="""
     SELECT
@@ -100,14 +99,14 @@ repair_order = Dimension(
     FROM repair_orders
     """,
     description="Repair order dimension",
+    primary_key=["repair_order_id"],
 )
-repair_order.publish()
+repair_order.save()
 ```
 
 To create a transform node:
 ```python
-from djclient import Transform
-large_revenue_payments_only = Transform(
+large_revenue_payments_only = dj.new_transform(
     name="large_revenue_payments_only",
     query="""
     SELECT
@@ -120,13 +119,12 @@ large_revenue_payments_only = Transform(
     """,
     description="Only large revenue payments",
 )
-large_revenue_payments_only.publish()
+large_revenue_payments_only.save()
 ```
 
 To create a metric:
 ```python
-from djclient import Metric
-num_repair_orders = Metric(
+num_repair_orders = dj.new_metric(
     name="num_repair_orders",
     query="""
     SELECT
@@ -135,5 +133,5 @@ num_repair_orders = Metric(
     """,
     description="Number of repair orders",
 )
-num_repair_orders.publish()
+num_repair_orders.save()
 ```
