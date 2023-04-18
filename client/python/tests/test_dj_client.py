@@ -3,7 +3,8 @@ import pandas as pd
 import pytest
 import responses
 
-from djclient import DJClient, Metric, Namespace, Source, Transform
+from djclient import DJClient
+from djclient.dj import NodeMode
 from djclient.exceptions import DJClientException
 
 
@@ -18,22 +19,6 @@ class TestDJClient:
         Returns a DJ client instance
         """
         return DJClient(uri="http://localhost:8000")
-
-    def test_client_not_initialized(self):
-        """
-        Verify that it raises an exception when the DJ client isn't initialized.
-        """
-        source = Source(
-            name="apples",
-            description="A record of all apples in the store.",
-            display_name="Apples",
-            catalog="prod",
-            schema_="store",
-            table="apples",
-        )
-        with pytest.raises(DJClientException) as exc_info:
-            source.publish()
-        assert "DJ client not initialized!" in str(exc_info)
 
     @responses.activate
     def test_namespaces(self, client):
@@ -54,7 +39,7 @@ class TestDJClient:
         assert result == expected
 
     @responses.activate
-    def test_nodes_in_namespace(self):
+    def test_nodes_in_namespace(self, client):
         """
         Check that `client.get_nodes_in_namespace()` works as expected.
         """
@@ -70,26 +55,26 @@ class TestDJClient:
             "http://localhost:8000/namespaces/basic/",
             json=expected,
         )
-        assert Namespace(namespace="basic").nodes(names_only=True) == [
+        assert client.namespace("basic").nodes(names_only=True) == [
             "basic.example",
             "basic.example_dimension",
             "basic.example_metric",
             "basic.example_transform",
             "basic.example_cube",
         ]
-        assert Namespace(namespace="basic").sources(names_only=True) == [
+        assert client.namespace("basic").sources(names_only=True) == [
             "basic.example",
         ]
-        assert Namespace(namespace="basic").dimensions(names_only=True) == [
+        assert client.namespace("basic").dimensions(names_only=True) == [
             "basic.example_dimension",
         ]
-        assert Namespace(namespace="basic").metrics(names_only=True) == [
+        assert client.namespace("basic").metrics(names_only=True) == [
             "basic.example_metric",
         ]
-        assert Namespace(namespace="basic").transforms(names_only=True) == [
+        assert client.namespace("basic").transforms(names_only=True) == [
             "basic.example_transform",
         ]
-        assert Namespace(namespace="basic").cubes(names_only=True) == [
+        assert client.namespace("basic").cubes(names_only=True) == [
             "basic.example_cube",
         ]
 
@@ -125,46 +110,68 @@ class TestDJClient:
         specific calls like `client.sources()` work.
         """
         expected = [
-            {"name": "node1", "type": "source"},
-            {"name": "node2", "type": "dimension"},
-            {"name": "node3", "type": "transform"},
-            {"name": "node4", "type": "metric"},
-            {"name": "node5", "type": "cube"},
+            {
+                "name": "node1",
+                "type": "source",
+                "catalog": "prod",
+                "schema_": "random",
+                "table": "test",
+            },
+            {"name": "node2", "type": "dimension", "query": "SELECT 1"},
+            {"name": "node3", "type": "transform", "query": "SELECT 1"},
+            {"name": "node4", "type": "metric", "query": "SELECT SUM(1)"},
+            {
+                "name": "node5",
+                "type": "cube",
+                "metrics": [],
+                "dimensions": [],
+                "filters": [],
+            },
         ]
         responses.add(responses.GET, "http://localhost:8000/nodes/", json=expected)
-        result = client.nodes()
-        assert result == expected
         expected_names_only = ["node1", "node2", "node3", "node4", "node5"]
         result_names_only = client.nodes(names_only=True)
         assert result_names_only == expected_names_only
 
         # sources
         result = client.sources()
-        assert result == [expected[0]]
+        assert result[0].name == "node1"
+        assert result[0].catalog == "prod"
+        assert result[0].schema_ == "random"
+        assert result[0].table == "test"
+        assert result[0].type == "source"
         result_names_only = client.sources(names_only=True)
         assert result_names_only == ["node1"]
 
         # dimensions
         result = client.dimensions()
-        assert result == [expected[1]]
+        assert result[0].name == "node2"
+        assert result[0].query == "SELECT 1"
+        assert result[0].type == "dimension"
         result_names_only = client.dimensions(names_only=True)
         assert result_names_only == ["node2"]
 
         # transforms
         result = client.transforms()
-        assert result == [expected[2]]
+        assert result[0].name == "node3"
+        assert result[0].query == "SELECT 1"
+        assert result[0].type == "transform"
         result_names_only = client.transforms(names_only=True)
         assert result_names_only == ["node3"]
 
         # metrics
         result = client.metrics()
-        assert result == [expected[3]]
+        assert result[0].name == "node4"
+        assert result[0].query == "SELECT SUM(1)"
+        assert result[0].type == "metric"
         result_names_only = client.metrics(names_only=True)
         assert result_names_only == ["node4"]
 
         # cubes
         result = client.cubes()
-        assert result == [expected[4]]
+        assert result[0].name == "node5"
+        assert result[0].metrics == []
+        assert result[0].type == "cube"
         result_names_only = client.cubes(names_only=True)
         assert result_names_only == ["node5"]
 
@@ -173,14 +180,21 @@ class TestDJClient:
         """
         Verifies that deleting a node works.
         """
-        source = Source(
-            name="apples",
-            description="A record of all apples in the store.",
-            display_name="Apples",
-            catalog="prod",
-            schema_="store",
-            table="apples",
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/apples/",
+            status=200,
+            json={
+                "name": "apples",
+                "type": "source",
+                "description": "A record of all apples in the store.",
+                "display_name": "Apples",
+                "catalog": "prod",
+                "schema_": "store",
+                "table": "apples",
+            },
         )
+        source = client.source(node_name="apples")
         responses.add(
             responses.DELETE,
             "http://localhost:8000/nodes/apples/",
@@ -192,10 +206,9 @@ class TestDJClient:
     @responses.activate
     def test_create_node(self, client):  # pylint: disable=unused-argument
         """
-        Verifies that retrieving nodes with `client.nodes()` or
-        node-type specific calls like `client.sources()` work.
+        Verifies that creating a new node works.
         """
-        source = Source(
+        source = client.new_source(
             name="apples",
             description="A record of all apples in the store.",
             display_name="Apples",
@@ -227,14 +240,125 @@ class TestDJClient:
             "http://localhost:8000/nodes/apples/",
             json={**expected, **{"node_revision_id": 1}},
         )
-        source.publish()
-        source.draft()
+        source.save(mode=NodeMode.PUBLISHED)
+
+        transform = client.new_transform(
+            name="orchards",
+            description="An orchard transform",
+            display_name="Orchards",
+            query="SELECT 1",
+        )
+        expected = {
+            "name": "orchards",
+            "description": "An orchard transform",
+            "type": "transform",
+            "mode": "published",
+            "display_name": "Orchards",
+            "availability": None,
+            "tags": None,
+            "query": "SELECT 1",
+        }
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/orchards/",
+            status=404,
+            json={"message": "not found"},
+        )
+        responses.add(
+            responses.POST,
+            "http://localhost:8000/nodes/transform/",
+            json=expected,
+        )
+        transform.save(mode=NodeMode.PUBLISHED)
+
+        dimension = client.new_dimension(
+            name="records",
+            description="A records dimension",
+            display_name="Records",
+            query="SELECT 1",
+            primary_key=["id"],
+        )
+        expected = {
+            "name": "records",
+            "description": "A records dimension",
+            "type": "dimension",
+            "mode": "published",
+            "display_name": "Records",
+            "availability": None,
+            "tags": None,
+            "query": "SELECT 1",
+            "primary_key": ["id"],
+        }
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/records/",
+            status=404,
+            json={"message": "not found"},
+        )
+        responses.add(
+            responses.POST,
+            "http://localhost:8000/nodes/dimension/",
+            json=expected,
+        )
+        dimension.save(mode=NodeMode.PUBLISHED)
+
+        metric = client.new_metric(
+            name="records_count",
+            description="Number of records",
+            display_name="Number of Records",
+            query="SELECT COUNT(*) FROM records",
+        )
+        expected = {
+            "name": "records_count",
+            "description": "Number of records",
+            "type": "metric",
+            "mode": "published",
+            "display_name": "Number of records",
+            "availability": None,
+            "tags": None,
+            "query": "SELECT COUNT(*) FROM records",
+        }
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/records_count/",
+            status=404,
+            json={"message": "not found"},
+        )
+        responses.add(
+            responses.POST,
+            "http://localhost:8000/nodes/metric/",
+            json=expected,
+        )
+        metric.save(mode=NodeMode.PUBLISHED)
 
     @responses.activate
     def test_link_dimension(self, client):  # pylint: disable=unused-argument
         """
-        Check that `client.engines()` works as expected.
+        Check linking dimensions works
         """
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/fruit/",
+            json={
+                "name": "fruit",
+                "type": "dimension",
+                "query": "SELECT 1",
+            },
+        )
+        dimension_node = client.dimension(node_name="fruit")
+        assert dimension_node.name == "fruit"
+
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/fruit_purchases/",
+            json={
+                "name": "fruit_purchases",
+                "type": "transform",
+                "query": "SELECT purchase_id, fruit, cost, cost_per_unit FROM purchase_records",
+            },
+        )
+        transform_node = client.transform(node_name="fruit_purchases")
+
         expected = {"message": "success"}
         responses.add(
             responses.POST,
@@ -242,15 +366,26 @@ class TestDJClient:
             "?dimension=fruits&dimension_column=fruit",
             json=expected,
         )
-        transform_node = Transform(
-            name="fruit_purchases",
-            query="SELECT purchase_id, fruit, cost, cost_per_unit FROM purchase_records",
-        )
         result = transform_node.link_dimension("fruit", "fruits", "fruit")
         assert result == expected
 
+    @pytest.fixture
+    def apple_count_metric(self):
+        """
+        Metric response fixture
+        """
+        return responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/apple_count/",
+            json={
+                "name": "apple_count",
+                "type": "metric",
+                "query": "SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
+            },
+        )
+
     @responses.activate
-    def test_sql(self, client):  # pylint: disable=unused-argument
+    def test_sql(self, client, apple_count_metric):  # pylint: disable=unused-argument
         """
         Check that `client.engines()` works as expected.
         """
@@ -260,15 +395,16 @@ class TestDJClient:
             "http://localhost:8000/sql/apple_count/",
             json=expected,
         )
-        metric = Metric(
-            name="apple_count",
-            query="SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
-        )
+        metric = client.metric(node_name="apple_count")
         result = metric.sql(dimensions=[], filters=[])
         assert result == expected["sql"]
 
     @responses.activate
-    def test_sql_failed(self, client):  # pylint: disable=unused-argument
+    def test_sql_failed(
+        self,
+        client,
+        apple_count_metric,
+    ):  # pylint: disable=unused-argument
         """
         Check that `client.engines()` works as expected.
         """
@@ -278,15 +414,12 @@ class TestDJClient:
             json={"message": "Metric not found"},
             status=404,
         )
-        metric = Metric(
-            name="apple_count",
-            query="SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
-        )
+        metric = client.metric(node_name="apple_count")
         result = metric.sql(dimensions=[], filters=[])
         assert result == {"message": "Metric not found"}
 
     @responses.activate
-    def test_data(self, client):  # pylint: disable=unused-argument
+    def test_data(self, client, apple_count_metric):  # pylint: disable=unused-argument
         """
         Check that `client.engines()` works as expected.
         """
@@ -304,15 +437,16 @@ class TestDJClient:
             "http://localhost:8000/data/apple_count/",
             json=expected,
         )
-        metric = Metric(
-            name="apple_count",
-            query="SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
-        )
+        metric = client.metric(node_name="apple_count")
         result = metric.data(dimensions=[], filters=[])
         assert isinstance(result, pd.DataFrame)
 
     @responses.activate
-    def test_get_dimensions(self, client):  # pylint: disable=unused-argument
+    def test_get_dimensions(
+        self,
+        client,
+        apple_count_metric,
+    ):  # pylint: disable=unused-argument
         """
         Check that `client.engines()` works as expected.
         """
@@ -322,9 +456,38 @@ class TestDJClient:
             "http://localhost:8000/metrics/apple_count/",
             json=expected,
         )
-        metric = Metric(
-            name="apple_count",
-            query="SELECT count(*) FROM fruit_purchases WHERE fruit='apple'",
-        )
+        metric = client.metric(node_name="apple_count")
         result = metric.dimensions()
         assert result == expected["dimensions"]
+
+    @responses.activate
+    def test_failure_modes(self, client):
+        """
+        Test some client failure modes when retrieving nodes.
+        """
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/fruit/",
+            status=404,
+            json={
+                "message": "Not found",
+            },
+        )
+        with pytest.raises(DJClientException) as excinfo:
+            client.transform(node_name="fruit")
+        assert "No node with name fruit exists!" in str(excinfo)
+
+        responses.add(
+            responses.GET,
+            "http://localhost:8000/nodes/fruit/",
+            json={
+                "name": "fruit",
+                "type": "dimension",
+                "query": "SELECT 1",
+            },
+        )
+        with pytest.raises(DJClientException) as excinfo:
+            client.transform(node_name="fruit")
+        assert "A node with name fruit exists, but it is not a transform node!" in str(
+            excinfo,
+        )

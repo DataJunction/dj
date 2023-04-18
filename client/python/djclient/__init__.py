@@ -10,6 +10,7 @@ from djclient.dj import (
     Metric,
     Namespace,
     Node,
+    NodeMode,
     Source,
     Transform,
 )
@@ -22,5 +23,6 @@ __all__ = [
     "Metric",
     "Cube",
     "Node",
+    "NodeMode",
     "Namespace",
 ]
