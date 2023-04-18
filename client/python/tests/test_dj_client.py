@@ -113,7 +113,7 @@ class TestDJClient:
             {
                 "name": "node1",
                 "type": "source",
-                "catalog": "prod",
+                "catalog": {"name": "prod"},
                 "schema_": "random",
                 "table": "test",
             },
