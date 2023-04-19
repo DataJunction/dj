@@ -220,6 +220,29 @@ class DJClient:  # pylint: disable=too-many-public-methods
             query=query,
         )
 
+    def new_cube(  # pylint: disable=too-many-arguments
+        self,
+        name: str,
+        metrics: List[str],
+        dimensions: List[str],
+        filters: Optional[List[str]] = None,
+        description: Optional[str] = None,
+        display_name: Optional[str] = None,
+        tags: Optional[List["Tag"]] = None,
+    ) -> "Cube":
+        """
+        Instantiates a new cube with the given parameters.
+        """
+        return Cube(
+            dj_client=self,
+            name=name,
+            metrics=metrics,
+            dimensions=dimensions,
+            filters=filters,
+            description=description,
+            display_name=display_name,
+        )
+
     def verify_node_exists(self, node_name: str, type_: str) -> Dict[str, Any]:
         """
         Retrieves a node and verifies that it exists and has the expected node type.
@@ -480,6 +503,17 @@ class DJClient:  # pylint: disable=too-many-public-methods
         rows = results["results"][0]["rows"]
         return pd.DataFrame(rows, columns=[col["name"] for col in columns])
 
+    def upsert_materialization_config(
+        self,
+        node_name: str,
+        config: "MaterializationConfig"
+    ):
+        response = self._session.post(
+            f"/nodes/{node_name}/materialization/",
+            json=config.dict(),
+        )
+        return response.json()
+
 
 class Column(BaseModel):
     """
@@ -539,6 +573,7 @@ class Node(ClientEntity):
     availability: Optional[Dict]
     tags: Optional[List[Tag]]
     primary_key: Optional[List[str]]
+    materialization_configs: Optional[List[Dict[str, Any]]]
 
     def save(self, mode: NodeMode = NodeMode.PUBLISHED):
         """
@@ -574,6 +609,11 @@ class Node(ClientEntity):
             column,
             dimension,
             dimension_column,
+        )
+
+    def add_materialization_config(self, config: "MaterializationConfig"):
+        return self.dj_client.upsert_materialization_config(
+            self.name, config
         )
 
     def sql(
@@ -619,6 +659,16 @@ class Node(ClientEntity):
         response = self.dj_client.delete_node(self)
         assert response.status_code == 204
         return f"Successfully deleted `{self.name}`"
+
+
+class MaterializationConfig(BaseModel):
+    """
+    A node's materialization config
+    """
+    engine_name: str
+    engine_version: Optional[str]
+    schedule: str
+    config: Dict
 
 
 class Source(Node):
@@ -688,9 +738,12 @@ class Cube(Node):
     DJ cube node
     """
 
+    type: str = "cube"
+    query: Optional[str] = None
     metrics: List[str]
     dimensions: List[str]
-    filters: List[str]
+    filters: Optional[List[str]]
+    columns: Optional[List[Column]]
 
 
 class Namespace(ClientEntity):

@@ -84,7 +84,7 @@ class CubeRelationship(BaseSQLModel, table=True):  # type: ignore
 
     cube_element_id: Optional[int] = Field(
         default=None,
-        foreign_key="node.id",
+        foreign_key="column.id",
         primary_key=True,
     )
 
@@ -313,7 +313,6 @@ class Node(NodeBase, table=True):  # type: ignore
     )
 
     revisions: List["NodeRevision"] = Relationship(back_populates="node")
-    cubes: List["NodeRevision"] = Relationship(back_populates="cube_elements")
     current: "NodeRevision" = Relationship(
         sa_relationship_kwargs={
             "primaryjoin": "and_(Node.id==NodeRevision.node_id, "
@@ -358,7 +357,14 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
     engine_id: int = Field(foreign_key="engine.id", primary_key=True)
     engine: Engine = Relationship()
 
-    config: str = Field(nullable=False)
+    # A cron schedule to materialize this node by
+    schedule: str  # 0 * * * *
+
+    # Arbitrary config relevant to the materialization engine
+    config: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
+    # Druid materializations will contain:
+    #   - timestamp_column: str  # timestamp column
+    #   - intervals: List[str]
 
 
 class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
@@ -381,12 +387,14 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     )
     schema_: Optional[str] = None
     table: Optional[str] = None
-    cube_elements: List["Node"] = Relationship(  # Only used by cube nodes
-        back_populates="cubes",
+
+    # A list of metric columns and dimension columns
+    cube_elements: List["Column"] = Relationship(  # Only used by cube nodes
+        # back_populates="cubes",
         link_model=CubeRelationship,
         sa_relationship_kwargs={
             "primaryjoin": "NodeRevision.id==CubeRelationship.cube_id",
-            "secondaryjoin": "Node.id==CubeRelationship.cube_element_id",
+            "secondaryjoin": "Column.id==CubeRelationship.cube_element_id",
             "lazy": "joined",
         },
     )
@@ -461,7 +469,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         """
         Extra validation for node data.
         """
-        if self.type in (NodeType.SOURCE, NodeType.CUBE):
+        if self.type in (NodeType.SOURCE,):
             if self.query:
                 raise DJInvalidInputException(
                     f"Node {self.name} of type {self.type} should not have a query",
@@ -609,7 +617,9 @@ class CubeNodeFields(BaseSQLModel):
     """
 
     display_name: Optional[str]
-    cube_elements: List[str]
+    metrics: List[str]
+    dimensions: List[str]
+    filters: Optional[List[str]]
     description: str
     mode: NodeMode
 
@@ -673,7 +683,8 @@ class UpsertMaterializationConfig(BaseSQLModel):
 
     engine_name: str
     engine_version: str
-    config: str
+    config: Dict
+    schedule: str
 
 
 #
@@ -719,7 +730,8 @@ class MaterializationConfigOutput(SQLModel):
     """
 
     engine: EngineInfo
-    config: str
+    config: Dict
+    schedule: str
 
 
 class NodeRevisionOutput(SQLModel):

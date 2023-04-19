@@ -7,7 +7,7 @@ from typing import List, Optional
 from pydantic import Field
 from sqlmodel import SQLModel
 
-from dj.models.node import AvailabilityState, NodeType
+from dj.models.node import AvailabilityState, ColumnOutput, NodeType
 from dj.typing import UTCDatetime
 
 
@@ -17,7 +17,7 @@ class CubeElementMetadata(SQLModel):
     """
 
     id: int
-    current_version: str
+    # current_version: str
     name: str
 
 
@@ -35,6 +35,8 @@ class CubeRevisionMetadata(SQLModel):
     description: str = ""
     availability: Optional[AvailabilityState] = None
     cube_elements: List[CubeElementMetadata]
+    query: str
+    columns: List[ColumnOutput]
     updated_at: UTCDatetime
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods

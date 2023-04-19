@@ -41,6 +41,8 @@ class ColumnTypeDecorator(TypeDecorator):  # pylint: disable=abstract-method
             parse_rule,
         )
 
+        if not value:
+            return value
         return parse_rule(value, "dataType")
 
 
@@ -70,6 +72,7 @@ class Column(BaseSQLModel, table=True):  # type: ignore
             "lazy": "joined",
         },
     )
+    # cubes: List["NodeRevision"] = Relationship(back_populates="cube_elements")
 
     def identifier(self) -> Tuple[str, ColumnType]:
         """
