@@ -433,6 +433,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     """
     metrics: List[Column] = []
     metric_nodes: List[Node] = []
+    dimension_nodes: List[Node] = []
     dimensions: List[Column] = []
     catalogs = []
 
@@ -464,6 +465,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     for dimension_attribute in data.dimensions:
         node_name, column_name = dimension_attribute.rsplit(".", 1)
         dimension_node = get_node_by_name(session=session, name=node_name)
+        dimension_nodes.append(dimension_node)
         columns = {col.name: col for col in dimension_node.current.columns}
         if column_name in columns:  # pragma: no cover
             dimensions.append(columns[column_name])
@@ -527,6 +529,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         query=str(combined_ast),
         columns=node_columns,
         cube_elements=metrics + dimensions,
+        parents=list(set(dimension_nodes + metric_nodes)),
         status=status,
     )
 

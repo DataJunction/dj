@@ -17,7 +17,6 @@ class CubeElementMetadata(SQLModel):
     """
 
     id: int
-    # current_version: str
     name: str
 
 
