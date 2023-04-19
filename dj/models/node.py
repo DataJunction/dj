@@ -358,13 +358,10 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
     engine: Engine = Relationship()
 
     # A cron schedule to materialize this node by
-    schedule: str  # 0 * * * *
+    schedule: str
 
     # Arbitrary config relevant to the materialization engine
     config: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
-    # Druid materializations will contain:
-    #   - timestamp_column: str  # timestamp column
-    #   - intervals: List[str]
 
 
 class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
@@ -388,9 +385,8 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     schema_: Optional[str] = None
     table: Optional[str] = None
 
-    # A list of metric columns and dimension columns
-    cube_elements: List["Column"] = Relationship(  # Only used by cube nodes
-        # back_populates="cubes",
+    # A list of metric columns and dimension columns, only used by cube nodes
+    cube_elements: List["Column"] = Relationship(
         link_model=CubeRelationship,
         sa_relationship_kwargs={
             "primaryjoin": "NodeRevision.id==CubeRelationship.cube_id",

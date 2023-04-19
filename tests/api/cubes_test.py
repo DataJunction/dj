@@ -234,6 +234,7 @@ def test_cube_sql(client_with_examples: TestClient):
                 "dispatcher.company_name",
                 "municipality_dim.local_region",
             ],
+            "filters": ["hard_hat.state='AZ'"],
             "description": "Cube of various metrics related to repairs",
             "mode": "published",
             "name": "repairs_cube",
@@ -283,6 +284,7 @@ def test_cube_sql(client_with_examples: TestClient):
              = municipality_type.municipality_type_desc
         ) AS municipality_dim
         ON repair_orders.municipality_id = municipality_dim.municipality_id
+        WHERE hard_hat.state='AZ'
         GROUP BY
           hard_hat.country,
           hard_hat.postal_code,
@@ -291,5 +293,6 @@ def test_cube_sql(client_with_examples: TestClient):
           dispatcher.company_name,
           municipality_dim.local_region
     """
+    print(results["query"])
     assert compare_query_strings(results["query"], expected_query)
     assert results["display_name"] == "Repairs Cube"

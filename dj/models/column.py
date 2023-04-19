@@ -72,7 +72,6 @@ class Column(BaseSQLModel, table=True):  # type: ignore
             "lazy": "joined",
         },
     )
-    # cubes: List["NodeRevision"] = Relationship(back_populates="cube_elements")
 
     def identifier(self) -> Tuple[str, ColumnType]:
         """

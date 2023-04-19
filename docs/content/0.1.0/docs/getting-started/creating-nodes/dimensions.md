@@ -11,12 +11,13 @@ column in any DJ node can then be tagged as a join key to any column on the dime
 discover all dimensions that are accessible for each metric. Some dimensions themselves may include join keys to other dimensions,
 further extending the join path and allowing DJ to discover more dimensions that can be used to group metrics.
 
-| Attribute   | Description                                                                                 | Type   |
-|-------------|---------------------------------------------------------------------------------------------|--------|
-| name        | Unique name used by other nodes to select from this node                                    | string |
-| description | A human readable description of the node                                                    | string |
-| mode        | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
-| query       | A SQL query that selects from other nodes                                                   | string |
+| Attribute     | Description                                                                                 | Type   |
+|---------------|---------------------------------------------------------------------------------------------|--------|
+| name          | Unique name used by other nodes to select from this node                                    | string |
+| display_name  | A human readable name for the node                                                          | string |
+| description   | A human readable description of the node                                                    | string |
+| mode          | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
+| query         | A SQL query that selects from other nodes                                                   | string |
 
 ## Creating Dimension Nodes
 
@@ -90,11 +91,11 @@ http://localhost:8000/nodes/hard_hats/columns/hard_hat_id/?dimension=hard_hat_st
 {{< /tab >}}
 {{< tab "python" >}}
 ```py
-from djclient import DJ, Dimension
+from djclient import DJClient
 
-client = DJ("http://localhost:8000/")
-client.set_dimension(
-    node="hard_hats",
+dj = DJClient("http://localhost:8000/")
+dimension = dj.dimension("hard_hats")
+dimension.link_dimension(
     column="hard_hat_id",
     dimension="hard_hat_state",
     dimension_column="hard_hat_id",
