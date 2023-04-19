@@ -13,7 +13,7 @@ from dj.api.helpers import get_node_by_name
 from dj.errors import DJError, DJException, ErrorCode
 from dj.models.metric import Metric
 from dj.models.node import Node, NodeType
-from dj.sql.dag import get_dimensions
+from dj.sql.dag import get_shared_dimensions
 from dj.utils import get_session
 
 router = APIRouter()
@@ -91,9 +91,4 @@ async def get_common_dimensions(
 
     if errors:
         raise DJException(errors=errors)
-
-    common = set(get_dimensions(metric_nodes[0]))
-    for node in set(metric_nodes[1:]):
-        common.intersection_update(get_dimensions(node))
-
-    return list(common)
+    return list(get_shared_dimensions(metric_nodes))

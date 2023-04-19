@@ -10,7 +10,8 @@ from dj.construction.utils import amenable_name, to_namespaced_name
 from dj.errors import DJException, DJInvalidInputException
 from dj.models.column import Column
 from dj.models.engine import Dialect
-from dj.models.node import BuildCriteria, NodeRevision, NodeType
+from dj.models.node import BuildCriteria, Node, NodeRevision, NodeType
+from dj.sql.dag import get_shared_dimensions
 from dj.sql.parsing.ast import CompileContext
 from dj.sql.parsing.backends.antlr4 import ast, parse
 
@@ -462,6 +463,46 @@ def build_node(  # pylint: disable=too-many-arguments
     )
 
     return build_ast(session, query, build_criteria)
+
+
+def build_metric_nodes(
+    session: Session,
+    metric_nodes: List[Node],
+    filters: List[str],
+    dimensions: List[str],
+    build_criteria: Optional[BuildCriteria] = None,
+):
+    """
+    Build a single query for all metrics in the list, including the
+    specified group bys (dimensions) and filters.
+    """
+    shared_dimensions = get_shared_dimensions(metric_nodes)
+    for dimension_attribute in dimensions:
+        if dimension_attribute not in shared_dimensions:
+            raise DJInvalidInputException(
+                f"The dimension attribute `{dimension_attribute}` is not "
+                "available on every metric and thus cannot be included.",
+            )
+
+    combined_ast = parse(metric_nodes[0].current.query)
+    for metric_node in metric_nodes[1:]:
+        if metric_node.type != NodeType.METRIC:  # pragma: no cover
+            raise DJInvalidInputException(
+                "Cannot build a query for multiple nodes if one or more "
+                f"of them aren't metric nodes. ({metric_node.name} is not"
+                "a metric node)",
+            )
+
+        query = parse(metric_node.current.query)
+        combined_ast.select.projection.extend(query.select.projection)
+
+    add_filters_and_dimensions_to_query_ast(
+        combined_ast,
+        build_criteria.dialect if build_criteria else None,
+        filters,
+        dimensions,
+    )
+    return build_ast(session, combined_ast, build_criteria)
 
 
 def build_source_node_query(node: NodeRevision):
