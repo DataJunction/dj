@@ -43,25 +43,23 @@ curl -X POST http://localhost:8000/nodes/transform/ \
 {{< /tab >}}
 {{< tab "python" >}}
 ```py
-from djclient import DJ, Transform
+from djclient import DJClient, NodeMode
 
-client = DJ("http://localhost:8000/")
-client.push(
-    Transform(
-        name="repair_orders_w_dispatchers",
-        description="Repair orders that have a dispatcher",
-        mode="published",
-        query="""
-            SELECT
-            repair_order_id,
-            municipality_id,
-            hard_hat_id,
-            dispatcher_id
-            FROM repair_orders
-            WHERE dispatcher_id IS NOT NULL
-        """,
-    )
+dj = DJClient("http://localhost:8000/")
+transform = dj.new_transform(
+    name="repair_orders_w_dispatchers",
+    description="Repair orders that have a dispatcher",
+    query="""
+        SELECT
+        repair_order_id,
+        municipality_id,
+        hard_hat_id,
+        dispatcher_id
+        FROM repair_orders
+        WHERE dispatcher_id IS NOT NULL
+    """,
 )
+transform.save(NodeMode.PUBLISHED)
 ```
 {{< /tab >}}
 {{< /tabs >}}

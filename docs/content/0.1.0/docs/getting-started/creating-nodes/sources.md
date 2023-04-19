@@ -48,28 +48,26 @@ curl -X POST http://localhost:8000/nodes/source/ \
 {{< /tab >}}
 {{< tab "python" >}}
 ```py
-from djclient import DJ, Source
+from djclient import DJClient, NodeMode
 
-client = DJ("http://localhost:8000/")
-client.push(
-    Source(
-        name="repair_orders",
-        description="Repair orders",
-        mode="published",
-        catalog="default",
-        schema_="roads",
-        table="repair_orders",
-        columns={
-            "repair_order_id": {"type": "int"},
-            "municipality_id": {"type": "string"},
-            "hard_hat_id": {"type": "int"},
-            "order_date": {"type": "timestamp"},
-            "required_date": {"type": "timestamp"},
-            "dispatched_date": {"type": "timestamp"},
-            "dispatcher_id": {"type": "int"}
-        },
-    )
+dj = DJClient("http://localhost:8000/")
+source = dj.new_source(
+    name="repair_orders",
+    description="Repair orders",
+    catalog="default",
+    schema_="roads",
+    table="repair_orders",
+    columns=[
+        {"name": "repair_order_id", "type": "int"},
+        {"name": "municipality_id", "type": "string"},
+        {"name": "hard_hat_id", "type": "int"},
+        {"name": "order_date", "type": "timestamp"},
+        {"name": "required_date", "type": "timestamp"},
+        {"name": "dispatched_date", "type": "timestamp"},
+        {"name": "dispatcher_id", "type": "int"},
+    ],
 )
+source.save(mode=NodeMode.PUBLISHED)
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -97,19 +95,17 @@ curl -X POST http://localhost:8000/nodes/source/ \
 {{< /tab >}}
 {{< tab "python" >}}
 ```py
-from djclient import DJ, Source
+from djclient import DJClient, NodeMode
 
-client = DJ("http://localhost:8000/")
-client.push(
-    Source(
-        name="repair_orders",
-        description="Repair orders",
-        mode="published",
-        catalog="default",
-        schema_="roads",
-        table="repair_orders",
-    )
+dj = DJClient("http://localhost:8000/")
+source = dj.new_source(
+    name="repair_orders",
+    description="Repair orders",
+    catalog="default",
+    schema_="roads",
+    table="repair_orders",
 )
+source.save(NodeMode.PUBLISHED)
 ```
 {{< /tab >}}
 {{< /tabs >}}
