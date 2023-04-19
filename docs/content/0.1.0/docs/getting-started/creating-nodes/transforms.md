@@ -9,12 +9,13 @@ a perfect data model, you may not need to define any transform nodes. However, i
 nodes to clean up your external data within DJ by joining, aggregating, casting types, or any other SQL operation that your query
 engine supports.
 
-| Attribute   | Description                                                                                 | Type   |
-|-------------|---------------------------------------------------------------------------------------------|--------|
-| name        | Unique name used by other nodes to select from this node                                    | string |
-| description | A human readable description of the node                                                    | string |
-| mode        | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
-| query       | A SQL query that selects from other nodes                                                   | string |
+| Attribute    | Description                                                                                 | Type   |
+|--------------|---------------------------------------------------------------------------------------------|--------|
+| name         | Unique name used by other nodes to select from this node                                    | string |
+| display_name | A human readable name for the node                                                          | string |
+| description  | A human readable description of the node                                                    | string |
+| mode         | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
+| query        | A SQL query that selects from other nodes                                                   | string |
 
 ## Creating Transform Nodes
 

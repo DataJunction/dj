@@ -228,7 +228,6 @@ class DJClient:  # pylint: disable=too-many-public-methods
         filters: Optional[List[str]] = None,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
-        tags: Optional[List["Tag"]] = None,
     ) -> "Cube":
         """
         Instantiates a new cube with the given parameters.
@@ -506,8 +505,11 @@ class DJClient:  # pylint: disable=too-many-public-methods
     def upsert_materialization_config(
         self,
         node_name: str,
-        config: "MaterializationConfig"
+        config: "MaterializationConfig",
     ):
+        """
+        Upserts a materialization config for the node.
+        """
         response = self._session.post(
             f"/nodes/{node_name}/materialization/",
             json=config.dict(),
@@ -604,17 +606,23 @@ class Node(ClientEntity):
         `dimension_column`. If no `dimension_column` is provided, the dimension's
         primary key will be used automatically.
         """
-        return self.dj_client.link_dimension_to_node(
+        link_response = self.dj_client.link_dimension_to_node(
             self.name,
             column,
             dimension,
             dimension_column,
         )
+        self.sync()
+        return link_response
 
     def add_materialization_config(self, config: "MaterializationConfig"):
-        return self.dj_client.upsert_materialization_config(
-            self.name, config
-        )
+        """
+        Adds a materialization config for the node. This will not work for source nodes
+        as they don't need to be materialized.
+        """
+        upsert_response = self.dj_client.upsert_materialization_config(self.name, config)
+        self.sync()
+        return upsert_response
 
     def sql(
         self,
@@ -665,6 +673,7 @@ class MaterializationConfig(BaseModel):
     """
     A node's materialization config
     """
+
     engine_name: str
     engine_version: Optional[str]
     schedule: str
