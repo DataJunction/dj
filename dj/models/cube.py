@@ -4,7 +4,7 @@ Models for cubes.
 
 from typing import List, Optional
 
-from pydantic import Field
+from pydantic import Field, root_validator
 from sqlmodel import SQLModel
 
 from dj.models.node import AvailabilityState, ColumnOutput, NodeType
@@ -16,8 +16,19 @@ class CubeElementMetadata(SQLModel):
     Metadata for an element in a cube
     """
 
-    id: int
     name: str
+    node_name: str
+    type: str
+
+    @root_validator(pre=True)
+    def type_string(cls, values):  # pylint: disable=no-self-argument
+        """
+        Extracts the type as a string
+        """
+        values = dict(values)
+        values["node_name"] = values["node_revisions"][0].name
+        values["type"] = values["node_revisions"][0].type
+        return values
 
 
 class CubeRevisionMetadata(SQLModel):

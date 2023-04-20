@@ -293,7 +293,7 @@ def upsert_a_materialization_config(
     # Check to see if a config for this engine already exists with the exact same config
     existing_config_for_engine = [
         config
-        for config in node.current.materialization_configs
+        for config in current_revision.materialization_configs
         if config.engine.name == data.engine_name
     ]
     if (
@@ -310,34 +310,26 @@ def upsert_a_materialization_config(
             },
         )
 
-    # Materialization config changed, so create a new materialization config and a new node
-    # revision that references it.
+    # Materialization config changed, so create a new materialization config
     engine = get_engine(session, data.engine_name, data.engine_version)
-    new_node_revision = create_new_revision_from_existing(
-        session,
-        current_revision,
-        node,
-        version_upgrade=VersionUpgrade.MAJOR,
-    )
 
     unchanged_existing_configs = [
         config
-        for config in node.current.materialization_configs
+        for config in current_revision.materialization_configs
         if config.engine.name != data.engine_name
     ]
     new_config = MaterializationConfig(
-        node_revision=new_node_revision,
+        node_revision=current_revision,
         engine=engine,
         config=data.config,
         schedule=data.schedule,
     )
-    new_node_revision.materialization_configs = unchanged_existing_configs + [  # type: ignore
+    current_revision.materialization_configs = unchanged_existing_configs + [  # type: ignore
         new_config,
     ]
-    node.current_version = new_node_revision.version  # type: ignore
 
     # This will add the materialization config, the new node rev, and update the node's version.
-    session.add(new_node_revision)
+    session.add(current_revision)
     session.add(node)
     session.commit()
 

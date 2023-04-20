@@ -19,7 +19,7 @@ from sqlmodel import Field, Relationship, SQLModel
 from typing_extensions import TypedDict
 
 from dj.errors import DJInvalidInputException
-from dj.models.base import BaseSQLModel, generate_display_name
+from dj.models.base import BaseSQLModel, NodeColumns, generate_display_name
 from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
@@ -83,23 +83,6 @@ class CubeRelationship(BaseSQLModel, table=True):  # type: ignore
     )
 
     cube_element_id: Optional[int] = Field(
-        default=None,
-        foreign_key="column.id",
-        primary_key=True,
-    )
-
-
-class NodeColumns(BaseSQLModel, table=True):  # type: ignore
-    """
-    Join table for node columns.
-    """
-
-    node_id: Optional[int] = Field(
-        default=None,
-        foreign_key="noderevision.id",
-        primary_key=True,
-    )
-    column_id: Optional[int] = Field(
         default=None,
         foreign_key="column.id",
         primary_key=True,
@@ -642,12 +625,12 @@ class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
     A create object for cube nodes
     """
 
-    class Config:  # pylint: disable=too-few-public-methods
-        """
-        Do not allow extra fields in input
-        """
-
-        extra = Extra.forbid
+    # class Config:  # pylint: disable=too-few-public-methods
+    #     """
+    #     Do not allow extra fields in input
+    #     """
+    #
+    #     extra = Extra.forbid
 
 
 class UpdateNode(MutableNodeFields, SourceNodeFields):

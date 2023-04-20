@@ -902,7 +902,7 @@ class TestCreateOrUpdateNodes:
         assert old_node_data["version"] == "v1.0"
         assert old_node_data["materialization_configs"] == []
 
-        # Setting the materialization config should succeed with a new node revision created.
+        # Setting the materialization config should succeed
         response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
@@ -919,10 +919,10 @@ class TestCreateOrUpdateNodes:
             " and engine `spark`."
         )
 
-        # Reading the node should yield the materialization config and new revision.
+        # Reading the node should yield the materialization config
         response = client_with_examples.get("/nodes/basic.transform.country_agg/")
         data = response.json()
-        assert data["version"] == "v2.0"
+        assert data["version"] == "v1.0"
         assert data["materialization_configs"] == [
             {
                 "config": {},
@@ -935,7 +935,6 @@ class TestCreateOrUpdateNodes:
                 },
             },
         ]
-        assert old_node_data["node_revision_id"] < data["node_revision_id"]
 
         # Setting the same config should yield a message indicating so.
         response = client_with_examples.post(

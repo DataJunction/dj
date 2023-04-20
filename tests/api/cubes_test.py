@@ -84,16 +84,6 @@ def test_create_invalid_cube(client_with_examples: TestClient):
             "msg": "field required",
             "type": "value_error.missing",
         },
-        {
-            "loc": ["body", "cube_elements"],
-            "msg": "extra fields not permitted",
-            "type": "value_error.extra",
-        },
-        {
-            "loc": ["body", "query"],
-            "msg": "extra fields not permitted",
-            "type": "value_error.extra",
-        },
     ]
 
     # Check that creating a cube with no cube elements fails appropriately
@@ -293,6 +283,26 @@ def test_cube_sql(client_with_examples: TestClient):
           dispatcher.company_name,
           municipality_dim.local_region
     """
-    print(results["query"])
     assert compare_query_strings(results["query"], expected_query)
-    assert results["display_name"] == "Repairs Cube"
+
+    response = client_with_examples.get("/cubes/repairs_cube/")
+    data = response.json()
+    assert data["cube_elements"] == [
+        {
+            "name": "num_repair_orders",
+            "node_name": "num_repair_orders",
+            "type": "metric",
+        },
+        {"name": "avg_repair_price", "node_name": "avg_repair_price", "type": "metric"},
+        {
+            "name": "total_repair_cost",
+            "node_name": "total_repair_cost",
+            "type": "metric",
+        },
+        {"name": "country", "node_name": "hard_hat", "type": "dimension"},
+        {"name": "postal_code", "node_name": "hard_hat", "type": "dimension"},
+        {"name": "city", "node_name": "hard_hat", "type": "dimension"},
+        {"name": "state", "node_name": "hard_hat", "type": "dimension"},
+        {"name": "company_name", "node_name": "dispatcher", "type": "dimension"},
+        {"name": "local_region", "node_name": "municipality_dim", "type": "dimension"},
+    ]

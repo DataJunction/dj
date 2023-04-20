@@ -220,6 +220,28 @@ class DJClient:  # pylint: disable=too-many-public-methods
             query=query,
         )
 
+    def cube(self, node_name: str) -> "Cube":
+        """
+        Retrieves a cube node with that name if one exists.
+        """
+        node_dict = self.get_cube(node_name)
+        dimensions = [
+            f'{col["node_name"]}.{col["name"]}'
+            for col in node_dict["cube_elements"]
+            if col["type"] != "metric"
+        ]
+        metrics = [
+            f'{col["node_name"]}.{col["name"]}'
+            for col in node_dict["cube_elements"]
+            if col["type"] == "metric"
+        ]
+        return Cube(
+            **node_dict,
+            metrics=metrics,
+            dimensions=dimensions,
+            dj_client=self,
+        )
+
     def new_cube(  # pylint: disable=too-many-arguments
         self,
         name: str,
@@ -397,6 +419,13 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Retrieves a node.
         """
         response = self._session.get(f"/nodes/{node_name}/")
+        return response.json()
+
+    def get_cube(self, node_name: str):
+        """
+        Retrieves a node.
+        """
+        response = self._session.get(f"/cubes/{node_name}/")
         return response.json()
 
     def _nodes_by_type(
