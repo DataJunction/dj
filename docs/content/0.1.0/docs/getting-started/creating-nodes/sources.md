@@ -7,15 +7,16 @@ weight: 10
 Source nodes represent external tables in a database or data warehouse and make up the foundational layer on which other nodes
 are built upon.
 
-| Attribute   | Description                                                                                 | Type   |
-|-------------|---------------------------------------------------------------------------------------------|--------|
-| name        | Unique name used by other nodes to select from this node                                    | string |
-| description | A human readable description of the node                                                    | string |
-| mode        | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
-| catalog     | The name of the external catalog                                                            | string |
-| schema_     | The name of the external schema                                                             | string |
-| table       | The name of the external table                                                              | string |
-| columns     | A map of the external table's column names and types                                        | map    |
+| Attribute    | Description                                                                                 | Type   |
+|--------------|---------------------------------------------------------------------------------------------|--------|
+| name         | Unique name used by other nodes to select from this node                                    | string |
+| description  | A human readable description of the node                                                    | string |
+| display_name | A human readable name for the node                                                          | string |
+| mode         | `published` or `draft` (see [Node Mode](../../../dj-concepts/node-dependencies/#node-mode)) | string |
+| catalog      | The name of the external catalog                                                            | string |
+| schema_      | The name of the external schema                                                             | string |
+| table        | The name of the external table                                                              | string |
+| columns      | A map of the external table's column names and types                                        | map    |
 
 ## Creating Source Nodes
 

@@ -9,12 +9,12 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.types import Text
 from sqlmodel import Field, Relationship
 
-from dj.models.base import BaseSQLModel
+from dj.models.base import BaseSQLModel, NodeColumns
 from dj.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
     from dj.models.attribute import ColumnAttribute
-    from dj.models.node import Node
+    from dj.models.node import Node, NodeRevision
 
 
 class ColumnYAML(TypedDict, total=False):
@@ -41,6 +41,8 @@ class ColumnTypeDecorator(TypeDecorator):  # pylint: disable=abstract-method
             parse_rule,
         )
 
+        if not value:
+            return value
         return parse_rule(value, "dataType")
 
 
@@ -63,7 +65,13 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         },
     )
     dimension_column: Optional[str] = None
-
+    node_revisions: List["NodeRevision"] = Relationship(
+        back_populates="columns",
+        link_model=NodeColumns,
+        sa_relationship_kwargs={
+            "lazy": "select",
+        },
+    )
     attributes: List["ColumnAttribute"] = Relationship(
         back_populates="column",
         sa_relationship_kwargs={

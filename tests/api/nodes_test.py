@@ -863,7 +863,8 @@ class TestCreateOrUpdateNodes:
             json={
                 "engine_name": "spark",
                 "engine_version": "2.4.4",
-                "config": "{}",
+                "schedule": "0 * * * *",
+                "config": {},
             },
         )
         assert response.status_code == 400
@@ -875,7 +876,12 @@ class TestCreateOrUpdateNodes:
         # Setting the materialization config for an engine that doesn't exist should fail
         response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
-            json={"engine_name": "spark", "engine_version": "2.4.4", "config": "{}"},
+            json={
+                "engine_name": "spark",
+                "engine_version": "2.4.4",
+                "config": {},
+                "schedule": "0 * * * *",
+            },
         )
         assert response.status_code == 404
         data = response.json()
@@ -884,7 +890,11 @@ class TestCreateOrUpdateNodes:
         # Create the engine and check the existing transform node
         client_with_examples.post(
             "/engines/",
-            json={"name": "spark", "version": "2.4.4", "dialect": "spark"},
+            json={
+                "name": "spark",
+                "version": "2.4.4",
+                "dialect": "spark",
+            },
         )
 
         response = client_with_examples.get("/nodes/basic.transform.country_agg/")
@@ -892,13 +902,14 @@ class TestCreateOrUpdateNodes:
         assert old_node_data["version"] == "v1.0"
         assert old_node_data["materialization_configs"] == []
 
-        # Setting the materialization config should succeed with a new node revision created.
+        # Setting the materialization config should succeed
         response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
                 "engine_name": "spark",
                 "engine_version": "2.4.4",
-                "config": "blahblah",
+                "config": {},
+                "schedule": "0 * * * *",
             },
         )
         data = response.json()
@@ -908,13 +919,14 @@ class TestCreateOrUpdateNodes:
             " and engine `spark`."
         )
 
-        # Reading the node should yield the materialization config and new revision.
+        # Reading the node should yield the materialization config
         response = client_with_examples.get("/nodes/basic.transform.country_agg/")
         data = response.json()
-        assert data["version"] == "v2.0"
+        assert data["version"] == "v1.0"
         assert data["materialization_configs"] == [
             {
-                "config": "blahblah",
+                "config": {},
+                "schedule": "0 * * * *",
                 "engine": {
                     "name": "spark",
                     "uri": None,
@@ -923,7 +935,6 @@ class TestCreateOrUpdateNodes:
                 },
             },
         ]
-        assert old_node_data["node_revision_id"] < data["node_revision_id"]
 
         # Setting the same config should yield a message indicating so.
         response = client_with_examples.post(
@@ -931,8 +942,9 @@ class TestCreateOrUpdateNodes:
             json={
                 "engine_name": "spark",
                 "engine_version": "2.4.4",
-                "config": "blahblah",
+                "config": {},
                 "dialect": "spark",
+                "schedule": "0 * * * *",
             },
         )
         assert response.status_code == 204

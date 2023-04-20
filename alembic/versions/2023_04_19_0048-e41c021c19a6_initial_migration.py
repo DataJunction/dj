@@ -1,8 +1,8 @@
 """Initial migration
 
-Revision ID: 4f6449741463
+Revision ID: e41c021c19a6
 Revises:
-Create Date: 2023-04-13 20:48:03.594434+00:00
+Create Date: 2023-04-19 00:48:51.504389+00:00
 
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
@@ -14,7 +14,7 @@ import sqlmodel
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "4f6449741463"
+revision = "e41c021c19a6"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -284,8 +284,8 @@ def upgrade():
         sa.Column("cube_element_id", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(
             ["cube_element_id"],
-            ["node.id"],
-            name=op.f("fk_cube_cube_element_id_node"),
+            ["column.id"],
+            name=op.f("fk_cube_cube_element_id_column"),
         ),
         sa.ForeignKeyConstraint(
             ["cube_id"],
@@ -298,7 +298,7 @@ def upgrade():
         "materializationconfig",
         sa.Column("node_revision_id", sa.Integer(), nullable=False),
         sa.Column("engine_id", sa.Integer(), nullable=False),
-        sa.Column("config", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("config", sa.JSON(), nullable=True),
         sa.ForeignKeyConstraint(
             ["engine_id"],
             ["engine.id"],
@@ -314,6 +314,7 @@ def upgrade():
             "engine_id",
             name=op.f("pk_materializationconfig"),
         ),
+        sa.Column("schedule", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     )
     op.create_table(
         "nodeavailabilitystate",

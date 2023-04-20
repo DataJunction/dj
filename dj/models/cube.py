@@ -4,10 +4,10 @@ Models for cubes.
 
 from typing import List, Optional
 
-from pydantic import Field
+from pydantic import Field, root_validator
 from sqlmodel import SQLModel
 
-from dj.models.node import AvailabilityState, NodeType
+from dj.models.node import AvailabilityState, ColumnOutput, NodeType
 from dj.typing import UTCDatetime
 
 
@@ -16,9 +16,19 @@ class CubeElementMetadata(SQLModel):
     Metadata for an element in a cube
     """
 
-    id: int
-    current_version: str
     name: str
+    node_name: str
+    type: str
+
+    @root_validator(pre=True)
+    def type_string(cls, values):  # pylint: disable=no-self-argument
+        """
+        Extracts the type as a string
+        """
+        values = dict(values)
+        values["node_name"] = values["node_revisions"][0].name
+        values["type"] = values["node_revisions"][0].type
+        return values
 
 
 class CubeRevisionMetadata(SQLModel):
@@ -35,6 +45,8 @@ class CubeRevisionMetadata(SQLModel):
     description: str = ""
     availability: Optional[AvailabilityState] = None
     cube_elements: List[CubeElementMetadata]
+    query: str
+    columns: List[ColumnOutput]
     updated_at: UTCDatetime
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods

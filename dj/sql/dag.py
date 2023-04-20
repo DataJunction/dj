@@ -2,7 +2,7 @@
 DAG related functions.
 """
 import collections
-from typing import List
+from typing import List, Set
 
 from dj.models.node import Node, NodeType
 from dj.utils import get_settings
@@ -36,3 +36,13 @@ def get_dimensions(node: Node) -> List[str]:
             if column.dimension and column.dimension not in processed:
                 to_process.append(column.dimension)
     return sorted(dimensions)
+
+
+def get_shared_dimensions(metric_nodes: List[Node]) -> Set[str]:
+    """
+    Return a list of dimensions that are common between the nodes.
+    """
+    common = set(get_dimensions(metric_nodes[0]))
+    for node in set(metric_nodes[1:]):
+        common.intersection_update(get_dimensions(node))
+    return common

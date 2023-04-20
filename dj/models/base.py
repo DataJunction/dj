@@ -1,8 +1,10 @@
 """
 A base SQLModel class with a default naming convention.
 """
+from typing import Optional
+
 from sqlalchemy.engine.default import DefaultExecutionContext
-from sqlmodel import SQLModel
+from sqlmodel import Field, SQLModel
 
 NAMING_CONVENTION = {
     "ix": "ix_%(column_0_label)s",
@@ -51,3 +53,20 @@ def generate_display_name(column_name: str):
         return labelize(column_value)
 
     return default_function
+
+
+class NodeColumns(BaseSQLModel, table=True):  # type: ignore
+    """
+    Join table for node columns.
+    """
+
+    node_id: Optional[int] = Field(
+        default=None,
+        foreign_key="noderevision.id",
+        primary_key=True,
+    )
+    column_id: Optional[int] = Field(
+        default=None,
+        foreign_key="column.id",
+        primary_key=True,
+    )
