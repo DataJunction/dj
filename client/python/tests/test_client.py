@@ -4,7 +4,7 @@ import pytest
 import responses
 
 from datajunction import DJClient
-from datajunction.djclient import NodeMode
+from datajunction.client import NodeMode
 from datajunction.exceptions import DJClientException
 
 
