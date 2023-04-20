@@ -3,7 +3,7 @@ requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
-name = "djclient"
+name = "datajunction"
 version = "0.0.1a3"
 readme = "README.md"
 repository = "https://github.com/DataJunction/dj"
@@ -11,7 +11,7 @@ description = "DataJunction client library for connecting to a DataJunction serv
 authors = ["DataJunction Authors"]
 license = "MIT"
 packages = [
-    { include = "djclient" },
+    { include = "datajunction" },
 ]
 classifiers = [
     "Programming Language :: Python :: 3.8",

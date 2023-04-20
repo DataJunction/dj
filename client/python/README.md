@@ -3,14 +3,16 @@
 ## Installation
 To install:
 ```
-pip install djclient
+pip install datajunction
 ```
 
 ## Examples
 
 To initialize the client:
+
 ```python
-from djclient import DJClient
+from datajunction import DJClient
+
 dj = DJClient("http://dj-endpoint:8000")
 ```
 
@@ -27,8 +29,10 @@ dj.engines()
 ```
 
 To create a catalog:
+
 ```python
-from djclient import Catalog
+from datajunction import Catalog
+
 catalog = Catalog(
     name="prod"
 )
@@ -36,8 +40,10 @@ catalog.publish()
 ```
 
 To create an engine:
+
 ```python
-from djclient import Engine
+from datajunction import Engine
+
 engine = Engine(
     name="spark",
     version="3.2.2",
@@ -68,8 +74,10 @@ dj.namespace("default").cubes()
 ```
 
 To create a source node:
+
 ```python
-from djclient import NodeMode
+from datajunction import NodeMode
+
 repair_orders = dj.new_source(
     name="repair_orders",
     display_name="Repair Orders",
