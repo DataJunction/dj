@@ -10,7 +10,7 @@ import requests
 from pydantic import BaseModel, Field, validator
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
-from djclient.exceptions import DJClientException
+from datajunction.exceptions import DJClientException
 
 DEFAULT_NAMESPACE = "default"
 _logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ class RequestsSessionWithEndpoint(requests.Session):
         self.headers = CaseInsensitiveDict(
             {
                 "User-Agent": (
-                    f"djclient;;N/A;"
+                    f"datajunction;;N/A;"
                     f"{platform.processor() or platform.machine()};"
                     f"{platform.system()};"
                     f"{platform.release()} {platform.version()}"
@@ -649,7 +649,10 @@ class Node(ClientEntity):
         Adds a materialization config for the node. This will not work for source nodes
         as they don't need to be materialized.
         """
-        upsert_response = self.dj_client.upsert_materialization_config(self.name, config)
+        upsert_response = self.dj_client.upsert_materialization_config(
+            self.name,
+            config,
+        )
         self.sync()
         return upsert_response
 

@@ -50,8 +50,9 @@ curl -X POST http://localhost:8000/nodes/cube/ \
 ```
 {{< /tab >}}
 {{< tab "python" >}}
+
 ```py
-from djclient import DJClient
+from datajunction import DJClient
 
 dj = DJClient("http://localhost:8000/")
 cube = dj.new_cube(
@@ -103,8 +104,10 @@ http://localhost:8000/nodes/repairs_cube/materialization/ \
 ```
 {{< /tab >}}
 {{< tab "python" >}}
+
 ```py
-from djclient import MaterializationConfig
+from datajunction import MaterializationConfig
+
 config = MaterializationConfig(
     engine_name="SPARK",
     engine_version="3.3",

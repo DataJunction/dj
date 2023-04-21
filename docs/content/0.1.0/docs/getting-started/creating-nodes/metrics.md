@@ -33,8 +33,9 @@ curl -X POST http://localhost:8000/nodes/metric/ \
 ```
 {{< /tab >}}
 {{< tab "python" >}}
+
 ```py
-from djclient import DJClient, NodeMode
+from datajunction import DJClient, NodeMode
 
 dj = DJClient("http://localhost:8000/")
 metric = dj.new_metric(

@@ -47,8 +47,9 @@ curl -X POST http://localhost:8000/nodes/dimension/ \
 ```
 {{< /tab >}}
 {{< tab "python" >}}
+
 ```py
-from djclient import DJClient, NodeMode
+from datajunction import DJClient, NodeMode
 
 dj = DJClient("http://localhost:8000/")
 dimension = dj.new_dimension(
@@ -90,8 +91,9 @@ http://localhost:8000/nodes/hard_hats/columns/hard_hat_id/?dimension=hard_hat_st
 ```
 {{< /tab >}}
 {{< tab "python" >}}
+
 ```py
-from djclient import DJClient
+from datajunction import DJClient
 
 dj = DJClient("http://localhost:8000/")
 dimension = dj.dimension("hard_hats")

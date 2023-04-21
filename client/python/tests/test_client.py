@@ -3,9 +3,9 @@ import pandas as pd
 import pytest
 import responses
 
-from djclient import DJClient
-from djclient.dj import NodeMode
-from djclient.exceptions import DJClientException
+from datajunction import DJClient
+from datajunction.client import NodeMode
+from datajunction.exceptions import DJClientException
 
 
 class TestDJClient:
