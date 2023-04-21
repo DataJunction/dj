@@ -9,7 +9,7 @@ version_scheme = "no-guess-dev"
 
 [tool.poetry]
 name = "datajunction-server"
-version = "0.0.1a5"
+version = "0.0.1a6"
 readme = "README.rst"
 repository = "https://github.com/DataJunction/dj"
 description = "DataJunction server library for running to a DataJunction server"
