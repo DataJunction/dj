@@ -484,7 +484,14 @@ def build_metric_nodes(
                 "available on every metric and thus cannot be included.",
             )
 
-    combined_ast = parse(metric_nodes[0].current.query)
+    combined_ast = build_node(
+        session,
+        metric_nodes[0].current,
+        filters,
+        dimensions,
+        build_criteria,
+    )
+    metric_dependencies: Set[str] = set()
     for metric_node in metric_nodes[1:]:
         if metric_node.type != NodeType.METRIC:  # pragma: no cover
             raise DJInvalidInputException(
@@ -492,17 +499,38 @@ def build_metric_nodes(
                 f"of them aren't metric nodes. ({metric_node.name} is not"
                 "a metric node)",
             )
+        metric_ast = build_node(
+            session,
+            metric_node.current,
+            filters,
+            dimensions,
+            build_criteria,
+        )
+        metric_dependencies = metric_dependencies.union(
+            {tbl.alias_or_name.name for tbl in metric_ast.find_all(ast.Table)},
+        )
+        built_source_tables = {
+            tbl.alias_or_name.name for tbl in metric_ast.find_all(ast.Table)
+        }
+        diff_columns = set(combined_ast.select.projection).difference(
+            metric_ast.select.projection,
+        )
+        if all(tbl in built_source_tables for tbl in metric_dependencies):
+            metric_ast.select.projection.extend(diff_columns)
+            combined_ast = metric_ast
+        else:
+            combined_ast.select.projection.extend(diff_columns)  # pragma: no cover
 
-        query = parse(metric_node.current.query)
-        combined_ast.select.projection.extend(query.select.projection)
-
-    add_filters_and_dimensions_to_query_ast(
-        combined_ast,
-        build_criteria.dialect if build_criteria else None,
-        filters,
-        dimensions,
-    )
-    return build_ast(session, combined_ast, build_criteria)
+    built_source_tables = {
+        tbl.alias_or_name.name for tbl in combined_ast.find_all(ast.Table)
+    }
+    if not all(tbl in built_source_tables for tbl in metric_dependencies):
+        raise DJInvalidInputException(  # pragma: no cover
+            "We cannot build these metrics together as they aren't "
+            "querying from the same sources. Metric dependencies include "
+            ", ".join(metric_dependencies),
+        )
+    return combined_ast
 
 
 def build_source_node_query(node: NodeRevision):

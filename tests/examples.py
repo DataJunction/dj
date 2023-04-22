@@ -28,6 +28,14 @@ EXAMPLES = (  # type: ignore
         [{"name": "spark", "version": "3.1.1", "dialect": "spark"}],
     ),
     (
+        "/engines/",
+        {"name": "druid", "version": "", "dialect": "druid"},
+    ),
+    (
+        "/catalogs/default/engines/",
+        [{"name": "druid", "version": "", "dialect": "druid"}],
+    ),
+    (
         "/catalogs/",
         {"name": "public"},
     ),
@@ -457,6 +465,22 @@ EXAMPLES = (  # type: ignore
             ),
             "mode": "published",
             "name": "avg_length_of_employment",
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "name": "discounted_orders_rate",
+            "query": (
+                """
+                SELECT
+                  cast(sum(if(discount > 0.0, 1, 0)) as double) / count(*)
+                    AS discounted_orders_rate
+                FROM repair_order_details
+                """
+            ),
+            "mode": "published",
+            "description": "Proportion of Discounted Orders",
         },
     ),
     (

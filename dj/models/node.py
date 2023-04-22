@@ -473,6 +473,9 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                     f"Node {self.name} of type cube node needs cube elements",
                 )
 
+    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        extra = Extra.allow
+
 
 class ImmutableNodeFields(BaseSQLModel):
     """
