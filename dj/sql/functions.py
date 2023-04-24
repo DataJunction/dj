@@ -207,6 +207,13 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     return ct.DoubleType()
 
 
+@Avg.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    arg: ct.DateTimeBase,
+) -> ct.DateTimeBase:
+    return type(arg.type)()
+
+
 class Min(Function):  # pylint: disable=abstract-method
     """
     Computes the minimum value of the input column or expression.
@@ -425,8 +432,8 @@ class Now(Function):  # pylint: disable=abstract-method
 
 
 @Now.register  # type: ignore
-def infer_type() -> ct.TimestamptzType:  # noqa: F811  # pylint: disable=function-redefined
-    return ct.TimestamptzType()
+def infer_type() -> ct.TimestampType:  # noqa: F811  # pylint: disable=function-redefined
+    return ct.TimestampType()
 
 
 class DateAdd(Function):  # pylint: disable=abstract-method

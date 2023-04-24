@@ -29,7 +29,6 @@ from dj.sql.parsing.types import (
     IntegerType,
     NullType,
     StringType,
-    TimestamptzType,
     WildcardType,
 )
 
@@ -87,7 +86,7 @@ def test_now() -> None:
     """
     Test ``Now`` function.
     """
-    assert Now.infer_type() == TimestamptzType()
+    assert Now.infer_type() == ct.TimestampType()
 
 
 def test_coalesce_infer_type() -> None:

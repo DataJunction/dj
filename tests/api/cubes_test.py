@@ -215,7 +215,7 @@ def test_cube_sql(client_with_examples: TestClient):
     response = client_with_examples.post(
         "/nodes/cube/",
         json={
-            "metrics": metrics_list,
+            "metrics": ["num_repair_orders", "avg_repair_price", "total_repair_cost"],
             "dimensions": [
                 "hard_hat.country",
                 "hard_hat.postal_code",
