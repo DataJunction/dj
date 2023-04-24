@@ -534,11 +534,17 @@ class TestCreateOrUpdateNodes:
         )
         data = response.json()
         assert data == {
-            "message": "Unable to infer type for some columns on node `avg_length_of_employment_plus_one`",
+            "message": (
+                "Unable to infer type for some columns on node "
+                "`avg_length_of_employment_plus_one`"
+            ),
             "errors": [
                 {
                     "code": 302,
-                    "message": "Unable to infer type for some columns on node `avg_length_of_employment_plus_one`",
+                    "message": (
+                        "Unable to infer type for some columns on node "
+                        "`avg_length_of_employment_plus_one`"
+                    ),
                     "debug": {"columns": ["avg_length_of_employment"]},
                     "context": "",
                 },

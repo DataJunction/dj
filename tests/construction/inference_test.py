@@ -25,7 +25,6 @@ from dj.sql.parsing.types import (
     NullType,
     StringType,
     TimestampType,
-    TimestamptzType,
     TimeType,
     TinyIntType,
 )
