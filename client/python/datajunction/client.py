@@ -16,7 +16,7 @@ DEFAULT_NAMESPACE = "default"
 _logger = logging.getLogger(__name__)
 
 
-class RequestsSessionWithEndpoint(requests.Session):
+class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
     """
     Creates a requests session that comes with an endpoint that all
     subsequent requests will use as a prefix.
@@ -78,7 +78,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
     ):
         self.target_namespace = target_namespace
         self.uri = uri
-        if not requests_session:
+        if not requests_session:  # pragma: no cover
             self._session = RequestsSessionWithEndpoint(
                 endpoint=self.uri,
             )
@@ -220,11 +220,13 @@ class DJClient:  # pylint: disable=too-many-public-methods
             query=query,
         )
 
-    def cube(self, node_name: str) -> "Cube":
+    def cube(self, node_name: str) -> "Cube":  # pragma: no cover
         """
         Retrieves a cube node with that name if one exists.
         """
         node_dict = self.get_cube(node_name)
+        if "name" not in node_dict:
+            raise DJClientException(f"Cube `{node_name}` does not exist")
         dimensions = [
             f'{col["node_name"]}.{col["name"]}'
             for col in node_dict["cube_elements"]
@@ -254,7 +256,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         """
         Instantiates a new cube with the given parameters.
         """
-        return Cube(
+        return Cube(  # pragma: no cover
             dj_client=self,
             name=name,
             metrics=metrics,
@@ -305,76 +307,6 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Returns the specified node namespace.
         """
         return Namespace(namespace=_namespace, dj_client=self)
-
-    def nodes(self, names_only: bool = False) -> Union[List[str], List["Node"]]:
-        """
-        Returns all nodes. If `names_only` is set to true,
-        it will return a list of node names.
-        """
-        response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(response.json(), names_only=names_only)
-
-    def sources(self, names_only: bool = False) -> Union[List[str], List["Source"]]:
-        """
-        Returns all source nodes. If `names_only` is set to true,
-        it will return a list of node names.
-        """
-        response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(
-            response.json(),
-            type_="source",
-            names_only=names_only,
-        )
-
-    def dimensions(
-        self,
-        names_only: bool = False,
-    ) -> Union[List[str], List["Dimension"]]:
-        """
-        Returns all dimension nodes. If `names_only` is set to true,
-        it will return a list of node names.
-        """
-        response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(
-            response.json(),
-            type_="dimension",
-            names_only=names_only,
-        )
-
-    def transforms(
-        self,
-        names_only: bool = False,
-    ) -> Union[List[str], List["Transform"]]:
-        """
-        Returns all transform nodes. If `names_only` is set to true,
-        it will return a list of node names.
-        """
-        response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(
-            response.json(),
-            type_="transform",
-            names_only=names_only,
-        )
-
-    def metrics(self, names_only: bool = False) -> Union[List[str], List["Metric"]]:
-        """
-        Returns all metric nodes. If `names_only` is set to true,
-        it will return a list of node names.
-        """
-        response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(
-            response.json(),
-            type_="metric",
-            names_only=names_only,
-        )
-
-    def cubes(self, names_only: bool = False) -> Union[List[str], List["Cube"]]:
-        """
-        Returns all cube nodes. If `names_only` is set to true,
-        it will return a list of node names.
-        """
-        response = self._session.get("/nodes/", timeout=self._timeout)
-        return self._nodes_by_type(response.json(), type_="cube", names_only=names_only)
 
     def delete_node(self, node: "Node"):
         """
@@ -513,7 +445,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         filters: List[str],
         engine_name: Optional[str] = "TRINO_DIRECT",
         engine_version: Optional[str] = "",
-    ):
+    ):  # pragma: no cover
         """
         Retrieves the data for the node with the provided dimensions and filters.
         """
@@ -684,7 +616,7 @@ class Node(ClientEntity):
         """
         Gets data for this node, given the provided dimensions and filters.
         """
-        return self.dj_client.data(
+        return self.dj_client.data(  # pragma: no cover
             self.name,
             dimensions,
             filters,

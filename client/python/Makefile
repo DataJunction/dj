@@ -2,7 +2,7 @@ check:
 	poetry run pre-commit run --all-files
 
 test:
-	poetry run pytest tests/ ${PYTEST_ARGS}
+	poetry run pytest tests/ ${PYTEST_ARGS} --cov datajunction --cov-report term-missing --verbose
 
 version:
 	@poetry version $(v)
