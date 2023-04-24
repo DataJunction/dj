@@ -319,6 +319,40 @@ def validate_node_data(
         except DJParseException:
             type_inference_failed_columns.append(col.alias_or_name.name)  # type: ignore
             validated_node.status = NodeStatus.INVALID
+
+    # Only raise on missing parents or type inference if the node mode is set to published
+    if missing_parents_map or type_inference_failed_columns:
+        if validated_node.mode == NodeMode.DRAFT:
+            validated_node.status = NodeStatus.INVALID
+        else:
+            missing_parents_error = (
+                [
+                    DJError(
+                        code=ErrorCode.MISSING_PARENT,
+                        message="Node definition contains references to nodes that do not exist",
+                        debug={"missing_parents": list(missing_parents_map.keys())},
+                    ),
+                ]
+                if missing_parents_map
+                else []
+            )
+            type_inference_error = (
+                [
+                    DJError(
+                        code=ErrorCode.TYPE_INFERENCE,
+                        message=(
+                            f"Unable to infer type for some columns on node `{data.name}`"
+                        ),
+                        debug={"columns": type_inference_failed_columns},
+                    ),
+                ]
+                if type_inference_failed_columns
+                else []
+            )
+            raise DJException(
+                errors=missing_parents_error + type_inference_error,
+            )
+
     return (
         validated_node,
         dependencies_map,

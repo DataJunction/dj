@@ -25,7 +25,6 @@ from dj.sql.parsing.types import (
     NullType,
     StringType,
     TimestampType,
-    TimestamptzType,
     TimeType,
     TinyIntType,
 )
@@ -274,7 +273,7 @@ def test_infer_types_complicated(construction_session: Session):
     types = [
         IntegerType(),
         TimestampType(),
-        TimestamptzType(),
+        TimestampType(),
         IntegerType(),
         NullType(),
         NullType(),
@@ -645,7 +644,7 @@ def test_infer_types_datetime(construction_session: Session):
         TimestampType(),
         TimeType(),
         TimestampType(),
-        TimestamptzType(),
+        TimestampType(),
         DateType(),
         DateType(),
         DateType(),

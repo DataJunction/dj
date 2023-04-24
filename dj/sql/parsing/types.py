@@ -694,7 +694,7 @@ class TimeType(DateTimeBase):
         super().__init__("time", "TimeType()")
 
 
-class TimestampType(PrimitiveType, Singleton):
+class TimestampType(DateTimeBase):
     """A Timestamp data type can be represented using an instance of this class. Timestamps in
     Column have microsecond precision and include a date and a time of day without a timezone.
 
