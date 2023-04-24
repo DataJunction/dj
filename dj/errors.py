@@ -34,7 +34,8 @@ class ErrorCode(int, Enum):
 
     # SQL Build Error
     COMPOUND_BUILD_EXCEPTION = 300
-    MISSING_PARENT = 201
+    MISSING_PARENT = 301
+    TYPE_INFERENCE = 302
 
 
 class DebugType(TypedDict, total=False):
