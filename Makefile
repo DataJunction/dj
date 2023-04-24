@@ -17,15 +17,6 @@ docker-build:
 docker-run:
 	docker compose up
 
-docker-run-with-postgres:
-	docker compose -f docker-compose.yml -f docker-compose.postgres.yml up
-
-docker-run-with-druid:
-	docker compose -f docker-compose.yml -f docker-compose.druid.yml up
-
-docker-run-with-cockroachdb:
-	docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up
-
 test: pyenv
 	pytest --cov=dj --cov-report=html -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
 

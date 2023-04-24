@@ -512,6 +512,46 @@ class TestCreateOrUpdateNodes:
             == "Node definition contains references to nodes that do not exist"
         )
 
+    def test_create_node_with_type_inference_failure(
+        self,
+        client_with_examples: TestClient,
+    ):
+        """
+        Attempting to create a published metric where type inference fails should raise
+        an appropriate error and fail.
+        """
+        response = client_with_examples.post(
+            "/nodes/metric/",
+            json={
+                "description": "Average length of employment",
+                "query": (
+                    "SELECT avg(NOW() - hire_date + 1) as avg_length_of_employment "
+                    "FROM foo.bar.hard_hats"
+                ),
+                "mode": "published",
+                "name": "avg_length_of_employment_plus_one",
+            },
+        )
+        data = response.json()
+        assert data == {
+            "message": (
+                "Unable to infer type for some columns on node "
+                "`avg_length_of_employment_plus_one`"
+            ),
+            "errors": [
+                {
+                    "code": 302,
+                    "message": (
+                        "Unable to infer type for some columns on node "
+                        "`avg_length_of_employment_plus_one`"
+                    ),
+                    "debug": {"columns": ["avg_length_of_employment"]},
+                    "context": "",
+                },
+            ],
+            "warnings": [],
+        }
+
     def test_create_update_transform_node(
         self,
         database: Database,  # pylint: disable=unused-argument
@@ -1366,7 +1406,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "message": "Node definition contains references to nodes that do not exist",
             "errors": [
                 {
-                    "code": 201,
+                    "code": 301,
                     "message": "Node definition contains references to nodes that do not exist",
                     "debug": {"missing_parents": ["node_that_does_not_exist"]},
                     "context": "",

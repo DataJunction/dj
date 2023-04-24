@@ -50,6 +50,8 @@ from dj.sql.parsing.types import (
     NestedField,
     NullType,
     StringType,
+    TimestampType,
+    TimestamptzType,
     WildcardType,
     YearMonthIntervalType,
 )
@@ -1039,9 +1041,6 @@ class UnaryOpKind(DJEnum):
     The accepted unary operations
     """
 
-    #
-    # Plus = "+"
-    # Minus = "-"
     Exists = "EXISTS"
     Not = "NOT"
 
@@ -1206,12 +1205,14 @@ class BinaryOp(Operation):
             left: ColumnType,
             right: ColumnType,
         ):
-            if str(left) not in numeric_types or str(right) not in numeric_types:
+            if not left.is_compatible(right):
                 raise_binop_exception()
-            if str(left) == str(right):
+            if str(left) in numeric_types and str(right) in numeric_types:
+                if str(left) == str(right):
+                    return left
+                if numeric_types[str(left)] > numeric_types[str(right)]:
+                    return right
                 return left
-            if numeric_types[str(left)] > numeric_types[str(right)]:
-                return right
             return left
 
         BINOP_TYPE_COMBO_LOOKUP: Dict[  # pylint: disable=C0103
