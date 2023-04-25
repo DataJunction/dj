@@ -31,6 +31,9 @@ jobs:
         poetry-version: ['1.4.2']
         os: ['ubuntu-latest']
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: ${{ github.event.inputs.library == 'server' && '.' || './client/python' }}
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python ${{ matrix.python-version }}
@@ -59,16 +62,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
 
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
-        run: |
-          export VERSION=$(poetry version -s)
-          gh release create $VERSION --generate-notes
-
       - name: Publish to pypi
         env:
           PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
         run: |
           poetry config pypi-token.pypi $PYPI_TOKEN
           poetry publish --build
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
+        run: |
+          export VERSION=$(poetry version -s)
+          gh release create $VERSION --generate-notes
