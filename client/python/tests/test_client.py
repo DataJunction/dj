@@ -37,7 +37,7 @@ class TestDJClient:
         """
         Check that `client.get_nodes_in_namespace()` works as expected.
         """
-        assert client.namespace("foo.bar").nodes(names_only=True) == [
+        assert set(client.namespace("foo.bar").nodes()) == {
             "foo.bar.repair_orders",
             "foo.bar.repair_order_details",
             "foo.bar.repair_type",
@@ -64,8 +64,8 @@ class TestDJClient:
             "foo.bar.total_repair_order_discounts",
             "foo.bar.avg_repair_order_discounts",
             "foo.bar.avg_time_to_dispatch",
-        ]
-        assert client.namespace("foo.bar").sources(names_only=True) == [
+        }
+        assert set(client.namespace("foo.bar").sources()) == {
             "foo.bar.repair_orders",
             "foo.bar.repair_order_details",
             "foo.bar.repair_type",
@@ -78,8 +78,8 @@ class TestDJClient:
             "foo.bar.hard_hat_state",
             "foo.bar.us_states",
             "foo.bar.us_region",
-        ]
-        assert client.namespace("foo.bar").dimensions(names_only=True) == [
+        }
+        assert set(client.namespace("foo.bar").dimensions()) == {
             "foo.bar.repair_order",
             "foo.bar.contractor",
             "foo.bar.hard_hat",
@@ -87,8 +87,8 @@ class TestDJClient:
             "foo.bar.us_state",
             "foo.bar.dispatcher",
             "foo.bar.municipality_dim",
-        ]
-        assert client.namespace("foo.bar").metrics(names_only=True) == [
+        }
+        assert set(client.namespace("foo.bar").metrics()) == {
             "foo.bar.num_repair_orders",
             "foo.bar.avg_repair_price",
             "foo.bar.total_repair_cost",
@@ -96,9 +96,9 @@ class TestDJClient:
             "foo.bar.total_repair_order_discounts",
             "foo.bar.avg_repair_order_discounts",
             "foo.bar.avg_time_to_dispatch",
-        ]
-        assert client.namespace("foo.bar").transforms(names_only=True) == []
-        assert client.namespace("foo.bar").cubes(names_only=True) == []
+        }
+        assert client.namespace("foo.bar").transforms() == []
+        assert client.namespace("foo.bar").cubes() == []
 
     def test_catalogs(self, client):
         """
@@ -146,7 +146,7 @@ class TestDJClient:
         Verifies that retrieving nodes with `client.nodes()` or node-type
         specific calls like `client.sources()` work.
         """
-        expected_names_only = [
+        expected_names_only = {
             "repair_orders",
             "repair_order_details",
             "repair_type",
@@ -173,13 +173,13 @@ class TestDJClient:
             "total_repair_order_discounts",
             "avg_repair_order_discounts",
             "avg_time_to_dispatch",
-        ]
-        result_names_only = client.namespace("default").nodes(names_only=True)
-        assert result_names_only == expected_names_only
+        }
+        result_names_only = client.namespace("default").nodes()
+        assert set(result_names_only) == expected_names_only
 
         # sources
-        result_names_only = client.namespace("default").sources(names_only=True)
-        assert result_names_only == [
+        result_names_only = client.namespace("default").sources()
+        assert set(result_names_only) == {
             "repair_orders",
             "repair_order_details",
             "repair_type",
@@ -192,7 +192,7 @@ class TestDJClient:
             "hard_hat_state",
             "us_states",
             "us_region",
-        ]
+        }
 
         repair_orders = client.source("repair_orders")
         assert repair_orders.name == "repair_orders"
@@ -202,8 +202,8 @@ class TestDJClient:
         assert repair_orders.type == "source"
 
         # dimensions
-        result_names_only = client.namespace("default").dimensions(names_only=True)
-        assert result_names_only == [
+        result_names_only = client.namespace("default").dimensions()
+        assert set(result_names_only) == {
             "repair_order",
             "contractor",
             "hard_hat",
@@ -211,7 +211,7 @@ class TestDJClient:
             "us_state",
             "dispatcher",
             "municipality_dim",
-        ]
+        }
         repair_order_dim = client.dimension("repair_order")
         assert repair_order_dim.name == "repair_order"
         assert "FROM repair_orders" in repair_order_dim.query
@@ -222,8 +222,8 @@ class TestDJClient:
         assert result == []
 
         # metrics
-        result_names_only = client.namespace("default").metrics(names_only=True)
-        assert result_names_only == [
+        result_names_only = client.namespace("default").metrics()
+        assert set(result_names_only) == {
             "num_repair_orders",
             "avg_repair_price",
             "total_repair_cost",
@@ -231,7 +231,7 @@ class TestDJClient:
             "total_repair_order_discounts",
             "avg_repair_order_discounts",
             "avg_time_to_dispatch",
-        ]
+        }
 
         num_repair_orders = client.metric("num_repair_orders")
         assert num_repair_orders.name == "num_repair_orders"
@@ -245,7 +245,7 @@ class TestDJClient:
         result = client.namespace("default").cubes()
         assert result == []
         with pytest.raises(DJClientException) as exc_info:
-            result = client.cube("a_cube")
+            client.cube("a_cube")
         assert "Cube `a_cube` does not exist" in str(exc_info)
 
     def test_delete_node(self, client):  # pylint: disable=unused-argument
@@ -255,9 +255,7 @@ class TestDJClient:
         length_metric = client.metric("avg_length_of_employment")
         response = length_metric.delete()
         assert response == "Successfully deleted `avg_length_of_employment`"
-        assert "avg_length_of_employment" not in client.namespace("default").metrics(
-            names_only=True,
-        )
+        assert "avg_length_of_employment" not in client.namespace("default").metrics()
 
     def test_create_node(self, client):  # pylint: disable=unused-argument
         """
@@ -279,9 +277,7 @@ class TestDJClient:
         )
         result = account_type_table.save(NodeMode.PUBLISHED)
         assert result["name"] == "account_type_table"
-        assert "account_type_table" in client.namespace("default").sources(
-            names_only=True,
-        )
+        assert "account_type_table" in client.namespace("default").sources()
 
         payment_type_table = client.new_source(
             name="payment_type_table",
@@ -298,9 +294,7 @@ class TestDJClient:
         )
         result = payment_type_table.save(NodeMode.PUBLISHED)
         assert result["name"] == "payment_type_table"
-        assert "payment_type_table" in client.namespace("default").sources(
-            names_only=True,
-        )
+        assert "payment_type_table" in client.namespace("default").sources()
 
         revenue = client.new_source(
             name="revenue",
@@ -319,7 +313,7 @@ class TestDJClient:
         )
         result = revenue.save(NodeMode.PUBLISHED)
         assert result["name"] == "revenue"
-        assert "revenue" in client.namespace("default").sources(names_only=True)
+        assert "revenue" in client.namespace("default").sources()
 
         payment_type_dim = client.new_dimension(
             name="payment_type",
@@ -333,7 +327,7 @@ class TestDJClient:
         )
         result = payment_type_dim.save(NodeMode.PUBLISHED)
         assert result["name"] == "payment_type"
-        assert "payment_type" in client.namespace("default").dimensions(names_only=True)
+        assert "payment_type" in client.namespace("default").dimensions()
 
         account_type_dim = client.new_dimension(
             name="account_type",
@@ -348,7 +342,7 @@ class TestDJClient:
         )
         result = account_type_dim.save(NodeMode.PUBLISHED)
         assert result["name"] == "account_type"
-        assert "account_type" in client.namespace("default").dimensions(names_only=True)
+        assert "account_type" in client.namespace("default").dimensions()
 
         large_revenue_payments_only = client.new_transform(
             name="large_revenue_payments_only",
@@ -360,9 +354,7 @@ class TestDJClient:
         )
         result = large_revenue_payments_only.save(NodeMode.PUBLISHED)
         assert result["name"] == "large_revenue_payments_only"
-        assert "large_revenue_payments_only" in client.namespace("default").transforms(
-            names_only=True,
-        )
+        assert "large_revenue_payments_only" in client.namespace("default").transforms()
 
         result = large_revenue_payments_only.add_materialization_config(
             MaterializationConfig(
@@ -390,9 +382,12 @@ class TestDJClient:
         large_revenue_payments_and_business_only.save(NodeMode.PUBLISHED)
         result = client.transform("large_revenue_payments_and_business_only")
         assert result.name == "large_revenue_payments_and_business_only"
-        assert "large_revenue_payments_and_business_only" in client.namespace(
-            "default",
-        ).transforms(names_only=True)
+        assert (
+            "large_revenue_payments_and_business_only"
+            in client.namespace(
+                "default",
+            ).transforms()
+        )
 
         number_of_account_types = client.new_metric(
             name="number_of_account_types",
@@ -401,9 +396,7 @@ class TestDJClient:
         )
         result = number_of_account_types.save(NodeMode.PUBLISHED)
         assert result["name"] == "number_of_account_types"
-        assert "number_of_account_types" in client.namespace("default").metrics(
-            names_only=True,
-        )
+        assert "number_of_account_types" in client.namespace("default").metrics()
 
     def test_link_dimension(self, client):  # pylint: disable=unused-argument
         """

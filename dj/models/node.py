@@ -510,6 +510,14 @@ class NodeNameOutput(SQLModel):
     name: str
 
 
+class NodeNameList(SQLModel):
+    """
+    List of node names
+    """
+
+    __root__: List[str]
+
+
 class AttributeTypeName(BaseSQLModel):
     """
     Attribute type name.
