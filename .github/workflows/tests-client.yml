@@ -29,12 +29,16 @@ jobs:
       uses: actions/setup-python@v2
       with:
         python-version: ${{ matrix.python-version }}
+    - name: Set up Poetry
+      uses: abatilo/actions-poetry@v2
+      with:
+        poetry-version: 1.4.2
     - name: Install dependencies
       run: |
         poetry install --with dev
+    - name: Linters
+      run: |
+        poetry run pre-commit run --all-files
     - name: Test DJ client with pytest
       run: |
-        cd client/python/
-        pip install -e ../../
-        pre-commit run --all-files
-        pytest --cov-fail-under=100 --cov=datajunction -vv tests/ --doctest-modules datajunction --without-integration --without-slow-integration
+        poetry run pytest --cov-fail-under=100 --cov=datajunction -vv tests/ --doctest-modules datajunction --without-integration --without-slow-integration
