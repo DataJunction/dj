@@ -220,7 +220,7 @@ def test_cube_sql(client_with_examples: TestClient):
     response = client_with_examples.post(
         "/nodes/cube/",
         json={
-            "metrics": ["num_repair_orders", "avg_repair_price", "total_repair_cost"],
+            "metrics": metrics_list,
             "dimensions": [
                 "hard_hat.country",
                 "hard_hat.postal_code",
@@ -300,6 +300,7 @@ def test_cube_sql(client_with_examples: TestClient):
           dispatcher.company_name,
           municipality_dim.local_region
     """
+    print(results["query"])
     assert compare_query_strings(results["query"], expected_query)
 
     response = client_with_examples.post(
