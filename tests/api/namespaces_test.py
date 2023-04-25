@@ -31,14 +31,11 @@ def test_list_nodes_by_namespace(client_with_examples: TestClient) -> None:
     """
     response = client_with_examples.get("/namespaces/basic.source/")
     assert response.ok
-    assert [node["name"] for node in response.json()] == [
-        "basic.source.users",
-        "basic.source.comments",
-    ]
+    assert set(response.json()) == {"basic.source.users", "basic.source.comments"}
 
     response = client_with_examples.get("/namespaces/basic/")
     assert response.ok
-    assert [node["name"] for node in response.json()] == [
+    assert set(response.json()) == {
         "basic.source.users",
         "basic.dimension.users",
         "basic.source.comments",
@@ -52,4 +49,22 @@ def test_list_nodes_by_namespace(client_with_examples: TestClient) -> None:
         "basic.paint_colors_trino",
         "basic.paint_colors_spark",
         "basic.avg_luminosity_patches",
-    ]
+    }
+
+    response = client_with_examples.get("/namespaces/basic/?type_=dimension")
+    assert response.ok
+    assert set(response.json()) == {
+        "basic.dimension.users",
+        "basic.dimension.countries",
+        "basic.paint_colors_spark",
+        "basic.paint_colors_trino",
+    }
+
+    response = client_with_examples.get("/namespaces/basic/?type_=source")
+    assert response.ok
+    assert set(response.json()) == {
+        "basic.source.comments",
+        "basic.murals",
+        "basic.source.users",
+        "basic.patches",
+    }
