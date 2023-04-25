@@ -1,0 +1,74 @@
+name: Release
+on:
+  workflow_dispatch:
+    inputs:
+      library:
+        type: choice
+        description: Which library to bump
+        required: true
+        options:
+          - server
+          - client
+      bump:
+        type: choice
+        description: Poetry version bump rule
+        required: true
+        options:
+          - major
+          - minor
+          - patch
+          - prepatch
+          - preminor
+          - premajor
+          - prerelease
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10']
+        poetry-version: ['1.4.2']
+        os: ['ubuntu-latest']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v2
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Set up Poetry
+        uses: abatilo/actions-poetry@v2
+        with:
+          poetry-version: ${{ matrix.poetry-version }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+
+      - name: Bump release version with poetry and tag
+        run: |
+          poetry version ${{ github.event.inputs.bump }}
+          export NEW_VERSION=v$(poetry version -s)
+          export LIBRARY=${{ github.event.inputs.library }}
+          git commit -am "Bumping $LIBRARY to version $NEW_VERSION"
+          git tag -a $NEW_VERSION -m $NEW_VERSION
+          git push origin $NEW_VERSION
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
+        run: |
+          export VERSION=$(poetry version -s)
+          gh release create $VERSION --generate-notes
+
+      - name: Publish to pypi
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: |
+          poetry config pypi-token.pypi $PYPI_TOKEN
+          poetry publish --build
