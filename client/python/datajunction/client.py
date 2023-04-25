@@ -338,13 +338,14 @@ class DJClient:  # pylint: disable=too-many-public-methods
         self,
         namespace: str,
         type_: Optional[str] = None,
-        names_only: bool = False,
     ):
         """
         Retrieves all nodes in the namespace
         """
-        response = self._session.get(f"/namespaces/{namespace}/")
-        return self._nodes_by_type(response.json(), type_, names_only)
+        response = self._session.get(
+            f"/namespaces/{namespace}/" + (f"?type_={type_}" if type_ else ""),
+        )
+        return response.json()
 
     def get_node(self, node_name: str):
         """
@@ -359,36 +360,6 @@ class DJClient:  # pylint: disable=too-many-public-methods
         """
         response = self._session.get(f"/cubes/{node_name}/")
         return response.json()
-
-    def _nodes_by_type(
-        self,
-        nodes_list: List[Dict[str, Any]],
-        type_: Optional[str] = None,
-        names_only: bool = False,
-    ) -> Union[List[str], List["Node"]]:
-        """
-        Helper function to retrieve DJ nodes by its type.
-        """
-        if names_only:
-            return [
-                node["name"]
-                for node in nodes_list
-                if not type_ or node["type"] == type_
-            ]
-        node_type_to_classes = {
-            "source": Source,
-            "dimension": Dimension,
-            "transform": Transform,
-            "metric": Metric,
-            "cube": Cube,
-        }
-        return [
-            node_type_to_classes[node["type"]](  # type: ignore
-                **{**node, **{"dj_client": self}},
-            )
-            for node in nodes_list
-            if not type_ or node["type"] == type_
-        ]
 
     def link_dimension_to_node(
         self,
@@ -726,61 +697,55 @@ class Namespace(ClientEntity):
 
     namespace: str
 
-    def nodes(self, names_only: bool = False):
+    def nodes(self):
         """
         Retrieves all nodes under this namespace.
         """
         return self.dj_client.get_nodes_in_namespace(
             self.namespace,
-            names_only=names_only,
         )
 
-    def metrics(self, names_only: bool = False):
+    def metrics(self):
         """
         Retrieves metric nodes under this namespace.
         """
         return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="metric",
-            names_only=names_only,
         )
 
-    def sources(self, names_only: bool = False):
+    def sources(self):
         """
         Retrieves source nodes under this namespace.
         """
         return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="source",
-            names_only=names_only,
         )
 
-    def transforms(self, names_only: bool = False):
+    def transforms(self):
         """
         Retrieves transform nodes under this namespace.
         """
         return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="transform",
-            names_only=names_only,
         )
 
-    def cubes(self, names_only: bool = False):
+    def cubes(self):
         """
         Retrieves cubes under this namespace.
         """
         return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="cube",
-            names_only=names_only,
         )
 
-    def dimensions(self, names_only: bool = False):
+    def dimensions(self):
         """
         Retrieves dimension nodes under this namespace.
         """
         return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="dimension",
-            names_only=names_only,
         )

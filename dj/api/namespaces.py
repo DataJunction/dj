@@ -2,15 +2,15 @@
 Node namespace related APIs.
 """
 import logging
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from sqlalchemy.orm import joinedload
+from sqlalchemy import and_
 from sqlmodel import Session, select
 
 from dj.api.helpers import get_node_namespace
-from dj.models.node import Node, NodeNamespace, NodeOutput
+from dj.models.node import Node, NodeNameList, NodeNamespace, NodeType
 from dj.utils import get_session
 
 _logger = logging.getLogger(__name__)
@@ -64,27 +64,30 @@ def list_node_namespaces(
 
 @router.get(
     "/namespaces/{namespace}/",
-    response_model=List[NodeOutput],
+    response_model=NodeNameList,
     status_code=200,
 )
 def list_nodes_in_namespace(
     namespace: str,
+    type_: Optional[NodeType] = None,
     session: Session = Depends(get_session),
-) -> List[NodeOutput]:
+) -> NodeNameList:
     """
-    List nodes in namespace
+    List node names in namespace, filterable to a given type if desired.
     """
-    nodes = (
-        session.exec(
-            select(Node)
-            .options(joinedload(Node.current))
-            .where(
-                Node.namespace.like(  # type: ignore  # pylint: disable=no-member
-                    f"{namespace}%",
-                ),
+    where_clause = (
+        and_(
+            Node.namespace.like(  # type: ignore  # pylint: disable=no-member
+                f"{namespace}%",
             ),
+            Node.type == type_,
         )
-        .unique()
-        .all()
+        if type_
+        else Node.namespace.like(  # type: ignore  # pylint: disable=no-member
+            f"{namespace}%",
+        )
     )
-    return nodes  # type: ignore
+
+    list_nodes_query = select(Node.name).where(where_clause)
+    node_names = session.exec(list_nodes_query).all()
+    return node_names  # type: ignore
