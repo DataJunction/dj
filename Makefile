@@ -17,11 +17,11 @@ docker-build:
 docker-run:
 	docker compose up
 
-test: pyenv
-	pytest --cov=dj --cov-report=html -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
+test:
+	poetry run pytest --cov=dj --cov-report=html -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
 
-integration: pyenv
-	pytest --cov=dj -vv tests/ --doctest-modules dj --with-integration --with-slow-integration
+integration:
+	poetry run pytest --cov=dj -vv tests/ --doctest-modules dj --with-integration --with-slow-integration
 
 clean:
 	pyenv virtualenv-delete dj
@@ -30,7 +30,7 @@ spellcheck:
 	codespell -L froms -S "*.json" dj docs/*rst tests templates
 
 check:
-	pre-commit run --all-files
+	poetry run pre-commit run --all-files
 
 version:
 	@poetry version $(v)
