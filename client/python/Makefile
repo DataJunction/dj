@@ -2,7 +2,7 @@ check:
 	poetry run pre-commit run --all-files
 
 test:
-	poetry run pytest --cov=tests/ --cov-report=html -vv tests/ --doctest-modules datajunction --without-integration --without-slow-integration ${PYTEST_ARGS}
+	poetry run pytest --cov=datajunction --cov-report=html -vv tests/ --doctest-modules datajunction --without-integration --without-slow-integration ${PYTEST_ARGS}
 
 version:
 	@poetry version $(v)
