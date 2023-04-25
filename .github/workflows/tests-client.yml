@@ -1,18 +1,23 @@
-# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
-# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
-
-name: Run tests with pinned dependencies
+# This workflow will install Python dependencies, run tests and lint for the DJ client
+name: Run tests for DJ client
 
 on:
   push:
     branches: [ main ]
+    paths:
+      - 'client/python/**'
   pull_request:
     branches: [ main ]
+    paths:
+      - 'client/python/**'
 
 jobs:
   build:
-
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./client/python
+
     strategy:
       fail-fast: false
       matrix:
@@ -26,15 +31,10 @@ jobs:
         python-version: ${{ matrix.python-version }}
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements/test.txt
-    - name: Test DJ server with pytest
-      run: |
-        pre-commit run --all-files
-        pytest --cov-fail-under=100 --cov=dj -vv tests/ --doctest-modules dj --without-integration --without-slow-integration
+        poetry install --with dev
     - name: Test DJ client with pytest
       run: |
         cd client/python/
-        pip install .
+        pip install -e ../../
         pre-commit run --all-files
         pytest --cov-fail-under=100 --cov=datajunction -vv tests/ --doctest-modules datajunction --without-integration --without-slow-integration
