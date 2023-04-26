@@ -85,6 +85,15 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         """
         return self.name, self.type
 
+    def has_dimension_attribute(self) -> bool:
+        """
+        Whether the dimension attribute is set on this column.
+        """
+        return any(
+            attr.attribute_type.name == "dimension"
+            for attr in self.attributes  # pylint: disable=not-an-iterable
+        )
+
     def __hash__(self) -> int:
         return hash(self.id)
 
