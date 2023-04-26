@@ -45,6 +45,12 @@ class Measure(SQLModel):
     agg: str
     expr: str
 
+    def __eq__(self, other):
+        return tuple(self.__dict__.items()) == tuple(other.__dict__.items())
+
+    def __hash__(self):
+        return hash(tuple(self.__dict__.items()))
+
 
 class CubeRevisionMetadata(SQLModel):
     """
