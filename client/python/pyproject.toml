@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "datajunction"
-version = "0.0.1a4"
+version = "0.0.1a5"
 readme = "README.md"
 repository = "https://github.com/DataJunction/dj"
 description = "DataJunction client library for connecting to a DataJunction server"
