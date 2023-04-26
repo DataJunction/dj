@@ -216,11 +216,24 @@ def test_cube_sql(client_with_examples: TestClient):
         "on every metric and thus cannot be included."
     )
 
+    # Metric that doubles the total repair cost to test the sum(x) + sum(y) scenario
+    client_with_examples.post(
+        "/nodes/metric/",
+        json={
+            "description": "Double total repair cost",
+            "query": (
+                "SELECT sum(price) + sum(price) as double_total_repair_cost "
+                "FROM repair_order_details"
+            ),
+            "mode": "published",
+            "name": "double_total_repair_cost",
+        },
+    )
     # Should succeed
     response = client_with_examples.post(
         "/nodes/cube/",
         json={
-            "metrics": metrics_list,
+            "metrics": metrics_list + ["double_total_repair_cost"],
             "dimensions": [
                 "hard_hat.country",
                 "hard_hat.postal_code",
@@ -248,6 +261,7 @@ def test_cube_sql(client_with_examples: TestClient):
           hard_hat.postal_code,
           hard_hat.state,
           municipality_dim.local_region,
+          sum(repair_order_details.price) + sum(repair_order_details.price) AS double_total_repair_cost,
           sum(repair_order_details.price * repair_order_details.discount) AS total_discount,
           sum(repair_order_details.price) AS total_repair_cost,
           avg(repair_order_details.price) AS avg_repair_price,
@@ -341,6 +355,11 @@ def test_cube_sql(client_with_examples: TestClient):
             "node_name": "total_repair_order_discounts",
             "type": "metric",
         },
+        {
+            "name": "double_total_repair_cost",
+            "node_name": "double_total_repair_cost",
+            "type": "metric",
+        },
         {"name": "country", "node_name": "hard_hat", "type": "dimension"},
         {"name": "postal_code", "node_name": "hard_hat", "type": "dimension"},
         {"name": "city", "node_name": "hard_hat", "type": "dimension"},
@@ -415,14 +434,21 @@ def test_cube_sql(client_with_examples: TestClient):
     assert data["materialization_configs"][0]["config"]["measures"] == {
         "avg_repair_price": [
             {
+                "name": "price_count",
+                "agg": "count",
+                "expr": "count(repair_order_details.price)",
+            },
+            {
                 "name": "price_sum",
                 "agg": "sum",
                 "expr": "sum(repair_order_details.price)",
             },
+        ],
+        "double_total_repair_cost": [
             {
-                "name": "price_count",
-                "agg": "count",
-                "expr": "count(repair_order_details.price)",
+                "agg": "sum",
+                "expr": "sum(repair_order_details.price)",
+                "name": "price_sum",
             },
         ],
         "discounted_orders_rate": [

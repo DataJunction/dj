@@ -311,14 +311,20 @@ def cube_materialization_config(cube_node: NodeRevision, config: Dict):
         **config,
         **{
             "measures": {
-                metric.alias_or_name.name: [
-                    Measure(
-                        name=str(measure.alias_or_name),
-                        agg=str(measure.child.name),
-                        expr=str(measure.child),
-                    ).dict()
-                    for measure in measures
-                ]
+                metric.alias_or_name.name: sorted(
+                    [
+                        measure_obj.dict()
+                        for measure_obj in {
+                            Measure(
+                                name=str(measure.alias_or_name),
+                                agg=str(measure.child.name),
+                                expr=str(measure.child),
+                            )
+                            for measure in measures
+                        }
+                    ],
+                    key=lambda x: x["name"],
+                )
                 for metric, measures in metrics_to_measures.items()
             },
         },
