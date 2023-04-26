@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """
 Node related APIs.
 """
@@ -6,7 +7,7 @@ import logging
 import os
 from collections import defaultdict
 from http import HTTPStatus
-from typing import List, Optional, Union
+from typing import Dict, List, Optional, Set, Union
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -35,6 +36,7 @@ from dj.models import ColumnAttribute
 from dj.models.attribute import AttributeType, UniquenessScope
 from dj.models.base import generate_display_name
 from dj.models.column import Column, ColumnAttributeInput
+from dj.models.cube import Measure
 from dj.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -57,6 +59,7 @@ from dj.models.node import (
     UpsertMaterializationConfig,
 )
 from dj.service_clients import QueryServiceClient
+from dj.sql.parsing import ast
 from dj.sql.parsing.backends.antlr4 import parse
 from dj.sql.parsing.backends.exceptions import DJParseException
 from dj.utils import (
@@ -272,6 +275,64 @@ def delete_a_node(name: str, *, session: Session = Depends(get_session)):
     return Response(status_code=HTTPStatus.NO_CONTENT.value)
 
 
+def cube_materialization_config(cube_node: NodeRevision, config: Dict):
+    """
+    Builds the materialization config for a cube. This includes two parts:
+    (a) building a query that decomposes each of the cube's metrics into their
+    constituent measures that have simple aggregations
+    (b) adding a metric to measures mapping that tells us which measures
+    in the query map to each selected metric
+
+    The query in the materialization config is different from the one stored
+    on the cube node itself in that this one is meant to create a temporary
+    table in preparation for ingestion into an OLAP database like Druid. The
+    metric to measures mapping then provides information on how to assemble
+    metrics from measures based on this query's output.
+
+    The query directly on the cube node is meant for direct querying of the cube
+    without materialization to an OLAP database.
+    """
+    combined_ast = parse(cube_node.query)
+    dimensions_set = {
+        dim.name for dim in cube_node.columns if dim.has_dimension_attribute()
+    }
+    metrics_to_measures = decompose_metrics(combined_ast, dimensions_set)
+    new_select_projection: Set[Union[ast.Aliasable, ast.Expression]] = set()
+    for expr in combined_ast.select.projection:
+        if expr in metrics_to_measures:
+            new_select_projection = set(new_select_projection).union(
+                metrics_to_measures[expr],
+            )
+        else:
+            new_select_projection.add(expr)
+    combined_ast.select.projection = list(new_select_projection)
+
+    config = {
+        **config,
+        **{
+            "measures": {
+                metric.alias_or_name.name: sorted(
+                    [
+                        measure_obj.dict()
+                        for measure_obj in {
+                            Measure(
+                                name=str(measure.alias_or_name),
+                                agg=str(measure.child.name),
+                                expr=str(measure.child),
+                            )
+                            for measure in measures
+                        }
+                    ],
+                    key=lambda x: x["name"],
+                )
+                for metric, measures in metrics_to_measures.items()
+            },
+        },
+        **{"query": str(combined_ast)},
+    }
+    return config
+
+
 @router.post("/nodes/{name}/materialization/", status_code=201)
 def upsert_a_materialization_config(
     name: str,
@@ -318,6 +379,10 @@ def upsert_a_materialization_config(
         for config in current_revision.materialization_configs
         if config.engine.name != data.engine_name
     ]
+
+    if current_revision.type == NodeType.CUBE:
+        data.config = cube_materialization_config(current_revision, data.config)
+
     new_config = MaterializationConfig(
         node_revision=current_revision,
         engine=engine,
@@ -414,6 +479,75 @@ def create_node_revision(
     node_revision.columns = validated_node.columns or []
     node_revision.catalog_id = catalog_id
     return node_revision
+
+
+def decompose_expression(expr: Union[ast.Aliasable, ast.Expression]) -> List[ast.Alias]:
+    """
+    Simple aggregations are operations that can be computed incrementally as new
+    data is ingested, without relying on the results of other aggregations.
+    Examples include SUM, COUNT, MIN, MAX.
+
+    Some complex aggregations can be decomposed to simple aggregations: i.e., AVG(x) can
+    be decomposed to SUM(x)/COUNT(x).
+    """
+    if isinstance(expr, ast.Alias):
+        expr = expr.child
+
+    simple_aggregations = {"sum", "count", "min", "max"}
+    if isinstance(expr, ast.Function):
+        function_name = expr.alias_or_name.name.lower()
+        columns = [col for arg in expr.args for col in arg.find_all(ast.Column)]
+        readable_name = (
+            "_".join(
+                str(col.alias_or_name).rsplit(".", maxsplit=1)[-1] for col in columns
+            )
+            if columns
+            else "placeholder"
+        )
+        if function_name in simple_aggregations:
+            return [expr.set_alias(ast.Name(f"{readable_name}_{function_name}"))]
+        if function_name == "avg":  # pragma: no cover
+            return [
+                (
+                    ast.Function(ast.Name("sum"), args=expr.args).set_alias(
+                        ast.Name(f"{readable_name}_sum"),
+                    )
+                ),
+                (
+                    ast.Function(ast.Name("count"), args=expr.args).set_alias(
+                        ast.Name(f"{readable_name}_count"),
+                    )
+                ),
+            ]
+    acceptable_binary_ops = {
+        ast.BinaryOpKind.Plus,
+        ast.BinaryOpKind.Minus,
+        ast.BinaryOpKind.Multiply,
+        ast.BinaryOpKind.Divide,
+    }
+    if isinstance(expr, ast.BinaryOp):
+        if expr.op in acceptable_binary_ops:  # pragma: no cover
+            measures_left = decompose_expression(expr.left)
+            measures_right = decompose_expression(expr.right)
+            return measures_left + measures_right
+    if isinstance(expr, ast.Cast):
+        return decompose_expression(expr.expression)
+    raise DJInvalidInputException(  # pragma: no cover
+        f"Metric expression {expr} cannot be decomposed into its constituent measures",
+    )
+
+
+def decompose_metrics(combined_ast: ast.Query, dimensions_set: Set[str]):
+    """
+    Decompose each metric into simple constituent measures and return a dict
+    that maps each metric to its measures.
+    """
+    metrics_to_measures = {}
+    for expr in combined_ast.select.projection:
+        if expr.alias_or_name.name not in dimensions_set:  # type: ignore
+            measure_expressions = decompose_expression(expr)
+            metrics_to_measures[expr] = measure_expressions
+    return metrics_to_measures
 
 
 def create_cube_node_revision(  # pylint: disable=too-many-locals

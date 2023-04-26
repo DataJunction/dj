@@ -7,7 +7,12 @@ from typing import List, Optional
 from pydantic import Field, root_validator
 from sqlmodel import SQLModel
 
-from dj.models.node import AvailabilityState, ColumnOutput, NodeType
+from dj.models.node import (
+    AvailabilityState,
+    ColumnOutput,
+    MaterializationConfig,
+    NodeType,
+)
 from dj.typing import UTCDatetime
 
 
@@ -31,6 +36,22 @@ class CubeElementMetadata(SQLModel):
         return values
 
 
+class Measure(SQLModel):
+    """
+    A measure with a simple aggregation
+    """
+
+    name: str
+    agg: str
+    expr: str
+
+    def __eq__(self, other):
+        return tuple(self.__dict__.items()) == tuple(other.__dict__.items())
+
+    def __hash__(self):
+        return hash(tuple(self.__dict__.items()))
+
+
 class CubeRevisionMetadata(SQLModel):
     """
     Metadata for a cube node
@@ -48,6 +69,7 @@ class CubeRevisionMetadata(SQLModel):
     query: str
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
+    materialization_configs: List[MaterializationConfig]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True
