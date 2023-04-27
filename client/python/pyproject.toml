@@ -4,7 +4,7 @@ build-backend = "poetry.core.masonry.api"
 
 [tool.poetry]
 name = "datajunction"
-version = "0.0.1a3"
+version = "0.0.1a7"
 readme = "README.md"
 repository = "https://github.com/DataJunction/dj"
 description = "DataJunction client library for connecting to a DataJunction server"
@@ -24,10 +24,10 @@ classifiers = [
 ]
 
 [tool.coverage.run]
-source = ['djclient/']
+source = ['datajunction/']
 
 [tool.isort]
-src_paths = ["djclient/", "tests/"]
+src_paths = ["datajunction/", "tests/"]
 profile = 'black'
 
 [tool.poetry.dependencies]
