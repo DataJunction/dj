@@ -33,13 +33,13 @@ check:
 	pdm run pre-commit run --all-files
 
 version:
-	@pdm bump $(v)
-	@git add pyproject.toml
-	@git commit -m "v$$(poetry version -s)"
-	@git tag v$$(poetry version -s)
+	@hatch version $(v)
+	@git add __about__.py
+	@git commit -m "Bumping to v$$(hatch version)"
+	@git tag v$$(hatch version)
 	@git push
 	@git push --tags
-	@poetry version
+	@hatch version
 
 release:
-	@poetry publish --build
+	@hatch publish --build

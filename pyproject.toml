@@ -1,13 +1,13 @@
 [build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.pdm.build]
 includes = ["dj"]
 
 [project]
 name = "datajunction-server"
-version = "0.0.1a8"
+dynamic = ["version"]
 description = "DataJunction server library for running to a DataJunction server"
 authors = [
     {name = "Yian Shang", email = "yian.shang@gmail.com"},
@@ -44,6 +44,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent"
 ]
+
+[tool.hatch.version]
+path = "dj/__about__.py"
 
 [project.urls]
 repository = "https://github.com/DataJunction/dj"
