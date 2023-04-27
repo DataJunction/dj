@@ -1,18 +1,24 @@
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.poetry]
+[tool.pdm.build]
+includes = ["datajunction"]
+
+[project]
 name = "datajunction"
 version = "0.0.1a7"
-readme = "README.md"
-repository = "https://github.com/DataJunction/dj"
 description = "DataJunction client library for connecting to a DataJunction server"
-authors = ["DataJunction Authors"]
-license = "MIT"
-packages = [
-    { include = "datajunction" },
+authors = [
+    {name = "DataJunction Authors", email = "yian.shang@gmail.com"},
 ]
+dependencies = [
+    "pandas>=2.0.1",
+    "pydantic>=1.10.7",
+]
+requires-python = ">=3.8,<4.0"
+readme = "README.md"
+license = {text = "MIT"}
 classifiers = [
     "Programming Language :: Python :: 3.8",
     "Programming Language :: Python :: 3.9",
@@ -23,21 +29,29 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.urls]
+repository = "https://github.com/DataJunction/dj"
+
+[tool.pdm.dev-dependencies]
+test = [
+    "pre-commit>=3.2.2",
+    "pylint>=2.17.3",
+    "pytest-asyncio>=0.21.0",
+    "pytest-cov>=4.0.0",
+    "pytest-integration>=0.2.3",
+    "pytest-mock>=3.10.0",
+    "pytest>=7.3.1",
+    "responses>=0.23.1",
+    "fastapi>=0.79.0",
+    "dj @ {root:uri}/../..",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
 [tool.coverage.run]
 source = ['datajunction/']
 
 [tool.isort]
 src_paths = ["datajunction/", "tests/"]
 profile = 'black'
-
-[tool.poetry.dependencies]
-python = "^3.8"
-pandas = ">=2"
-pydantic = ">=1"
-
-[tool.poetry.group.dev.dependencies]
-coverage = "7.2.2"
-pre-commit = "3.2.0"
-pytest = "7.2.2"
-responses = "0.23.1"
-datajunction-server = "*"
