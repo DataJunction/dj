@@ -21,8 +21,6 @@ further extending the join path and allowing DJ to discover more dimensions that
 
 ## Creating Dimension Nodes
 
-Dimension nodes can be created by making a `POST` request to `/nodes/dimension/`.
-
 {{< tabs "creating dimension nodes" >}}
 {{< tab "curl" >}}
 ```sh

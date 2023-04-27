@@ -17,8 +17,6 @@ a single source, transform, or dimension node.
 
 ## Creating Metric Nodes
 
-Metric nodes can be created by making a `POST` request to `/nodes/metric/`.
-
 {{< tabs "creating metric nodes" >}}
 {{< tab "curl" >}}
 ```sh

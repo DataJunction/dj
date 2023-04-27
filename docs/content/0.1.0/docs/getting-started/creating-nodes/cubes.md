@@ -20,8 +20,6 @@ Cubes are used to represent a set of metrics with dimensions and filters.
 
 ## Creating Cube Nodes
 
-Cube nodes can be created by making a `POST` request to `/nodes/cube/`.
-
 {{< tabs "creating cube nodes" >}}
 {{< tab "curl" >}}
 ```sh
