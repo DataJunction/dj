@@ -14,7 +14,6 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.8', '3.9', '3.10']
-        poetry-version: ['1.4.2']
         library: ['client', 'server']
 
     defaults:
@@ -28,20 +27,20 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Set up Poetry
-        uses: abatilo/actions-poetry@v2
+      - uses: pdm-project/setup-pdm@v3
+        name: Setup PDM
         with:
-          poetry-version: ${{ matrix.poetry-version }}
-
+          python-version: ${{ matrix.python-version }}
+          architecture: x64
+          prerelease: true
+          enable-pep582: true
       - name: Install dependencies
-        run: |
-          poetry install --with dev
-
+        run: pdm install
       - name: Linters
         run: |
-          poetry run pre-commit run --all-files
+          pdm run pre-commit run --all-files
 
       - name: Test DJ ${{ matrix.library }} with pytest
         run: |
           export module=${{ matrix.library == 'server' && 'dj' || 'datajunction' }}
-          poetry run pytest --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
+          pdm run pytest --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
