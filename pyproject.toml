@@ -10,7 +10,7 @@ name = "datajunction-server"
 dynamic = ["version"]
 description = "DataJunction server library for running to a DataJunction server"
 authors = [
-    {name = "Yian Shang", email = "yian.shang@gmail.com"},
+    {name = "DataJunction Authors", email = "yian.shang@gmail.com"},
 ]
 dependencies = [
     "PyYAML<7.0,>=6.0",
@@ -31,6 +31,7 @@ dependencies = [
     "sqlmodel<1.0.0,>=0.0.8",
     "sqlparse<1.0.0,>=0.4.3",
     "yarl<2.0.0,>=1.8.2",
+    "uvicorn[standard]>=0.21.1",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"

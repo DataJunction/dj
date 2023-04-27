@@ -10,8 +10,7 @@ name = "datajunction"
 version = "0.0.1a7"
 description = "DataJunction client library for connecting to a DataJunction server"
 authors = [
-    {name = "Yian Shang", email = "yian.shang@gmail.com"},
-    {name = "DataJunction Authors"},
+    {name = "DataJunction Authors", email = "yian.shang@gmail.com"},
 ]
 dependencies = [
     "pandas>=2.0.1",
