@@ -19,8 +19,6 @@ engine supports.
 
 ## Creating Transform Nodes
 
-Transform nodes can be created by making a `POST` request to `/nodes/transform/`.
-
 {{< tabs "creating transform nodes" >}}
 {{< tab "curl" >}}
 ```sh
