@@ -1,6 +1,6 @@
 [build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [tool.pdm.build]
 includes = ["datajunction"]
@@ -44,8 +44,11 @@ test = [
     "pytest>=7.3.1",
     "responses>=0.23.1",
     "fastapi>=0.79.0",
-    "dj @ file:///${PROJECT_ROOT}/../..",
+    "dj @ {root:uri}/../..",
 ]
+
+[tool.hatch.metadata]
+allow-direct-references = true
 
 [tool.coverage.run]
 source = ['datajunction/']

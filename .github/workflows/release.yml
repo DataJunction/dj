@@ -11,16 +11,18 @@ on:
           - client
       bump:
         type: choice
-        description: Poetry version bump rule
+        description: Hatch version bump rule
         required: true
         options:
+          - release
           - major
           - minor
           - patch
-          - prepatch
-          - preminor
-          - premajor
-          - prerelease
+          - alpha
+          - beta
+          - rc
+          - post
+          - dev
 
 jobs:
   publish:
@@ -28,23 +30,29 @@ jobs:
       fail-fast: false
       matrix:
         python-version: ['3.10']
-        poetry-version: ['1.4.2']
-        os: ['ubuntu-latest']
-    runs-on: ${{ matrix.os }}
+    runs-on: 'ubuntu-latest'
     defaults:
       run:
         working-directory: ${{ github.event.inputs.library == 'server' && '.' || './client/python' }}
     steps:
       - uses: actions/checkout@v2
-      - name: Set up Python ${{ matrix.python-version }}
+      - name: Set up Python
         uses: actions/setup-python@v2
         with:
           python-version: ${{ matrix.python-version }}
 
-      - name: Set up Poetry
-        uses: abatilo/actions-poetry@v2
+      - name: Install Hatch
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatch
+
+      - uses: pdm-project/setup-pdm@v3
+        name: Setup PDM
         with:
-          poetry-version: ${{ matrix.poetry-version }}
+          python-version: ${{ matrix.python-version }}
+          architecture: x64
+          prerelease: true
+          enable-pep582: true
 
       - name: Configure Git
         run: |
@@ -53,8 +61,8 @@ jobs:
 
       - name: Bump release version with poetry and tag
         run: |
-          poetry version ${{ github.event.inputs.bump }}
-          export NEW_VERSION=v$(poetry version -s)
+          hatch version ${{ github.event.inputs.bump }}
+          export NEW_VERSION=v$(hatch version)
           export LIBRARY=${{ github.event.inputs.library }}
           git commit -am "Bumping $LIBRARY to version $NEW_VERSION"
           git tag -a $NEW_VERSION -m $NEW_VERSION
@@ -64,14 +72,8 @@ jobs:
 
       - name: Publish to pypi
         env:
-          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+          HATCH_INDEX_USER: __token__
+          HATCH_INDEX_AUTH: ${{ secrets.PYPI_TOKEN }}
         run: |
-          poetry config pypi-token.pypi $PYPI_TOKEN
-          poetry publish --build
-
-      - name: Create release
-        env:
-          GH_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
-        run: |
-          export VERSION=$(poetry version -s)
-          gh release create $VERSION --generate-notes
+          hatch build
+          hatch publish

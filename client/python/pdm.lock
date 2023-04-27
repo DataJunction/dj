@@ -185,14 +185,11 @@ summary = "Distribution utilities"
 
 [[package]]
 name = "dj"
-version = "0.0.1a8"
-requires_python = ">=3.8,<4.0"
+version = "0.0.1a9"
+requires_python = "<4.0,>=3.8"
 path = "../.."
 summary = "DataJunction server library for running to a DataJunction server"
 dependencies = [
-    "PyYAML<7.0,>=6.0",
-    "SQLAlchemy-Utils<1.0.0,>=0.40.0",
-    "SQLAlchemy<2.0.0,>=1.4.41",
     "accept-types<1.0.0,>=0.4.1",
     "antlr4-python3-runtime<5.0.0,>=4.12.0",
     "asciidag<1.0.0,>=0.2.0",
@@ -202,9 +199,12 @@ dependencies = [
     "msgpack<2.0.0,>=1.0.5",
     "opentelemetry-instrumentation-fastapi==0.38b0",
     "python-dotenv<1.0.0,>=0.19.0",
+    "pyyaml<7.0,>=6.0",
     "redis<5.0.0,>=4.5.4",
     "requests<3.0.0,>=2.28.2",
     "rich<14.0.0,>=13.3.3",
+    "sqlalchemy-utils<1.0.0,>=0.40.0",
+    "sqlalchemy<2.0.0,>=1.4.41",
     "sqlmodel<1.0.0,>=0.0.8",
     "sqlparse<1.0.0,>=0.4.3",
     "yarl<2.0.0,>=1.8.2",
@@ -753,7 +753,7 @@ summary = "Backport of pathlib-compatible object wrapper for zip files"
 [metadata]
 lock_version = "4.2"
 groups = ["default", "test"]
-content_hash = "sha256:4549809deb791894383f6fc542294c7335b3aa135ef10df9ae4601c213c18b24"
+content_hash = "sha256:1f12eb68aad3ff6ed0aa3a4f0b7135aca4f3e3d381ad4503f8fd76dcaf4c42dd"
 
 [metadata.files]
 "accept-types 0.4.1" = [
