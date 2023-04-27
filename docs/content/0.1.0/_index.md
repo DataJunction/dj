@@ -40,7 +40,7 @@ Discover
 
 **Discover New Dimensions**
 
-Find the metrics your interested in and instantly
+Find the metrics you're interested in and instantly
 discover the dimensions that are common among them.
 
 <--->
