@@ -451,3 +451,13 @@ class TestDJClient:
                 excinfo,
             )
         )
+
+    def test_create_namespace(self, client):  # pylint: disable=unused-argument
+        """
+        Verifies that creating a new namespace works.
+        """
+        namespace = client.new_namespace(namespace="roads.demo")
+        assert namespace.namespace == "roads.demo"
+        with pytest.raises(DJClientException) as exc_info:
+            client.new_namespace(namespace="roads.demo")
+        assert "Node namespace `roads.demo` already exists" in str(exc_info.value)

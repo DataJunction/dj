@@ -1,5 +1,5 @@
 ---
-weight: 40
+weight: 20
 ---
 
 # Metrics
@@ -16,8 +16,6 @@ a single source, transform, or dimension node.
 | query        | A SQL query that selects a single expression from a single node                             | string |
 
 ## Creating Metric Nodes
-
-Metric nodes can be created by making a `POST` request to `/nodes/metric/`.
 
 {{< tabs "creating metric nodes" >}}
 {{< tab "curl" >}}

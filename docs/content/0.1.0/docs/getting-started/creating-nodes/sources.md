@@ -20,9 +20,6 @@ are built upon.
 
 ## Creating Source Nodes
 
-Source nodes can be created by making a `POST` request to `/nodes/source/`.
-
-
 {{< tabs "creating source nodes" >}}
 {{< tab "curl" >}}
 ```sh

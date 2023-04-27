@@ -1,5 +1,5 @@
 ---
-weight: 20
+weight: 40
 ---
 
 # Transforms
@@ -18,8 +18,6 @@ engine supports.
 | query        | A SQL query that selects from other nodes                                                   | string |
 
 ## Creating Transform Nodes
-
-Transform nodes can be created by making a `POST` request to `/nodes/transform/`.
 
 {{< tabs "creating transform nodes" >}}
 {{< tab "curl" >}}
