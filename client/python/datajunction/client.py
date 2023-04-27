@@ -328,7 +328,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
-        if not response.ok:
+        if response.status_code == 409:
             raise DJClientException(json_response["message"])
         return json_response
 
