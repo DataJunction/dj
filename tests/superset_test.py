@@ -34,7 +34,7 @@ def test_get_metrics(mocker: MockerFixture, requests_mock: Mocker) -> None:
     inspector = mocker.MagicMock()
 
     requests_mock.get(
-        "https://localhost:8000/0/metrics/",
+        "https://localhost:8000/0/metrics",
         json=[
             {
                 "name": "core.num_comments",

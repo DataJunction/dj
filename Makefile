@@ -17,11 +17,11 @@ docker-build:
 docker-run:
 	docker compose up
 
-test: pyenv
-	pytest --cov=dj --cov-report=html -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
+test:
+	pdm run pytest --cov=dj --cov-report=html -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
 
-integration: pyenv
-	pytest --cov=dj -vv tests/ --doctest-modules dj --with-integration --with-slow-integration
+integration:
+	pdm run pytest --cov=dj -vv tests/ --doctest-modules dj --with-integration --with-slow-integration
 
 clean:
 	pyenv virtualenv-delete dj
@@ -30,16 +30,16 @@ spellcheck:
 	codespell -L froms -S "*.json" dj docs/*rst tests templates
 
 check:
-	pre-commit run --all-files
+	pdm run pre-commit run --all-files
 
 version:
-	@poetry version $(v)
-	@git add pyproject.toml
-	@git commit -m "v$$(poetry version -s)"
-	@git tag v$$(poetry version -s)
+	@hatch version $(v)
+	@git add __about__.py
+	@git commit -m "Bumping to v$$(hatch version)"
+	@git tag v$$(hatch version)
 	@git push
 	@git push --tags
-	@poetry version
+	@hatch version
 
 release:
-	@poetry publish --build
+	@hatch publish --build
