@@ -1,5 +1,5 @@
 ---
-weight: 40
+weight: 50
 mermaid: true
 ---
 
@@ -19,8 +19,6 @@ Cubes are used to represent a set of metrics with dimensions and filters.
 | filters      | A set of filters                                                                            | list[string] |
 
 ## Creating Cube Nodes
-
-Cube nodes can be created by making a `POST` request to `/nodes/cube/`.
 
 {{< tabs "creating cube nodes" >}}
 {{< tab "curl" >}}

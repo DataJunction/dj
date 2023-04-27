@@ -266,6 +266,17 @@ class DJClient:  # pylint: disable=too-many-public-methods
             display_name=display_name,
         )
 
+    def new_namespace(
+        self,
+        namespace: str,
+    ) -> "Namespace":
+        """
+        Creates a new namespace on the server
+        """
+        _namespace = Namespace(dj_client=self, namespace=namespace)
+        self.create_namespace(_namespace)
+        return _namespace
+
     def verify_node_exists(self, node_name: str, type_: str) -> Dict[str, Any]:
         """
         Retrieves a node and verifies that it exists and has the expected node type.
@@ -307,6 +318,19 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Returns the specified node namespace.
         """
         return Namespace(namespace=_namespace, dj_client=self)
+
+    def create_namespace(self, namespace: "Namespace"):
+        """
+        Helper function to create a namespace.
+        """
+        response = self._session.post(
+            f"/namespaces/{namespace.namespace}/",
+            timeout=self._timeout,
+        )
+        json_response = response.json()
+        if response.status_code == 409:
+            raise DJClientException(json_response["message"])
+        return json_response
 
     def delete_node(self, node: "Node"):
         """
