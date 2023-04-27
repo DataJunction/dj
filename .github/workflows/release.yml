@@ -77,3 +77,9 @@ jobs:
         run: |
           hatch build
           hatch publish
+
+      - name: Create Github release
+        run: |
+          gh release create $(hatch version) --generate-notes
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
