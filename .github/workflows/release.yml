@@ -65,8 +65,8 @@ jobs:
           export NEW_VERSION=v$(hatch version)
           export LIBRARY=${{ github.event.inputs.library }}
           git commit -am "Bumping $LIBRARY to version $NEW_VERSION"
-          git tag -a $NEW_VERSION -m $NEW_VERSION
-          git push origin $NEW_VERSION
+          git tag -a $NEW_VERSION-$LIBRARY -m $NEW_VERSION-$LIBRARY
+          git push origin $NEW_VERSION-$LIBRARY
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
 
