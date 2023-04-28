@@ -7,7 +7,7 @@ includes = ["datajunction"]
 
 [project]
 name = "datajunction"
-version = "0.0.1a7"
+dynamic = ["version"]
 description = "DataJunction client library for connecting to a DataJunction server"
 authors = [
     {name = "DataJunction Authors", email = "yian.shang@gmail.com"},
@@ -28,6 +28,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
 ]
+
+[tool.hatch.version]
+path = "datajunction/__about__.py"
 
 [project.urls]
 repository = "https://github.com/DataJunction/dj"
