@@ -553,7 +553,7 @@ class Expression(Node):
         """
         Determines whether an Expression is an aggregation or not
         """
-        return all(
+        return any(
             [
                 child.is_aggregation()
                 for child in self.children
