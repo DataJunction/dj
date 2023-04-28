@@ -72,8 +72,8 @@ def test_extra_validation() -> None:
         type=node.type,
         node=node,
         version="1",
-        query="SELECT count(repair_order_id) +"
-        "repair_order_id AS num_repair_orders"
+        query="SELECT count(repair_order_id) + "
+        "repair_order_id AS num_repair_orders "
         "FROM repair_orders",
     )
     with pytest.raises(Exception) as excinfo:
