@@ -421,10 +421,34 @@ class TestDJClient:
         result = metric.sql(dimensions=[], filters=[])
         assert "SELECT" in result and "FROM" in result
 
+        # Retrieve SQL for a single metric
         result = metric.sql(dimensions=["dimension_that_does_not_exist"], filters=[])
         assert (
             result["message"]
             == "Cannot resolve type of column dimension_that_does_not_exist."
+        )
+
+        # Retrieve SQL for multiple metrics using the client object
+        result = client.sql(
+            metrics=["num_repair_orders", "avg_repair_price"],
+            dimensions=["hard_hat.city", "hard_hat.state", "dispatcher.company_name"],
+            filters=["hard_hat.state = 'AZ'"],
+            engine_name="spark",
+            engine_version="3.1.1",
+        )
+        assert "SELECT" in result and "FROM" in result
+
+        # Should fail due to dimension not being available
+        result = client.sql(
+            metrics=["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
+            dimensions=["hard_hat.city"],
+            filters=["hard_hat.state = 'AZ'"],
+            engine_name="spark",
+            engine_version="3.1.1",
+        )
+        assert result["message"] == (
+            "The dimension attribute `hard_hat.city` is not available on "
+            "every metric and thus cannot be included."
         )
 
     def test_get_metrics(self, client):

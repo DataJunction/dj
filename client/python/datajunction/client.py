@@ -422,13 +422,13 @@ class DJClient:  # pylint: disable=too-many-public-methods
         response = self._session.get(f"/metrics/{node_name}/")
         return response.json()
 
-    def sql(  # pylint: disable=too-many-arguments
+    def sql_for_metric(  # pylint: disable=too-many-arguments
         self,
         node_name: str,
         dimensions: List[str],
         filters: List[str],
-        engine_name: Optional[str] = "TRINO_DIRECT",
-        engine_version: Optional[str] = "",
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
     ):
         """
         Retrieves the SQL query built for the node with the provided dimensions and filters.
@@ -436,6 +436,31 @@ class DJClient:  # pylint: disable=too-many-public-methods
         response = self._session.get(
             f"/sql/{node_name}/",
             params={
+                "dimensions": dimensions,
+                "filters": filters,
+                "engine_name": engine_name,
+                "engine_version": engine_version,
+            },
+        )
+        if response.status_code == 200:
+            return response.json()["sql"]
+        return response.json()
+
+    def sql(  # pylint: disable=too-many-arguments
+        self,
+        metrics: List[str],
+        dimensions: List[str],
+        filters: List[str],
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+    ):
+        """
+        Builds SQL for multiple metrics with the provided dimensions and filters.
+        """
+        response = self._session.get(
+            "/sql/",
+            params={
+                "metrics": metrics,
                 "dimensions": dimensions,
                 "filters": filters,
                 "engine_name": engine_name,
@@ -606,7 +631,7 @@ class Node(ClientEntity):
         """
         Builds the SQL for this node, given the provided dimensions and filters.
         """
-        return self.dj_client.sql(
+        return self.dj_client.sql_for_metric(
             self.name,
             dimensions,
             filters,
