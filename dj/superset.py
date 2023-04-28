@@ -105,7 +105,7 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
             {
                 "metric_name": metric["name"],
                 "expression": f'"{metric["name"]}"',
-                "description": metric["description"],
+                "description": "",
             }
             for metric in payload
         ]

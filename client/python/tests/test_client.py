@@ -427,9 +427,31 @@ class TestDJClient:
             == "Cannot resolve type of column dimension_that_does_not_exist."
         )
 
+    def test_get_metrics(self, client):
+        """
+        Check that `client.metrics()` works as expected.
+        """
+        metrics = client.metrics()
+        assert metrics == [
+            "num_repair_orders",
+            "avg_repair_price",
+            "total_repair_cost",
+            "avg_length_of_employment",
+            "total_repair_order_discounts",
+            "avg_repair_order_discounts",
+            "avg_time_to_dispatch",
+            "foo.bar.num_repair_orders",
+            "foo.bar.avg_repair_price",
+            "foo.bar.total_repair_cost",
+            "foo.bar.avg_length_of_employment",
+            "foo.bar.total_repair_order_discounts",
+            "foo.bar.avg_repair_order_discounts",
+            "foo.bar.avg_time_to_dispatch",
+        ]
+
     def test_get_dimensions(self, client):
         """
-        Check that `client.engines()` works as expected.
+        Check that `metric.dimensions()` works as expected.
         """
         metric = client.metric(node_name="foo.bar.avg_repair_price")
         result = metric.dimensions()
@@ -452,7 +474,7 @@ class TestDJClient:
             )
         )
 
-    def test_create_namespace(self, client):  # pylint: disable=unused-argument
+    def test_create_namespace(self, client):
         """
         Verifies that creating a new namespace works.
         """

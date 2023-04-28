@@ -32,19 +32,14 @@ def get_metric(session: Session, name: str) -> Node:
     return node
 
 
-@router.get("/metrics/", response_model=List[Metric])
-def list_metrics(*, session: Session = Depends(get_session)) -> List[Metric]:
+@router.get("/metrics/", response_model=List[str])
+def list_metrics(*, session: Session = Depends(get_session)) -> List[str]:
     """
     List all available metrics.
     """
-    return [
-        Metric.parse_node(node)
-        for node in (
-            session.exec(
-                select(Node).where(Node.type == NodeType.METRIC),
-            )
-        )
-    ]
+    return session.exec(
+        select(Node.name).where(Node.type == NodeType.METRIC),
+    ).all()
 
 
 @router.get("/metrics/{name}/", response_model=Metric)
