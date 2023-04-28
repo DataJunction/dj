@@ -103,11 +103,11 @@ class DJEngineSpec(BaseEngineSpec):  # pylint: disable=abstract-method
         payload = response.json()
         return [
             {
-                "metric_name": metric["name"],
-                "expression": f'"{metric["name"]}"',
+                "metric_name": metric_name,
+                "expression": f'"{metric_name}"',
                 "description": "",
             }
-            for metric in payload
+            for metric_name in payload
         ]
 
     @classmethod
