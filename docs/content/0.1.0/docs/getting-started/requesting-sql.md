@@ -5,11 +5,9 @@ weight: 50
 # Requesting SQL
 
 DJ can generate SQL for one or more metrics with a set of compatible 
-filters and dimensions to group by.
+filters and dimensions.
 
-## SQL for Single Metric
-
-Note that the `engine_name` and `engine_version` fields are not required.
+## SQL for a Single Metric
 
 {{< tabs "retrieving sql" >}}
 {{< tab "curl" >}}
@@ -55,10 +53,11 @@ metric.sql(
 {{< /tab >}}
 {{< /tabs >}}
 
+{{< hint info >}}
+The `engine_name` and `engine_version` fields are optional. A typical DataJunction query service will include a default engine.
+{{< /hint >}}
 
 ## SQL for Multiple Metrics
-
-Note that the `engine_name` and `engine_version` fields are not required.
 
 {{< tabs "retrieving sql multiple" >}}
 {{< tab "curl" >}}
