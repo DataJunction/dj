@@ -12,6 +12,8 @@ metrics and the data models behind them using **SQL**, serving as a **semantic l
 on top of a physical data warehouse. By leveraging this metadata, DJ can enable efficient 
 retrieval of metrics data across different dimensions and filters.
 
+![DataJunction](/datajunction-illustration.png)
+
 ## How does this work?
 
 At its core, DJ stores metrics and their upstream abstractions as interconnected nodes. 

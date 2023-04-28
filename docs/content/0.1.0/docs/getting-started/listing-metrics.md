@@ -5,8 +5,7 @@ weight: 30
 # Listing Metrics
 
 One of the most imporant entities in DataJunction are metrics. Exploring DataJunction usually starts with
-exploring available metrics.
-
+exploring available metrics.    
 
 {{< tabs "listing metrics" >}}
 {{< tab "curl" >}}
