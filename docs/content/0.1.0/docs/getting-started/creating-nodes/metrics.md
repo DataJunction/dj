@@ -23,7 +23,7 @@ a single source, transform, or dimension node.
 curl -X POST http://localhost:8000/nodes/metric/ \
 -H 'Content-Type: application/json' \
 -d '{
-    "name": "num_repair_orders"
+    "name": "num_repair_orders",
     "description": "Number of repair orders",
     "mode": "published",
     "query": "SELECT count(repair_order_id) as num_repair_orders FROM repair_orders"
