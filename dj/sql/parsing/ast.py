@@ -1371,6 +1371,9 @@ class Value(Expression):
     Base class for all values number, string, boolean
     """
 
+    def is_aggregation(self) -> bool:
+        return True
+
 
 @dataclass(eq=False)
 class Null(Value):
