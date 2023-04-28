@@ -304,6 +304,12 @@ class DJClient:  # pylint: disable=too-many-public-methods
         response = self._session.get("/engines/", timeout=self._timeout)
         return response.json()
 
+    def metrics(self):
+        """
+        Returns all metrics
+        """
+        return self.get_metrics()
+
     def namespaces(self) -> List["Namespace"]:
         """
         Returns all node namespaces.
@@ -349,6 +355,13 @@ class DJClient:  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
             json=node.dict(exclude_none=True, exclude={"type"}),
         )
+        return response.json()
+
+    def get_metrics(self):
+        """
+        Retrieves all metrics
+        """
+        response = self._session.get("/metrics/")
         return response.json()
 
     def get_node_namespaces(self):

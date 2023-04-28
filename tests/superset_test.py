@@ -35,19 +35,14 @@ def test_get_metrics(mocker: MockerFixture, requests_mock: Mocker) -> None:
 
     requests_mock.get(
         "https://localhost:8000/0/metrics",
-        json=[
-            {
-                "name": "core.num_comments",
-                "description": "All the cmments",
-            },
-        ],
+        json=["core.num_comments"],
     )
 
     assert DJEngineSpec.get_metrics(database, inspector, "some-table", "main") == [
         {
             "metric_name": "core.num_comments",
             "expression": '"core.num_comments"',
-            "description": "All the cmments",
+            "description": "",
         },
     ]
 
