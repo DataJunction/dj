@@ -1,6 +1,7 @@
 """
 Helpers for API endpoints
 """
+import http.client
 from http import HTTPStatus
 from typing import Dict, List, Optional, Tuple, Union
 
@@ -442,3 +443,71 @@ def propagate_valid_status(
                     newly_valid_nodes.append(node.current)
             resolved_nodes.extend(newly_valid_nodes)
         valid_nodes = resolved_nodes
+
+
+def validate_cube(
+    session: Session,
+    metric_names: List[str],
+    dimension_names: List[str],
+) -> Tuple[List[Column], List[Node], List[Node], List[Column]]:
+    """
+    Validate that a set of metrics and dimensions can be built together.
+    """
+    metrics: List[Column] = []
+    metric_nodes: List[Node] = []
+    dimension_nodes: List[Node] = []
+    dimensions: List[Column] = []
+    catalogs = []
+
+    # Verify that the provided metrics are metric nodes
+    for node_name in metric_names:
+        metric_node = get_node_by_name(session=session, name=node_name)
+        if metric_node.type != NodeType.METRIC:
+            raise DJException(
+                message=(
+                    f"Node {metric_node.name} of type {metric_node.type} "
+                    f"cannot be added to a cube."
+                    + " Did you mean to add a dimension attribute?"
+                    if metric_node.type == NodeType.DIMENSION
+                    else ""
+                ),
+                http_status_code=http.client.UNPROCESSABLE_ENTITY,
+            )
+        catalogs.append(metric_node.current.catalog.name)
+        metrics.append(metric_node.current.columns[0])
+        metric_nodes.append(metric_node)
+
+    if not metrics:
+        raise DJException(
+            message=("At least one metric is required"),
+            http_status_code=http.client.UNPROCESSABLE_ENTITY,
+        )
+
+    # Verify that the provided dimension attributes exist
+    for dimension_attribute in dimension_names:
+        node_name, column_name = dimension_attribute.rsplit(".", 1)
+        dimension_node = get_node_by_name(session=session, name=node_name)
+        dimension_nodes.append(dimension_node)
+        columns = {col.name: col for col in dimension_node.current.columns}
+        if column_name in columns:  # pragma: no cover
+            dimensions.append(columns[column_name])
+
+    if not dimensions:
+        raise DJException(
+            message=("At least one dimension is required"),
+            http_status_code=http.client.UNPROCESSABLE_ENTITY,
+        )
+
+    if len(set(catalogs)) > 1:
+        raise DJException(
+            message=(
+                f"Metrics and dimensions cannot be from multiple catalogs: {catalogs}"
+            ),
+        )
+
+    if len(set(catalogs)) < 1:  # pragma: no cover
+        raise DJException(
+            message=("Metrics and dimensions must be part of a common catalog"),
+        )
+
+    return metrics, metric_nodes, dimension_nodes, dimensions
