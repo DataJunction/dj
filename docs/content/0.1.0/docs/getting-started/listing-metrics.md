@@ -31,7 +31,7 @@ namespace.
 {{< tabs "listing metrics in a namespace" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X GET http://localhost:8000/namespaces/roads.demo/metrics/
+curl -X GET http://localhost:8000/namespaces/roads.demo/?type_=metric
 ```
 {{< /tab >}}
 {{< tab "python" >}}
@@ -40,6 +40,7 @@ from datajunction import DJClient
 
 dj = DJClient("http://localhost:8000/")
 namespace = dj.namespace("roads.demo")
+namespace.metrics()
 ```
 {{< /tab >}}
 {{< /tabs >}}
