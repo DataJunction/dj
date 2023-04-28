@@ -140,7 +140,7 @@ def test_create_invalid_cube(client_with_examples: TestClient):
     assert response.status_code == 422
     data = response.json()
     assert data == {
-        "message": "At least one metric is required to create a cube node",
+        "message": "At least one metric is required",
         "errors": [],
         "warnings": [],
     }
@@ -159,7 +159,7 @@ def test_create_invalid_cube(client_with_examples: TestClient):
     assert response.status_code == 422
     data = response.json()
     assert data == {
-        "message": "At least one dimension is required to create a cube node",
+        "message": "At least one dimension is required",
         "errors": [],
         "warnings": [],
     }
@@ -184,7 +184,7 @@ def test_raise_on_cube_with_multiple_catalogs(
     )
     assert not response.ok
     data = response.json()
-    assert "Cannot create cube using nodes from multiple catalogs" in data["message"]
+    assert "Metrics and dimensions cannot be from multiple catalogs" in data["message"]
 
 
 def test_cube_sql(client_with_examples: TestClient):
@@ -314,7 +314,6 @@ def test_cube_sql(client_with_examples: TestClient):
           dispatcher.company_name,
           municipality_dim.local_region
     """
-    print(results["query"])
     assert compare_query_strings(results["query"], expected_query)
 
     response = client_with_examples.post(

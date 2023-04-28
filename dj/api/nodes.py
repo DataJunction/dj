@@ -2,7 +2,6 @@
 """
 Node related APIs.
 """
-import http.client
 import logging
 import os
 from collections import defaultdict
@@ -27,6 +26,7 @@ from dj.api.helpers import (
     propagate_valid_status,
     raise_if_node_exists,
     resolve_downstream_references,
+    validate_cube,
     validate_node_data,
 )
 from dj.api.tags import get_tag_by_name
@@ -557,62 +557,11 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     """
     Create a cube node revision.
     """
-    metrics: List[Column] = []
-    metric_nodes: List[Node] = []
-    dimension_nodes: List[Node] = []
-    dimensions: List[Column] = []
-    catalogs = []
-
-    # Verify that the provided metrics are metric nodes
-    for node_name in data.metrics:
-        metric_node = get_node_by_name(session=session, name=node_name)
-        if metric_node.type != NodeType.METRIC:
-            raise DJException(
-                message=(
-                    f"Node {metric_node.name} of type {metric_node.type} "
-                    f"cannot be added to a cube."
-                    + " Did you mean to add a dimension attribute?"
-                    if metric_node.type == NodeType.DIMENSION
-                    else ""
-                ),
-                http_status_code=http.client.UNPROCESSABLE_ENTITY,
-            )
-        catalogs.append(metric_node.current.catalog.name)
-        metrics.append(metric_node.current.columns[0])
-        metric_nodes.append(metric_node)
-
-    if not metrics:
-        raise DJException(
-            message=("At least one metric is required to create a cube node"),
-            http_status_code=http.client.UNPROCESSABLE_ENTITY,
-        )
-
-    # Verify that the provided dimension attributes exist
-    for dimension_attribute in data.dimensions:
-        node_name, column_name = dimension_attribute.rsplit(".", 1)
-        dimension_node = get_node_by_name(session=session, name=node_name)
-        dimension_nodes.append(dimension_node)
-        columns = {col.name: col for col in dimension_node.current.columns}
-        if column_name in columns:  # pragma: no cover
-            dimensions.append(columns[column_name])
-
-    if not dimensions:
-        raise DJException(
-            message=("At least one dimension is required to create a cube node"),
-            http_status_code=http.client.UNPROCESSABLE_ENTITY,
-        )
-
-    if len(set(catalogs)) > 1:
-        raise DJException(
-            message=(
-                f"Cannot create cube using nodes from multiple catalogs: {catalogs}"
-            ),
-        )
-
-    if len(set(catalogs)) < 1:  # pragma: no cover
-        raise DJException(
-            message=("Cube elements must contain a common catalog"),
-        )
+    metric_columns, metric_nodes, dimension_nodes, dimension_columns = validate_cube(
+        session,
+        data.metrics,
+        data.dimensions,
+    )
 
     combined_ast = build_metric_nodes(
         session,
@@ -654,7 +603,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         type=NodeType.CUBE,
         query=str(combined_ast),
         columns=node_columns,
-        cube_elements=metrics + dimensions,
+        cube_elements=metric_columns + dimension_columns,
         parents=list(set(dimension_nodes + metric_nodes)),
         status=status,
     )

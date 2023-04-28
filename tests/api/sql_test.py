@@ -703,3 +703,120 @@ def test_lateral_view_explode(client_with_examples: TestClient):
     """
     query = response.json()["sql"]
     compare_query_strings(query, expected)
+
+
+def test_get_sql_for_metrics_failures(client_with_examples: TestClient):
+    """
+    Test failure modes when getting sql for multiple metrics.
+    """
+    # Getting sql for no metrics fails appropriately
+    response = client_with_examples.get(
+        "/sql/",
+        params={
+            "metrics": [],
+            "dimensions": ["account_type.account_type_name"],
+            "filters": [],
+        },
+    )
+    assert response.status_code == 422
+    data = response.json()
+    assert data == {
+        "message": "At least one metric is required",
+        "errors": [],
+        "warnings": [],
+    }
+
+    # Getting sql with no dimensions fails appropriately
+    response = client_with_examples.get(
+        "/sql/",
+        params={
+            "metrics": ["number_of_account_types"],
+            "dimensions": [],
+            "filters": [],
+        },
+    )
+    assert response.status_code == 422
+    data = response.json()
+    assert data == {
+        "message": "At least one dimension is required",
+        "errors": [],
+        "warnings": [],
+    }
+
+
+def test_get_sql_for_metrics(client_with_examples: TestClient):
+    """
+    Test getting sql for multiple metrics.
+    """
+    response = client_with_examples.get(
+        "/sql/",
+        params={
+            "metrics": ["discounted_orders_rate", "num_repair_orders"],
+            "dimensions": [
+                "hard_hat.country",
+                "hard_hat.postal_code",
+                "hard_hat.city",
+                "hard_hat.state",
+                "dispatcher.company_name",
+                "municipality_dim.local_region",
+            ],
+            "filters": [],
+        },
+    )
+    data = response.json()
+    expected_sql = """
+    SELECT
+      dispatcher.company_name,
+      hard_hat.city,
+      hard_hat.country,
+      hard_hat.postal_code,
+      hard_hat.state,
+      municipality_dim.local_region,
+      count(repair_orders.repair_order_id) AS num_repair_orders,
+      CAST(sum(if(repair_order_details.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS discounted_orders_rate
+    FROM roads.repair_orders AS repair_orders
+    LEFT OUTER JOIN (
+      SELECT
+        dispatchers.company_name,
+        dispatchers.dispatcher_id
+      FROM roads.dispatchers AS dispatchers
+    ) AS dispatcher ON repair_orders.dispatcher_id = dispatcher.dispatcher_id
+    LEFT OUTER JOIN (
+      SELECT
+        hard_hats.city,
+        hard_hats.country,
+        hard_hats.hard_hat_id,
+        hard_hats.postal_code,
+        hard_hats.state
+      FROM roads.hard_hats AS hard_hats
+    ) AS hard_hat ON repair_orders.hard_hat_id = hard_hat.hard_hat_id
+    LEFT OUTER JOIN (
+      SELECT
+        municipality.local_region,
+        municipality.municipality_id
+      FROM roads.municipality AS municipality
+      LEFT JOIN roads.municipality_municipality_type AS municipality_municipality_type
+        ON municipality.municipality_id = municipality_municipality_type.municipality_id
+      LEFT JOIN roads.municipality_type AS municipality_type
+        ON municipality_municipality_type.municipality_type_id
+           = municipality_type.municipality_type_desc
+    ) AS municipality_dim ON repair_orders.municipality_id = municipality_dim.municipality_id
+    GROUP BY
+      hard_hat.country,
+      hard_hat.postal_code,
+      hard_hat.city,
+      hard_hat.state,
+      dispatcher.company_name,
+      municipality_dim.local_region
+    """
+    assert compare_query_strings(data["sql"], expected_sql)
+    assert data["columns"] == [
+        {"name": "company_name", "type": "string"},
+        {"name": "city", "type": "string"},
+        {"name": "country", "type": "string"},
+        {"name": "postal_code", "type": "string"},
+        {"name": "state", "type": "string"},
+        {"name": "local_region", "type": "string"},
+        {"name": "num_repair_orders", "type": "bigint"},
+        {"name": "discounted_orders_rate", "type": "double"},
+    ]
