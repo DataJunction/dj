@@ -553,7 +553,7 @@ class Expression(Node):
         """
         Determines whether an Expression is an aggregation or not
         """
-        return any(
+        return all(
             [
                 child.is_aggregation()
                 for child in self.children
@@ -1370,6 +1370,9 @@ class Value(Expression):
     """
     Base class for all values number, string, boolean
     """
+    
+    def is_aggregation(self) -> bool:
+        return True
 
 
 @dataclass(eq=False)
