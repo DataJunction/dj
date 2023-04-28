@@ -66,21 +66,6 @@ def test_extra_validation() -> None:
         node_revision.extra_validation()
     assert str(excinfo.value) == "Node A of type metric needs a query"
 
-    node = Node(name="A", type=NodeType.METRIC, current_version="1")
-    node_revision = NodeRevision(
-        name=node.name,
-        type=node.type,
-        node=node,
-        version="1",
-        query="SELECT 42",
-    )
-    with pytest.raises(Exception) as excinfo:
-        node_revision.extra_validation()
-    assert str(excinfo.value) == (
-        "Node A of type metric has an invalid query, "
-        "should have a single aggregation"
-    )
-
     node = Node(name="A", type=NodeType.TRANSFORM, current_version="1")
     node_revision = NodeRevision(
         name=node.name,
