@@ -67,5 +67,5 @@ metric = dj.metric("num_repair_orders")
 {{< /tabs >}}
 
 Metric details include the available dimensions that are discoverable through the DataJunction DAG. See the pages on
-[Requesting Data](../requesting-data) and [Requesting SQL](../requesting-sql) to learn how you can use combinations of metrics
-and dimensions.
+[Requesting Data](../requesting-data) and [Requesting SQL](../requesting-sql) to learn how combinations of metrics
+and dimensions can be used.
