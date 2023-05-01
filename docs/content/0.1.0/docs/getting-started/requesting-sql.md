@@ -12,7 +12,7 @@ filters and dimensions.
 {{< tabs "retrieving sql" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X POST http://localhost:8000/sql/num_repair_orders/ \
+curl -X GET http://localhost:8000/sql/num_repair_orders/ \
 -H 'Content-Type: application/json' \
 -d '{
     "dimensions": [
@@ -62,7 +62,7 @@ The `engine_name` and `engine_version` fields are optional. A typical DataJuncti
 {{< tabs "retrieving sql multiple" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X POST http://localhost:8000/sql/ \
+curl -X GET "http://localhost:8000/sql/?metrics=num_repair_orders,avg_repair_price&dimensions=hard_hat.city,hard_hat.state,dispatcher.company_name&filters=hard_hat.state='AZ'" \
 -H 'Content-Type: application/json' \
 -d '{
     "metrics": [
