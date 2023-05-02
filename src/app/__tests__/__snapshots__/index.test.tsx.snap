@@ -28,6 +28,10 @@ exports[`<App /> should render and match the snapshot 1`] = `
           element={<Unknown />}
           path="/namespaces/:namespace"
         />
+        <Route
+          element={<ListNamespacesPage />}
+          path="/namespaces/"
+        />
       </React.Fragment>
     </Route>
     <Route

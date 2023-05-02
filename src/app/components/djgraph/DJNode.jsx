@@ -47,7 +47,7 @@ const Collapse = ({ collapsed, text, children }) => {
   );
 };
 
-function DJNode({ id, data }) {
+export function DJNode({ id, data }) {
   const columnsRenderer = data =>
     data.column_names.map(col => (
       <tr>
