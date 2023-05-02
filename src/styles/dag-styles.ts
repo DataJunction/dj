@@ -1,0 +1,126 @@
+import { createGlobalStyle } from 'styled-components';
+// import { StyleConstants } from './StyleConstants';
+/* istanbul ignore next */
+export const DAGStyle = createGlobalStyle`
+  .react-flow__node-custom {
+    font-size: 10px;
+    width: 180px;
+    background: #f5f5f6;
+    color: #222;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 15%), 0 2px 4px -1px rgb(0 0 0 / 8%);
+    border-radius: 2px;
+  }
+  .react-flow {
+      width: 100%; height: 800px; overflow: hidden; position: relative; z-index: 0;
+  }
+  .react-flow__node-custom .react-flow__handle {
+    top: 24px;
+    right: -15px;
+    width: 6px;
+    height: 10px;
+    border-radius: 2px;
+    background-color: #778899;
+  }
+  
+  .react-flow__node.circle {
+    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: 700;
+  }
+  
+  .react-flow__node.annotation {
+    border-radius: 0;
+    text-align: left;
+    background: white;
+    border: none;
+    line-height: 1.4;
+    width: 225px;
+    box-shadow: 0 4px 6px -1px rgb(0 0 0 / 15%), 0 2px 4px -1px rgb(0 0 0 / 8%);
+  }
+  
+  .react-flow__node.annotation .react-flow__handle {
+    display: none;
+  }
+  
+  .dj-node__header {
+      font-weight: 400;
+      text-transform: uppercase;
+      font-family: 'jetbrains-mono',monospace;
+      font-size: 10px;
+      padding-inline-start: 0.5rem;
+      padding-inline-end: 0.5rem;
+      padding-top: 0.25rem;
+      padding-bottom: 0.25rem;
+      border-bottom-width: 1px;
+      border-bottom-style: solid;
+      border-color: #c4cbd1;
+  }
+  
+  .dj-node__body {
+      background-color: rgb(254, 254, 254);
+    padding: 10px;
+    font-family: 'nt-dapper',-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen,Ubuntu,Cantarell,Fira Sans,Droid Sans,Helvetica Neue,sans-serif;
+    font-size: 12px;
+  }
+  
+  .dj-node__full {
+    display: flex;
+      flex-direction: column;
+      height: 100%;
+      border-width: 1px;
+      border-style: solid;
+      border-image: initial;
+      border-color: #b0b9c2;
+      border-radius: 8px;
+      overflow: hidden;
+      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+  }
+  
+  .dj-node__metadata {
+  
+      padding: 10px;
+      font-family: 'nt-dapper',-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen,Ubuntu,Cantarell,Fira Sans,Droid Sans,Helvetica Neue,sans-serif;
+      font-size: 10px;
+  }
+  
+  .collapse-button {
+      display: block;
+      width: 100%;
+      font: 10px "Montserrat", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      /* font-family: 'nt-dapper',-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen,Ubuntu,Cantarell,Fira Sans,Droid Sans,Helvetica Neue,sans-serif;*/
+      /*font-size: 10px;*/
+      text-transform: uppercase;
+      border: none;
+      padding: 4px;
+  }
+  
+  .collapse {
+      padding-top: 10px;
+  }
+  .collapse-content.collapsed {
+    display: none;
+  }
+  
+  .collapsed-content.expanded {
+    display: block;
+  }
+  
+  /*.collapse-button {*/
+  /*    text-transform: uppercase;*/
+  /*    font: 14px/19px 'body_font', "Montserrat", "Helvetica Neue", Helvetica, Arial, sans-serif;*/
+  /*}*/
+  
+  .collapse tr td {
+      padding-left: 5px;
+      padding-bottom: 5px;
+  }
+  .serif {
+      font-family: 'jetbrains-mono', monospace;
+      text-transform: lowercase;
+  }
+
+`;
