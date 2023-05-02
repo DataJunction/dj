@@ -1,7 +1,8 @@
 import * as React from 'react';
 import { useEffect, useState } from 'react';
-import { DataJunctionAPI } from '../../services/DJService';
 import NamespaceHeader from '../../components/NamespaceHeader';
+const datajunction = require('datajunction');
+const dj = new datajunction.DJClient('http://localhost:8000');
 
 export function ListNamespacesPage() {
   const [state, setState] = useState({
@@ -10,7 +11,7 @@ export function ListNamespacesPage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const namespaces = await DataJunctionAPI.namespaces();
+      const namespaces = await dj.namespaces.get();
       setState({
         namespaces: namespaces,
       });
