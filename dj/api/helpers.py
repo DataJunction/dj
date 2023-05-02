@@ -1,6 +1,7 @@
 """
 Helpers for API endpoints
 """
+import collections
 import http.client
 from http import HTTPStatus
 from typing import Dict, List, Optional, Tuple, Union
@@ -258,6 +259,31 @@ def get_downstream_nodes(
         downstream
         for downstream in results
         if downstream.type == node_type or node_type is None
+    ]
+
+
+def get_upstream_nodes(
+    session: Session,
+    node_name: str,
+    node_type: NodeType = None,
+) -> List[Node]:
+    """
+    Gets all upstream parents of the given node, filterable by node type.
+    """
+    node = get_node_by_name(session=session, name=node_name)
+    queue = collections.deque([node])
+    all_parents = set()
+    while queue:
+        node = queue.pop()
+        for parent in node.current.parents:
+            all_parents.add(parent)
+        for parent in node.current.parents:
+            queue.append(parent)
+
+    return [
+        upstream
+        for upstream in all_parents
+        if upstream.type == node_type or node_type is None
     ]
 
 
