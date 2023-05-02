@@ -35,7 +35,7 @@ npm install datajunction
 const datajunction = require('datajunction')
 
 const dj = new datajunction.DJClient('http://localhost:8000')
-dj.nodes.get().then(data => console.log(data))
+dj.metrics.get().then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< tab "ES6" >}}
@@ -43,7 +43,7 @@ dj.nodes.get().then(data => console.log(data))
 <script src="https://unpkg.com/datajunction/dist/datajunction.js"></script>
 <script>
     const dj = new window.datajunction.DJClient("http://localhost:8000");
-    dj.nodes.get().then(data => console.log(data));
+    dj.metrics.get().then(data => console.log(data));
 </script>
 ```
 {{< /tab >}}
