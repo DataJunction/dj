@@ -14,6 +14,7 @@ import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { Root } from './pages/Root/Loadable';
+import { ListNamespacesPage } from './pages/ListNamespacesPage';
 
 export function App() {
   return (
@@ -39,6 +40,7 @@ export function App() {
                 path="/namespaces/:namespace"
                 element={<NamespacePage />}
               />
+              <Route path="/namespaces/" element={<ListNamespacesPage />} />
             </>
           }
         />

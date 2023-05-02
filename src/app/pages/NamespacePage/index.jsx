@@ -39,7 +39,9 @@ export function NamespacePage() {
 
   const nodesList = state.nodes.map(node => (
     <tr>
-      <td>{node.namespace}</td>
+      <td>
+        <a href={'/namespaces/' + node.namespace}>{node.namespace}</a>
+      </td>
       <td>
         <a href={'/nodes/' + node.name} className="link-table">
           {node.display_name}

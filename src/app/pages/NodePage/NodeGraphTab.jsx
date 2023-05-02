@@ -30,8 +30,8 @@ const NodeLineage = djNode => {
     nodes,
     edges,
     direction = 'LR',
-    nodeWidth = 500,
-    nodeHeight = 60,
+    nodeWidth = 800,
+    nodeHeight = 150,
   ) => {
     const isHorizontal = direction === 'TB';
     dagreGraph.setGraph({ rankdir: direction });
@@ -100,7 +100,6 @@ const NodeLineage = djNode => {
             ),
           )
           .map(col => col.name);
-        console.log('Primary key', primary_key);
         const column_names = node.columns.map(col => {
           return { name: col.name, type: col.type };
         });

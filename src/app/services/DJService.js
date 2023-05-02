@@ -4,7 +4,6 @@ const DJ_URL = 'http://localhost:8000'; //process.env.REACT_APP_DJ_URL;
 
 export const DataJunctionAPI = {
   node: async function (name) {
-    console.log('NAME', name);
     const data = await (await fetch(DJ_URL + '/nodes/' + name + '/')).json();
     return data;
   },
@@ -32,6 +31,11 @@ export const DataJunctionAPI = {
     const data = await (
       await fetch(DJ_URL + '/namespaces/' + nmspce + '/')
     ).json();
+    return data;
+  },
+
+  namespaces: async function () {
+    const data = await (await fetch(DJ_URL + '/namespaces/')).json();
     return data;
   },
 
@@ -90,7 +94,6 @@ export const DataJunctionAPI = {
           ),
         )
         .map(col => col.name);
-      console.log('Primary key', primary_key);
       const column_names = node.columns.map(col => {
         return { name: col.name, type: col.type };
       });

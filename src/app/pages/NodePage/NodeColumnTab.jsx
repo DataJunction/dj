@@ -2,7 +2,6 @@ import { Component } from 'react';
 
 export default class NodeColumnTab extends Component {
   columnList = node => {
-    console.log(node.columns);
     return node.columns.map(col => (
       <tr>
         <td className="text-start">{col.name}</td>

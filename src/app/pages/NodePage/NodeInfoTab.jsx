@@ -5,25 +5,46 @@ import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
 import { format } from 'sql-formatter';
 
 import NodeStatus from './NodeStatus';
+import ListGroupItem from '../../components/ListGroupItem';
 
 SyntaxHighlighter.registerLanguage('sql', sql);
 foundation.hljs['padding'] = '2rem';
 
 export default class NodeInfoTab extends Component {
   nodeTags = this.props.node?.tags.map(tag => <div>{tag}</div>);
+  queryDiv = this.props.node?.query ? (
+    <div className="list-group-item d-flex">
+      <div className="d-flex gap-2 w-100 justify-content-between py-3">
+        <div
+          style={{
+            width: window.innerWidth * 0.8,
+          }}
+        >
+          <h6 className="mb-0 w-100">Query</h6>
+          <SyntaxHighlighter language="sql" style={foundation}>
+            {format(this.props.node?.query, {
+              language: 'spark',
+              tabWidth: 2,
+              keywordCase: 'upper',
+              denseOperators: true,
+              logicalOperatorNewline: 'before',
+              expressionWidth: 10,
+            })}
+          </SyntaxHighlighter>
+        </div>
+      </div>
+    </div>
+  ) : (
+    <></>
+  );
 
   render() {
     return (
       <div className="list-group align-items-center justify-content-between flex-md-row gap-2">
-        <div className="list-group-item d-flex">
-          <div className="d-flex gap-2 w-100 justify-content-between py-3">
-            <div>
-              <h6 className="mb-0 w-100">Description</h6>
-              <p className="mb-0 opacity-75">{this.props.node?.description}</p>
-            </div>
-          </div>
-        </div>
-
+        <ListGroupItem
+          label="Description"
+          value={this.props.node?.description}
+        />
         <div className="list-group-item d-flex">
           <div className="d-flex gap-2 w-100 justify-content-between py-3">
             <div>
@@ -56,21 +77,7 @@ export default class NodeInfoTab extends Component {
             </div>
           </div>
         </div>
-
-        <div className="list-group-item d-flex">
-          <div className="d-flex gap-2 w-100 justify-content-between py-3">
-            <div style={{ width: '100%' }}>
-              <h6 className="mb-0 w-100">Query</h6>
-              <SyntaxHighlighter language="sql" style={foundation}>
-                {format(this.props.node?.query, {
-                  language: 'spark',
-                  tabWidth: 2,
-                  keywordCase: 'upper',
-                })}
-              </SyntaxHighlighter>
-            </div>
-          </div>
-        </div>
+        {this.queryDiv}
         <div className="list-group-item d-flex">
           {this.props.node?.primary_key}
         </div>
