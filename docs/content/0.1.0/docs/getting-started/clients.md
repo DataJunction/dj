@@ -25,6 +25,6 @@ The DataJunction javascript client can be installed using [npm](https://www.npmj
 npm install datajunction
 ```
 ```js
-dj = new DJClient("http://localhost:8000")
+const dj = new DJClient("http://localhost:8000")
 dj.metrics.get().then(data => console.log(data))
 ```
