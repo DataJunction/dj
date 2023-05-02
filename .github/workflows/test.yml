@@ -36,7 +36,7 @@ jobs:
           enable-pep582: true
       - name: Install dependencies
         run: pdm install
-      - name: Linters
+      - name: Python Linters
         run: |
           pdm run pre-commit run --all-files
 
@@ -56,5 +56,9 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.node-version }}
-      - run: npm run build 
-      - run: npm run lint
+      - name: Build Javascript Client
+        run: npm run build 
+        working-directory: ./client/javascript
+      - name: Lint Javascript Client
+        run: npm run lint
+        working-directory: ./client/javascript
