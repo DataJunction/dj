@@ -56,6 +56,8 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: ${{ matrix.node-version }}
+      - name: Install Babel
+        run: npm i -g @babel/preset-es2015 @babel/preset-stage-1 @babel/cli @babel/core @babel/register
       - name: Build Javascript Client
         run: npm run build 
         working-directory: ./client/javascript
