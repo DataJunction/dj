@@ -14,11 +14,12 @@ import FontFaceObserver from 'fontfaceobserver';
 
 // Use consistent styling
 import 'sanitize.css/sanitize.css';
+import './styles/index.css';
 
-import { App } from 'app';
+import { App } from './app';
 
 import { HelmetProvider } from 'react-helmet-async';
-import reportWebVitals from 'reportWebVitals';
+import reportWebVitals from './reportWebVitals';
 
 // Observe loading of Inter (to remove 'Inter', remove the <link> tag in
 // the index.html file and this observer)

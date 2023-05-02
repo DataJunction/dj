@@ -22,15 +22,15 @@ exports[`<App /> should render and match the snapshot 1`] = `
       <React.Fragment>
         <Route
           element={<Unknown />}
-          path="/nodes/:name"
-        />
-        <Route
-          element={<Unknown />}
-          path="/namespaces/:namespace"
+          path="nodes/:name"
         />
         <Route
           element={<ListNamespacesPage />}
-          path="/namespaces/"
+          path="namespaces"
+        />
+        <Route
+          element={<Unknown />}
+          path="namespaces/:namespace"
         />
       </React.Fragment>
     </Route>
@@ -39,7 +39,5 @@ exports[`<App /> should render and match the snapshot 1`] = `
       path="*"
     />
   </Routes>
-  <Memo(l) />
-  <Memo(l) />
 </BrowserRouter>
 `;
