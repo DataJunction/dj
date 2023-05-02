@@ -8,6 +8,8 @@ import ReactFlow, {
   useEdgesState,
   MarkerType,
 } from 'reactflow';
+
+import '../../../styles/dag.css';
 import 'reactflow/dist/style.css';
 import DJNode from '../../components/djgraph/DJNode';
 import { DataJunctionAPI } from '../../services/DJService';
@@ -65,7 +67,12 @@ const NodeLineage = djNode => {
     const dagFetch = async () => {
       let upstreams = await DataJunctionAPI.upstreams(djNode.djNode.name);
       let downstreams = await DataJunctionAPI.downstreams(djNode.djNode.name);
-      let djNodes = [...new Set([...upstreams, ...downstreams, djNode.djNode])];
+      var djNodes = [djNode.djNode];
+      for (const iterable of [upstreams, downstreams]) {
+        for (const item of iterable) {
+          djNodes.push(item);
+        }
+      }
       let edges = [];
       djNodes.forEach(obj => {
         obj.parents.forEach(parent => {
@@ -124,7 +131,7 @@ const NodeLineage = djNode => {
           // extent: 'parent',
         };
       });
-
+      console.log(djNodes);
       setNodes(nodes);
       setEdges(edges);
       setElementsLayout(nodes, edges);

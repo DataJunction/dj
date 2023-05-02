@@ -7,9 +7,6 @@ import * as React from 'react';
 import { Helmet } from 'react-helmet-async';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
-import { GlobalStyle } from 'styles/global-styles';
-import { DAGStyle } from '../styles/dag-styles';
-
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
@@ -35,19 +32,14 @@ export function App() {
           element={<Root />}
           children={
             <>
-              <Route path="/nodes/:name" element={<NodePage />} />
-              <Route
-                path="/namespaces/:namespace"
-                element={<NamespacePage />}
-              />
-              <Route path="/namespaces/" element={<ListNamespacesPage />} />
+              <Route path="nodes/:name" element={<NodePage />} />
+              <Route path="namespaces" element={<ListNamespacesPage />} />
+              <Route path="namespaces/:namespace" element={<NamespacePage />} />
             </>
           }
         />
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
-      <GlobalStyle />
-      <DAGStyle />
     </BrowserRouter>
   );
 }

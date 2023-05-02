@@ -25,7 +25,20 @@ p {
 a,
 a:hover {
   text-decoration: none;
+  color: #005c72;
   font-family: 'Cerebri Sans', sans-serif;
+}
+a:hover {
+  text-decoration: underline;
+}
+button.nav-link {
+  background: none;
+  color: #007acc;
+  border: inherit;
+  padding: inherit;
+  font: inherit;
+  cursor: pointer;
+  outline: inherit;
 }
 code {
   font-family: Consolas, source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
