@@ -1,5 +1,5 @@
 /**
- * Asynchronously loads the component for HomePage
+ * Asynchronously loads the component for namespaces node-viewing page
  */
 
 import * as React from 'react';
@@ -18,9 +18,6 @@ export const NamespacePage = lazyLoad(
   () => import('./index'),
   module => module.NamespacePage,
   {
-    fallback: (
-      <LoadingWrapper>
-      </LoadingWrapper>
-    ),
+    fallback: <LoadingWrapper></LoadingWrapper>,
   },
 );

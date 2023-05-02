@@ -1,7 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import logo from './assets/dj-logo.png';
 import { Helmet } from 'react-helmet-async';
-import * as React from 'react';
 
 export function Root() {
   return (
