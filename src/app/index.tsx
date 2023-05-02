@@ -1,9 +1,6 @@
 /**
- *
- * App
- *
- * This component is the skeleton around the actual pages, and should only
- * contain code that should be seen on all pages. (e.g. navigation bar)
+ * This component is the skeleton around the actual pages, and only contains
+ * components that should be seen on all pages, like the logo or navigation bar.
  */
 
 import * as React from 'react';
@@ -13,21 +10,17 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { GlobalStyle } from 'styles/global-styles';
 import { DAGStyle } from '../styles/dag-styles';
 
-import { NotFoundPage } from './pages/NotFoundPage/Loadable';
-import { useTranslation } from 'react-i18next';
-
-import { Root } from './pages/Root/Loadable';
-import { NodePage } from './pages/NodePage/Loadable';
 import { NamespacePage } from './pages/NamespacePage/Loadable';
+import { NodePage } from './pages/NodePage/Loadable';
+import { NotFoundPage } from './pages/NotFoundPage/Loadable';
+import { Root } from './pages/Root/Loadable';
 
 export function App() {
-  const { i18n } = useTranslation();
   return (
     <BrowserRouter>
       <Helmet
         titleTemplate="DataJunction: %s"
         defaultTitle="DataJunction: A Metrics Platform"
-        htmlAttributes={{ lang: i18n.language }}
       >
         <meta
           name="description"
@@ -47,10 +40,8 @@ export function App() {
                 element={<NamespacePage />}
               />
             </>
-            // <Route path="*" element={<NotFoundPage />} />
           }
         />
-        {/*<Route path="namespaces/:namespace" element={<NamespaceInfo />} />*/}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
       <GlobalStyle />

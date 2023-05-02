@@ -1,5 +1,5 @@
 /**
- * Asynchronously loads the component for HomePage
+ * Asynchronously loads the component for the Node page
  */
 
 import * as React from 'react';
@@ -18,9 +18,6 @@ export const NodePage = lazyLoad(
   () => import('./index'),
   module => module.NodePage,
   {
-    fallback: (
-      <LoadingWrapper>
-      </LoadingWrapper>
-    ),
+    fallback: <LoadingWrapper></LoadingWrapper>,
   },
 );
