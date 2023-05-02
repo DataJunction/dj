@@ -58,6 +58,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - name: Install Dev Dependencies
         run: npm install --only=dev
+        working-directory: ./client/javascript
       - name: Build Javascript Client
         run: npm run build 
         working-directory: ./client/javascript
