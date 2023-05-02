@@ -44,3 +44,17 @@ jobs:
         run: |
           export module=${{ matrix.library == 'server' && 'dj' || 'datajunction' }}
           pdm run pytest --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
+
+  build-javascript:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [16.x, 17.x, 18.x]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+      - run: npm run build 
+      - run: npm run lint

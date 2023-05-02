@@ -1,3 +1,3 @@
-import DJClient from "./datajunction.js";
+import DJClient from './datajunction.js'
 
-module.exports = DJClient;
+module.exports = DJClient

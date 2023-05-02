@@ -1,52 +1,52 @@
-import HttpClient from "./httpclient.js";
+import HttpClient from './httpclient.js'
 
-export default class DJClient extends HttpClient { 
-  constructor(baseURL) {
+export default class DJClient extends HttpClient {
+  constructor (baseURL) {
     super({
       baseURL
-    });
+    })
   }
 
-  get catalogs() {
+  get catalogs () {
     return {
-      get: () => this.get("/catalogs/")
-    };
+      get: () => this.get('/catalogs/')
+    }
   }
 
-  get engines() {
+  get engines () {
     return {
-      get: () => this.get("/engines/")
-    };
+      get: () => this.get('/engines/')
+    }
   }
 
-  get namespaces() {
+  get namespaces () {
     return {
-      get: () => this.get("/namespaces/")
-    };
+      get: () => this.get('/namespaces/')
+    }
   }
 
-  get metrics() {
+  get metrics () {
     return {
-      get: () => this.get("/metrics/")
-    };
+      get: () => this.get('/metrics/')
+    }
   }
 
-  get nodes() {
+  get nodes () {
     return {
-      get: () => this.get("/nodes/")
-    };
+      get: () => this.get('/nodes/')
+    }
   }
 
-  get tags() {
+  get tags () {
     return {
-      get: () => this.get("/tags/")
-    };
+      get: () => this.get('/tags/')
+    }
   }
 
-  get attributes() {
+  get attributes () {
     return {
-      get: () => this.get("/attributes/")
-    };
+      get: () => this.get('/attributes/')
+    }
   }
 }
 
