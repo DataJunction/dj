@@ -6,11 +6,6 @@ exports[`<App /> should render and match the snapshot 1`] = `
     defaultTitle="DataJunction: A Metrics Platform"
     defer={true}
     encodeSpecialCharacters={true}
-    htmlAttributes={
-      Object {
-        "lang": undefined,
-      }
-    }
     prioritizeSeoTags={false}
     titleTemplate="DataJunction: %s"
   >
