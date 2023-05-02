@@ -1,0 +1,45 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`<App /> should render and match the snapshot 1`] = `
+<BrowserRouter>
+  <Helmet
+    defaultTitle="DataJunction: A Metrics Platform"
+    defer={true}
+    encodeSpecialCharacters={true}
+    prioritizeSeoTags={false}
+    titleTemplate="DataJunction: %s"
+  >
+    <meta
+      content="DataJunction serves as a semantic layer to help manage metrics"
+      name="description"
+    />
+  </Helmet>
+  <Routes>
+    <Route
+      element={<Unknown />}
+      path="/"
+    >
+      <React.Fragment>
+        <Route
+          element={<Unknown />}
+          path="/nodes/:name"
+        />
+        <Route
+          element={<Unknown />}
+          path="/namespaces/:namespace"
+        />
+        <Route
+          element={<ListNamespacesPage />}
+          path="/namespaces/"
+        />
+      </React.Fragment>
+    </Route>
+    <Route
+      element={<Unknown />}
+      path="*"
+    />
+  </Routes>
+  <Memo(l) />
+  <Memo(l) />
+</BrowserRouter>
+`;
