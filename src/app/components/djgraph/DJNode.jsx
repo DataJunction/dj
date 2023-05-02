@@ -61,12 +61,12 @@ export function DJNode({ id, data }) {
         <td style={{ textAlign: 'right' }}>{col.type}</td>
       </tr>
     ));
-  const dimensionsRenderer = data =>
-    data.dimensions.map(dim => (
-      <tr>
-        <td>{dim}</td>
-      </tr>
-    ));
+  // const dimensionsRenderer = data =>
+  //   data.dimensions.map(dim => (
+  //     <tr>
+  //       <td>{dim}</td>
+  //     </tr>
+  //   ));
 
   return (
     <>

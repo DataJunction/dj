@@ -12,7 +12,7 @@ export default class Tab extends Component {
               role="button"
               className="nav-link"
               tabIndex="0"
-              href="#"
+              href="#/"
               onClick={onClick}
             >
               {this.props.name}

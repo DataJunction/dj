@@ -23,44 +23,45 @@ const NodeLineage = djNode => {
     height: 100,
     width: 150,
   };
-  const dagreGraph = new dagre.graphlib.Graph();
+
+  const dagreGraph = useMemo(() => new dagre.graphlib.Graph(), []);
   dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-  const setElementsLayout = (
-    nodes,
-    edges,
-    direction = 'LR',
-    nodeWidth = 800,
-    nodeHeight = 150,
-  ) => {
-    const isHorizontal = direction === 'TB';
-    dagreGraph.setGraph({ rankdir: direction });
-
-    nodes.forEach(node => {
-      dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
-    });
-
-    edges.forEach(edge => {
-      dagreGraph.setEdge(edge.source, edge.target);
-    });
-
-    dagre.layout(dagreGraph);
-
-    nodes.forEach(node => {
-      const nodeWithPosition = dagreGraph.node(node.id);
-      node.targetPosition = isHorizontal ? 'left' : 'top';
-      node.sourcePosition = isHorizontal ? 'right' : 'bottom';
-      node.position = {
-        x: nodeWithPosition.x - nodeWidth / 2,
-        y: nodeWithPosition.y - nodeHeight / 2,
-      };
-      return node;
-    });
-
-    return { nodes, edges };
-  };
-
   useEffect(() => {
+    const setElementsLayout = (
+      nodes,
+      edges,
+      direction = 'LR',
+      nodeWidth = 800,
+      nodeHeight = 150,
+    ) => {
+      const isHorizontal = direction === 'TB';
+      dagreGraph.setGraph({ rankdir: direction });
+
+      nodes.forEach(node => {
+        dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+      });
+
+      edges.forEach(edge => {
+        dagreGraph.setEdge(edge.source, edge.target);
+      });
+
+      dagre.layout(dagreGraph);
+
+      nodes.forEach(node => {
+        const nodeWithPosition = dagreGraph.node(node.id);
+        node.targetPosition = isHorizontal ? 'left' : 'top';
+        node.sourcePosition = isHorizontal ? 'right' : 'bottom';
+        node.position = {
+          x: nodeWithPosition.x - nodeWidth / 2,
+          y: nodeWithPosition.y - nodeHeight / 2,
+        };
+        return node;
+      });
+
+      return { nodes, edges };
+    };
+
     const dagFetch = async () => {
       let upstreams = await DataJunctionAPI.upstreams(djNode.djNode.name);
       let downstreams = await DataJunctionAPI.downstreams(djNode.djNode.name);
@@ -130,11 +131,11 @@ const NodeLineage = djNode => {
     };
 
     dagFetch();
-  }, []);
+  }, [dagreGraph, djNode.djNode, setEdges, setNodes]);
 
   const onConnect = useCallback(
     params => setEdges(eds => addEdge(params, eds)),
-    [],
+    [setEdges],
   );
 
   return (
