@@ -3,7 +3,7 @@ import { createGlobalStyle } from 'styled-components';
 /* istanbul ignore next */
 export const DAGStyle = createGlobalStyle`
   .react-flow__node-custom {
-    font-size: 10px;
+    font-size: 1.2em;
     width: 180px;
     background: #f5f5f6;
     color: #222;
@@ -47,73 +47,64 @@ export const DAGStyle = createGlobalStyle`
   }
   
   .dj-node__header {
-      font-weight: 400;
-      text-transform: uppercase;
-      font-family: 'jetbrains-mono',monospace;
-      font-size: 10px;
-      padding-inline-start: 0.5rem;
-      padding-inline-end: 0.5rem;
-      padding-top: 0.25rem;
-      padding-bottom: 0.25rem;
-      border-bottom-width: 1px;
-      border-bottom-style: solid;
-      border-color: #c4cbd1;
+    font-weight: 400;
+    text-transform: uppercase;
+    font-family: 'jetbrains-mono',monospace;
+    font-size: 1.5em;
+    padding-inline-start: 0.5rem;
+    padding-inline-end: 0.5rem;
+    padding-left: 0.75em;
+    padding-top: 0.35rem;
+    padding-bottom: 0.35rem;
+    border-bottom-width: 1px;
+    border-bottom-style: solid;
+    border-color: #c4cbd1;
   }
   
   .dj-node__body {
-      background-color: rgb(254, 254, 254);
-    padding: 10px;
+    background-color: rgb(254, 254, 254);
+    padding: 0.5em 0.7em 0.9em 0.7em;
     font-family: 'nt-dapper',-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen,Ubuntu,Cantarell,Fira Sans,Droid Sans,Helvetica Neue,sans-serif;
-    font-size: 12px;
+    font-size: 1.7em;
   }
   
   .dj-node__full {
     display: flex;
-      flex-direction: column;
-      height: 100%;
-      border-width: 1px;
-      border-style: solid;
-      border-image: initial;
-      border-color: #b0b9c2;
-      border-radius: 8px;
-      overflow: hidden;
-      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+    flex-direction: column;
+    height: 100%;
+    border-width: 1px;
+    border-style: solid;
+    border-image: initial;
+    border-color: #b0b9c2;
+    border-radius: 8px;
+    overflow: hidden;
+    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
   }
   
   .dj-node__metadata {
-  
-      padding: 10px;
-      font-family: 'nt-dapper',-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen,Ubuntu,Cantarell,Fira Sans,Droid Sans,Helvetica Neue,sans-serif;
-      font-size: 10px;
+    padding: 1em;
+    font-family: 'nt-dapper',-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen,Ubuntu,Cantarell,Fira Sans,Droid Sans,Helvetica Neue,sans-serif;
+    font-size: 1em;
   }
   
   .collapse-button {
-      display: block;
-      width: 100%;
-      font: 10px "Montserrat", "Helvetica Neue", Helvetica, Arial, sans-serif;
-      /* font-family: 'nt-dapper',-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Oxygen,Ubuntu,Cantarell,Fira Sans,Droid Sans,Helvetica Neue,sans-serif;*/
-      /*font-size: 10px;*/
-      text-transform: uppercase;
-      border: none;
-      padding: 4px;
+    display: block;
+    width: 100%;
+    font: 0.8em "Montserrat", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    text-transform: uppercase;
+    border: none;
+    margin-top: 0.2em;
+    padding: 0.35em;
   }
-  
   .collapse {
       padding-top: 10px;
   }
   .collapse-content.collapsed {
     display: none;
   }
-  
   .collapsed-content.expanded {
     display: block;
   }
-  
-  /*.collapse-button {*/
-  /*    text-transform: uppercase;*/
-  /*    font: 14px/19px 'body_font', "Montserrat", "Helvetica Neue", Helvetica, Arial, sans-serif;*/
-  /*}*/
-  
   .collapse tr td {
       padding-left: 5px;
       padding-bottom: 5px;

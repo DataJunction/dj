@@ -77,7 +77,12 @@ function DJNode({ id, data }) {
       />
       <div className="dj-node__full" style={renderBasedOnDJNodeType(data.type)}>
         <div className="dj-node__header">
-          <div className="serif">{data.name.replace(/\./g, ' \u25B6 ')}</div>
+          <div className="serif">
+            {data.name
+              .split('.')
+              .slice(0, data.name.split('.').length - 1)
+              .join(' \u25B6 ')}
+          </div>
         </div>
         <div className="dj-node__body">
           <b>{capitalize(data.type)}</b>:{' '}

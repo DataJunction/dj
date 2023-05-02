@@ -36,7 +36,6 @@ export function NodePage() {
   useEffect(() => {
     const fetchData = async () => {
       const data = await DataJunctionAPI.node(name);
-      console.log('Data', data);
       setNode(data);
     };
     fetchData().catch(console.error);
@@ -76,7 +75,7 @@ export function NodePage() {
   // @ts-ignore
   return (
     <div className="node__header">
-      <NamespaceHeader namespace={name} />
+      <NamespaceHeader namespace={name.split('.').slice(0, -1).join('.')} />
       <div className="card">
         <div className="card-header">
           <h3 className="card-title align-items-start flex-column">
@@ -84,6 +83,12 @@ export function NodePage() {
               {node?.display_name}
             </span>
           </h3>
+          <span
+            className="fs-6 fw-semibold text-gray-400"
+            style={{ marginTop: '-4rem' }}
+          >
+            Updated {new Date(node?.updated_at).toDateString()}
+          </span>
           <div className="align-items-center row">
             {TabsJson.map(buildTabs)}
           </div>
