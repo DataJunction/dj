@@ -80,6 +80,7 @@ jobs:
 
       - name: Create Github release
         run: |
-          gh release create $(hatch version) --generate-notes
+          export LIBRARY=${{ github.event.inputs.library }}
+          gh release create $(hatch version)-$LIBRARY --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
