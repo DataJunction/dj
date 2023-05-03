@@ -7,6 +7,7 @@ Clone this repository as well as the repositories for the other services.
 ```sh
 git clone https://github.com/DataJunction/dj-demo.git
 git clone https://github.com/DataJunction/dj.git
+git clone https://github.com/DataJunction/dj-ui.git
 git clone https://github.com/DataJunction/djqs.git
 git clone https://github.com/DataJunction/djrs.git
 git clone https://github.com/DataJunction/djms.git  # Optional
