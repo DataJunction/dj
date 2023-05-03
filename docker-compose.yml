@@ -1,5 +1,6 @@
 version: "3"
 volumes:
+  postgres_roads_example: {}
   redis_data: {}
 
 networks:
@@ -21,13 +22,17 @@ services:
       - DOTENV_FILE=.docker-env/.env
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - OTEL_RESOURCE_ATTRIBUTES=service.name=datajunction.server
-    build: "${CORE_SERVICE}"
+    build:
+      context: "${CORE_SERVICE}"
+      args:
+        RELOAD: "--reload"
     volumes:
       - "${CORE_SERVICE}:/code"
     ports:
       - "8000:8000"
     depends_on:
       - db_migration
+      - postgres-roads
       - djqs
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -56,6 +61,21 @@ services:
     networks:
       - core
 
+  postgres-roads:
+    container_name: postgres-roads
+    networks:
+      - core
+    image: postgres:latest
+    volumes:
+      - "${CORE_SERVICE}/examples/docker/postgres_init.roads.sql:/docker-entrypoint-initdb.d/init.sql"
+      - "${CORE_SERVICE}/postgres_roads_example:/var/lib/postgresql/data"
+    environment:
+      - POSTGRES_PASSWORD=dj
+      - POSTGRES_USER=dj
+      - POSTGRES_DB=roads
+    ports:
+      - "5435:5432"
+
   djqs:
     container_name: djqs
     stdin_open: true
@@ -72,6 +92,7 @@ services:
       - "8001:8001"
     depends_on:
       - djqs-db-migration
+      - postgres-roads
 
   djqs-db-migration:
     container_name: djqs-db-migration
@@ -130,21 +151,22 @@ services:
       - "8888:8888"
     volumes:
       - ./notebooks:/home/jovyan/notebooks
+      - ../dj/client/python:/home/jovyan/notebooks/datajunction
     environment:
       JUPYTER_ENABLE_LAB: "yes"
-    command: "start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''"
+    command: /bin/bash -c "pip install -e /home/jovyan/notebooks/datajunction/ && start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''"
 
-  react-ui:
+  dj-ui:
     build:
-      context: ./react-ui
+      context: ../dj-ui
     ports:
       - "3000:3000"
-    container_name: react-ui
+    container_name: dj-ui
     stdin_open: true
     volumes:
-      - ./react-ui:/usr/src/app/
+      - ../dj-ui:/usr/src/app/
       - /usr/src/app/node_modules
-    command: ["npm", "start"]
+    command: ["yarn", "webpack-start", "--host", "0.0.0.0", "--port", "3000"]
 
   chat-backend:
     container_name: chat-backend
