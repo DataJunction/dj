@@ -1586,6 +1586,16 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert {node["name"] for node in data} == {"long_events_distinct_countries"}
 
+    def test_node_upstreams(self, client_with_examples: TestClient):
+        """
+        Test getting upstream nodes of different node types.
+        """
+        response = client_with_examples.get(
+            "/nodes/long_events_distinct_countries/upstream/",
+        )
+        data = response.json()
+        assert {node["name"] for node in data} == {"event_source", "long_events"}
+
 
 def test_node_similarity(session: Session, client: TestClient):
     """

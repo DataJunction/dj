@@ -23,6 +23,7 @@ from dj.api.helpers import (
     get_engine,
     get_node_by_name,
     get_node_namespace,
+    get_upstream_nodes,
     propagate_valid_status,
     raise_if_node_exists,
     resolve_downstream_references,
@@ -794,6 +795,15 @@ def create_a_cube(
     Create a cube node.
     """
     raise_if_node_exists(session, data.name)
+
+    # Extract and assign namespace if one exists
+    namespace = get_namespace_from_name(data.name)
+    get_node_namespace(
+        session=session,
+        namespace=namespace,
+    )
+    data.namespace = namespace
+
     node = Node(
         name=data.name,
         namespace=data.namespace,
@@ -1072,3 +1082,13 @@ def list_downstream_nodes(
     List all nodes that are downstream from the given node, filterable by type.
     """
     return get_downstream_nodes(session, name, node_type)  # type: ignore
+
+
+@router.get("/nodes/{name}/upstream/", response_model=List[NodeOutput])
+def list_upstream_nodes(
+    name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
+) -> List[NodeOutput]:
+    """
+    List all nodes that are upstream from the given node, filterable by type.
+    """
+    return get_upstream_nodes(session, name, node_type)  # type: ignore
