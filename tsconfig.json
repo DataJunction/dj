@@ -2,29 +2,32 @@
   "compilerOptions": {
     "noImplicitAny": false,
     "target": "es5",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": ["dom", "dom.iterable", "esnext", "es2015"],
     "allowJs": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "strict": true,
     "forceConsistentCasingInFileNames": true,
-    "module": "esnext",
+    "module": "commonjs",
     "moduleResolution": "node",
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
     "noFallthroughCasesInSwitch": true,
     "jsx": "react-jsx",
-    "baseUrl": "./src"
+    "baseUrl": "./src",
+    "preserveConstEnums": true,
+    "removeComments": true,
+    "sourceMap": true
   },
-  "include": ["src", "internals/startingTemplate/**/*"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "internals/startingTemplate/**/*"],
   "ts-node": {
     "compilerOptions": {
       "esModuleInterop": true,
       "module": "commonjs",
       "moduleResolution": "node",
-      "noEmit": true,
+      "noEmit": false,
       "allowSyntheticDefaultImports": true
     }
   }
