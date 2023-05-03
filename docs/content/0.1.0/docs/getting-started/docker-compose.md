@@ -15,6 +15,7 @@ Clone the DJ demo repository along with the DJ and DJQS repositories.
 git clone git@github.com:DataJunction/dj-demo.git
 git clone git@github.com:DataJunction/dj.git
 git clone git@github.com:DataJunction/djqs.git
+git clone git@github.com:DataJunction/djrs.git
 ```
 
 Change into the `dj-demo/` directory and start the docker compose environment.
