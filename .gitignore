@@ -2,6 +2,7 @@
 coverage
 build
 node_modules
+dist
 stats.json
 .pnp
 .pnp.js
