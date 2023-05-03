@@ -913,8 +913,8 @@ summary = "Backport of pathlib-compatible object wrapper for zip files"
 
 [metadata]
 lock_version = "4.2"
-groups = ["default", "test"]
-content_hash = "sha256:2922f9b404816ede9daa47832f6091d89be1df171fe096daac5df8bfb99cdc49"
+groups = ["default", "test", "uvicorn"]
+content_hash = "sha256:3b118d5c9f278554e2ccb1606daf01bcf3cf81fbcfe53b155af1792cea499490"
 
 [metadata.files]
 "accept-types 0.4.1" = [
