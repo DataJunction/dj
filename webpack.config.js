@@ -1,6 +1,6 @@
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+// const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 
 var babelOptions = {
   presets: ['@babel/preset-react'],
@@ -10,17 +10,23 @@ module.exports = {
   cache: true,
   entry: {
     main: './src/index.tsx',
-    vendor: ['events', 'fbemitter', 'flux', 'react', 'react-dom'],
+    vendor: ['events', 'react', 'react-dom'],
   },
   target: 'web',
   mode: 'development',
   output: {
     path: path.resolve(__dirname, './dist'),
     filename: 'static/[name].[fullhash].js',
+    library: 'datajunction-ui',
+    libraryTarget: 'umd',
+    globalObject: 'this',
+    umdNamedDefine: true,
     publicPath: '/',
   },
   devServer: {
-    historyApiFallback: true,
+    historyApiFallback: {
+      disableDotRule: true,
+    },
   },
   resolve: {
     extensions: ['.js', '.jsx', '.json', '.ts', '.tsx'],
