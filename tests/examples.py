@@ -1690,6 +1690,62 @@ COLUMN_MAPPINGS = {
 
 QUERY_DATA_MAPPINGS = {
     (
+        "SELECT  avg(repair_order_details.price) AS "
+        "avg_repair_price,\n\tdispatcher.company_name,"
+        "\n\tcount(repair_orders.repair_order_id) AS "
+        "num_repair_orders \n FROM roads.repair_order_details "
+        "AS repair_order_details LEFT OUTER JOIN (SELECT  "
+        "repair_orders.dispatcher_id,\n\t"
+        "repair_orders.hard_hat_id,\n\trepair_orders.municipality_id"
+        ",\n\trepair_orders.repair_order_id \n FROM "
+        "roads.repair_orders AS repair_orders) AS repair_order "
+        "ON repair_order_details.repair_order_id = "
+        "repair_order.repair_order_id\nLEFT OUTER JOIN (SELECT  "
+        "dispatchers.company_name,\n\tdispatchers.dispatcher_id "
+        "\n FROM roads.dispatchers AS dispatchers) AS dispatcher "
+        "ON repair_order.dispatcher_id = dispatcher.dispatcher_id "
+        "\n GROUP BY  dispatcher.company_name"
+    )
+    .strip()
+    .replace('"', "")
+    .replace("\n", "")
+    .replace(" ", ""): QueryWithResults(
+        **{
+            "id": uuid.UUID("bd98d6be-e2d2-413e-94c7-96d9411ddee2"),
+            "submitted_query": (
+                "SELECT  avg(repair_order_details.price) AS "
+                "avg_repair_price,\\n\\tdispatcher.company_name,"
+                "\\n\\tcount(repair_orders.repair_order_id) "
+                "AS num_repair_orders \\n FROM roads.repair_order_details AS "
+                "repair_order_details LEFT OUTER JOIN (SELECT  "
+                "repair_orders.dispatcher_id,\\n\\trepair_orders.hard_hat_id,\\n\\t"
+                "repair_orders.municipality_id,\\n\\trepair_orders.repair_order_id "
+                "\\n FROM roads.repair_orders AS repair_orders) AS repair_order ON "
+                "repair_order_details.repair_order_id = repair_order.repair_order_id\\nLEFT "
+                "OUTER JOIN (SELECT  dispatchers.company_name,\\n\\tdispatchers.dispatcher_id "
+                "\\n FROM roads.dispatchers AS dispatchers) AS dispatcher ON "
+                "repair_order.dispatcher_id = dispatcher.dispatcher_id \\n GROUP BY  "
+                "dispatcher.company_name\\n"
+            ),
+            "state": QueryState.FINISHED,
+            "results": [
+                {
+                    "columns": [
+                        {"name": "avg_repair_price", "type": "float"},
+                        {"name": "company_name", "type": "str"},
+                        {"name": "num_repair_orders", "type": "int"},
+                    ],
+                    "rows": [
+                        (1.0, "Foo", 100),
+                        (2.0, "Bar", 200),
+                    ],
+                    "sql": "",
+                },
+            ],
+            "errors": [],
+        }
+    ),
+    (
         "SELECT  payment_type_table.id,\n\tpayment_type_table.payment_type_classification,\n\t"
         "payment_type_table.payment_type_name \n FROM accounting.payment_type_table AS "
         "payment_type_table"
