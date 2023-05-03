@@ -32,9 +32,18 @@ export function App() {
           element={<Root />}
           children={
             <>
-              <Route path="nodes/:name" element={<NodePage />} />
-              <Route path="namespaces" element={<ListNamespacesPage />} />
-              <Route path="namespaces/:namespace" element={<NamespacePage />} />
+              <Route path="nodes" key="nodes">
+                <Route path=":name" element={<NodePage />} />
+              </Route>
+
+              <Route path="/" element={<ListNamespacesPage />} key="index" />
+              <Route path="namespaces">
+                <Route
+                  path=":namespace"
+                  element={<NamespacePage />}
+                  key="namespaces"
+                />
+              </Route>
             </>
           }
         />

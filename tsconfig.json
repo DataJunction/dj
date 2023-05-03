@@ -21,7 +21,7 @@
     "removeComments": true,
     "sourceMap": true
   },
-  "include": ["src", "internals/startingTemplate/**/*"],
+  "include": ["src/**/*.ts", "src/**/*.tsx", "internals/startingTemplate/**/*"],
   "ts-node": {
     "compilerOptions": {
       "esModuleInterop": true,
