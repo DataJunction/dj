@@ -167,7 +167,7 @@ class TestDataForNode:
         client_with_query_service: TestClient,
     ) -> None:
         """
-        Trying to get transform or source data should fail
+        Test retrieving data for a metric
         """
         response = client_with_query_service.get("/data/basic.num_comments/")
         data = response.json()
@@ -198,6 +198,61 @@ class TestDataForNode:
             "next": None,
             "previous": None,
             "errors": [],
+        }
+
+    def test_get_multiple_metrics_and_dimensions_data(
+        self,
+        client_with_query_service: TestClient,
+    ) -> None:
+        """
+        Test getting multiple metrics and dimensions
+        """
+        response = client_with_query_service.get(
+            "/data?metrics=num_repair_orders&metrics="
+            "avg_repair_price&dimensions=dispatcher.company_name",
+        )
+        data = response.json()
+        assert response.status_code == 200
+        assert data == {
+            "engine_name": None,
+            "engine_version": None,
+            "errors": [],
+            "executed_query": None,
+            "finished": None,
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            "next": None,
+            "output_table": None,
+            "previous": None,
+            "progress": 0.0,
+            "results": [
+                {
+                    "columns": [
+                        {"name": "avg_repair_price", "type": "double"},
+                        {"name": "company_name", "type": "string"},
+                        {"name": "num_repair_orders", "type": "bigint"},
+                    ],
+                    "row_count": 0,
+                    "rows": [[1.0, "Foo", 100], [2.0, "Bar", 200]],
+                    "sql": "",
+                },
+            ],
+            "scheduled": None,
+            "started": None,
+            "state": "FINISHED",
+            "submitted_query": "SELECT  avg(repair_order_details.price) AS "
+            "avg_repair_price,\\n\\tdispatcher.company_name,\\n\\t"
+            "count(repair_orders.repair_order_id) "
+            "AS num_repair_orders \\n FROM roads.repair_order_details "
+            "AS repair_order_details LEFT OUTER JOIN (SELECT  "
+            "repair_orders.dispatcher_id,\\n\\trepair_orders.hard_hat_id,"
+            "\\n\\trepair_orders.municipality_id,\\n\\trepair_orders.repair_order_id "
+            "\\n FROM roads.repair_orders AS repair_orders) AS "
+            "repair_order ON repair_order_details.repair_order_id = "
+            "repair_order.repair_order_id\\nLEFT OUTER JOIN (SELECT  "
+            "dispatchers.company_name,\\n\\tdispatchers.dispatcher_id "
+            "\\n FROM roads.dispatchers AS dispatchers) AS dispatcher "
+            "ON repair_order.dispatcher_id = dispatcher.dispatcher_id "
+            "\\n GROUP BY  dispatcher.company_name\\n",
         }
 
 
