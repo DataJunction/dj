@@ -3,6 +3,8 @@ on:
   workflow_dispatch:
 jobs:
   generate-python-client:
+    env:
+      PDM_DEPS: 'urllib3<2'
     runs-on: ubuntu-latest
     name: Generate Python Client
     steps:
