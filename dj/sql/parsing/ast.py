@@ -50,10 +50,11 @@ from dj.sql.parsing.types import (
     NestedField,
     NullType,
     StringType,
+    StructType,
     TimestampType,
     TimestamptzType,
     WildcardType,
-    YearMonthIntervalType, StructType,
+    YearMonthIntervalType,
 )
 
 PRIMITIVES = {int, float, str, bool, type(None)}
@@ -711,6 +712,7 @@ class Column(Aliasable, Named, Expression):
     def is_compiled(self):
         return self._is_compiled or (self.table and self._type)
 
+    # flake8: noqa
     def find_table_sources(self, ctx: CompileContext) -> List["TableExpression"]:
         """
         Find all tables that this column could have originated from.
@@ -960,16 +962,15 @@ class TableExpression(Aliasable, Expression):
                 # the search column's namespace and if there's a nested field that matches the
                 # search column's name
                 if isinstance(col.type, StructType):
-                    column_namespace = ".".join([name.name for name in column.namespace])
-                    print("column_namepace col_name", column_namespace, current_col_name)
+                    column_namespace = ".".join(
+                        [name.name for name in column.namespace],
+                    )
                     if column_namespace == current_col_name:
-                        for field in col.type.fields:
-                            print("field:", field.name.name, column.name.name)
-                            if field.name.name == column.name.name:
-                                print("ADDING", field.type)
+                        for type_field in col.type.fields:
+                            if type_field.name.name == column.name.name:
                                 column.add_table(self)
                                 column.add_expression(col)
-                                column.add_type(field.type)
+                                column.add_type(type_field.type)
         return False
 
     def is_compiled(self) -> bool:  # noqa: F811

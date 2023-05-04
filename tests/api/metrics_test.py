@@ -4,14 +4,11 @@ Tests for the metrics API.
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from dj.errors import DJException
 from dj.models import AttributeType, ColumnAttribute
 from dj.models.column import Column
 from dj.models.database import Database
 from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.table import Table
-from dj.sql.parsing.ast import CompileContext
-from dj.sql.parsing.backends.antlr4 import parse
 from dj.sql.parsing.types import FloatType, IntegerType, StringType
 
 
@@ -276,7 +273,8 @@ def test_type_inference_structs(client_with_examples: TestClient):
     """
     Testing type resolution for structs select
     """
-    client_with_examples.post("/nodes/source/",
+    client_with_examples.post(
+        "/nodes/source/",
         json={
             "columns": [
                 {
@@ -293,7 +291,8 @@ def test_type_inference_structs(client_with_examples: TestClient):
         },
     )
 
-    response = client_with_examples.post("/nodes/metric/",
+    response = client_with_examples.post(
+        "/nodes/metric/",
         json={
             "query": "SELECT SUM(counts.b) FROM basic.dreams",
             "description": "Dream Counts",
