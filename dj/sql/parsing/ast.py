@@ -53,7 +53,7 @@ from dj.sql.parsing.types import (
     TimestampType,
     TimestamptzType,
     WildcardType,
-    YearMonthIntervalType,
+    YearMonthIntervalType, StructType,
 )
 
 PRIMITIVES = {int, float, str, bool, type(None)}
@@ -599,7 +599,7 @@ class Named(Node):
     name: Name
 
     @property
-    def namespace(self):
+    def namespace(self) -> List[Name]:
         namespace = []
         name = self.name
         while name.namespace:
@@ -646,6 +646,7 @@ class Column(Aliasable, Named, Expression):
 
     @property
     def type(self):
+        print("Col", self.name, type(self))
         if self._type:
             return self._type
 
@@ -741,6 +742,9 @@ class Column(Aliasable, Named, Expression):
             if not namespace or table.alias_or_name.identifier(False) == namespace:
                 if table.add_ref_column(self, ctx):
                     found.append(table)
+            for col in table.columns:
+                if col.alias_or_name.name == namespace:
+                    table.add_ref_column(self, ctx)
 
         if found:
             return found
@@ -944,12 +948,28 @@ class TableExpression(Aliasable, Expression):
 
         for col in self.columns:
             if isinstance(col, (Aliasable, Named)):
-                if column.name.name == col.alias_or_name.identifier(False):
+                current_col_name = col.alias_or_name.identifier(False)
+                if column.name.name == current_col_name:
                     self._ref_columns.append(column)
                     column.add_table(self)
                     column.add_expression(col)
                     column.add_type(col.type)
                     return True
+
+                # For struct types we can additionally check if there's a column that matches
+                # the search column's namespace and if there's a nested field that matches the
+                # search column's name
+                if isinstance(col.type, StructType):
+                    column_namespace = ".".join([name.name for name in column.namespace])
+                    print("column_namepace col_name", column_namespace, current_col_name)
+                    if column_namespace == current_col_name:
+                        for field in col.type.fields:
+                            print("field:", field.name.name, column.name.name)
+                            if field.name.name == column.name.name:
+                                print("ADDING", field.type)
+                                column.add_table(self)
+                                column.add_expression(col)
+                                column.add_type(field.type)
         return False
 
     def is_compiled(self) -> bool:  # noqa: F811
@@ -1746,7 +1766,7 @@ class Case(Expression):
             for res in self.results + ([self.else_result] if self.else_result else [])
             if res.type
         ]
-        if not all(result_types[0] == res for res in result_types):
+        if not all(result_types[0].is_compatible(res) for res in result_types):
             raise DJParseException(
                 f"Not all the same type in CASE! Found: {', '.join([str(type_) for type_ in result_types])}",
             )
