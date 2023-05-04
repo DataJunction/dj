@@ -32,9 +32,9 @@ or using the [UNPKG](https://www.unpkg.com/) CDN for client-side use.
 npm install datajunction
 ```
 ```js
-const datajunction = require('datajunction')
+const { DJClient } = require('datajunction')
 
-const dj = new datajunction.DJClient('http://localhost:8000')
+const dj = new DJClient('http://localhost:8000')
 dj.metrics.get().then(data => console.log(data))
 ```
 {{< /tab >}}
