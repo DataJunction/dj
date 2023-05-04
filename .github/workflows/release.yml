@@ -26,6 +26,8 @@ on:
 
 jobs:
   publish:
+    env:
+      PDM_DEPS: 'urllib3<2'
     strategy:
       fail-fast: false
       matrix:

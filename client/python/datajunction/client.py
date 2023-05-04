@@ -1,11 +1,22 @@
 """DataJunction client setup."""
+# pylint: disable=redefined-outer-name, import-outside-toplevel
 import enum
 import logging
 import platform
+import warnings
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin
 
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError:
+    warnings.warn(
+        (
+            "Optional dependency `pandas` not found, data retrieval"
+            "disabled. You can install pandas by running `pip install pandas`."
+        ),
+        ImportWarning,
+    )
 import requests
 from pydantic import BaseModel, Field, validator
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
@@ -69,15 +80,19 @@ class DJClient:  # pylint: disable=too-many-public-methods
     Client for access to the DJ core service
     """
 
-    def __init__(
+    def __init__(  # pylint: disable=too-many-arguments
         self,
         uri: str = "http://localhost:8000",
+        engine_name: str = None,
+        engine_version: str = None,
         requests_session: RequestsSessionWithEndpoint = None,
         target_namespace: str = DEFAULT_NAMESPACE,
         timeout=2 * 60,
     ):
         self.target_namespace = target_namespace
         self.uri = uri
+        self.engine_name = engine_name
+        self.engine_version = engine_version
         if not requests_session:  # pragma: no cover
             self._session = RequestsSessionWithEndpoint(
                 endpoint=self.uri,
@@ -438,8 +453,8 @@ class DJClient:  # pylint: disable=too-many-public-methods
             params={
                 "dimensions": dimensions,
                 "filters": filters,
-                "engine_name": engine_name,
-                "engine_version": engine_version,
+                "engine_name": engine_name or self.engine_name,
+                "engine_version": engine_version or self.engine_version,
             },
         )
         if response.status_code == 200:
@@ -463,8 +478,8 @@ class DJClient:  # pylint: disable=too-many-public-methods
                 "metrics": metrics,
                 "dimensions": dimensions,
                 "filters": filters,
-                "engine_name": engine_name,
-                "engine_version": engine_version,
+                "engine_name": engine_name or self.engine_name,
+                "engine_version": engine_version or self.engine_version,
             },
         )
         if response.status_code == 200:
@@ -473,25 +488,43 @@ class DJClient:  # pylint: disable=too-many-public-methods
 
     def data(  # pylint: disable=too-many-arguments
         self,
-        node_name: str,
+        metrics: List[str],
         dimensions: List[str],
         filters: List[str],
-        engine_name: Optional[str] = "TRINO_DIRECT",
-        engine_version: Optional[str] = "",
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
     ):  # pragma: no cover
         """
         Retrieves the data for the node with the provided dimensions and filters.
         """
+        try:
+            import pandas as pd  # noqa: F811
+        except ImportError as exc:
+            raise RuntimeError(
+                (
+                    "Optional dependency `pandas` not found, data retrieval"
+                    "disabled. You can install pandas by running `pip install pandas`."
+                ),
+            ) from exc
         response = self._session.get(
-            f"/data/{node_name}/",
+            "/data/",
             params={
+                "metrics": metrics,
                 "dimensions": dimensions,
                 "filters": filters,
-                "engine_name": engine_name,
-                "engine_version": engine_version,
+                "engine_name": engine_name or self.engine_name,
+                "engine_version": engine_version or self.engine_version,
             },
         )
         results = response.json()
+        if not response.ok:
+            raise DJClientException(f"Error retrieving data: {response.text}")
+        if results["state"] != "FINISHED":
+            raise DJClientException(
+                f"Query state {results['state']}, errors: {results['errors']}",
+            )
+        if not results["results"]:
+            raise DJClientException("No data returned for requested set")
         columns = results["results"][0]["columns"]
         rows = results["results"][0]["rows"]
         return pd.DataFrame(rows, columns=[col["name"] for col in columns])
@@ -632,24 +665,6 @@ class Node(ClientEntity):
         Builds the SQL for this node, given the provided dimensions and filters.
         """
         return self.dj_client.sql_for_metric(
-            self.name,
-            dimensions,
-            filters,
-            engine_name,
-            engine_version,
-        )
-
-    def data(
-        self,
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-    ):
-        """
-        Gets data for this node, given the provided dimensions and filters.
-        """
-        return self.dj_client.data(  # pragma: no cover
             self.name,
             dimensions,
             filters,
