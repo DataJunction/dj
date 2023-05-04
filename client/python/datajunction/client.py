@@ -11,7 +11,10 @@ try:
     import pandas as pd
 except ImportError:
     warnings.warn(
-        "Optional dependency `pandas` not found, data retrieval disabled",
+        (
+            "Optional dependency `pandas` not found, data retrieval"
+            "disabled. You can install pandas by running `pip install pandas`."
+        ),
         ImportWarning,
     )
 import requests
@@ -483,45 +486,6 @@ class DJClient:  # pylint: disable=too-many-public-methods
             return response.json()["sql"]
         return response.json()
 
-    def data_for_single_node(  # pylint: disable=too-many-arguments
-        self,
-        node_name: str,
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-    ):  # pragma: no cover
-        """
-        Retrieves the data for the node with the provided dimensions and filters.
-        """
-        try:
-            import pandas as pd  # noqa: F811
-        except ImportError as exc:
-            raise RuntimeError(
-                "Optional dependency `pandas` not found, data retrieval disabled",
-            ) from exc
-        response = self._session.get(
-            f"/data/{node_name}/",
-            params={
-                "dimensions": dimensions,
-                "filters": filters,
-                "engine_name": engine_name or self.engine_name,
-                "engine_version": engine_version or self.engine_version,
-            },
-        )
-        results = response.json()
-        if not response.ok:
-            raise DJClientException(f"Error retrieving data: {response.text}")
-        if results["state"] != "FINISHED":
-            raise DJClientException(
-                f"Query state {results['state']}, errors: {results['errors']}",
-            )
-        if not results["results"]:
-            raise DJClientException("No data returned for requested set")
-        columns = results["results"][0]["columns"]
-        rows = results["results"][0]["rows"]
-        return pd.DataFrame(rows, columns=[col["name"] for col in columns])
-
     def data(  # pylint: disable=too-many-arguments
         self,
         metrics: List[str],
@@ -537,7 +501,10 @@ class DJClient:  # pylint: disable=too-many-public-methods
             import pandas as pd  # noqa: F811
         except ImportError as exc:
             raise RuntimeError(
-                "Optional dependency `pandas` not found, data retrieval disabled",
+                (
+                    "Optional dependency `pandas` not found, data retrieval"
+                    "disabled. You can install pandas by running `pip install pandas`."
+                ),
             ) from exc
         response = self._session.get(
             "/data/",
@@ -698,24 +665,6 @@ class Node(ClientEntity):
         Builds the SQL for this node, given the provided dimensions and filters.
         """
         return self.dj_client.sql_for_metric(
-            self.name,
-            dimensions,
-            filters,
-            engine_name,
-            engine_version,
-        )
-
-    def data(
-        self,
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-    ):
-        """
-        Gets data for this node, given the provided dimensions and filters.
-        """
-        return self.dj_client.data_for_single_node(  # pragma: no cover
             self.name,
             dimensions,
             filters,

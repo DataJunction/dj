@@ -23,9 +23,6 @@ print(dj.metrics())
 The DataJunction javascript client can be installed using [npm](https://www.npmjs.com/) for use in a node project
 or using the [UNPKG](https://www.unpkg.com/) CDN for client-side use.
 
-
-
-
 {{< tabs "javascript client" >}}
 {{< tab "CommonJS" >}}
 ```sh
