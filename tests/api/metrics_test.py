@@ -4,11 +4,14 @@ Tests for the metrics API.
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from dj.errors import DJException
 from dj.models import AttributeType, ColumnAttribute
 from dj.models.column import Column
 from dj.models.database import Database
 from dj.models.node import Node, NodeRevision, NodeType
 from dj.models.table import Table
+from dj.sql.parsing.ast import CompileContext
+from dj.sql.parsing.backends.antlr4 import parse
 from dj.sql.parsing.types import FloatType, IntegerType, StringType
 
 
@@ -267,3 +270,35 @@ def test_get_dimensions(client_with_examples: TestClient):
         "us_state.state_region_description",
         "us_state.state_short",
     ]
+
+
+def test_type_inference_structs(client_with_examples: TestClient):
+    """
+    Testing type resolution for structs select
+    """
+    client_with_examples.post("/nodes/source/",
+        json={
+            "columns": [
+                {
+                    "name": "counts",
+                    "type": "struct<a string, b bigint>",
+                },
+            ],
+            "description": "Collection of dreams",
+            "mode": "published",
+            "name": "basic.dreams",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "dreams",
+        },
+    )
+
+    response = client_with_examples.post("/nodes/metric/",
+        json={
+            "query": "SELECT SUM(counts.b) FROM basic.dreams",
+            "description": "Dream Counts",
+            "mode": "published",
+            "name": "basic.dream_count",
+        },
+    )
+    response.json()
