@@ -12,20 +12,7 @@ filters and dimensions.
 {{< tabs "retrieving sql" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X GET http://localhost:8000/sql/num_repair_orders/ \
--H 'Content-Type: application/json' \
--d '{
-    "dimensions": [
-      "hard_hat.city",
-      "hard_hat.state",
-      "dispatcher.company_name"
-    ],
-    "filters": [
-      "hard_hat.state = ''AZ''"
-    ],
-    "engine_name": "SPARKSQL",
-    "engine_version": "3.1.1"
-}'
+curl -X GET "http://localhost:8000/sql/num_repair_orders/?dimensions=hard_hat.city&dimensions=hard_hat.state&dimensions=dispatcher.company_name&filters=hard_hat.state%3D%27AZ%27"
 ```
 {{< /tab >}}
 {{< tab "python" >}}
@@ -35,7 +22,6 @@ from datajunction import DJClient
 
 dj = DJClient("http://localhost:8000/")
 
-# Assumes that the metric has been created
 metric = dj.metric("num_repair_orders")
 metric.sql(
     dimensions=[
@@ -46,15 +32,13 @@ metric.sql(
     filters=[
       "hard_hat.state = 'AZ'"
     ],
-    engine_name="SPARKSQL",
-    engine_version="3.1.1",
 )
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
 {{< hint info >}}
-The `engine_name` and `engine_version` fields are optional. A typical DataJunction query service will include a default engine.
+You can optionally provide an `engine_name` and `engine_version`. A typical DataJunction query service will include a default engine.
 {{< /hint >}}
 
 ## SQL for Multiple Metrics
@@ -62,24 +46,7 @@ The `engine_name` and `engine_version` fields are optional. A typical DataJuncti
 {{< tabs "retrieving sql multiple" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X GET "http://localhost:8000/sql/?metrics=num_repair_orders,avg_repair_price&dimensions=hard_hat.city,hard_hat.state,dispatcher.company_name&filters=hard_hat.state='AZ'" \
--H 'Content-Type: application/json' \
--d '{
-    "metrics": [
-      "num_repair_orders",
-      "avg_repair_price"
-    ],
-    "dimensions": [
-      "hard_hat.city",
-      "hard_hat.state",
-      "dispatcher.company_name"
-    ],
-    "filters": [
-      "hard_hat.state = ''AZ''"
-    ],
-    "engine_name": "SPARKSQL",
-    "engine_version": "3.1.1"
-}'
+curl -X GET "http://localhost:8000/sql/?metrics=num_repair_orders&metrics=avg_repair_price&dimensions=hard_hat.city&dimensions=hard_hat.state&dimensions=dispatcher.company_name&filters=hard_hat.state%3D%27AZ%27"
 ```
 {{< /tab >}}
 {{< tab "python" >}}
@@ -101,8 +68,6 @@ dj.sql(
     filters=[
       "hard_hat.state = 'AZ'"
     ],
-    engine_name="SPARKSQL",
-    engine_version="3.1.1",
 )
 ```
 {{< /tab >}}
