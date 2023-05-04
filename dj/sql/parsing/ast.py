@@ -647,7 +647,6 @@ class Column(Aliasable, Named, Expression):
 
     @property
     def type(self):
-        print("Col", self.name, type(self))
         if self._type:
             return self._type
 
@@ -744,6 +743,10 @@ class Column(Aliasable, Named, Expression):
             if not namespace or table.alias_or_name.identifier(False) == namespace:
                 if table.add_ref_column(self, ctx):
                     found.append(table)
+
+            # The column's namespace may match the name of a column on the table, which
+            # implies that the column on the table is likely a struct and the dereferencing
+            # will happen on the struct object
             for col in table.columns:
                 if col.alias_or_name.name == namespace:
                     table.add_ref_column(self, ctx)
