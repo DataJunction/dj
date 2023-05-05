@@ -308,14 +308,14 @@ def validate_node_data(
         validated_node.node = node
     validated_node.status = NodeStatus.VALID
 
+    ctx = ast.CompileContext(session=session, exception=DJException())
+
     # Try to parse the node's query and extract dependencies
     try:
         query_ast = parse(validated_node.query)  # type: ignore
-        exc = DJException()
-        ctx = ast.CompileContext(session=session, exception=exc)
         dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)
-    except (ValueError, SqlSyntaxError) as exc:
-        raise DJException(message=str(exc)) from exc
+    except (ValueError, SqlSyntaxError) as raised_exceptions:
+        raise DJException(message=str(raised_exceptions)) from raised_exceptions
 
     # Only raise on missing parents if the node mode is set to published
     if missing_parents_map:
@@ -336,19 +336,19 @@ def validate_node_data(
     query_ast.select.add_aliases_to_unnamed_columns()
 
     validated_node.columns = []
-    type_inference_failed_columns = []
+    type_inference_failures = {}
     for col in query_ast.select.projection:
         try:
             column_type = col.type  # type: ignore
             validated_node.columns.append(
                 Column(name=col.alias_or_name.name, type=column_type),  # type: ignore
             )
-        except DJParseException:
-            type_inference_failed_columns.append(col.alias_or_name.name)  # type: ignore
+        except DJParseException as parse_exc:
+            type_inference_failures[col.alias_or_name.name] = parse_exc.message  # type: ignore
             validated_node.status = NodeStatus.INVALID
 
     # Only raise on missing parents or type inference if the node mode is set to published
-    if missing_parents_map or type_inference_failed_columns:
+    if missing_parents_map or type_inference_failures:
         if validated_node.mode == NodeMode.DRAFT:
             validated_node.status = NodeStatus.INVALID
         else:
@@ -370,10 +370,13 @@ def validate_node_data(
                         message=(
                             f"Unable to infer type for some columns on node `{data.name}`"
                         ),
-                        debug={"columns": type_inference_failed_columns},
+                        debug={
+                            "columns": type_inference_failures,
+                            "errors": ctx.exception.errors,
+                        },
                     ),
                 ]
-                if type_inference_failed_columns
+                if type_inference_failures
                 else []
             )
             raise DJException(
@@ -384,7 +387,7 @@ def validate_node_data(
         validated_node,
         dependencies_map,
         missing_parents_map,
-        type_inference_failed_columns,
+        list(type_inference_failures.keys()),
     )
 
 

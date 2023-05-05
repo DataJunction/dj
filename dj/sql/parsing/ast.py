@@ -50,6 +50,7 @@ from dj.sql.parsing.types import (
     NestedField,
     NullType,
     StringType,
+    StructType,
     TimestampType,
     TimestamptzType,
     WildcardType,
@@ -599,7 +600,7 @@ class Named(Node):
     name: Name
 
     @property
-    def namespace(self):
+    def namespace(self) -> List[Name]:
         namespace = []
         name = self.name
         while name.namespace:
@@ -710,7 +711,11 @@ class Column(Aliasable, Named, Expression):
     def is_compiled(self):
         return self._is_compiled or (self.table and self._type)
 
-    def find_table_sources(self, ctx: CompileContext) -> List["TableExpression"]:
+    def find_table_sources(
+        self,
+        ctx: CompileContext,
+    ) -> List["TableExpression"]:
+        # flake8: noqa
         """
         Find all tables that this column could have originated from.
         """
@@ -741,6 +746,13 @@ class Column(Aliasable, Named, Expression):
             if not namespace or table.alias_or_name.identifier(False) == namespace:
                 if table.add_ref_column(self, ctx):
                     found.append(table)
+
+            # The column's namespace may match the name of a column on the table, which
+            # implies that the column on the table is likely a struct and the dereferencing
+            # will happen on the struct object
+            for col in table.columns:
+                if col.alias_or_name.name == namespace:
+                    table.add_ref_column(self, ctx)
 
         if found:
             return found
@@ -944,12 +956,27 @@ class TableExpression(Aliasable, Expression):
 
         for col in self.columns:
             if isinstance(col, (Aliasable, Named)):
-                if column.name.name == col.alias_or_name.identifier(False):
+                current_col_name = col.alias_or_name.identifier(False)
+                if column.name.name == current_col_name:
                     self._ref_columns.append(column)
                     column.add_table(self)
                     column.add_expression(col)
                     column.add_type(col.type)
                     return True
+
+                # For struct types we can additionally check if there's a column that matches
+                # the search column's namespace and if there's a nested field that matches the
+                # search column's name
+                if isinstance(col.type, StructType):
+                    column_namespace = ".".join(
+                        [name.name for name in column.namespace],
+                    )
+                    if column_namespace == current_col_name:
+                        for type_field in col.type.fields:
+                            if type_field.name.name == column.name.name:
+                                column.add_table(self)
+                                column.add_expression(col)
+                                column.add_type(type_field.type)
         return False
 
     def is_compiled(self) -> bool:  # noqa: F811
@@ -1746,7 +1773,7 @@ class Case(Expression):
             for res in self.results + ([self.else_result] if self.else_result else [])
             if res.type
         ]
-        if not all(result_types[0] == res for res in result_types):
+        if not all(result_types[0].is_compatible(res) for res in result_types):
             raise DJParseException(
                 f"Not all the same type in CASE! Found: {', '.join([str(type_) for type_ in result_types])}",
             )

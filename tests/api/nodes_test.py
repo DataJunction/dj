@@ -545,7 +545,14 @@ class TestCreateOrUpdateNodes:
                         "Unable to infer type for some columns on node "
                         "`avg_length_of_employment_plus_one`"
                     ),
-                    "debug": {"columns": ["avg_length_of_employment"]},
+                    "debug": {
+                        "columns": {
+                            "avg_length_of_employment": "Incompatible types in binary "
+                            "operation NOW() - hard_hats.hire_date + 1. Got left "
+                            "timestamp, right int.",
+                        },
+                        "errors": [],
+                    },
                     "context": "",
                 },
             ],
