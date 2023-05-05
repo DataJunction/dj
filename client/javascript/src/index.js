@@ -228,7 +228,9 @@ export class DJClient extends HttpClient {
                 engineVersion = null
             ) =>
                 this.get(
-                    `/sql/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${engineName || this.engineName}&engine_version=${engineVersion || this.engineVersion}`
+                    `/sql/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${
+                        engineName || this.engineName
+                    }&engine_version=${engineVersion || this.engineVersion}`
                 ),
         }
     }
@@ -244,7 +246,9 @@ export class DJClient extends HttpClient {
                 engineVersion = null
             ) =>
                 this.get(
-                    `/data/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${engineName || this.engineName}&engine_version=${engineVersion || this.engineVersion}`
+                    `/data/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${
+                        engineName || this.engineName
+                    }&engine_version=${engineVersion || this.engineVersion}`
                 ),
         }
     }
