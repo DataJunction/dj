@@ -495,7 +495,7 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     then: ct.ColumnType,
     else_: ct.ColumnType,
 ) -> ct.ColumnType:
-    if then.type != else_.type:
+    if not then.type.is_compatible(else_.type):
         raise DJInvalidInputException(
             message="The then result and else result must match in type! "
             f"Got {then.type} and {else_.type}",
