@@ -711,8 +711,11 @@ class Column(Aliasable, Named, Expression):
     def is_compiled(self):
         return self._is_compiled or (self.table and self._type)
 
-    # flake8: noqa
-    def find_table_sources(self, ctx: CompileContext) -> List["TableExpression"]:
+    def find_table_sources(
+        self,
+        ctx: CompileContext,
+    ) -> List["TableExpression"]:
+        # flake8: noqa
         """
         Find all tables that this column could have originated from.
         """
