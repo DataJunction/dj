@@ -30,22 +30,32 @@ export class DJClient extends HttpClient {
             list: () => this.get('/engines/'),
             get: (engineName, engineVersion) =>
                 this.get(`/engines/${engineName}/${engineVersion}/`),
-            create: (engine) =>
+            create: (engineName, engineVersion, engineUri, engineDialect) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/engines/',
-                    engine
+                    {
+                        name: engineName,
+                        version: engineVersion,
+                        uri: engineUri,
+                        dialect: engineDialect
+                    }
                 ),
         }
     }
 
-    get attachEngineToCatalog() {
+    get addEngineToCatalog() {
         return {
-            get: (engineName, engineVersion) =>
-                this.get(`/engines/${engineName}/${engineVersion}/`),
-            create: (engine) =>
+            set: (catalogName, engineName, engineVersion, engineUri, engineDialect) =>
                 this.setHeader('Content-Type', 'application/json').post(
-                    '/engines/',
-                    engine
+                    `/catalogs/${catalogName}/engines/`,
+                    [
+                        {
+                            name: engineName,
+                            version: engineVersion,
+                            uri: engineUri,
+                            dialect: engineDialect
+                        }
+                    ]
                 ),
         }
     }
