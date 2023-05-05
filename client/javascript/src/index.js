@@ -37,7 +37,7 @@ export class DJClient extends HttpClient {
                         name: engineName,
                         version: engineVersion,
                         uri: engineUri,
-                        dialect: engineDialect
+                        dialect: engineDialect,
                     }
                 ),
         }
@@ -45,7 +45,13 @@ export class DJClient extends HttpClient {
 
     get addEngineToCatalog() {
         return {
-            set: (catalogName, engineName, engineVersion, engineUri, engineDialect) =>
+            set: (
+                catalogName,
+                engineName,
+                engineVersion,
+                engineUri,
+                engineDialect
+            ) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     `/catalogs/${catalogName}/engines/`,
                     [
@@ -53,8 +59,8 @@ export class DJClient extends HttpClient {
                             name: engineName,
                             version: engineVersion,
                             uri: engineUri,
-                            dialect: engineDialect
-                        }
+                            dialect: engineDialect,
+                        },
                     ]
                 ),
         }
