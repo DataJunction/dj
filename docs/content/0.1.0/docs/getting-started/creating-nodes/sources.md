@@ -32,15 +32,15 @@ curl -X POST http://localhost:8000/nodes/source/ \
     "catalog": "default",
     "schema_": "roads",
     "table": "repair_orders",
-    "columns": {
-        "repair_order_id": {"type": "int"},
-        "municipality_id": {"type": "string"},
-        "hard_hat_id": {"type": "int"},
-        "order_date": {"type": "timestamp"},
-        "required_date": {"type": "timestamp"},
-        "dispatched_date": {"type": "timestamp"},
-        "dispatcher_id": {"type": "int"}
-    }
+    "columns": [
+        {"name": "repair_order_id", "type": "int"},
+        {"name": "municipality_id", "type": "string"},
+        {"name": "hard_hat_id", "type": "int"},
+        {"name": "order_date", "type": "timestamp"},
+        {"name": "required_date", "type": "timestamp"},
+        {"name": "dispatched_date", "type": "timestamp"},
+        {"name": "dispatcher_id", "type": "int"}
+    ]
 }'
 ```
 {{< /tab >}}

@@ -1,157 +1,242 @@
 import HttpClient from './httpclient.js'
 
 export class DJClient extends HttpClient {
-  constructor (baseURL, namespace, engineName = null, engineVersion = null) {
-    super({
-      baseURL
-    })
-    this.namespace = namespace
-    this.engineName = engineName
-    this.engineVersion = engineVersion
-  }
-
-  get catalogs () {
-    return {
-      list: () => this.get('/catalogs/'),
-      get: (catalog) => this.get(`/catalogs/${catalog}/`),
-      create: (catalog) => this.get('/catalogs/', catalog)
+    constructor(baseURL, namespace, engineName = null, engineVersion = null) {
+        super({
+            baseURL,
+        })
+        this.namespace = namespace
+        this.engineName = engineName
+        this.engineVersion = engineVersion
     }
-  }
 
-  get engines () {
-    return {
-      list: () => this.get('/engines/'),
-      get: (engineName, engineVersion) => this.get(`/engines/${engineName}/${engineVersion}/`),
-      create: (engine) => this.post('/engines/', engine)
+    get catalog() {
+        return {
+            list: () => this.get('/catalogs/'),
+            get: (catalog) => this.get(`/catalogs/${catalog}/`),
+            create: (name, engines) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/catalogs/',
+                    {
+                        name,
+                        engines,
+                    }
+                ),
+        }
     }
-  }
 
-  get attachEngineToCatalog () {
-    return {
-      get: (engineName, engineVersion) => this.get(`/engines/${engineName}/${engineVersion}/`),
-      create: (engine) => this.post('/engines/', engine)
+    get engines() {
+        return {
+            list: () => this.get('/engines/'),
+            get: (engineName, engineVersion) =>
+                this.get(`/engines/${engineName}/${engineVersion}/`),
+            create: (engine) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/engines/',
+                    engine
+                ),
+        }
     }
-  }
 
-  get namespaces () {
-    return {
-      list: () => this.get('/namespaces/'),
-      nodes: (namespace) => this.get(`/namespaces/${namespace}/`),
-      create: (namespace) => this.post(`/namespaces/${namespace}/`)
+    get attachEngineToCatalog() {
+        return {
+            get: (engineName, engineVersion) =>
+                this.get(`/engines/${engineName}/${engineVersion}/`),
+            create: (engine) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/engines/',
+                    engine
+                ),
+        }
     }
-  }
 
-  get commonDimensions () {
-    return {
-      list: (metrics) => this.get(`/metrics/common/dimensions/?metrics=${metrics}`)
+    get namespaces() {
+        return {
+            list: () => this.get('/namespaces/'),
+            nodes: (namespace) => this.get(`/namespaces/${namespace}/`),
+            create: (namespace) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    `/namespaces/${namespace}/`
+                ),
+        }
     }
-  }
 
-  get nodes () {
-    return {
-      get: (name) => this.get(`/nodes/${name}/`),
-      validate: (node) => this.post('/nodes/validate/', node),
-      update: (name, node) => this.patch(`/nodes/${name}/`, node),
-      revisions: (name) => this.get(`/nodes/${name}/revisions/`),
-      downstream: (name) => this.get(`/nodes/${name}/downstream/`),
-      upstream: (name) => this.get(`/nodes/${name}/upstream/`)
+    get commonDimensions() {
+        return {
+            list: (metrics) =>
+                this.get(`/metrics/common/dimensions/?metrics=${metrics}`),
+        }
     }
-  }
 
-  get sources () {
-    return {
-      create: (source) => this.post('/nodes/source/', source),
-      list: () => this.get(`/namespaces/${this.namespace}/?type_=source`)
+    get nodes() {
+        return {
+            get: (name) => this.get(`/nodes/${name}/`),
+            validate: (node) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/nodes/validate/',
+                    node
+                ),
+            update: (name, node) =>
+                this.setHeader('Content-Type', 'application/json').patch(
+                    `/nodes/${name}/`,
+                    node
+                ),
+            revisions: (name) => this.get(`/nodes/${name}/revisions/`),
+            downstream: (name) => this.get(`/nodes/${name}/downstream/`),
+            upstream: (name) => this.get(`/nodes/${name}/upstream/`),
+        }
     }
-  }
 
-  get transforms () {
-    return {
-      create: (transform) => this.post('/nodes/transform/', transform),
-      list: () => this.get(`/namespaces/${this.namespace}/?type_=transform`)
+    get sources() {
+        return {
+            create: (source) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/nodes/source/',
+                    source
+                ),
+            list: () => this.get(`/namespaces/${this.namespace}/?type_=source`),
+        }
     }
-  }
 
-  get dimensions () {
-    return {
-      create: (dimension) => this.post('/nodes/dimension/', dimension),
-      list: () => this.get(`/namespaces/${this.namespace}/?type_=dimension`),
-      link: (nodeName, column, dimension, dimensionColumn) => this.post(`/nodes/${nodeName}/columns/${column}/?dimension=${dimension}&dimension_column=${dimensionColumn}`)
+    get transforms() {
+        return {
+            create: (transform) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/nodes/transform/',
+                    transform
+                ),
+            list: () =>
+                this.get(`/namespaces/${this.namespace}/?type_=transform`),
+        }
     }
-  }
 
-  get metrics () {
-    return {
-      create: (metric) => this.post('/nodes/metric/', metric),
-      list: () => this.get(`/namespaces/${this.namespace}/?type_=metric`)
+    get dimensions() {
+        return {
+            create: (dimension) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/nodes/dimension/',
+                    dimension
+                ),
+            list: () =>
+                this.get(`/namespaces/${this.namespace}/?type_=dimension`),
+            link: (nodeName, column, dimension, dimensionColumn) =>
+                this.post(
+                    `/nodes/${nodeName}/columns/${column}/?dimension=${dimension}&dimension_column=${dimensionColumn}`
+                ),
+        }
     }
-  }
 
-  get cubes () {
-    return {
-      get: (cube) => this.post(`/cubes/${cube}/`),
-      create: (cube) => this.post('/nodes/cube/', cube)
+    get metrics() {
+        return {
+            create: (metric) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/nodes/metric/',
+                    metric
+                ),
+            list: () => this.get(`/namespaces/${this.namespace}/?type_=metric`),
+        }
     }
-  }
 
-  get tags () {
-    return {
-      list: () => this.get('/tags/'),
-      get: (tag) => this.get(`/tags/${tag}/nodes/`),
-      create: (tagData) => this.post('/tags/', tagData),
-      update: (tag, tagData) => this.patch(`/tags/${tag}/`, tagData),
-      set: (nodeName, tagName) => this.post(`/nodes/${nodeName}/tag/?tag_name=${tagName}`)
+    get cubes() {
+        return {
+            get: (cube) => this.post(`/cubes/${cube}/`),
+            create: (cube) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/nodes/cube/',
+                    cube
+                ),
+        }
     }
-  }
 
-  get attributes () {
-    return {
-      list: () => this.get('/attributes/'),
-      create: (attributeData) => this.post('/attributes/', attributeData)
+    get tags() {
+        return {
+            list: () => this.get('/tags/'),
+            get: (tag) => this.get(`/tags/${tag}/nodes/`),
+            create: (tagData) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/tags/',
+                    tagData
+                ),
+            update: (tag, tagData) =>
+                this.setHeader('Content-Type', 'application/json').patch(
+                    `/tags/${tag}/`,
+                    tagData
+                ),
+            set: (nodeName, tagName) =>
+                this.post(`/nodes/${nodeName}/tag/?tag_name=${tagName}`),
+        }
     }
-  }
 
-  get materializationConfigs () {
-    return {
-      update: (nodeName, materializationConfig) => this.patch(`/nodes/${nodeName}/materialization/`, materializationConfig)
+    get attributes() {
+        return {
+            list: () => this.get('/attributes/'),
+            create: (attributeData) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    '/attributes/',
+                    attributeData
+                ),
+        }
     }
-  }
 
-  get columnAttributes () {
-    return {
-      set: (nodeName, columnAttribute) => this.post(`/nodes/${nodeName}/attributes/`, columnAttribute)
+    get materializationConfigs() {
+        return {
+            update: (nodeName, materializationConfig) =>
+                this.setHeader('Content-Type', 'application/json').patch(
+                    `/nodes/${nodeName}/materialization/`,
+                    materializationConfig
+                ),
+        }
     }
-  }
 
-  get availabilityState () {
-    return {
-      set: (nodeName, availabilityState) => this.post(`/data/${nodeName}/availability/`, availabilityState)
+    get columnAttributes() {
+        return {
+            set: (nodeName, columnAttribute) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    `/nodes/${nodeName}/attributes/`,
+                    columnAttribute
+                ),
+        }
     }
-  }
 
-  get sql () {
-    return {
-      get: (
-        metrics,
-        dimensions,
-        filters,
-        async_,
-        engineName,
-        engineVersion
-      ) => this.post(`/sql/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${engineName}&engine_version=${engineVersion}`)
+    get availabilityState() {
+        return {
+            set: (nodeName, availabilityState) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    `/data/${nodeName}/availability/`,
+                    availabilityState
+                ),
+        }
     }
-  }
 
-  get data () {
-    return {
-      get: (
-        metrics,
-        dimensions,
-        filters,
-        async_,
-        engineName,
-        engineVersion
-      ) => this.post(`/data/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${engineName}&engine_version=${engineVersion}`)
+    get sql() {
+        return {
+            get: (
+                metrics,
+                dimensions,
+                filters,
+                async_,
+                engineName,
+                engineVersion
+            ) =>
+                this.post(
+                    `/sql/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${engineName}&engine_version=${engineVersion}`
+                ),
+        }
     }
-  }
+
+    get data() {
+        return {
+            get: (
+                metrics,
+                dimensions,
+                filters,
+                async_,
+                engineName,
+                engineVersion
+            ) =>
+                this.post(
+                    `/data/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${engineName}&engine_version=${engineVersion}`
+                ),
+        }
+    }
 }
