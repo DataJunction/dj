@@ -267,3 +267,37 @@ def test_get_dimensions(client_with_examples: TestClient):
         "us_state.state_region_description",
         "us_state.state_short",
     ]
+
+
+def test_type_inference_structs(client_with_examples: TestClient):
+    """
+    Testing type resolution for structs select
+    """
+    client_with_examples.post(
+        "/nodes/source/",
+        json={
+            "columns": [
+                {
+                    "name": "counts",
+                    "type": "struct<a string, b bigint>",
+                },
+            ],
+            "description": "Collection of dreams",
+            "mode": "published",
+            "name": "basic.dreams",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "dreams",
+        },
+    )
+
+    response = client_with_examples.post(
+        "/nodes/metric/",
+        json={
+            "query": "SELECT SUM(counts.b) FROM basic.dreams",
+            "description": "Dream Counts",
+            "mode": "published",
+            "name": "basic.dream_count",
+        },
+    )
+    response.json()
