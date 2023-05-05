@@ -49,6 +49,15 @@ Status Code **200**
 |»»»» name|string|true|none|none|
 |»»»» version|string|true|none|none|
 |»»»» uri|string|false|none|none|
+|»»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|dialect|spark|
+|dialect|trino|
+|dialect|druid|
 
 <aside class="success">
 This operation does not require authentication
@@ -150,7 +159,8 @@ Attach one or more engines to a catalog
   {
     "name": "string",
     "version": "string",
-    "uri": "string"
+    "uri": "string",
+    "dialect": "spark"
   }
 ]
 ```
@@ -200,7 +210,8 @@ List all available engines
   {
     "name": "string",
     "version": "string",
-    "uri": "string"
+    "uri": "string",
+    "dialect": "spark"
   }
 ]
 ```
@@ -224,6 +235,15 @@ Status Code **200**
 |»» name|string|true|none|none|
 |»» version|string|true|none|none|
 |»» uri|string|false|none|none|
+|»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|dialect|spark|
+|dialect|trino|
+|dialect|druid|
 
 <aside class="success">
 This operation does not require authentication
@@ -243,7 +263,8 @@ Add an Engine
 {
   "name": "string",
   "version": "string",
-  "uri": "string"
+  "uri": "string",
+  "dialect": "spark"
 }
 ```
 
@@ -261,7 +282,8 @@ Add an Engine
 {
   "name": "string",
   "version": "string",
-  "uri": "string"
+  "uri": "string",
+  "dialect": "spark"
 }
 ```
 
@@ -299,7 +321,8 @@ Return an engine by name and version
 {
   "name": "string",
   "version": "string",
-  "uri": "string"
+  "uri": "string",
+  "dialect": "spark"
 }
 ```
 
@@ -328,19 +351,7 @@ List all available metrics.
 
 ```json
 [
-  {
-    "id": 0,
-    "name": "string",
-    "display_name": "string",
-    "current_version": "string",
-    "description": "",
-    "created_at": "2019-08-24T14:15:22Z",
-    "updated_at": "2019-08-24T14:15:22Z",
-    "query": "string",
-    "dimensions": [
-      "string"
-    ]
-  }
+  "string"
 ]
 ```
 
@@ -358,17 +369,7 @@ Status Code **200**
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|Response List Metrics Metrics  Get|[[Metric](#schemametric)]|false|none|[Class for a metric.]|
-|» Metric|[Metric](#schemametric)|false|none|Class for a metric.|
-|»» id|integer|true|none|none|
-|»» name|string|true|none|none|
-|»» display_name|string|true|none|none|
-|»» current_version|string|true|none|none|
-|»» description|string|false|none|none|
-|»» created_at|string(date-time)|true|none|none|
-|»» updated_at|string(date-time)|true|none|none|
-|»» query|string|true|none|none|
-|»» dimensions|[string]|true|none|none|
+|Response List Metrics Metrics  Get|[string]|false|none|none|
 
 <aside class="success">
 This operation does not require authentication
@@ -493,7 +494,8 @@ will be used.
       "name": "string",
       "type": "string"
     }
-  ]
+  ],
+  "dialect": "spark"
 }
 ```
 
@@ -612,9 +614,11 @@ Validate a node.
           "engine": {
             "name": "string",
             "version": "string",
-            "uri": "string"
+            "uri": "string",
+            "dialect": "spark"
           },
-          "config": "string"
+          "config": {},
+          "schedule": "string"
         }
       ],
       "parents": [
@@ -716,7 +720,7 @@ Status Code **201**
 |» ColumnOutput|[ColumnOutput](#schemacolumnoutput)|false|none|A simplified column schema, without ID or dimensions.|
 |»» name|string|true|none|none|
 |»» type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
-|»» attributes|[[AttributeOutput](#schemaattributeoutput)]|true|none|[Column attribute output.]|
+|»» attributes|[[AttributeOutput](#schemaattributeoutput)]|false|none|[Column attribute output.]|
 |»»» AttributeOutput|[AttributeOutput](#schemaattributeoutput)|false|none|Column attribute output.|
 |»»»» attribute_type|[AttributeTypeName](#schemaattributetypename)|true|none|Attribute type name.|
 |»»»»» namespace|string|true|none|none|
@@ -743,6 +747,7 @@ List the available nodes.
 ```json
 [
   {
+    "namespace": "string",
     "current": {
       "node_revision_id": 0,
       "node_id": 0,
@@ -801,9 +806,11 @@ List the available nodes.
           "engine": {
             "name": "string",
             "version": "string",
-            "uri": "string"
+            "uri": "string",
+            "dialect": "spark"
           },
-          "config": "string"
+          "config": {},
+          "schedule": "string"
         }
       ],
       "parents": [
@@ -834,6 +841,7 @@ Status Code **200**
 |---|---|---|---|---|
 |Response List Nodes Nodes  Get|[[NodeOutput](#schemanodeoutput)]|false|none|[Output for a node that shows the current revision.]|
 |» NodeOutput|[NodeOutput](#schemanodeoutput)|false|none|Output for a node that shows the current revision.|
+|»» namespace|string|true|none|none|
 |»» current|[NodeRevisionOutput](#schemanoderevisionoutput)|true|none|Output for a node revision with information about columns and if it is a metric.|
 |»»» node_revision_id|integer|true|none|none|
 |»»» node_id|integer|true|none|none|
@@ -867,7 +875,7 @@ Status Code **200**
 |»»»» ColumnOutput|[ColumnOutput](#schemacolumnoutput)|false|none|A simplified column schema, without ID or dimensions.|
 |»»»»» name|string|true|none|none|
 |»»»»» type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
-|»»»»» attributes|[[AttributeOutput](#schemaattributeoutput)]|true|none|[Column attribute output.]|
+|»»»»» attributes|[[AttributeOutput](#schemaattributeoutput)]|false|none|[Column attribute output.]|
 |»»»»»» AttributeOutput|[AttributeOutput](#schemaattributeoutput)|false|none|Column attribute output.|
 |»»»»»»» attribute_type|[AttributeTypeName](#schemaattributetypename)|true|none|Attribute type name.|
 |»»»»»»»» namespace|string|true|none|none|
@@ -881,7 +889,9 @@ Status Code **200**
 |»»»»»» name|string|true|none|none|
 |»»»»»» version|string|true|none|none|
 |»»»»»» uri|string|false|none|none|
-|»»»»» config|string|true|none|none|
+|»»»»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
+|»»»»» config|object|true|none|none|
+|»»»»» schedule|string|true|none|none|
 |»»» parents|[[NodeNameOutput](#schemanodenameoutput)]|true|none|[Node name only]|
 |»»»» NodeNameOutput|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 |»» created_at|string(date-time)|true|none|none|
@@ -907,6 +917,9 @@ Status Code **200**
 |status|invalid|
 |mode|published|
 |mode|draft|
+|dialect|spark|
+|dialect|trino|
+|dialect|druid|
 
 <aside class="success">
 This operation does not require authentication
@@ -932,6 +945,7 @@ Show the active version of the specified node.
 
 ```json
 {
+  "namespace": "string",
   "current": {
     "node_revision_id": 0,
     "node_id": 0,
@@ -990,9 +1004,11 @@ Show the active version of the specified node.
         "engine": {
           "name": "string",
           "version": "string",
-          "uri": "string"
+          "uri": "string",
+          "dialect": "spark"
         },
-        "config": "string"
+        "config": {},
+        "schedule": "string"
       }
     ],
     "parents": [
@@ -1075,19 +1091,27 @@ Update a node.
   "catalog": "string",
   "schema_": "string",
   "table": "string",
-  "columns": {
-    "property1": {
+  "columns": [
+    {
+      "name": "string",
       "type": {},
-      "dimension": "string"
-    },
-    "property2": {
-      "type": {},
+      "attributes": [
+        {
+          "attribute_type": {
+            "namespace": "string",
+            "name": "string"
+          }
+        }
+      ],
       "dimension": "string"
     }
-  },
+  ],
   "display_name": "string",
   "description": "string",
   "mode": "published",
+  "primary_key": [
+    "string"
+  ],
   "query": "string"
 }
 ```
@@ -1105,6 +1129,7 @@ Update a node.
 
 ```json
 {
+  "namespace": "string",
   "current": {
     "node_revision_id": 0,
     "node_id": 0,
@@ -1163,9 +1188,11 @@ Update a node.
         "engine": {
           "name": "string",
           "version": "string",
-          "uri": "string"
+          "uri": "string",
+          "dialect": "spark"
         },
-        "config": "string"
+        "config": {},
+        "schedule": "string"
       }
     ],
     "parents": [
@@ -1204,7 +1231,8 @@ Update materialization config of the specified node.
 {
   "engine_name": "string",
   "engine_version": "string",
-  "config": "string"
+  "config": {},
+  "schedule": "string"
 }
 ```
 
@@ -1314,9 +1342,11 @@ List all revisions for the node.
         "engine": {
           "name": "string",
           "version": "string",
-          "uri": "string"
+          "uri": "string",
+          "dialect": "spark"
         },
-        "config": "string"
+        "config": {},
+        "schedule": "string"
       }
     ],
     "parents": [
@@ -1377,7 +1407,7 @@ Status Code **200**
 |»»» ColumnOutput|[ColumnOutput](#schemacolumnoutput)|false|none|A simplified column schema, without ID or dimensions.|
 |»»»» name|string|true|none|none|
 |»»»» type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
-|»»»» attributes|[[AttributeOutput](#schemaattributeoutput)]|true|none|[Column attribute output.]|
+|»»»» attributes|[[AttributeOutput](#schemaattributeoutput)]|false|none|[Column attribute output.]|
 |»»»»» AttributeOutput|[AttributeOutput](#schemaattributeoutput)|false|none|Column attribute output.|
 |»»»»»» attribute_type|[AttributeTypeName](#schemaattributetypename)|true|none|Attribute type name.|
 |»»»»»»» namespace|string|true|none|none|
@@ -1391,7 +1421,9 @@ Status Code **200**
 |»»»»» name|string|true|none|none|
 |»»»»» version|string|true|none|none|
 |»»»»» uri|string|false|none|none|
-|»»»» config|string|true|none|none|
+|»»»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
+|»»»» config|object|true|none|none|
+|»»»» schedule|string|true|none|none|
 |»» parents|[[NodeNameOutput](#schemanodenameoutput)]|true|none|[Node name only]|
 |»»» NodeNameOutput|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 
@@ -1408,6 +1440,9 @@ Status Code **200**
 |status|invalid|
 |mode|published|
 |mode|draft|
+|dialect|spark|
+|dialect|trino|
+|dialect|druid|
 
 <aside class="success">
 This operation does not require authentication
@@ -1429,20 +1464,15 @@ will be inferred using the configured query service.
   "catalog": "string",
   "schema_": "string",
   "table": "string",
-  "columns": {
-    "property1": {
-      "type": {},
-      "dimension": "string"
-    },
-    "property2": {
-      "type": {},
-      "dimension": "string"
-    }
-  },
+  "columns": [],
   "display_name": "string",
   "description": "string",
   "mode": "published",
-  "name": "string"
+  "primary_key": [
+    "string"
+  ],
+  "name": "string",
+  "namespace": "default"
 }
 ```
 
@@ -1458,6 +1488,7 @@ will be inferred using the configured query service.
 
 ```json
 {
+  "namespace": "string",
   "current": {
     "node_revision_id": 0,
     "node_id": 0,
@@ -1516,9 +1547,11 @@ will be inferred using the configured query service.
         "engine": {
           "name": "string",
           "version": "string",
-          "uri": "string"
+          "uri": "string",
+          "dialect": "spark"
         },
-        "config": "string"
+        "config": {},
+        "schedule": "string"
       }
     ],
     "parents": [
@@ -1559,7 +1592,11 @@ Create a node.
   "display_name": "string",
   "description": "string",
   "mode": "published",
-  "name": "string"
+  "primary_key": [
+    "string"
+  ],
+  "name": "string",
+  "namespace": "default"
 }
 ```
 
@@ -1575,6 +1612,7 @@ Create a node.
 
 ```json
 {
+  "namespace": "string",
   "current": {
     "node_revision_id": 0,
     "node_id": 0,
@@ -1633,9 +1671,11 @@ Create a node.
         "engine": {
           "name": "string",
           "version": "string",
-          "uri": "string"
+          "uri": "string",
+          "dialect": "spark"
         },
-        "config": "string"
+        "config": {},
+        "schedule": "string"
       }
     ],
     "parents": [
@@ -1666,19 +1706,26 @@ This operation does not require authentication
 
 `POST /nodes/cube/`
 
-Create a node.
+Create a cube node.
 
 > Body parameter
 
 ```json
 {
   "display_name": "string",
-  "cube_elements": [
+  "metrics": [
+    "string"
+  ],
+  "dimensions": [
+    "string"
+  ],
+  "filters": [
     "string"
   ],
   "description": "string",
   "mode": "published",
-  "name": "string"
+  "name": "string",
+  "namespace": "default"
 }
 ```
 
@@ -1694,6 +1741,7 @@ Create a node.
 
 ```json
 {
+  "namespace": "string",
   "current": {
     "node_revision_id": 0,
     "node_id": 0,
@@ -1752,9 +1800,11 @@ Create a node.
         "engine": {
           "name": "string",
           "version": "string",
-          "uri": "string"
+          "uri": "string",
+          "dialect": "spark"
         },
-        "config": "string"
+        "config": {},
+        "schedule": "string"
       }
     ],
     "parents": [
@@ -1921,6 +1971,7 @@ List all nodes that are downstream from the given node, filterable by type.
 ```json
 [
   {
+    "namespace": "string",
     "current": {
       "node_revision_id": 0,
       "node_id": 0,
@@ -1979,9 +2030,11 @@ List all nodes that are downstream from the given node, filterable by type.
           "engine": {
             "name": "string",
             "version": "string",
-            "uri": "string"
+            "uri": "string",
+            "dialect": "spark"
           },
-          "config": "string"
+          "config": {},
+          "schedule": "string"
         }
       ],
       "parents": [
@@ -2013,6 +2066,7 @@ Status Code **200**
 |---|---|---|---|---|
 |Response List Downstream Nodes Nodes  Name  Downstream  Get|[[NodeOutput](#schemanodeoutput)]|false|none|[Output for a node that shows the current revision.]|
 |» NodeOutput|[NodeOutput](#schemanodeoutput)|false|none|Output for a node that shows the current revision.|
+|»» namespace|string|true|none|none|
 |»» current|[NodeRevisionOutput](#schemanoderevisionoutput)|true|none|Output for a node revision with information about columns and if it is a metric.|
 |»»» node_revision_id|integer|true|none|none|
 |»»» node_id|integer|true|none|none|
@@ -2046,7 +2100,7 @@ Status Code **200**
 |»»»» ColumnOutput|[ColumnOutput](#schemacolumnoutput)|false|none|A simplified column schema, without ID or dimensions.|
 |»»»»» name|string|true|none|none|
 |»»»»» type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
-|»»»»» attributes|[[AttributeOutput](#schemaattributeoutput)]|true|none|[Column attribute output.]|
+|»»»»» attributes|[[AttributeOutput](#schemaattributeoutput)]|false|none|[Column attribute output.]|
 |»»»»»» AttributeOutput|[AttributeOutput](#schemaattributeoutput)|false|none|Column attribute output.|
 |»»»»»»» attribute_type|[AttributeTypeName](#schemaattributetypename)|true|none|Attribute type name.|
 |»»»»»»»» namespace|string|true|none|none|
@@ -2060,7 +2114,9 @@ Status Code **200**
 |»»»»»» name|string|true|none|none|
 |»»»»»» version|string|true|none|none|
 |»»»»»» uri|string|false|none|none|
-|»»»»» config|string|true|none|none|
+|»»»»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
+|»»»»» config|object|true|none|none|
+|»»»»» schedule|string|true|none|none|
 |»»» parents|[[NodeNameOutput](#schemanodenameoutput)]|true|none|[Node name only]|
 |»»»» NodeNameOutput|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 |»» created_at|string(date-time)|true|none|none|
@@ -2086,6 +2142,343 @@ Status Code **200**
 |status|invalid|
 |mode|published|
 |mode|draft|
+|dialect|spark|
+|dialect|trino|
+|dialect|druid|
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
+## List Upstream Nodes
+
+<a id="opIdlist_upstream_nodes_nodes__name__upstream__get"></a>
+
+`GET /nodes/{name}/upstream/`
+
+List all nodes that are upstream from the given node, filterable by type.
+
+<h3 id="list-upstream-nodes-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|name|path|string|true|none|
+|node_type|query|[NodeType](#schemanodetype)|false|none|
+
+#### Enumerated Values
+
+|Parameter|Value|
+|---|---|
+|node_type|source|
+|node_type|transform|
+|node_type|metric|
+|node_type|dimension|
+|node_type|cube|
+
+> Example responses
+
+> 200 Response
+
+```json
+[
+  {
+    "namespace": "string",
+    "current": {
+      "node_revision_id": 0,
+      "node_id": 0,
+      "type": "source",
+      "name": "string",
+      "display_name": "string",
+      "version": "string",
+      "status": "valid",
+      "mode": "published",
+      "catalog": {
+        "id": 0,
+        "uuid": "095be615-a8ad-4c33-8e9c-c7612fbf6c9f",
+        "name": "string",
+        "created_at": "2019-08-24T14:15:22Z",
+        "updated_at": "2019-08-24T14:15:22Z",
+        "extra_params": {}
+      },
+      "schema_": "string",
+      "table": "string",
+      "description": "",
+      "query": "string",
+      "availability": {
+        "catalog": "string",
+        "schema_": "string",
+        "table": "string",
+        "valid_through_ts": 0,
+        "max_partition": [
+          "string"
+        ],
+        "min_partition": [
+          "string"
+        ],
+        "id": 0,
+        "updated_at": "2019-08-24T14:15:22Z"
+      },
+      "columns": [
+        {
+          "name": "string",
+          "type": {},
+          "attributes": [
+            {
+              "attribute_type": {
+                "namespace": "string",
+                "name": "string"
+              }
+            }
+          ],
+          "dimension": {
+            "name": "string"
+          }
+        }
+      ],
+      "updated_at": "2019-08-24T14:15:22Z",
+      "materialization_configs": [
+        {
+          "engine": {
+            "name": "string",
+            "version": "string",
+            "uri": "string",
+            "dialect": "spark"
+          },
+          "config": {},
+          "schedule": "string"
+        }
+      ],
+      "parents": [
+        {
+          "name": "string"
+        }
+      ]
+    },
+    "created_at": "2019-08-24T14:15:22Z",
+    "tags": []
+  }
+]
+```
+
+<h3 id="list-upstream-nodes-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Successful Response|Inline|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
+
+<h3 id="list-upstream-nodes-responseschema">Response Schema</h3>
+
+Status Code **200**
+
+*Response List Upstream Nodes Nodes  Name  Upstream  Get*
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|Response List Upstream Nodes Nodes  Name  Upstream  Get|[[NodeOutput](#schemanodeoutput)]|false|none|[Output for a node that shows the current revision.]|
+|» NodeOutput|[NodeOutput](#schemanodeoutput)|false|none|Output for a node that shows the current revision.|
+|»» namespace|string|true|none|none|
+|»» current|[NodeRevisionOutput](#schemanoderevisionoutput)|true|none|Output for a node revision with information about columns and if it is a metric.|
+|»»» node_revision_id|integer|true|none|none|
+|»»» node_id|integer|true|none|none|
+|»»» type|[NodeType](#schemanodetype)|true|none|Node type.<br><br>A node can have 4 types, currently:<br><br>1. SOURCE nodes are root nodes in the DAG, and point to tables or views in a DB.<br>2. TRANSFORM nodes are SQL transformations, reading from SOURCE/TRANSFORM nodes.<br>3. METRIC nodes are leaves in the DAG, and have a single aggregation query.<br>4. DIMENSION nodes are special SOURCE nodes that can be auto-joined with METRICS.<br>5. CUBE nodes contain a reference to a set of METRICS and a set of DIMENSIONS.|
+|»»» name|string|true|none|none|
+|»»» display_name|string|true|none|none|
+|»»» version|string|true|none|none|
+|»»» status|[NodeStatus](#schemanodestatus)|true|none|Node status.<br><br>A node can have one of the following statuses:<br><br>1. VALID - All references to other nodes and node columns are valid<br>2. INVALID - One or more parent nodes are incompatible or do not exist|
+|»»» mode|[NodeMode](#schemanodemode)|true|none|Node mode.<br><br>A node can be in one of the following modes:<br><br>1. PUBLISHED - Must be valid and not cause any child nodes to be invalid<br>2. DRAFT - Can be invalid, have invalid parents, and include dangling references|
+|»»» catalog|[Catalog](#schemacatalog)|false|none|A catalog.|
+|»»»» id|integer|false|none|none|
+|»»»» uuid|string(uuid)|false|none|none|
+|»»»» name|string|true|none|none|
+|»»»» created_at|string(date-time)|false|none|none|
+|»»»» updated_at|string(date-time)|false|none|none|
+|»»»» extra_params|object|false|none|none|
+|»»» schema_|string|false|none|none|
+|»»» table|string|false|none|none|
+|»»» description|string|false|none|none|
+|»»» query|string|false|none|none|
+|»»» availability|[AvailabilityState](#schemaavailabilitystate)|false|none|The availability of materialized data for a node|
+|»»»» catalog|string|true|none|none|
+|»»»» schema_|string|false|none|none|
+|»»»» table|string|true|none|none|
+|»»»» valid_through_ts|integer|true|none|none|
+|»»»» max_partition|[string]|true|none|none|
+|»»»» min_partition|[string]|true|none|none|
+|»»»» id|integer|false|none|none|
+|»»»» updated_at|string(date-time)|false|none|none|
+|»»» columns|[[ColumnOutput](#schemacolumnoutput)]|true|none|[A simplified column schema, without ID or dimensions.]|
+|»»»» ColumnOutput|[ColumnOutput](#schemacolumnoutput)|false|none|A simplified column schema, without ID or dimensions.|
+|»»»»» name|string|true|none|none|
+|»»»»» type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
+|»»»»» attributes|[[AttributeOutput](#schemaattributeoutput)]|false|none|[Column attribute output.]|
+|»»»»»» AttributeOutput|[AttributeOutput](#schemaattributeoutput)|false|none|Column attribute output.|
+|»»»»»»» attribute_type|[AttributeTypeName](#schemaattributetypename)|true|none|Attribute type name.|
+|»»»»»»»» namespace|string|true|none|none|
+|»»»»»»»» name|string|true|none|none|
+|»»»»» dimension|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
+|»»»»»» name|string|true|none|none|
+|»»» updated_at|string(date-time)|true|none|none|
+|»»» materialization_configs|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
+|»»»» MaterializationConfigOutput|[MaterializationConfigOutput](#schemamaterializationconfigoutput)|false|none|Output for materialization config.|
+|»»»»» engine|[EngineInfo](#schemaengineinfo)|true|none|Class for engine creation|
+|»»»»»» name|string|true|none|none|
+|»»»»»» version|string|true|none|none|
+|»»»»»» uri|string|false|none|none|
+|»»»»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
+|»»»»» config|object|true|none|none|
+|»»»»» schedule|string|true|none|none|
+|»»» parents|[[NodeNameOutput](#schemanodenameoutput)]|true|none|[Node name only]|
+|»»»» NodeNameOutput|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
+|»» created_at|string(date-time)|true|none|none|
+|»» tags|[[Tag](#schematag)]|false|none|[A tag.]|
+|»»» Tag|[Tag](#schematag)|false|none|A tag.|
+|»»»» description|string|true|none|none|
+|»»»» tag_metadata|object|false|none|none|
+|»»»» name|string|true|none|none|
+|»»»» display_name|string|false|none|none|
+|»»»» tag_type|string|true|none|none|
+|»»»» id|integer|false|none|none|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|type|source|
+|type|transform|
+|type|metric|
+|type|dimension|
+|type|cube|
+|status|valid|
+|status|invalid|
+|mode|published|
+|mode|draft|
+|dialect|spark|
+|dialect|trino|
+|dialect|druid|
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
+## List Nodes In Namespace
+
+<a id="opIdlist_nodes_in_namespace_namespaces__namespace___get"></a>
+
+`GET /namespaces/{namespace}/`
+
+List node names in namespace, filterable to a given type if desired.
+
+<h3 id="list-nodes-in-namespace-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|namespace|path|string|true|none|
+|type_|query|[NodeType](#schemanodetype)|false|none|
+
+#### Enumerated Values
+
+|Parameter|Value|
+|---|---|
+|type_|source|
+|type_|transform|
+|type_|metric|
+|type_|dimension|
+|type_|cube|
+
+> Example responses
+
+> 200 Response
+
+```json
+[
+  "string"
+]
+```
+
+<h3 id="list-nodes-in-namespace-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Successful Response|[NodeNameList](#schemanodenamelist)|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
+## Create A Node Namespace
+
+<a id="opIdcreate_a_node_namespace_namespaces__namespace___post"></a>
+
+`POST /namespaces/{namespace}/`
+
+Create a node namespace
+
+<h3 id="create-a-node-namespace-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|namespace|path|string|true|none|
+
+> Example responses
+
+> 201 Response
+
+```json
+null
+```
+
+<h3 id="create-a-node-namespace-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Successful Response|Inline|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
+
+<h3 id="create-a-node-namespace-responseschema">Response Schema</h3>
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
+## List Node Namespaces
+
+<a id="opIdlist_node_namespaces_namespaces__get"></a>
+
+`GET /namespaces/`
+
+List node namespaces
+
+> Example responses
+
+> 200 Response
+
+```json
+[
+  {
+    "namespace": "string"
+  }
+]
+```
+
+<h3 id="list-node-namespaces-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Successful Response|Inline|
+
+<h3 id="list-node-namespaces-responseschema">Response Schema</h3>
+
+Status Code **200**
+
+*Response List Node Namespaces Namespaces  Get*
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|Response List Node Namespaces Namespaces  Get|[[NodeNamespace](#schemanodenamespace)]|false|none|[A node namespace]|
+|» NodeNamespace|[NodeNamespace](#schemanodenamespace)|false|none|A node namespace|
+|»» namespace|string|true|none|none|
 
 <aside class="success">
 This operation does not require authentication
@@ -2160,6 +2553,8 @@ Gets data for a node
 |dimensions|query|array[string]|false|none|
 |filters|query|array[string]|false|none|
 |async_|query|boolean|false|none|
+|engine_name|query|string|false|none|
+|engine_version|query|string|false|none|
 
 > Example responses
 
@@ -2177,6 +2572,82 @@ null
 |422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
 
 <h3 id="get-data-responseschema">Response Schema</h3>
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
+## Get Data For Metrics
+
+<a id="opIdget_data_for_metrics_data__get"></a>
+
+`GET /data/`
+
+Return data for a set of metrics with dimensions and filters
+
+<h3 id="get-data-for-metrics-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|metrics|query|array[string]|false|none|
+|dimensions|query|array[string]|false|none|
+|filters|query|array[string]|false|none|
+|async_|query|boolean|false|none|
+|engine_name|query|string|false|none|
+|engine_version|query|string|false|none|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+  "engine_name": "string",
+  "engine_version": "string",
+  "submitted_query": "string",
+  "executed_query": "string",
+  "scheduled": "2019-08-24T14:15:22Z",
+  "started": "2019-08-24T14:15:22Z",
+  "finished": "2019-08-24T14:15:22Z",
+  "state": "UNKNOWN",
+  "progress": 0,
+  "output_table": {
+    "catalog": "string",
+    "schema": "string",
+    "table": "string"
+  },
+  "results": [
+    {
+      "sql": "string",
+      "columns": [
+        {
+          "name": "string",
+          "type": "string"
+        }
+      ],
+      "rows": [
+        [
+          null
+        ]
+      ],
+      "row_count": 0
+    }
+  ],
+  "next": "http://example.com",
+  "previous": "http://example.com",
+  "errors": [
+    "string"
+  ]
+}
+```
+
+<h3 id="get-data-for-metrics-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Successful Response|[QueryWithResults](#schemaquerywithresults)|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
 
 <aside class="success">
 This operation does not require authentication
@@ -2276,12 +2747,38 @@ Get information on a cube
   },
   "cube_elements": [
     {
-      "id": 0,
-      "current_version": "string",
-      "name": "string"
+      "name": "string",
+      "node_name": "string",
+      "type": "string"
     }
   ],
-  "updated_at": "2019-08-24T14:15:22Z"
+  "query": "string",
+  "columns": [
+    {
+      "name": "string",
+      "type": {},
+      "attributes": [
+        {
+          "attribute_type": {
+            "namespace": "string",
+            "name": "string"
+          }
+        }
+      ],
+      "dimension": {
+        "name": "string"
+      }
+    }
+  ],
+  "updated_at": "2019-08-24T14:15:22Z",
+  "materialization_configs": [
+    {
+      "node_revision_id": 0,
+      "engine_id": 0,
+      "schedule": "string",
+      "config": {}
+    }
+  ]
 }
 ```
 
@@ -2689,6 +3186,8 @@ Return SQL for a node.
 |node_name|path|string|true|none|
 |dimensions|query|array[string]|false|none|
 |filters|query|array[string]|false|none|
+|engine_name|query|string|false|none|
+|engine_version|query|string|false|none|
 
 > Example responses
 
@@ -2702,11 +3201,58 @@ Return SQL for a node.
       "name": "string",
       "type": "string"
     }
-  ]
+  ],
+  "dialect": "spark"
 }
 ```
 
 <h3 id="get-sql-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Successful Response|[TranslatedSQL](#schematranslatedsql)|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
+## Get Sql For Metrics
+
+<a id="opIdget_sql_for_metrics_sql__get"></a>
+
+`GET /sql/`
+
+Return SQL for a set of metrics with dimensions and filters
+
+<h3 id="get-sql-for-metrics-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|metrics|query|array[string]|false|none|
+|dimensions|query|array[string]|false|none|
+|filters|query|array[string]|false|none|
+|engine_name|query|string|false|none|
+|engine_version|query|string|false|none|
+
+> Example responses
+
+> 200 Response
+
+```json
+{
+  "sql": "string",
+  "columns": [
+    {
+      "name": "string",
+      "type": "string"
+    }
+  ],
+  "dialect": "spark"
+}
+```
+
+<h3 id="get-sql-for-metrics-responses">Responses</h3>
 
 |Status|Meaning|Description|Schema|
 |---|---|---|---|
@@ -3048,7 +3594,7 @@ ColumnOutput
 |---|---|---|---|---|
 |name|string|true|none|none|
 |type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
-|attributes|[[AttributeOutput](#schemaattributeoutput)]|true|none|[Column attribute output.]|
+|attributes|[[AttributeOutput](#schemaattributeoutput)]|false|none|[Column attribute output.]|
 |dimension|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 
 <h2 id="tocS_ColumnType">ColumnType</h2>
@@ -3079,12 +3625,19 @@ ColumnType
 ```json
 {
   "display_name": "string",
-  "cube_elements": [
+  "metrics": [
+    "string"
+  ],
+  "dimensions": [
+    "string"
+  ],
+  "filters": [
     "string"
   ],
   "description": "string",
   "mode": "published",
-  "name": "string"
+  "name": "string",
+  "namespace": "default"
 }
 
 ```
@@ -3096,10 +3649,13 @@ CreateCubeNode
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |display_name|string|false|none|none|
-|cube_elements|[string]|true|none|none|
+|metrics|[string]|true|none|none|
+|dimensions|[string]|true|none|none|
+|filters|[string]|false|none|none|
 |description|string|true|none|none|
 |mode|[NodeMode](#schemanodemode)|true|none|Node mode.<br><br>A node can be in one of the following modes:<br><br>1. PUBLISHED - Must be valid and not cause any child nodes to be invalid<br>2. DRAFT - Can be invalid, have invalid parents, and include dangling references|
 |name|string|true|none|none|
+|namespace|string|false|none|none|
 
 <h2 id="tocS_CreateNode">CreateNode</h2>
 <!-- backwards compatibility -->
@@ -3114,7 +3670,11 @@ CreateCubeNode
   "display_name": "string",
   "description": "string",
   "mode": "published",
-  "name": "string"
+  "primary_key": [
+    "string"
+  ],
+  "name": "string",
+  "namespace": "default"
 }
 
 ```
@@ -3129,7 +3689,9 @@ CreateNode
 |display_name|string|false|none|none|
 |description|string|true|none|none|
 |mode|[NodeMode](#schemanodemode)|true|none|Node mode.<br><br>A node can be in one of the following modes:<br><br>1. PUBLISHED - Must be valid and not cause any child nodes to be invalid<br>2. DRAFT - Can be invalid, have invalid parents, and include dangling references|
+|primary_key|[string]|false|none|none|
 |name|string|true|none|none|
+|namespace|string|false|none|none|
 
 <h2 id="tocS_CreateSourceNode">CreateSourceNode</h2>
 <!-- backwards compatibility -->
@@ -3143,20 +3705,15 @@ CreateNode
   "catalog": "string",
   "schema_": "string",
   "table": "string",
-  "columns": {
-    "property1": {
-      "type": {},
-      "dimension": "string"
-    },
-    "property2": {
-      "type": {},
-      "dimension": "string"
-    }
-  },
+  "columns": [],
   "display_name": "string",
   "description": "string",
   "mode": "published",
-  "name": "string"
+  "primary_key": [
+    "string"
+  ],
+  "name": "string",
+  "namespace": "default"
 }
 
 ```
@@ -3170,12 +3727,13 @@ CreateSourceNode
 |catalog|string|true|none|none|
 |schema_|string|true|none|none|
 |table|string|true|none|none|
-|columns|object|false|none|none|
-|» **additionalProperties**|[SourceNodeColumnType](#schemasourcenodecolumntype)|false|none|Schema of a column for a table defined in a source node|
+|columns|[[SourceColumnOutput](#schemasourcecolumnoutput)]|false|none|[A column used in creation of a source node]|
 |display_name|string|false|none|none|
 |description|string|true|none|none|
 |mode|[NodeMode](#schemanodemode)|true|none|Node mode.<br><br>A node can be in one of the following modes:<br><br>1. PUBLISHED - Must be valid and not cause any child nodes to be invalid<br>2. DRAFT - Can be invalid, have invalid parents, and include dangling references|
+|primary_key|[string]|false|none|none|
 |name|string|true|none|none|
+|namespace|string|false|none|none|
 
 <h2 id="tocS_CreateTag">CreateTag</h2>
 <!-- backwards compatibility -->
@@ -3216,9 +3774,9 @@ CreateTag
 
 ```json
 {
-  "id": 0,
-  "current_version": "string",
-  "name": "string"
+  "name": "string",
+  "node_name": "string",
+  "type": "string"
 }
 
 ```
@@ -3229,9 +3787,9 @@ CubeElementMetadata
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|id|integer|true|none|none|
-|current_version|string|true|none|none|
 |name|string|true|none|none|
+|node_name|string|true|none|none|
+|type|string|true|none|none|
 
 <h2 id="tocS_CubeRevisionMetadata">CubeRevisionMetadata</h2>
 <!-- backwards compatibility -->
@@ -3265,12 +3823,38 @@ CubeElementMetadata
   },
   "cube_elements": [
     {
-      "id": 0,
-      "current_version": "string",
-      "name": "string"
+      "name": "string",
+      "node_name": "string",
+      "type": "string"
     }
   ],
-  "updated_at": "2019-08-24T14:15:22Z"
+  "query": "string",
+  "columns": [
+    {
+      "name": "string",
+      "type": {},
+      "attributes": [
+        {
+          "attribute_type": {
+            "namespace": "string",
+            "name": "string"
+          }
+        }
+      ],
+      "dimension": {
+        "name": "string"
+      }
+    }
+  ],
+  "updated_at": "2019-08-24T14:15:22Z",
+  "materialization_configs": [
+    {
+      "node_revision_id": 0,
+      "engine_id": 0,
+      "schedule": "string",
+      "config": {}
+    }
+  ]
 }
 
 ```
@@ -3290,7 +3874,38 @@ CubeRevisionMetadata
 |description|string|false|none|none|
 |availability|[AvailabilityState](#schemaavailabilitystate)|false|none|The availability of materialized data for a node|
 |cube_elements|[[CubeElementMetadata](#schemacubeelementmetadata)]|true|none|[Metadata for an element in a cube]|
+|query|string|true|none|none|
+|columns|[[ColumnOutput](#schemacolumnoutput)]|true|none|[A simplified column schema, without ID or dimensions.]|
 |updated_at|string(date-time)|true|none|none|
+|materialization_configs|[[MaterializationConfig](#schemamaterializationconfig)]|true|none|[Materialization configuration for a node and specific engines.]|
+
+<h2 id="tocS_Dialect">Dialect</h2>
+<!-- backwards compatibility -->
+<a id="schemadialect"></a>
+<a id="schema_Dialect"></a>
+<a id="tocSdialect"></a>
+<a id="tocsdialect"></a>
+
+```json
+"spark"
+
+```
+
+Dialect
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|Dialect|string|false|none|SQL dialect|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|Dialect|spark|
+|Dialect|trino|
+|Dialect|druid|
 
 <h2 id="tocS_EngineInfo">EngineInfo</h2>
 <!-- backwards compatibility -->
@@ -3303,7 +3918,8 @@ CubeRevisionMetadata
 {
   "name": "string",
   "version": "string",
-  "uri": "string"
+  "uri": "string",
+  "dialect": "spark"
 }
 
 ```
@@ -3317,6 +3933,7 @@ EngineInfo
 |name|string|true|none|none|
 |version|string|true|none|none|
 |uri|string|false|none|none|
+|dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
 
 <h2 id="tocS_HTTPValidationError">HTTPValidationError</h2>
 <!-- backwards compatibility -->
@@ -3399,6 +4016,34 @@ HealthcheckStatus
 |HealthcheckStatus|ok|
 |HealthcheckStatus|failed|
 
+<h2 id="tocS_MaterializationConfig">MaterializationConfig</h2>
+<!-- backwards compatibility -->
+<a id="schemamaterializationconfig"></a>
+<a id="schema_MaterializationConfig"></a>
+<a id="tocSmaterializationconfig"></a>
+<a id="tocsmaterializationconfig"></a>
+
+```json
+{
+  "node_revision_id": 0,
+  "engine_id": 0,
+  "schedule": "string",
+  "config": {}
+}
+
+```
+
+MaterializationConfig
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|node_revision_id|integer|true|none|none|
+|engine_id|integer|true|none|none|
+|schedule|string|true|none|none|
+|config|object|false|none|none|
+
 <h2 id="tocS_MaterializationConfigOutput">MaterializationConfigOutput</h2>
 <!-- backwards compatibility -->
 <a id="schemamaterializationconfigoutput"></a>
@@ -3411,9 +4056,11 @@ HealthcheckStatus
   "engine": {
     "name": "string",
     "version": "string",
-    "uri": "string"
+    "uri": "string",
+    "dialect": "spark"
   },
-  "config": "string"
+  "config": {},
+  "schedule": "string"
 }
 
 ```
@@ -3425,7 +4072,8 @@ MaterializationConfigOutput
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
 |engine|[EngineInfo](#schemaengineinfo)|true|none|Class for engine creation|
-|config|string|true|none|none|
+|config|object|true|none|none|
+|schedule|string|true|none|none|
 
 <h2 id="tocS_Metric">Metric</h2>
 <!-- backwards compatibility -->
@@ -3524,6 +4172,28 @@ NodeMode
 |NodeMode|published|
 |NodeMode|draft|
 
+<h2 id="tocS_NodeNameList">NodeNameList</h2>
+<!-- backwards compatibility -->
+<a id="schemanodenamelist"></a>
+<a id="schema_NodeNameList"></a>
+<a id="tocSnodenamelist"></a>
+<a id="tocsnodenamelist"></a>
+
+```json
+[
+  "string"
+]
+
+```
+
+NodeNameList
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|NodeNameList|[string]|false|none|List of node names|
+
 <h2 id="tocS_NodeNameOutput">NodeNameOutput</h2>
 <!-- backwards compatibility -->
 <a id="schemanodenameoutput"></a>
@@ -3546,6 +4216,28 @@ NodeNameOutput
 |---|---|---|---|---|
 |name|string|true|none|none|
 
+<h2 id="tocS_NodeNamespace">NodeNamespace</h2>
+<!-- backwards compatibility -->
+<a id="schemanodenamespace"></a>
+<a id="schema_NodeNamespace"></a>
+<a id="tocSnodenamespace"></a>
+<a id="tocsnodenamespace"></a>
+
+```json
+{
+  "namespace": "string"
+}
+
+```
+
+NodeNamespace
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|namespace|string|true|none|none|
+
 <h2 id="tocS_NodeOutput">NodeOutput</h2>
 <!-- backwards compatibility -->
 <a id="schemanodeoutput"></a>
@@ -3555,6 +4247,7 @@ NodeNameOutput
 
 ```json
 {
+  "namespace": "string",
   "current": {
     "node_revision_id": 0,
     "node_id": 0,
@@ -3613,9 +4306,11 @@ NodeNameOutput
         "engine": {
           "name": "string",
           "version": "string",
-          "uri": "string"
+          "uri": "string",
+          "dialect": "spark"
         },
-        "config": "string"
+        "config": {},
+        "schedule": "string"
       }
     ],
     "parents": [
@@ -3636,6 +4331,7 @@ NodeOutput
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
+|namespace|string|true|none|none|
 |current|[NodeRevisionOutput](#schemanoderevisionoutput)|true|none|Output for a node revision with information about columns and if it is a metric.|
 |created_at|string(date-time)|true|none|none|
 |tags|[[Tag](#schematag)]|false|none|[A tag.]|
@@ -3786,9 +4482,11 @@ NodeRevisionBase
       "engine": {
         "name": "string",
         "version": "string",
-        "uri": "string"
+        "uri": "string",
+        "dialect": "spark"
       },
-      "config": "string"
+      "config": {},
+      "schedule": "string"
     }
   ],
   "parents": [
@@ -3968,9 +4666,11 @@ NodeType
           "engine": {
             "name": "string",
             "version": "string",
-            "uri": "string"
+            "uri": "string",
+            "dialect": "spark"
           },
-          "config": "string"
+          "config": {},
+          "schedule": "string"
         }
       ],
       "parents": [
@@ -4005,29 +4705,243 @@ NodeValidation
 |dependencies|[[NodeRevisionOutput](#schemanoderevisionoutput)]|true|none|[Output for a node revision with information about columns and if it is a metric.]|
 |columns|[[Column](#schemacolumn)]|true|none|[A column.<br><br>Columns can be physical (associated with ``Table`` objects) or abstract (associated<br>with ``Node`` objects).]|
 
-<h2 id="tocS_SourceNodeColumnType">SourceNodeColumnType</h2>
+<h2 id="tocS_QueryResults">QueryResults</h2>
 <!-- backwards compatibility -->
-<a id="schemasourcenodecolumntype"></a>
-<a id="schema_SourceNodeColumnType"></a>
-<a id="tocSsourcenodecolumntype"></a>
-<a id="tocssourcenodecolumntype"></a>
+<a id="schemaqueryresults"></a>
+<a id="schema_QueryResults"></a>
+<a id="tocSqueryresults"></a>
+<a id="tocsqueryresults"></a>
 
 ```json
-{
-  "type": {},
-  "dimension": "string"
-}
+[
+  {
+    "sql": "string",
+    "columns": [
+      {
+        "name": "string",
+        "type": "string"
+      }
+    ],
+    "rows": [
+      [
+        null
+      ]
+    ],
+    "row_count": 0
+  }
+]
 
 ```
 
-SourceNodeColumnType
+QueryResults
 
 ### Properties
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
+|QueryResults|[[StatementResults](#schemastatementresults)]|false|none|Results for a given query.|
+
+<h2 id="tocS_QueryState">QueryState</h2>
+<!-- backwards compatibility -->
+<a id="schemaquerystate"></a>
+<a id="schema_QueryState"></a>
+<a id="tocSquerystate"></a>
+<a id="tocsquerystate"></a>
+
+```json
+"UNKNOWN"
+
+```
+
+QueryState
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|QueryState|string|false|none|Different states of a query.|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|QueryState|UNKNOWN|
+|QueryState|ACCEPTED|
+|QueryState|SCHEDULED|
+|QueryState|RUNNING|
+|QueryState|FINISHED|
+|QueryState|CANCELED|
+|QueryState|FAILED|
+
+<h2 id="tocS_QueryWithResults">QueryWithResults</h2>
+<!-- backwards compatibility -->
+<a id="schemaquerywithresults"></a>
+<a id="schema_QueryWithResults"></a>
+<a id="tocSquerywithresults"></a>
+<a id="tocsquerywithresults"></a>
+
+```json
+{
+  "id": "497f6eca-6276-4993-bfeb-53cbbbba6f08",
+  "engine_name": "string",
+  "engine_version": "string",
+  "submitted_query": "string",
+  "executed_query": "string",
+  "scheduled": "2019-08-24T14:15:22Z",
+  "started": "2019-08-24T14:15:22Z",
+  "finished": "2019-08-24T14:15:22Z",
+  "state": "UNKNOWN",
+  "progress": 0,
+  "output_table": {
+    "catalog": "string",
+    "schema": "string",
+    "table": "string"
+  },
+  "results": [
+    {
+      "sql": "string",
+      "columns": [
+        {
+          "name": "string",
+          "type": "string"
+        }
+      ],
+      "rows": [
+        [
+          null
+        ]
+      ],
+      "row_count": 0
+    }
+  ],
+  "next": "http://example.com",
+  "previous": "http://example.com",
+  "errors": [
+    "string"
+  ]
+}
+
+```
+
+QueryWithResults
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|id|string(uuid)|true|none|none|
+|engine_name|string|false|none|none|
+|engine_version|string|false|none|none|
+|submitted_query|string|true|none|none|
+|executed_query|string|false|none|none|
+|scheduled|string(date-time)|false|none|none|
+|started|string(date-time)|false|none|none|
+|finished|string(date-time)|false|none|none|
+|state|[QueryState](#schemaquerystate)|false|none|Different states of a query.|
+|progress|number|false|none|none|
+|output_table|[TableRef](#schematableref)|false|none|Table reference|
+|results|[QueryResults](#schemaqueryresults)|true|none|Results for a given query.|
+|next|string(uri)|false|none|none|
+|previous|string(uri)|false|none|none|
+|errors|[string]|true|none|none|
+
+<h2 id="tocS_SourceColumnOutput">SourceColumnOutput</h2>
+<!-- backwards compatibility -->
+<a id="schemasourcecolumnoutput"></a>
+<a id="schema_SourceColumnOutput"></a>
+<a id="tocSsourcecolumnoutput"></a>
+<a id="tocssourcecolumnoutput"></a>
+
+```json
+{
+  "name": "string",
+  "type": {},
+  "attributes": [
+    {
+      "attribute_type": {
+        "namespace": "string",
+        "name": "string"
+      }
+    }
+  ],
+  "dimension": "string"
+}
+
+```
+
+SourceColumnOutput
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|name|string|true|none|none|
 |type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
+|attributes|[[AttributeOutput](#schemaattributeoutput)]|false|none|[Column attribute output.]|
 |dimension|string|false|none|none|
+
+<h2 id="tocS_StatementResults">StatementResults</h2>
+<!-- backwards compatibility -->
+<a id="schemastatementresults"></a>
+<a id="schema_StatementResults"></a>
+<a id="tocSstatementresults"></a>
+<a id="tocsstatementresults"></a>
+
+```json
+{
+  "sql": "string",
+  "columns": [
+    {
+      "name": "string",
+      "type": "string"
+    }
+  ],
+  "rows": [
+    [
+      null
+    ]
+  ],
+  "row_count": 0
+}
+
+```
+
+StatementResults
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|sql|string|true|none|none|
+|columns|[[ColumnMetadata](#schemacolumnmetadata)]|true|none|[A simple model for column metadata.]|
+|rows|[array]|true|none|none|
+|row_count|integer|false|none|none|
+
+<h2 id="tocS_TableRef">TableRef</h2>
+<!-- backwards compatibility -->
+<a id="schematableref"></a>
+<a id="schema_TableRef"></a>
+<a id="tocStableref"></a>
+<a id="tocstableref"></a>
+
+```json
+{
+  "catalog": "string",
+  "schema": "string",
+  "table": "string"
+}
+
+```
+
+TableRef
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|catalog|string|true|none|none|
+|schema|string|true|none|none|
+|table|string|true|none|none|
 
 <h2 id="tocS_Tag">Tag</h2>
 <!-- backwards compatibility -->
@@ -4106,7 +5020,8 @@ TagOutput
       "name": "string",
       "type": "string"
     }
-  ]
+  ],
+  "dialect": "spark"
 }
 
 ```
@@ -4119,6 +5034,7 @@ TranslatedSQL
 |---|---|---|---|---|
 |sql|string|true|none|none|
 |columns|[[ColumnMetadata](#schemacolumnmetadata)]|false|none|[A simple model for column metadata.]|
+|dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
 
 <h2 id="tocS_UniquenessScope">UniquenessScope</h2>
 <!-- backwards compatibility -->
@@ -4159,19 +5075,27 @@ UniquenessScope
   "catalog": "string",
   "schema_": "string",
   "table": "string",
-  "columns": {
-    "property1": {
+  "columns": [
+    {
+      "name": "string",
       "type": {},
-      "dimension": "string"
-    },
-    "property2": {
-      "type": {},
+      "attributes": [
+        {
+          "attribute_type": {
+            "namespace": "string",
+            "name": "string"
+          }
+        }
+      ],
       "dimension": "string"
     }
-  },
+  ],
   "display_name": "string",
   "description": "string",
   "mode": "published",
+  "primary_key": [
+    "string"
+  ],
   "query": "string"
 }
 
@@ -4186,11 +5110,11 @@ UpdateNode
 |catalog|string|false|none|none|
 |schema_|string|false|none|none|
 |table|string|false|none|none|
-|columns|object|false|none|none|
-|» **additionalProperties**|[SourceNodeColumnType](#schemasourcenodecolumntype)|false|none|Schema of a column for a table defined in a source node|
+|columns|[[SourceColumnOutput](#schemasourcecolumnoutput)]|false|none|[A column used in creation of a source node]|
 |display_name|string|false|none|none|
 |description|string|false|none|none|
 |mode|[NodeMode](#schemanodemode)|false|none|Node mode.<br><br>A node can be in one of the following modes:<br><br>1. PUBLISHED - Must be valid and not cause any child nodes to be invalid<br>2. DRAFT - Can be invalid, have invalid parents, and include dangling references|
+|primary_key|[string]|false|none|none|
 |query|string|false|none|none|
 
 <h2 id="tocS_UpdateTag">UpdateTag</h2>
@@ -4228,7 +5152,8 @@ UpdateTag
 {
   "engine_name": "string",
   "engine_version": "string",
-  "config": "string"
+  "config": {},
+  "schedule": "string"
 }
 
 ```
@@ -4241,7 +5166,8 @@ UpsertMaterializationConfig
 |---|---|---|---|---|
 |engine_name|string|true|none|none|
 |engine_version|string|true|none|none|
-|config|string|true|none|none|
+|config|object|true|none|none|
+|schedule|string|true|none|none|
 
 <h2 id="tocS_ValidationError">ValidationError</h2>
 <!-- backwards compatibility -->
@@ -4267,7 +5193,24 @@ ValidationError
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|loc|[string]|true|none|none|
+|loc|[anyOf]|true|none|none|
+
+anyOf
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|» *anonymous*|string|false|none|none|
+
+or
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|» *anonymous*|integer|false|none|none|
+
+continued
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
 |msg|string|true|none|none|
 |type|string|true|none|none|
 
