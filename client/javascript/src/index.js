@@ -10,17 +10,20 @@ export class DJClient extends HttpClient {
         this.engineVersion = engineVersion
     }
 
+    get healthcheck() {
+        return {
+            get: () => this.get('/health/'),
+        }
+    }
+
     get catalog() {
         return {
             list: () => this.get('/catalogs/'),
             get: (catalog) => this.get(`/catalogs/${catalog}/`),
-            create: (name, engines) =>
+            create: (engine) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/catalogs/',
-                    {
-                        name,
-                        engines,
-                    }
+                    engine
                 ),
         }
     }
@@ -30,38 +33,20 @@ export class DJClient extends HttpClient {
             list: () => this.get('/engines/'),
             get: (engineName, engineVersion) =>
                 this.get(`/engines/${engineName}/${engineVersion}/`),
-            create: (engineName, engineVersion, engineUri, engineDialect) =>
+            create: (engine) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/engines/',
-                    {
-                        name: engineName,
-                        version: engineVersion,
-                        uri: engineUri,
-                        dialect: engineDialect,
-                    }
+                    engine
                 ),
         }
     }
 
     get addEngineToCatalog() {
         return {
-            set: (
-                catalogName,
-                engineName,
-                engineVersion,
-                engineUri,
-                engineDialect
-            ) =>
+            set: (catalogName, engine) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     `/catalogs/${catalogName}/engines/`,
-                    [
-                        {
-                            name: engineName,
-                            version: engineVersion,
-                            uri: engineUri,
-                            dialect: engineDialect,
-                        },
-                    ]
+                    [engine]
                 ),
         }
     }
@@ -80,35 +65,40 @@ export class DJClient extends HttpClient {
     get commonDimensions() {
         return {
             list: (metrics) =>
-                this.get(`/metrics/common/dimensions/?metrics=${metrics}`),
+                this.get(
+                    `/metrics/common/dimensions/?metric=${encodeURIComponent(
+                        JSON.stringify(metrics)
+                    )}`
+                ),
         }
     }
 
     get nodes() {
         return {
-            get: (name) => this.get(`/nodes/${name}/`),
-            validate: (node) =>
+            get: (nodeName) => this.get(`/nodes/${nodeName}/`),
+            validate: (nodeDetails) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/nodes/validate/',
-                    node
+                    nodeDetails
                 ),
-            update: (name, node) =>
+            update: (nodeName, nodeDetails) =>
                 this.setHeader('Content-Type', 'application/json').patch(
-                    `/nodes/${name}/`,
-                    node
+                    `/nodes/${nodeName}/`,
+                    nodeDetails
                 ),
-            revisions: (name) => this.get(`/nodes/${name}/revisions/`),
-            downstream: (name) => this.get(`/nodes/${name}/downstream/`),
-            upstream: (name) => this.get(`/nodes/${name}/upstream/`),
+            revisions: (nodeName) => this.get(`/nodes/${nodeName}/revisions/`),
+            downstream: (nodeName) =>
+                this.get(`/nodes/${nodeName}/downstream/`),
+            upstream: (nodeName) => this.get(`/nodes/${nodeName}/upstream/`),
         }
     }
 
     get sources() {
         return {
-            create: (source) =>
+            create: (sourceDetails) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/nodes/source/',
-                    source
+                    sourceDetails
                 ),
             list: () => this.get(`/namespaces/${this.namespace}/?type_=source`),
         }
@@ -116,10 +106,10 @@ export class DJClient extends HttpClient {
 
     get transforms() {
         return {
-            create: (transform) =>
+            create: (transformDetails) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/nodes/transform/',
-                    transform
+                    transformDetails
                 ),
             list: () =>
                 this.get(`/namespaces/${this.namespace}/?type_=transform`),
@@ -128,38 +118,40 @@ export class DJClient extends HttpClient {
 
     get dimensions() {
         return {
-            create: (dimension) =>
+            create: (dimensionDetails) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/nodes/dimension/',
-                    dimension
+                    dimensionDetails
                 ),
             list: () =>
                 this.get(`/namespaces/${this.namespace}/?type_=dimension`),
-            link: (nodeName, column, dimension, dimensionColumn) =>
+            link: (nodeName, nodeColumn, dimension, dimensionColumn) =>
                 this.post(
-                    `/nodes/${nodeName}/columns/${column}/?dimension=${dimension}&dimension_column=${dimensionColumn}`
+                    `/nodes/${nodeName}/columns/${nodeColumn}/?dimension=${dimension}&dimension_column=${dimensionColumn}`
                 ),
         }
     }
 
     get metrics() {
         return {
-            create: (metric) =>
+            get: (metricName) => this.get(`/metrics/${metricName}/`),
+            create: (metricDetails) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/nodes/metric/',
-                    metric
+                    metricDetails
                 ),
             list: () => this.get(`/namespaces/${this.namespace}/?type_=metric`),
+            all: () => this.get(`/metrics/`),
         }
     }
 
     get cubes() {
         return {
-            get: (cube) => this.post(`/cubes/${cube}/`),
-            create: (cube) =>
+            get: (cubeName) => this.get(`/cubes/${cubeName}/`),
+            create: (cubeDetails) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/nodes/cube/',
-                    cube
+                    cubeDetails
                 ),
         }
     }
@@ -167,19 +159,20 @@ export class DJClient extends HttpClient {
     get tags() {
         return {
             list: () => this.get('/tags/'),
-            get: (tag) => this.get(`/tags/${tag}/nodes/`),
+            get: (tagName) => this.get(`/tags/${tagName}/`),
             create: (tagData) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     '/tags/',
                     tagData
                 ),
-            update: (tag, tagData) =>
+            update: (tagName, tagData) =>
                 this.setHeader('Content-Type', 'application/json').patch(
-                    `/tags/${tag}/`,
+                    `/tags/${tagName}/`,
                     tagData
                 ),
             set: (nodeName, tagName) =>
                 this.post(`/nodes/${nodeName}/tag/?tag_name=${tagName}`),
+            listNodes: (tagName) => this.get(`/tags/${tagName}/nodes/`),
         }
     }
 
@@ -196,10 +189,10 @@ export class DJClient extends HttpClient {
 
     get materializationConfigs() {
         return {
-            update: (nodeName, materializationConfig) =>
-                this.setHeader('Content-Type', 'application/json').patch(
+            update: (nodeName, materializationDetails) =>
+                this.setHeader('Content-Type', 'application/json').post(
                     `/nodes/${nodeName}/materialization/`,
-                    materializationConfig
+                    materializationDetails
                 ),
         }
     }
@@ -209,7 +202,7 @@ export class DJClient extends HttpClient {
             set: (nodeName, columnAttribute) =>
                 this.setHeader('Content-Type', 'application/json').post(
                     `/nodes/${nodeName}/attributes/`,
-                    columnAttribute
+                    [columnAttribute]
                 ),
         }
     }
@@ -230,11 +223,11 @@ export class DJClient extends HttpClient {
                 metrics,
                 dimensions,
                 filters,
-                async_,
-                engineName,
-                engineVersion
+                async_ = false,
+                engineName = null,
+                engineVersion = null
             ) =>
-                this.post(
+                this.get(
                     `/sql/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${engineName}&engine_version=${engineVersion}`
                 ),
         }
@@ -246,11 +239,11 @@ export class DJClient extends HttpClient {
                 metrics,
                 dimensions,
                 filters,
-                async_,
-                engineName,
-                engineVersion
+                async_ = false,
+                engineName = null,
+                engineVersion = null
             ) =>
-                this.post(
+                this.get(
                     `/data/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${engineName}&engine_version=${engineVersion}`
                 ),
         }
