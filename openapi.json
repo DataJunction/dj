@@ -7,7 +7,7 @@
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "0.0.post1.dev792+g76f08b5.d20230417"
+        "version": "unknown"
     },
     "paths": {
         "/catalogs/": {
@@ -287,7 +287,7 @@
                                     "title": "Response List Metrics Metrics  Get",
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/components/schemas/Metric"
+                                        "type": "string"
                                     }
                                 }
                             }
@@ -802,67 +802,6 @@
                 }
             }
         },
-        "/namespaces/{namespace}/": {
-            "post": {
-                "summary": "Create A Node Namespace",
-                "description": "Create a node namespace",
-                "operationId": "create_a_node_namespace_namespaces__namespace___post",
-                "parameters": [
-                    {
-                        "required": true,
-                        "schema": {
-                            "title": "Namespace",
-                            "type": "string"
-                        },
-                        "name": "namespace",
-                        "in": "path"
-                    }
-                ],
-                "responses": {
-                    "201": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {}
-                            }
-                        }
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        "/namespaces/all/": {
-            "get": {
-                "summary": "List Node Namespaces",
-                "description": "List node namespaces",
-                "operationId": "list_node_namespaces_namespaces_all__get",
-                "responses": {
-                    "201": {
-                        "description": "Successful Response",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "title": "Response List Node Namespaces Namespaces All  Get",
-                                    "type": "array",
-                                    "items": {
-                                        "$ref": "#/components/schemas/NodeNamespace"
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
         "/nodes/metric/": {
             "post": {
                 "summary": "Create A Node",
@@ -983,7 +922,7 @@
         "/nodes/cube/": {
             "post": {
                 "summary": "Create A Cube",
-                "description": "Create a node.",
+                "description": "Create a cube node.",
                 "operationId": "create_a_cube_nodes_cube__post",
                 "requestBody": {
                     "content": {
@@ -1230,6 +1169,165 @@
                 }
             }
         },
+        "/nodes/{name}/upstream/": {
+            "get": {
+                "summary": "List Upstream Nodes",
+                "description": "List all nodes that are upstream from the given node, filterable by type.",
+                "operationId": "list_upstream_nodes_nodes__name__upstream__get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "$ref": "#/components/schemas/NodeType"
+                        },
+                        "name": "node_type",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response List Upstream Nodes Nodes  Name  Upstream  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/NodeOutput"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/namespaces/{namespace}/": {
+            "get": {
+                "summary": "List Nodes In Namespace",
+                "description": "List node names in namespace, filterable to a given type if desired.",
+                "operationId": "list_nodes_in_namespace_namespaces__namespace___get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Namespace",
+                            "type": "string"
+                        },
+                        "name": "namespace",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "$ref": "#/components/schemas/NodeType"
+                        },
+                        "name": "type_",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/NodeNameList"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "summary": "Create A Node Namespace",
+                "description": "Create a node namespace",
+                "operationId": "create_a_node_namespace_namespaces__namespace___post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Namespace",
+                            "type": "string"
+                        },
+                        "name": "namespace",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/namespaces/": {
+            "get": {
+                "summary": "List Node Namespaces",
+                "description": "List node namespaces",
+                "operationId": "list_node_namespaces_namespaces__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response List Node Namespaces Namespaces  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/NodeNamespace"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/data/{node_name}/availability/": {
             "post": {
                 "summary": "Add An Availability State",
@@ -1354,6 +1452,104 @@
                         "content": {
                             "application/json": {
                                 "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/data/": {
+            "get": {
+                "summary": "Get Data For Metrics",
+                "description": "Return data for a set of metrics with dimensions and filters",
+                "operationId": "get_data_for_metrics_data__get",
+                "parameters": [
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Metrics",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "metrics",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Dimensions",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "dimensions",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Filters",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "filters",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Async ",
+                            "type": "boolean",
+                            "default": false
+                        },
+                        "name": "async_",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Engine Name",
+                            "type": "string"
+                        },
+                        "name": "engine_name",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Engine Version",
+                            "type": "string"
+                        },
+                        "name": "engine_version",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/QueryWithResults"
+                                }
                             }
                         }
                     },
@@ -1797,6 +1993,94 @@
                     }
                 }
             }
+        },
+        "/sql/": {
+            "get": {
+                "summary": "Get Sql For Metrics",
+                "description": "Return SQL for a set of metrics with dimensions and filters",
+                "operationId": "get_sql_for_metrics_sql__get",
+                "parameters": [
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Metrics",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "metrics",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Dimensions",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "dimensions",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Filters",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "filters",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Engine Name",
+                            "type": "string"
+                        },
+                        "name": "engine_name",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Engine Version",
+                            "type": "string"
+                        },
+                        "name": "engine_version",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TranslatedSQL"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
     },
     "components": {
@@ -2142,7 +2426,8 @@
             "CreateCubeNode": {
                 "title": "CreateCubeNode",
                 "required": [
-                    "cube_elements",
+                    "metrics",
+                    "dimensions",
                     "description",
                     "mode",
                     "name"
@@ -2153,8 +2438,22 @@
                         "title": "Display Name",
                         "type": "string"
                     },
-                    "cube_elements": {
-                        "title": "Cube Elements",
+                    "metrics": {
+                        "title": "Metrics",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "dimensions": {
+                        "title": "Dimensions",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "filters": {
+                        "title": "Filters",
                         "type": "array",
                         "items": {
                             "type": "string"
@@ -2177,7 +2476,6 @@
                         "default": "default"
                     }
                 },
-                "additionalProperties": false,
                 "description": "A create object for cube nodes"
             },
             "CreateNode": {
@@ -2322,22 +2620,22 @@
             "CubeElementMetadata": {
                 "title": "CubeElementMetadata",
                 "required": [
-                    "id",
-                    "current_version",
-                    "name"
+                    "name",
+                    "node_name",
+                    "type"
                 ],
                 "type": "object",
                 "properties": {
-                    "id": {
-                        "title": "Id",
-                        "type": "integer"
-                    },
-                    "current_version": {
-                        "title": "Current Version",
-                        "type": "string"
-                    },
                     "name": {
                         "title": "Name",
+                        "type": "string"
+                    },
+                    "node_name": {
+                        "title": "Node Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "title": "Type",
                         "type": "string"
                     }
                 },
@@ -2353,7 +2651,10 @@
                     "display_name",
                     "version",
                     "cube_elements",
-                    "updated_at"
+                    "query",
+                    "columns",
+                    "updated_at",
+                    "materialization_configs"
                 ],
                 "type": "object",
                 "properties": {
@@ -2395,10 +2696,28 @@
                             "$ref": "#/components/schemas/CubeElementMetadata"
                         }
                     },
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "columns": {
+                        "title": "Columns",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ColumnOutput"
+                        }
+                    },
                     "updated_at": {
                         "title": "Updated At",
                         "type": "string",
                         "format": "date-time"
+                    },
+                    "materialization_configs": {
+                        "title": "Materialization Configs",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/MaterializationConfig"
+                        }
                     }
                 },
                 "description": "Metadata for a cube node"
@@ -2407,7 +2726,8 @@
                 "title": "Dialect",
                 "enum": [
                     "spark",
-                    "trino"
+                    "trino",
+                    "druid"
                 ],
                 "type": "string",
                 "description": "SQL dialect"
@@ -2478,11 +2798,41 @@
                 "type": "string",
                 "description": "Possible health statuses."
             },
+            "MaterializationConfig": {
+                "title": "MaterializationConfig",
+                "required": [
+                    "node_revision_id",
+                    "engine_id",
+                    "schedule"
+                ],
+                "type": "object",
+                "properties": {
+                    "node_revision_id": {
+                        "title": "Node Revision Id",
+                        "type": "integer"
+                    },
+                    "engine_id": {
+                        "title": "Engine Id",
+                        "type": "integer"
+                    },
+                    "schedule": {
+                        "title": "Schedule",
+                        "type": "string"
+                    },
+                    "config": {
+                        "title": "Config",
+                        "type": "object",
+                        "default": {}
+                    }
+                },
+                "description": "Materialization configuration for a node and specific engines."
+            },
             "MaterializationConfigOutput": {
                 "title": "MaterializationConfigOutput",
                 "required": [
                     "engine",
-                    "config"
+                    "config",
+                    "schedule"
                 ],
                 "type": "object",
                 "properties": {
@@ -2491,6 +2841,10 @@
                     },
                     "config": {
                         "title": "Config",
+                        "type": "object"
+                    },
+                    "schedule": {
+                        "title": "Schedule",
                         "type": "string"
                     }
                 },
@@ -2594,6 +2948,14 @@
                 ],
                 "type": "string",
                 "description": "Node mode.\n\nA node can be in one of the following modes:\n\n1. PUBLISHED - Must be valid and not cause any child nodes to be invalid\n2. DRAFT - Can be invalid, have invalid parents, and include dangling references"
+            },
+            "NodeNameList": {
+                "title": "NodeNameList",
+                "type": "array",
+                "items": {
+                    "type": "string"
+                },
+                "description": "List of node names"
             },
             "NodeNameOutput": {
                 "title": "NodeNameOutput",
@@ -2935,6 +3297,117 @@
                 },
                 "description": "A validation of a provided node definition"
             },
+            "QueryResults": {
+                "title": "QueryResults",
+                "type": "array",
+                "items": {
+                    "$ref": "#/components/schemas/StatementResults"
+                },
+                "description": "Results for a given query."
+            },
+            "QueryState": {
+                "title": "QueryState",
+                "enum": [
+                    "UNKNOWN",
+                    "ACCEPTED",
+                    "SCHEDULED",
+                    "RUNNING",
+                    "FINISHED",
+                    "CANCELED",
+                    "FAILED"
+                ],
+                "type": "string",
+                "description": "Different states of a query."
+            },
+            "QueryWithResults": {
+                "title": "QueryWithResults",
+                "required": [
+                    "id",
+                    "submitted_query",
+                    "results",
+                    "errors"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "title": "Id",
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "engine_name": {
+                        "title": "Engine Name",
+                        "type": "string"
+                    },
+                    "engine_version": {
+                        "title": "Engine Version",
+                        "type": "string"
+                    },
+                    "submitted_query": {
+                        "title": "Submitted Query",
+                        "type": "string"
+                    },
+                    "executed_query": {
+                        "title": "Executed Query",
+                        "type": "string"
+                    },
+                    "scheduled": {
+                        "title": "Scheduled",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "started": {
+                        "title": "Started",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "finished": {
+                        "title": "Finished",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "state": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/QueryState"
+                            }
+                        ],
+                        "default": "UNKNOWN"
+                    },
+                    "progress": {
+                        "title": "Progress",
+                        "type": "number",
+                        "default": 0.0
+                    },
+                    "output_table": {
+                        "$ref": "#/components/schemas/TableRef"
+                    },
+                    "results": {
+                        "$ref": "#/components/schemas/QueryResults"
+                    },
+                    "next": {
+                        "title": "Next",
+                        "maxLength": 65536,
+                        "minLength": 1,
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "previous": {
+                        "title": "Previous",
+                        "maxLength": 65536,
+                        "minLength": 1,
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "errors": {
+                        "title": "Errors",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "description": "Model for query with results."
+            },
             "SourceColumnOutput": {
                 "title": "SourceColumnOutput",
                 "required": [
@@ -2963,6 +3436,66 @@
                     }
                 },
                 "description": "A column used in creation of a source node"
+            },
+            "StatementResults": {
+                "title": "StatementResults",
+                "required": [
+                    "sql",
+                    "columns",
+                    "rows"
+                ],
+                "type": "object",
+                "properties": {
+                    "sql": {
+                        "title": "Sql",
+                        "type": "string"
+                    },
+                    "columns": {
+                        "title": "Columns",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ColumnMetadata"
+                        }
+                    },
+                    "rows": {
+                        "title": "Rows",
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {}
+                        }
+                    },
+                    "row_count": {
+                        "title": "Row Count",
+                        "type": "integer",
+                        "default": 0
+                    }
+                },
+                "description": "Results for a given statement.\n\nThis contains the SQL, column names and types, and rows"
+            },
+            "TableRef": {
+                "title": "TableRef",
+                "required": [
+                    "catalog",
+                    "schema",
+                    "table"
+                ],
+                "type": "object",
+                "properties": {
+                    "catalog": {
+                        "title": "Catalog",
+                        "type": "string"
+                    },
+                    "schema": {
+                        "title": "Schema",
+                        "type": "string"
+                    },
+                    "table": {
+                        "title": "Table",
+                        "type": "string"
+                    }
+                },
+                "description": "Table reference"
             },
             "Tag": {
                 "title": "Tag",
@@ -3137,7 +3670,8 @@
                 "required": [
                     "engine_name",
                     "engine_version",
-                    "config"
+                    "config",
+                    "schedule"
                 ],
                 "type": "object",
                 "properties": {
@@ -3151,6 +3685,10 @@
                     },
                     "config": {
                         "title": "Config",
+                        "type": "object"
+                    },
+                    "schedule": {
+                        "title": "Schedule",
                         "type": "string"
                     }
                 },
@@ -3169,7 +3707,14 @@
                         "title": "Location",
                         "type": "array",
                         "items": {
-                            "type": "string"
+                            "anyOf": [
+                                {
+                                    "type": "string"
+                                },
+                                {
+                                    "type": "integer"
+                                }
+                            ]
                         }
                     },
                     "msg": {
