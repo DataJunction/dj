@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo } from 'react';
+import React, { useCallback, useContext, useEffect, useMemo } from 'react';
 import ReactFlow, {
   addEdge,
   MiniMap,
@@ -12,10 +12,11 @@ import ReactFlow, {
 import '../../../styles/dag.css';
 import 'reactflow/dist/style.css';
 import DJNode from '../../components/djgraph/DJNode';
-import { DataJunctionAPI } from '../../services/DJService';
 import dagre from 'dagre';
+import DJClientContext from '../../providers/djclient';
 
 const NodeLineage = djNode => {
+  const djClient = useContext(DJClientContext).DataJunctionAPI;
   const nodeTypes = useMemo(() => ({ DJNode: DJNode }), []);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
@@ -65,8 +66,8 @@ const NodeLineage = djNode => {
     };
 
     const dagFetch = async () => {
-      let upstreams = await DataJunctionAPI.upstreams(djNode.djNode.name);
-      let downstreams = await DataJunctionAPI.downstreams(djNode.djNode.name);
+      let upstreams = await djClient.upstreams(djNode.djNode.name);
+      let downstreams = await djClient.downstreams(djNode.djNode.name);
       var djNodes = [djNode.djNode];
       for (const iterable of [upstreams, downstreams]) {
         for (const item of iterable) {
@@ -118,7 +119,7 @@ const NodeLineage = djNode => {
             label:
               node.table !== null
                 ? String(node.schema_ + '.' + node.table)
-                : String(node.name),
+                : 'default.' + node.name,
             table: node.table,
             name: String(node.name),
             display_name: String(node.display_name),
@@ -131,7 +132,6 @@ const NodeLineage = djNode => {
           // extent: 'parent',
         };
       });
-      console.log(djNodes);
       setNodes(nodes);
       setEdges(edges);
       setElementsLayout(nodes, edges);

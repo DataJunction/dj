@@ -1,23 +1,26 @@
 import * as React from 'react';
-import { useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import NamespaceHeader from '../../components/NamespaceHeader';
-const datajunction = require('datajunction');
-const dj = new datajunction.DJClient('http://localhost:8000');
+import { DataJunctionAPI } from '../../services/DJService';
+import DJClientContext from '../../providers/djclient';
+// const datajunction = require('datajunction');
+// const dj = new datajunction.DJClient('http://localhost:8000');
 
 export function ListNamespacesPage() {
+  const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [state, setState] = useState({
     namespaces: [],
   });
 
   useEffect(() => {
     const fetchData = async () => {
-      const namespaces = await dj.namespaces.get();
+      const namespaces = await djClient.namespaces();
       setState({
         namespaces: namespaces,
       });
     };
     fetchData().catch(console.error);
-  }, []);
+  }, [djClient.namespaces]);
 
   const namespacesList = state.namespaces.map(node => (
     <tr>
@@ -51,3 +54,7 @@ export function ListNamespacesPage() {
     </>
   );
 }
+
+ListNamespacesPage.defaultProps = {
+  djClient: DataJunctionAPI,
+};

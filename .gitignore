@@ -6,6 +6,7 @@ dist
 stats.json
 .pnp
 .pnp.js
+dist
 
 # misc
 .DS_Store
