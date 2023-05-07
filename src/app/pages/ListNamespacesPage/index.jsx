@@ -20,7 +20,7 @@ export function ListNamespacesPage() {
       });
     };
     fetchData().catch(console.error);
-  }, [djClient.namespaces]);
+  }, [djClient, djClient.namespaces]);
 
   const namespacesList = state.namespaces.map(node => (
     <tr>
