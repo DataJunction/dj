@@ -138,7 +138,7 @@ const NodeLineage = djNode => {
     };
 
     dagFetch();
-  }, [dagreGraph, djNode.djNode, setEdges, setNodes]);
+  }, [dagreGraph, djClient, djNode.djNode, setEdges, setNodes]);
 
   const onConnect = useCallback(
     params => setEdges(eds => addEdge(params, eds)),
