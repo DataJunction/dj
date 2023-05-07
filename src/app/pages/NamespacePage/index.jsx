@@ -1,20 +1,12 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { DataJunctionAPI } from '../../services/DJService';
+import { useContext, useEffect, useState } from 'react';
 import NamespaceHeader from '../../components/NamespaceHeader';
 import NodeStatus from '../NodePage/NodeStatus';
-
-export async function loader({ params }) {
-  const djNode = await DataJunctionAPI.node(params.name);
-  if (djNode.type === 'metric') {
-    const metricNode = await DataJunctionAPI.metric(params.name);
-    djNode.dimensions = metricNode.dimensions;
-  }
-  return djNode;
-}
+import DJClientContext from '../../providers/djclient';
 
 export function NamespacePage() {
+  const djClient = useContext(DJClientContext).DataJunctionAPI;
   const { namespace } = useParams();
 
   const [state, setState] = useState({
@@ -24,9 +16,9 @@ export function NamespacePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const djNodes = await DataJunctionAPI.namespace(namespace);
+      const djNodes = await djClient.namespace(namespace);
       const nodes = djNodes.map(node => {
-        return DataJunctionAPI.node(node);
+        return djClient.node(node);
       });
       const foundNodes = await Promise.all(nodes);
       setState({
@@ -35,7 +27,7 @@ export function NamespacePage() {
       });
     };
     fetchData().catch(console.error);
-  }, [namespace]);
+  }, [djClient, namespace]);
 
   const nodesList = state.nodes.map(node => (
     <tr>
@@ -77,13 +69,15 @@ export function NamespacePage() {
           <div className="table-responsive">
             <table className="card-table table">
               <thead>
-                <th>Namespace</th>
-                <th>Name</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Mode</th>
+                <tr>
+                  <th>Namespace</th>
+                  <th>Name</th>
+                  <th>Type</th>
+                  <th>Status</th>
+                  <th>Mode</th>
+                </tr>
               </thead>
-              {nodesList}
+              <tbody>{nodesList}</tbody>
             </table>
           </div>
         </div>

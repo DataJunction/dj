@@ -5,10 +5,12 @@
 import * as React from 'react';
 import { lazyLoad } from '../../../utils/loadable';
 
-export const NamespacePage = lazyLoad(
-  () => import('./index'),
-  module => module.NamespacePage,
-  {
-    fallback: <div></div>,
-  },
-);
+export const NamespacePage = props => {
+  return lazyLoad(
+    () => import('./index'),
+    module => module.NamespacePage,
+    {
+      fallback: <div></div>,
+    },
+  )(props);
+};
