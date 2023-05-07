@@ -379,8 +379,8 @@ tbody th {
 }
 
 .node_type__cube {
-  background-color: #c2180750 !important;
-  color: #c21807;
+  background-color: #dbafff !important;
+  color: #580076;
 }
 
 .status__valid {
@@ -498,8 +498,8 @@ pre {
   flex-grow: 0 !important;
 }
 .logo img {
-  padding: 10px;
-  margin-bottom: -1.2rem;
+  padding: 15px;
+  margin-bottom: 0.2rem;
 }
 
 .menu-lg-row > .menu-item {
