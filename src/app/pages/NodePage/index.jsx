@@ -1,14 +1,15 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
-import { useEffect, useState } from 'react';
-import { DataJunctionAPI } from '../../services/DJService';
+import { useContext, useEffect, useState } from 'react';
 import Tab from '../../components/Tab';
 import NamespaceHeader from '../../components/NamespaceHeader';
 import NodeInfoTab from './NodeInfoTab';
 import NodeColumnTab from './NodeColumnTab';
 import NodeLineage from './NodeGraphTab';
+import DJClientContext from '../../providers/djclient';
 
 export function NodePage() {
+  const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [state, setState] = useState({
     selectedTab: 0,
   });
@@ -35,11 +36,11 @@ export function NodePage() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const data = await DataJunctionAPI.node(name);
+      const data = await djClient.node(name);
       setNode(data);
     };
     fetchData().catch(console.error);
-  }, [name]);
+  }, [djClient, name]);
 
   const TabsJson = [
     {
@@ -66,7 +67,7 @@ export function NodePage() {
       tabToDisplay = <NodeColumnTab node={node} />;
       break;
     case 2:
-      tabToDisplay = <NodeLineage djNode={node} />;
+      tabToDisplay = <NodeLineage djNode={node} djClient={djClient} />;
       break;
     default:
       tabToDisplay = <NodeInfoTab node={node} />;

@@ -1,3 +1,4 @@
+const webpack = require('webpack');
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 // const MiniCssExtractPlugin = require('mini-css-extract-plugin');
@@ -37,6 +38,13 @@ module.exports = {
       fs: false,
       os: false,
       module: false,
+      http: false,
+      tls: false,
+      https: false,
+      url: false,
+      browser: false,
+      net: false,
+      process: false,
     },
   },
   module: {
@@ -89,6 +97,9 @@ module.exports = {
   plugins: [
     new HtmlWebpackPlugin({
       template: path.resolve(__dirname, 'public', 'index.html'),
+    }),
+    new webpack.DefinePlugin({
+      REACT_APP_DJ_URL: 'http://localhost:8000',
     }),
     // new MiniCssExtractPlugin({
     //   filename: './styles/index.css',

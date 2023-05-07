@@ -14,38 +14,70 @@ exports[`<App /> should render and match the snapshot 1`] = `
       name="description"
     />
   </Helmet>
-  <Routes>
-    <Route
-      element={<Unknown />}
-      path="/"
-    >
-      <React.Fragment>
-        <Route
-          path="nodes"
-        >
+  <Context.Provider
+    value={
+      Object {
+        "DataJunctionAPI": Object {
+          "dag": [Function],
+          "downstreams": [Function],
+          "lineage": [Function],
+          "metric": [Function],
+          "namespace": [Function],
+          "namespaces": [Function],
+          "node": [Function],
+          "upstreams": [Function],
+        },
+      }
+    }
+  >
+    <Routes>
+      <Route
+        element={<Unknown />}
+        path="/"
+      >
+        <React.Fragment>
           <Route
-            element={<Unknown />}
-            path=":name"
-          />
-        </Route>
-        <Route
-          element={<ListNamespacesPage />}
-          path="/"
-        />
-        <Route
-          path="namespaces"
-        >
+            path="nodes"
+          >
+            <Route
+              element={<NodePage />}
+              path=":name"
+            />
+          </Route>
           <Route
-            element={<Unknown />}
-            path=":namespace"
+            element={
+              <ListNamespacesPage
+                djClient={
+                  Object {
+                    "dag": [Function],
+                    "downstreams": [Function],
+                    "lineage": [Function],
+                    "metric": [Function],
+                    "namespace": [Function],
+                    "namespaces": [Function],
+                    "node": [Function],
+                    "upstreams": [Function],
+                  }
+                }
+              />
+            }
+            path="/"
           />
-        </Route>
-      </React.Fragment>
-    </Route>
-    <Route
-      element={<Unknown />}
-      path="*"
-    />
-  </Routes>
+          <Route
+            path="namespaces"
+          >
+            <Route
+              element={<NamespacePage />}
+              path=":namespace"
+            />
+          </Route>
+        </React.Fragment>
+      </Route>
+      <Route
+        element={<Unknown />}
+        path="*"
+      />
+    </Routes>
+  </Context.Provider>
 </BrowserRouter>
 `;
