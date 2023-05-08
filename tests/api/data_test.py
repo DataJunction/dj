@@ -21,7 +21,7 @@ class TestDataForNode:
         Test trying to get dimensions data while setting dimensions
         """
         response = client_with_examples.get(
-            "/data/payment_type/",
+            "/data/default.payment_type/",
             params={
                 "dimensions": ["something"],
                 "filters": [],
@@ -39,7 +39,7 @@ class TestDataForNode:
         Test trying to get dimensions data while setting dimensions
         """
         response = client_with_query_service.get(
-            "/data/payment_type/",
+            "/data/default.payment_type/",
         )
         data = response.json()
         assert response.status_code == 200
@@ -85,7 +85,7 @@ class TestDataForNode:
         """
         Test retrieving data for a source node
         """
-        response = client_with_query_service.get("/data/revenue/")
+        response = client_with_query_service.get("/data/default.revenue/")
         data = response.json()
         assert response.status_code == 200
         assert data == {
@@ -120,7 +120,9 @@ class TestDataForNode:
         """
         Test retrieving data for a transform node
         """
-        response = client_with_query_service.get("/data/large_revenue_payments_only/")
+        response = client_with_query_service.get(
+            "/data/default.large_revenue_payments_only/",
+        )
         data = response.json()
         assert response.status_code == 200
         assert data == {
@@ -129,8 +131,8 @@ class TestDataForNode:
             "engine_version": None,
             "submitted_query": (
                 "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
-                '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n WHERE  '
-                "revenue.payment_amount > 1000000"
+                '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n '
+                "WHERE  revenue.payment_amount > 1000000"
             ),
             "executed_query": None,
             "scheduled": None,
@@ -208,8 +210,8 @@ class TestDataForNode:
         Test getting multiple metrics and dimensions
         """
         response = client_with_query_service.get(
-            "/data?metrics=num_repair_orders&metrics="
-            "avg_repair_price&dimensions=dispatcher.company_name",
+            "/data?metrics=default.num_repair_orders&metrics="
+            "default.avg_repair_price&dimensions=default.dispatcher.company_name",
         )
         data = response.json()
         assert response.status_code == 200
@@ -239,20 +241,21 @@ class TestDataForNode:
             "scheduled": None,
             "started": None,
             "state": "FINISHED",
-            "submitted_query": "SELECT  avg(repair_order_details.price) AS "
-            "avg_repair_price,\\n\\tdispatcher.company_name,\\n\\t"
-            "count(repair_orders.repair_order_id) "
-            "AS num_repair_orders \\n FROM roads.repair_order_details "
-            "AS repair_order_details LEFT OUTER JOIN (SELECT  "
-            "repair_orders.dispatcher_id,\\n\\trepair_orders.hard_hat_id,"
-            "\\n\\trepair_orders.municipality_id,\\n\\trepair_orders.repair_order_id "
-            "\\n FROM roads.repair_orders AS repair_orders) AS "
-            "repair_order ON repair_order_details.repair_order_id = "
-            "repair_order.repair_order_id\\nLEFT OUTER JOIN (SELECT  "
-            "dispatchers.company_name,\\n\\tdispatchers.dispatcher_id "
-            "\\n FROM roads.dispatchers AS dispatchers) AS dispatcher "
-            "ON repair_order.dispatcher_id = dispatcher.dispatcher_id "
-            "\\n GROUP BY  dispatcher.company_name\\n",
+            "submitted_query": (
+                "SELECT  avg(repair_order_details.price) AS avg_repair_price,\\n\\t"
+                "dispatcher.company_name,\\n\\tcount(repair_orders.repair_order_id) AS "
+                "num_repair_orders \\n FROM roads.repair_order_details AS repair_order_details "
+                "LEFT OUTER JOIN (SELECT  repair_orders.dispatcher_id,\\n\\t"
+                "repair_orders.hard_hat_id,"
+                "\\n\\trepair_orders.municipality_id,\\n\\trepair_orders.repair_order_id \\n FROM "
+                "roads.repair_orders AS repair_orders) AS repair_order ON "
+                "repair_order_details.repair_order_id "
+                "= repair_order.repair_order_id\\nLEFT OUTER JOIN (SELECT  "
+                "dispatchers.company_name,\\n\\tdispatchers.dispatcher_id \\n FROM "
+                "roads.dispatchers AS dispatchers) AS dispatcher "
+                "ON repair_order.dispatcher_id = dispatcher.dispatcher_id \\n GROUP BY  "
+                "dispatcher.company_name\\n"
+            ),
         }
 
 
@@ -270,7 +273,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test adding an availability state
         """
         response = client_with_examples.post(
-            "/data/large_revenue_payments_and_business_only/availability/",
+            "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -286,7 +289,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         statement = select(Node).where(
-            Node.name == "large_revenue_payments_and_business_only",
+            Node.name == "default.large_revenue_payments_and_business_only",
         )
         large_revenue_payments_and_business_only = session.exec(statement).one()
         node_dict = large_revenue_payments_and_business_only.current.availability.dict()
@@ -309,7 +312,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test raising when the catalog does not match
         """
         response = client_with_examples.post(
-            "/data/large_revenue_payments_and_business_only/availability/",
+            "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "public",
                 "schema_": "accounting",
@@ -335,7 +338,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test adding multiple availability states
         """
         response = client_with_examples.post(
-            "/data/large_revenue_payments_and_business_only/availability/",
+            "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -351,7 +354,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         response = client_with_examples.post(
-            "/data/large_revenue_payments_and_business_only/availability/",
+            "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -367,7 +370,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         response = client_with_examples.post(
-            "/data/large_revenue_payments_and_business_only/availability/",
+            "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "new_accounting",
@@ -383,7 +386,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         statement = select(Node).where(
-            Node.name == "large_revenue_payments_and_business_only",
+            Node.name == "default.large_revenue_payments_and_business_only",
         )
         large_revenue_payments_and_business_only = session.exec(statement).one()
         node_dict = large_revenue_payments_and_business_only.current.availability.dict()
@@ -407,7 +410,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test that the `updated_at` attribute is being updated
         """
         response = client_with_examples.post(
-            "/data/large_revenue_payments_and_business_only/availability/",
+            "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -419,7 +422,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         )
         assert response.status_code == 200
         statement = select(Node).where(
-            Node.name == "large_revenue_payments_and_business_only",
+            Node.name == "default.large_revenue_payments_and_business_only",
         )
         large_revenue_payments_and_business_only = session.exec(statement).one()
         updated_at_1 = (
@@ -429,7 +432,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         )
 
         response = client_with_examples.post(
-            "/data/large_revenue_payments_and_business_only/availability/",
+            "/data/default.large_revenue_payments_and_business_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -458,7 +461,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test raising when setting availability state on non-existent node
         """
         response = client_with_examples.post(
-            "/data/nonexistentnode/availability/",
+            "/data/default.nonexistentnode/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -472,7 +475,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
         assert response.status_code == 404
         assert data == {
-            "message": "A node with name `nonexistentnode` does not exist.",
+            "message": "A node with name `default.nonexistentnode` does not exist.",
             "errors": [],
             "warnings": [],
         }
@@ -486,7 +489,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test that the higher max_partition value is used when merging in an availability state
         """
         client_with_examples.post(
-            "/data/large_revenue_payments_only/availability/",
+            "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -497,7 +500,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         )
         response = client_with_examples.post(
-            "/data/large_revenue_payments_only/availability/",
+            "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -521,7 +524,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         statement = select(Node).where(
-            Node.name == "large_revenue_payments_only",
+            Node.name == "default.large_revenue_payments_only",
         )
         large_revenue_payments_only = session.exec(statement).one()
         node_dict = large_revenue_payments_only.current.availability.dict()
@@ -545,7 +548,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test that the lower min_partition value is used when merging in an availability state
         """
         client_with_examples.post(
-            "/data/large_revenue_payments_only/availability/",
+            "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -556,7 +559,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         )
         response = client_with_examples.post(
-            "/data/large_revenue_payments_only/availability/",
+            "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -580,7 +583,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         statement = select(Node).where(
-            Node.name == "large_revenue_payments_only",
+            Node.name == "default.large_revenue_payments_only",
         )
         large_revenue_payments_only = session.exec(statement).one()
         node_dict = large_revenue_payments_only.current.availability.dict()
@@ -604,7 +607,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test that the valid through timestamp can be moved backwards
         """
         client_with_examples.post(
-            "/data/large_revenue_payments_only/availability/",
+            "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -615,7 +618,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             },
         )
         response = client_with_examples.post(
-            "/data/large_revenue_payments_only/availability/",
+            "/data/default.large_revenue_payments_only/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -639,7 +642,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         statement = select(Node).where(
-            Node.name == "large_revenue_payments_only",
+            Node.name == "default.large_revenue_payments_only",
         )
         large_revenue_payments_only = session.exec(statement).one()
         node_dict = large_revenue_payments_only.current.availability.dict()
@@ -663,7 +666,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test setting the availability state on a source node
         """
         response = client_with_examples.post(
-            "/data/revenue/availability/",
+            "/data/default.revenue/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",
@@ -679,7 +682,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert data == {"message": "Availability state successfully posted"}
 
         statement = select(Node).where(
-            Node.name == "revenue",
+            Node.name == "default.revenue",
         )
         revenue = session.exec(statement).one()
         node_dict = revenue.current.availability.dict()
@@ -702,7 +705,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         Test raising availability state doesn't match existing source node table
         """
         response = client_with_examples.post(
-            "/data/revenue/availability/",
+            "/data/default.revenue/availability/",
             json={
                 "catalog": "default",
                 "schema_": "accounting",

@@ -50,7 +50,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "All repair orders",
             "mode": "published",
-            "name": "repair_orders",
+            "name": "default.repair_orders",
             "catalog": "default",
             "schema_": "roads",
             "table": "repair_orders",
@@ -68,7 +68,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Details on repair orders",
             "mode": "published",
-            "name": "repair_order_details",
+            "name": "default.repair_order_details",
             "catalog": "default",
             "schema_": "roads",
             "table": "repair_order_details",
@@ -84,7 +84,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Information on types of repairs",
             "mode": "published",
-            "name": "repair_type",
+            "name": "default.repair_type",
             "catalog": "default",
             "schema_": "roads",
             "table": "repair_type",
@@ -107,7 +107,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Information on contractors",
             "mode": "published",
-            "name": "contractors",
+            "name": "default.contractors",
             "catalog": "default",
             "schema_": "roads",
             "table": "contractors",
@@ -122,7 +122,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Lookup table for municipality and municipality types",
             "mode": "published",
-            "name": "municipality_municipality_type",
+            "name": "default.municipality_municipality_type",
             "catalog": "default",
             "schema_": "roads",
             "table": "municipality_municipality_type",
@@ -137,7 +137,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Information on municipality types",
             "mode": "published",
-            "name": "municipality_type",
+            "name": "default.municipality_type",
             "catalog": "default",
             "schema_": "roads",
             "table": "municipality_type",
@@ -156,7 +156,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Information on municipalities",
             "mode": "published",
-            "name": "municipality",
+            "name": "default.municipality",
             "catalog": "default",
             "schema_": "roads",
             "table": "municipality",
@@ -172,7 +172,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Information on dispatchers",
             "mode": "published",
-            "name": "dispatchers",
+            "name": "default.dispatchers",
             "catalog": "default",
             "schema_": "roads",
             "table": "dispatchers",
@@ -198,7 +198,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Information on employees",
             "mode": "published",
-            "name": "hard_hats",
+            "name": "default.hard_hats",
             "catalog": "default",
             "schema_": "roads",
             "table": "hard_hats",
@@ -213,7 +213,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Lookup table for employee's current state",
             "mode": "published",
-            "name": "hard_hat_state",
+            "name": "default.hard_hat_state",
             "catalog": "default",
             "schema_": "roads",
             "table": "hard_hat_state",
@@ -230,7 +230,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Information on different types of repairs",
             "mode": "published",
-            "name": "us_states",
+            "name": "default.us_states",
             "catalog": "default",
             "schema_": "roads",
             "table": "us_states",
@@ -245,7 +245,7 @@ EXAMPLES = (  # type: ignore
             ],
             "description": "Information on US regions",
             "mode": "published",
-            "name": "us_region",
+            "name": "default.us_region",
             "catalog": "default",
             "schema_": "roads",
             "table": "us_region",
@@ -264,10 +264,10 @@ EXAMPLES = (  # type: ignore
                         required_date,
                         dispatched_date,
                         dispatcher_id
-                        FROM repair_orders
+                        FROM default.repair_orders
                     """,
             "mode": "published",
-            "name": "repair_order",
+            "name": "default.repair_order",
             "primary_key": ["repair_order_id"],
         },
     ),
@@ -287,10 +287,10 @@ EXAMPLES = (  # type: ignore
                         postal_code,
                         country,
                         phone
-                        FROM contractors
+                        FROM default.contractors
                     """,
             "mode": "published",
-            "name": "contractor",
+            "name": "default.contractor",
             "primary_key": ["contractor_id"],
         },
     ),
@@ -313,10 +313,10 @@ EXAMPLES = (  # type: ignore
                         country,
                         manager,
                         contractor_id
-                        FROM hard_hats
+                        FROM default.hard_hats
                     """,
             "mode": "published",
-            "name": "hard_hat",
+            "name": "default.hard_hat",
             "primary_key": ["hard_hat_id"],
         },
     ),
@@ -340,13 +340,13 @@ EXAMPLES = (  # type: ignore
                         manager,
                         contractor_id,
                         hhs.state_id AS state_id
-                        FROM hard_hats hh
-                        LEFT JOIN hard_hat_state hhs
+                        FROM default.hard_hats hh
+                        LEFT JOIN default.hard_hat_state hhs
                         ON hh.hard_hat_id = hhs.hard_hat_id
                         WHERE hh.state_id = 'NY'
                     """,
             "mode": "published",
-            "name": "local_hard_hats",
+            "name": "default.local_hard_hats",
             "primary_key": ["hard_hat_id"],
         },
     ),
@@ -361,12 +361,12 @@ EXAMPLES = (  # type: ignore
                         state_abbr AS state_short,
                         state_region,
                         r.us_region_description AS state_region_description
-                        FROM us_states s
-                        LEFT JOIN us_region r
+                        FROM default.us_states s
+                        LEFT JOIN default.us_region r
                         ON s.state_region = r.us_region_id
                     """,
             "mode": "published",
-            "name": "us_state",
+            "name": "default.us_state",
             "primary_key": ["state_id"],
         },
     ),
@@ -379,10 +379,10 @@ EXAMPLES = (  # type: ignore
                         dispatcher_id,
                         company_name,
                         phone
-                        FROM dispatchers
+                        FROM default.dispatchers
                     """,
             "mode": "published",
-            "name": "dispatcher",
+            "name": "default.dispatcher",
             "primary_key": ["dispatcher_id"],
         },
     ),
@@ -399,14 +399,14 @@ EXAMPLES = (  # type: ignore
                         state_id,
                         mmt.municipality_type_id,
                         mt.municipality_type_desc
-                        FROM municipality AS m
-                        LEFT JOIN municipality_municipality_type AS mmt
+                        FROM default.municipality AS m
+                        LEFT JOIN default.municipality_municipality_type AS mmt
                         ON m.municipality_id = mmt.municipality_id
-                        LEFT JOIN municipality_type AS mt
+                        LEFT JOIN default.municipality_type AS mt
                         ON mmt.municipality_type_id = mt.municipality_type_desc
                     """,
             "mode": "published",
-            "name": "municipality_dim",
+            "name": "default.municipality_dim",
             "primary_key": ["municipality_id"],
         },
     ),
@@ -416,28 +416,28 @@ EXAMPLES = (  # type: ignore
             "description": "Number of repair orders",
             "query": (
                 "SELECT count(repair_order_id) as num_repair_orders "
-                "FROM repair_orders"
+                "FROM default.repair_orders"
             ),
             "mode": "published",
-            "name": "num_repair_orders",
+            "name": "default.num_repair_orders",
         },
     ),
     (
         "/nodes/metric/",
         {
             "description": "Average repair price",
-            "query": "SELECT avg(price) as avg_repair_price FROM repair_order_details",
+            "query": "SELECT avg(price) as avg_repair_price FROM default.repair_order_details",
             "mode": "published",
-            "name": "avg_repair_price",
+            "name": "default.avg_repair_price",
         },
     ),
     (
         "/nodes/metric/",
         {
             "description": "Total repair cost",
-            "query": "SELECT sum(price) as total_repair_cost FROM repair_order_details",
+            "query": "SELECT sum(price) as total_repair_cost FROM default.repair_order_details",
             "mode": "published",
-            "name": "total_repair_cost",
+            "name": "default.total_repair_cost",
         },
     ),
     (
@@ -446,10 +446,10 @@ EXAMPLES = (  # type: ignore
             "description": "Average length of employment",
             "query": (
                 "SELECT avg(NOW() - hire_date) as avg_length_of_employment "
-                "FROM hard_hats"
+                "FROM default.hard_hats"
             ),
             "mode": "published",
-            "name": "avg_length_of_employment",
+            "name": "default.avg_length_of_employment",
         },
     ),
     (
@@ -458,10 +458,10 @@ EXAMPLES = (  # type: ignore
             "description": "Total repair order discounts",
             "query": (
                 "SELECT sum(price * discount) as total_discount "
-                "FROM repair_order_details"
+                "FROM default.repair_order_details"
             ),
             "mode": "published",
-            "name": "total_repair_order_discounts",
+            "name": "default.total_repair_order_discounts",
         },
     ),
     (
@@ -470,10 +470,10 @@ EXAMPLES = (  # type: ignore
             "description": "Total repair order discounts",
             "query": (
                 "SELECT avg(price * discount) as avg_repair_order_discount "
-                "FROM repair_order_details"
+                "FROM default.repair_order_details"
             ),
             "mode": "published",
-            "name": "avg_repair_order_discounts",
+            "name": "default.avg_repair_order_discounts",
         },
     ),
     (
@@ -482,79 +482,79 @@ EXAMPLES = (  # type: ignore
             "description": "Average time to dispatch a repair order",
             "query": (
                 "SELECT avg(dispatched_date - order_date) as avg_time_to_dispatch "
-                "FROM repair_orders"
+                "FROM default.repair_orders"
             ),
             "mode": "published",
-            "name": "avg_time_to_dispatch",
+            "name": "default.avg_time_to_dispatch",
         },
     ),
     (
         (
-            "/nodes/repair_order_details/columns/repair_order_id/"
-            "?dimension=repair_order&dimension_column=repair_order_id"
+            "/nodes/default.repair_order_details/columns/repair_order_id/"
+            "?dimension=default.repair_order&dimension_column=repair_order_id"
         ),
         {},
     ),
     (
         (
-            "/nodes/repair_orders/columns/municipality_id/"
-            "?dimension=municipality_dim&dimension_column=municipality_id"
+            "/nodes/default.repair_orders/columns/municipality_id/"
+            "?dimension=default.municipality_dim&dimension_column=municipality_id"
         ),
         {},
     ),
     (
         (
-            "/nodes/repair_type/columns/contractor_id/"
-            "?dimension=contractor&dimension_column=contractor_id"
+            "/nodes/default.repair_type/columns/contractor_id/"
+            "?dimension=default.contractor&dimension_column=contractor_id"
         ),
         {},
     ),
     (
         (
-            "/nodes/repair_orders/columns/hard_hat_id/"
-            "?dimension=hard_hat&dimension_column=hard_hat_id"
+            "/nodes/default.repair_orders/columns/hard_hat_id/"
+            "?dimension=default.hard_hat&dimension_column=hard_hat_id"
         ),
         {},
     ),
     (
         (
-            "/nodes/repair_orders/columns/dispatcher_id/"
-            "?dimension=dispatcher&dimension_column=dispatcher_id"
+            "/nodes/default.repair_orders/columns/dispatcher_id/"
+            "?dimension=default.dispatcher&dimension_column=dispatcher_id"
         ),
         {},
     ),
     (
         (
-            "/nodes/hard_hat/columns/state/"
-            "?dimension=us_state&dimension_column=state_short"
+            "/nodes/default.hard_hat/columns/state/"
+            "?dimension=default.us_state&dimension_column=state_short"
         ),
         {},
     ),
     (
         (
-            "/nodes/repair_order_details/columns/repair_order_id/"
-            "?dimension=repair_order&dimension_column=repair_order_id"
+            "/nodes/default.repair_order_details/columns/repair_order_id/"
+            "?dimension=default.repair_order&dimension_column=repair_order_id"
         ),
         {},
     ),
     (
         (
-            "/nodes/repair_order/columns/dispatcher_id/"
-            "?dimension=dispatcher&dimension_column=dispatcher_id"
+            "/nodes/default.repair_order/columns/dispatcher_id/"
+            "?dimension=default.dispatcher&dimension_column=dispatcher_id"
         ),
         {},
     ),
     (
         (
-            "/nodes/repair_order/columns/hard_hat_id/"
-            "?dimension=hard_hat&dimension_column=hard_hat_id"
+            "/nodes/default.repair_order/columns/hard_hat_id/"
+            "?dimension=default.hard_hat&dimension_column=hard_hat_id"
         ),
         {},
     ),
     (
         (
-            "/nodes/repair_order/columns/municipality_id/"
-            "?dimension=municipality_dim&dimension_column=municipality_id"
+            "/nodes/default.repair_order/columns/municipality_id/"
+            "?dimension=default.municipality_dim&dimension_column=municipality_id"
         ),
         {},
     ),

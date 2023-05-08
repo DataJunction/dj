@@ -136,46 +136,48 @@ def test_common_dimensions(
     Test ``GET /metrics/common/dimensions``.
     """
     response = client_with_examples.get(
-        "/metrics/common/dimensions?metric=total_repair_order_discounts&metric=total_repair_cost",
+        "/metrics/common/dimensions?"
+        "metric=default.total_repair_order_discounts"
+        "&metric=default.total_repair_cost",
     )
     assert response.status_code == 200
     assert set(response.json()) == set(
         [
-            "dispatcher.company_name",
-            "dispatcher.dispatcher_id",
-            "dispatcher.phone",
-            "hard_hat.address",
-            "hard_hat.birth_date",
-            "hard_hat.city",
-            "hard_hat.contractor_id",
-            "hard_hat.country",
-            "hard_hat.first_name",
-            "hard_hat.hard_hat_id",
-            "hard_hat.hire_date",
-            "hard_hat.last_name",
-            "hard_hat.manager",
-            "hard_hat.postal_code",
-            "hard_hat.state",
-            "hard_hat.title",
-            "municipality_dim.contact_name",
-            "municipality_dim.contact_title",
-            "municipality_dim.local_region",
-            "municipality_dim.municipality_id",
-            "municipality_dim.municipality_type_desc",
-            "municipality_dim.municipality_type_id",
-            "municipality_dim.state_id",
-            "repair_order.dispatched_date",
-            "repair_order.dispatcher_id",
-            "repair_order.hard_hat_id",
-            "repair_order.municipality_id",
-            "repair_order.order_date",
-            "repair_order.repair_order_id",
-            "repair_order.required_date",
-            "us_state.state_id",
-            "us_state.state_name",
-            "us_state.state_region",
-            "us_state.state_region_description",
-            "us_state.state_short",
+            "default.dispatcher.company_name",
+            "default.dispatcher.dispatcher_id",
+            "default.dispatcher.phone",
+            "default.hard_hat.address",
+            "default.hard_hat.birth_date",
+            "default.hard_hat.city",
+            "default.hard_hat.contractor_id",
+            "default.hard_hat.country",
+            "default.hard_hat.first_name",
+            "default.hard_hat.hard_hat_id",
+            "default.hard_hat.hire_date",
+            "default.hard_hat.last_name",
+            "default.hard_hat.manager",
+            "default.hard_hat.postal_code",
+            "default.hard_hat.state",
+            "default.hard_hat.title",
+            "default.municipality_dim.contact_name",
+            "default.municipality_dim.contact_title",
+            "default.municipality_dim.local_region",
+            "default.municipality_dim.municipality_id",
+            "default.municipality_dim.municipality_type_desc",
+            "default.municipality_dim.municipality_type_id",
+            "default.municipality_dim.state_id",
+            "default.repair_order.dispatched_date",
+            "default.repair_order.dispatcher_id",
+            "default.repair_order.hard_hat_id",
+            "default.repair_order.municipality_id",
+            "default.repair_order.order_date",
+            "default.repair_order.repair_order_id",
+            "default.repair_order.required_date",
+            "default.us_state.state_id",
+            "default.us_state.state_name",
+            "default.us_state.state_region",
+            "default.us_state.state_region_description",
+            "default.us_state.state_short",
         ],
     )
 
@@ -187,10 +189,12 @@ def test_raise_common_dimensions_not_a_metric_node(
     Test raising ``GET /metrics/common/dimensions`` when not a metric node
     """
     response = client_with_examples.get(
-        "/metrics/common/dimensions?metric=total_repair_order_discounts&metric=payment_type",
+        "/metrics/common/dimensions?"
+        "metric=default.total_repair_order_discounts"
+        "&metric=default.payment_type",
     )
     assert response.status_code == 500
-    assert response.json()["message"] == "Not a metric node: payment_type"
+    assert response.json()["message"] == "Not a metric node: default.payment_type"
 
 
 def test_raise_common_dimensions_metric_not_found(
@@ -200,21 +204,21 @@ def test_raise_common_dimensions_metric_not_found(
     Test raising ``GET /metrics/common/dimensions`` when metric not found
     """
     response = client_with_examples.get(
-        "/metrics/common/dimensions?metric=foo&metric=bar",
+        "/metrics/common/dimensions?metric=default.foo&metric=default.bar",
     )
     assert response.status_code == 500
     assert response.json() == {
-        "message": "Metric node not found: foo\nMetric node not found: bar",
+        "message": "Metric node not found: default.foo\nMetric node not found: default.bar",
         "errors": [
             {
                 "code": 203,
-                "message": "Metric node not found: foo",
+                "message": "Metric node not found: default.foo",
                 "debug": None,
                 "context": "",
             },
             {
                 "code": 203,
-                "message": "Metric node not found: bar",
+                "message": "Metric node not found: default.bar",
                 "debug": None,
                 "context": "",
             },
@@ -227,45 +231,45 @@ def test_get_dimensions(client_with_examples: TestClient):
     """
     Testing get dimensions for a metric
     """
-    response = client_with_examples.get("/metrics/avg_repair_price/")
+    response = client_with_examples.get("/metrics/default.avg_repair_price/")
 
     data = response.json()
     assert data["dimensions"] == [
-        "dispatcher.company_name",
-        "dispatcher.dispatcher_id",
-        "dispatcher.phone",
-        "hard_hat.address",
-        "hard_hat.birth_date",
-        "hard_hat.city",
-        "hard_hat.contractor_id",
-        "hard_hat.country",
-        "hard_hat.first_name",
-        "hard_hat.hard_hat_id",
-        "hard_hat.hire_date",
-        "hard_hat.last_name",
-        "hard_hat.manager",
-        "hard_hat.postal_code",
-        "hard_hat.state",
-        "hard_hat.title",
-        "municipality_dim.contact_name",
-        "municipality_dim.contact_title",
-        "municipality_dim.local_region",
-        "municipality_dim.municipality_id",
-        "municipality_dim.municipality_type_desc",
-        "municipality_dim.municipality_type_id",
-        "municipality_dim.state_id",
-        "repair_order.dispatched_date",
-        "repair_order.dispatcher_id",
-        "repair_order.hard_hat_id",
-        "repair_order.municipality_id",
-        "repair_order.order_date",
-        "repair_order.repair_order_id",
-        "repair_order.required_date",
-        "us_state.state_id",
-        "us_state.state_name",
-        "us_state.state_region",
-        "us_state.state_region_description",
-        "us_state.state_short",
+        "default.dispatcher.company_name",
+        "default.dispatcher.dispatcher_id",
+        "default.dispatcher.phone",
+        "default.hard_hat.address",
+        "default.hard_hat.birth_date",
+        "default.hard_hat.city",
+        "default.hard_hat.contractor_id",
+        "default.hard_hat.country",
+        "default.hard_hat.first_name",
+        "default.hard_hat.hard_hat_id",
+        "default.hard_hat.hire_date",
+        "default.hard_hat.last_name",
+        "default.hard_hat.manager",
+        "default.hard_hat.postal_code",
+        "default.hard_hat.state",
+        "default.hard_hat.title",
+        "default.municipality_dim.contact_name",
+        "default.municipality_dim.contact_title",
+        "default.municipality_dim.local_region",
+        "default.municipality_dim.municipality_id",
+        "default.municipality_dim.municipality_type_desc",
+        "default.municipality_dim.municipality_type_id",
+        "default.municipality_dim.state_id",
+        "default.repair_order.dispatched_date",
+        "default.repair_order.dispatcher_id",
+        "default.repair_order.hard_hat_id",
+        "default.repair_order.municipality_id",
+        "default.repair_order.order_date",
+        "default.repair_order.repair_order_id",
+        "default.repair_order.required_date",
+        "default.us_state.state_id",
+        "default.us_state.state_name",
+        "default.us_state.state_region",
+        "default.us_state.state_region_description",
+        "default.us_state.state_short",
     ]
 
 
