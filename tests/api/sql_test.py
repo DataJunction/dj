@@ -1,4 +1,5 @@
 """Tests for the /sql/ endpoint"""
+# pylint: disable=line-too-long
 import pytest
 from sqlmodel import Session
 from starlette.testclient import TestClient
@@ -66,9 +67,11 @@ def test_sql(
                       default_DOT_repair_orders.order_date,
                       default_DOT_repair_orders.repair_order_id,
                       default_DOT_repair_orders.required_date
-              FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
+              FROM roads.repair_orders AS default_DOT_repair_orders
+              LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
                       default_DOT_hard_hats.state
-              FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+              FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat
+              ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
               WHERE  default_DOT_hard_hat.state = 'CA'
             """,
         ),
@@ -99,11 +102,14 @@ def test_sql(
                       default_DOT_event_source.device_id,
                       default_DOT_event_source.event_id,
                       default_DOT_event_source.event_latency
-              FROM logs.log_events AS default_DOT_event_source LEFT OUTER JOIN (SELECT  default_DOT_event_source.country,
+              FROM logs.log_events AS default_DOT_event_source
+              LEFT OUTER JOIN (SELECT  default_DOT_event_source.country,
                       COUNT( DISTINCT default_DOT_event_source.event_id) AS events_cnt
               FROM logs.log_events AS default_DOT_event_source
-              GROUP BY  default_DOT_event_source.country) AS default_DOT_country_dim ON default_DOT_event_source.country = default_DOT_country_dim.country
-              WHERE  default_DOT_event_source.event_latency > 1000000 AND default_DOT_country_dim.events_cnt >= 20
+              GROUP BY  default_DOT_event_source.country) AS default_DOT_country_dim
+              ON default_DOT_event_source.country = default_DOT_country_dim.country
+              WHERE  default_DOT_event_source.event_latency > 1000000
+              AND default_DOT_country_dim.events_cnt >= 20
             """,
         ),
         # querying transform node with filters directly on the node
@@ -117,7 +123,8 @@ def test_sql(
                       default_DOT_event_source.event_id,
                       default_DOT_event_source.event_latency
               FROM logs.log_events AS default_DOT_event_source
-              WHERE  default_DOT_event_source.event_latency > 1000000 AND event_source.device_id = 'Android'
+              WHERE  default_DOT_event_source.event_latency > 1000000
+              AND event_source.device_id = 'Android'
             """,
         ),
         (
@@ -132,8 +139,11 @@ def test_sql(
                       default_DOT_municipality_municipality_type.municipality_type_id,
                       default_DOT_municipality_type.municipality_type_desc,
                       default_DOT_municipality.state_id
-              FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
-              LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc
+              FROM roads.municipality AS default_DOT_municipality
+              LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type
+              ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
+              LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type
+              ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc
               WHERE  default_DOT_municipality.state_id = 'CA'
             """,
         ),
@@ -153,7 +163,8 @@ def test_sql(
             """
               SELECT  default_DOT_hard_hat.state,
                       count(default_DOT_repair_orders.repair_order_id) AS num_repair_orders
-              FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
+              FROM roads.repair_orders AS default_DOT_repair_orders
+              LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
                       default_DOT_hard_hats.state
               FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
               WHERE  default_DOT_repair_orders.dispatcher_id = 1 AND hard_hat.state = 'AZ'

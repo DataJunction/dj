@@ -192,12 +192,9 @@ class TestTags:
         )
         assert response.status_code == 201
         response_data = response.json()
-        assert (
-            response_data["message"]
-            == (
-                "Node `default.items_sold_count` has been "
-                "successfully tagged with tag `sales_report`"
-            )
+        assert response_data["message"] == (
+            "Node `default.items_sold_count` has been "
+            "successfully tagged with tag `sales_report`"
         )
 
         # Test finding all nodes for that tag

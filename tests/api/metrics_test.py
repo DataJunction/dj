@@ -136,7 +136,9 @@ def test_common_dimensions(
     Test ``GET /metrics/common/dimensions``.
     """
     response = client_with_examples.get(
-        "/metrics/common/dimensions?metric=default.total_repair_order_discounts&metric=default.total_repair_cost",
+        "/metrics/common/dimensions?"
+        "metric=default.total_repair_order_discounts"
+        "&metric=default.total_repair_cost",
     )
     assert response.status_code == 200
     assert set(response.json()) == set(
@@ -187,7 +189,9 @@ def test_raise_common_dimensions_not_a_metric_node(
     Test raising ``GET /metrics/common/dimensions`` when not a metric node
     """
     response = client_with_examples.get(
-        "/metrics/common/dimensions?metric=default.total_repair_order_discounts&metric=default.payment_type",
+        "/metrics/common/dimensions?"
+        "metric=default.total_repair_order_discounts"
+        "&metric=default.payment_type",
     )
     assert response.status_code == 500
     assert response.json()["message"] == "Not a metric node: default.payment_type"
