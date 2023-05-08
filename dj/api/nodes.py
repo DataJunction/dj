@@ -655,7 +655,6 @@ def create_a_source(
     """
     raise_if_node_exists(session, data.name)
 
-    # Extract and assign namespace if one exists
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
         session=session,
@@ -767,7 +766,7 @@ def create_a_node(
         key_column not in column_names for key_column in data.primary_key
     ):
         raise DJInvalidInputException(
-            f"Some columns in the primary key {','.join(data.primary_key)} "
+            f"Some columns in the primary key [{','.join(data.primary_key)}] "
             f"were not found in the list of available columns for the node {node.name}.",
         )
     if data.primary_key:
@@ -796,7 +795,6 @@ def create_a_cube(
     """
     raise_if_node_exists(session, data.name)
 
-    # Extract and assign namespace if one exists
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
         session=session,
@@ -819,16 +817,13 @@ def create_a_cube(
 def link_a_dimension(
     name: str,
     column: str,
-    dimension: Optional[str] = None,
+    dimension: str,
     dimension_column: Optional[str] = None,
     session: Session = Depends(get_session),
 ) -> JSONResponse:
     """
     Add information to a node column
     """
-    if not dimension:  # If no dimension is set, assume it matches the column name
-        dimension = column
-
     node = get_node_by_name(session=session, name=name)
     dimension_node = get_node_by_name(
         session=session,
@@ -854,7 +849,7 @@ def link_a_dimension(
                 f"The column {target_column.name} has type {target_column.type} "
                 f"and is being linked to the dimension {dimension} via the dimension"
                 f" column {dimension_column}, which has type {column_from_dimension.type}."
-                " These column types are incompatible and the dimension cannot be linked!",
+                " These column types are incompatible and the dimension cannot be linked",
             )
 
     target_column.dimension = dimension_node

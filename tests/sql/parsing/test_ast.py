@@ -19,7 +19,7 @@ def test_ast_compile_table(
 
     Includes client_with_examples fixture so that examples are loaded into session
     """
-    query = parse("SELECT hard_hat_id, last_name, first_name FROM hard_hats")
+    query = parse("SELECT hard_hat_id, last_name, first_name FROM default.hard_hats")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.select.from_.relations[0].primary.compile(ctx)
@@ -29,7 +29,7 @@ def test_ast_compile_table(
         0
     ].primary._dj_node
     assert node
-    assert node.name == "hard_hats"
+    assert node.name == "default.hard_hats"
 
 
 def test_ast_compile_table_missing_node(session):
@@ -78,7 +78,7 @@ def test_ast_compile_query(
     """
     Test compiling an entire query
     """
-    query = parse("SELECT hard_hat_id, last_name, first_name FROM hard_hats")
+    query = parse("SELECT hard_hat_id, last_name, first_name FROM default.hard_hats")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
@@ -88,7 +88,7 @@ def test_ast_compile_query(
         0
     ].primary._dj_node
     assert node
-    assert node.name == "hard_hats"
+    assert node.name == "default.hard_hats"
 
 
 def test_ast_compile_query_missing_columns(
@@ -98,7 +98,7 @@ def test_ast_compile_query_missing_columns(
     """
     Test compiling a query with missing columns
     """
-    query = parse("SELECT hard_hat_id, column_foo, column_bar FROM hard_hats")
+    query = parse("SELECT hard_hat_id, column_foo, column_bar FROM default.hard_hats")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
@@ -113,7 +113,7 @@ def test_ast_compile_query_missing_columns(
         0
     ].primary._dj_node
     assert node
-    assert node.name == "hard_hats"
+    assert node.name == "default.hard_hats"
 
 
 def test_ast_compile_missing_references(session: Session):
@@ -419,7 +419,7 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
             ],
             "description": "Placeholder source node",
             "mode": "published",
-            "name": "a",
+            "name": "default.a",
             "catalog": "default",
             "schema_": "a",
             "table": "a",
@@ -430,9 +430,9 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
         "/nodes/transform/",
         json={
             "description": "A projection with an array",
-            "query": "SELECT ARRAY(30, 60) as foo_array FROM a",
+            "query": "SELECT ARRAY(30, 60) as foo_array FROM default.a",
             "mode": "published",
-            "name": "foo_array_example",
+            "name": "default.foo_array_example",
         },
     )
     assert response.ok
@@ -440,7 +440,7 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
     query = parse(
         """
         SELECT foo_array, a, b
-        FROM foo_array_example
+        FROM default.foo_array_example
         LATERAL VIEW EXPLODE(foo_array) AS a
         LATERAL VIEW EXPLODE(foo_array) AS b;
     """,
@@ -473,7 +473,7 @@ def test_ast_compile_lateral_view_explode4(session: Session, client: TestClient)
     assert query.columns[0].table.alias_or_name == ast.Name(  # type: ignore
         name="foo_array_example",
         quote_style="",
-        namespace=None,
+        namespace=ast.Name(name="default", quote_style="", namespace=None),
     )
     assert query.columns[1].table.alias_or_name == ast.Name(  # type: ignore
         name="EXPLODE",
