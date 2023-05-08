@@ -28,15 +28,7 @@ curl -X POST http://localhost:8000/nodes/transform/ \
     "name": "repair_orders_w_dispatchers",
     "description": "Repair orders that have a dispatcher",
     "mode": "published",
-    "query": """
-        SELECT
-        repair_order_id,
-        municipality_id,
-        hard_hat_id,
-        dispatcher_id
-        FROM repair_orders
-        WHERE dispatcher_id IS NOT NULL
-    """
+    "query": "SELECT repair_order_id, municipality_id, hard_hat_id, dispatcher_id FROM warehouse.repair_ordersWHERE dispatcher_id IS NOT NULL"
 }'
 ```
 {{< /tab >}}
@@ -55,11 +47,33 @@ transform = dj.new_transform(
         municipality_id,
         hard_hat_id,
         dispatcher_id
-        FROM repair_orders
+        FROM warehouse.repair_orders
         WHERE dispatcher_id IS NOT NULL
     """,
 )
 transform.save(NodeMode.PUBLISHED)
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+const { DJClient } = require('datajunction')
+
+const dj = DJClient('http://localhost:8000/')
+dj.transforms.create(
+    {
+        name: "repair_orders_w_dispatchers",
+        description: "Repair orders that have a dispatcher",
+        query: `
+            SELECT
+            repair_order_id,
+            municipality_id,
+            hard_hat_id,
+            dispatcher_id
+            FROM warehouse.repair_orders
+            WHERE dispatcher_id IS NOT NULL
+        `
+    }
+)
 ```
 {{< /tab >}}
 {{< /tabs >}}

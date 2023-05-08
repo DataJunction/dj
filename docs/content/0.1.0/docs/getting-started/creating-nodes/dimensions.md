@@ -21,51 +21,68 @@ further extending the join path and allowing DJ to discover more dimensions that
 
 ## Creating Dimension Nodes
 
-{{< tabs "creating dimension nodes" >}}
+Assume a `default.dispatchers` source node was defined as follows.
+
+{{< tabs "creating source node for dimension node" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X POST http://localhost:8000/nodes/dimension/ \
--H 'Content-Type: application/json' \
--d '{
-    "name": "us_state",
-    "description": "US state dimension",
-    "mode": "published",
-    "query": """
-        SELECT
-        state_id,
-        state_name,
-        state_abbr,
-        state_region,
-        r.us_region_description AS state_region_description
-        FROM us_states s
-        LEFT JOIN us_region r
-        ON s.state_region = r.us_region_id
-    """
-}'
+curl -X 'POST' \
+  'http://localhost:8000/nodes/source/' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "columns": [
+            {"name": "dispatcher_id", "type": "int"},
+            {"name": "company_name", "type": "string"},
+            {"name": "phone", "type": "string"}
+        ],
+        "description": "Information on different types of repairs",
+        "mode": "published",
+        "name": "default.dispatchers",
+        "catalog": "default",
+        "schema_": "roads",
+        "table": "dispatchers"
+  }'
 ```
 {{< /tab >}}
 {{< tab "python" >}}
-
 ```py
-from datajunction import DJClient, NodeMode
 
-dj = DJClient("http://localhost:8000/")
-dimension = dj.new_dimension(
-    name="us_state",
-    description="US state dimension",
-    query="""
-        SELECT
-        state_id,
-        state_name,
-        state_abbr,
-        state_region,
-        r.us_region_description AS state_region_description
-        FROM us_states s
-        LEFT JOIN us_region r
-        ON s.state_region = r.us_region_id
-    """,
-)
-dimension.save(NodeMode.PUBLISHED)
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+
+```
+{{< /tab >}}
+{{< /tabs >}}
+
+You can then define a dimension node that selects from the `default.dispatchers` source node and includes
+a primary key. Let's call it `default.dispatcher`.
+{{< tabs "creating a dimension node" >}}
+{{< tab "curl" >}}
+```sh
+curl -X 'POST' \
+  'http://localhost:8000/nodes/dimension/' \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+        "description": "Dispatcher dimension",
+        "query": "SELECT dispatcher_id, company_name, phone FROM default.dispatchers",
+        "mode": "published",
+        "name": "default.dispatcher",
+        "primary_key": ["dispatcher_id"]
+    }'
+```
+{{< /tab >}}
+{{< tab "python" >}}
+```py
+
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -83,9 +100,9 @@ This connection in DJ can be added using the following request.
 {{< tabs "connecting dimension" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X POST \
-http://localhost:8000/nodes/hard_hats/columns/hard_hat_id/?dimension=hard_hat_state&dimension_column=hard_hat_id \
--H 'Content-Type: application/json'
+curl -X 'POST' \
+  'http://localhost:8000/nodes/default.repair_orders/columns/dispatcher_id/?dimension=default.dispatcher&dimension_column=dispatcher_id' \
+  -H 'accept: application/json'
 ```
 {{< /tab >}}
 {{< tab "python" >}}
@@ -94,12 +111,20 @@ http://localhost:8000/nodes/hard_hats/columns/hard_hat_id/?dimension=hard_hat_st
 from datajunction import DJClient
 
 dj = DJClient("http://localhost:8000/")
-dimension = dj.dimension("hard_hats")
+dimension = dj.dimension("default.repair_orders")
 dimension.link_dimension(
-    column="hard_hat_id",
-    dimension="hard_hat_state",
-    dimension_column="hard_hat_id",
+    column="dispatcher_id",
+    dimension="default.dispatcher",
+    dimension_column="dispatcher_id",
 )
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+const { DJClient } = require('datajunction')
+
+const dj = DJClient('http://localhost:8000/')
+dj.dimensions.link("default.repair_orders", "dispatcher_id", "default.dispatcher", "dispatcher_id")
 ```
 {{< /tab >}}
 {{< /tabs >}}
