@@ -18,7 +18,7 @@ def test_read_node(client_with_examples: TestClient) -> None:
     """
     Test ``GET /nodes/{node_id}``.
     """
-    response = client_with_examples.get("/nodes/repair_orders/")
+    response = client_with_examples.get("/nodes/default.repair_orders/")
     data = response.json()
 
     assert response.status_code == 200
@@ -27,11 +27,11 @@ def test_read_node(client_with_examples: TestClient) -> None:
     assert data["node_revision_id"] == 1
     assert data["type"] == "source"
 
-    response = client_with_examples.get("/nodes/nothing/")
+    response = client_with_examples.get("/nodes/default.nothing/")
     data = response.json()
 
     assert response.status_code == 404
-    assert data["message"] == "A node with name `nothing` does not exist."
+    assert data["message"] == "A node with name `default.nothing` does not exist."
 
 
 def test_read_nodes(session: Session, client: TestClient) -> None:
@@ -133,7 +133,7 @@ class TestCreateOrUpdateNodes:
             "query": "SELECT country, COUNT(1) AS user_cnt "
             "FROM basic.source.users GROUP BY country",
             "mode": "published",
-            "name": "countries",
+            "name": "default.countries",
             "primary_key": ["country"],
         }
 
@@ -144,7 +144,7 @@ class TestCreateOrUpdateNodes:
         """
 
         return {
-            "name": "country_agg",
+            "name": "default.country_agg",
             "query": "SELECT country, COUNT(DISTINCT id) AS num_users FROM comments",
             "mode": "published",
             "description": "Distinct users per country",
@@ -161,7 +161,7 @@ class TestCreateOrUpdateNodes:
         """
 
         return {
-            "name": "country_agg",
+            "name": "default.country_agg",
             "query": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
             "mode": "published",
             "description": "Distinct users per country",
@@ -241,17 +241,21 @@ class TestCreateOrUpdateNodes:
             response = client_with_examples.get(f"/nodes/{downstream}/")
             assert response.json()["status"] == NodeStatus.INVALID
 
-        node_with_link = client_with_examples.get("/nodes/repair_order_details/").json()
+        node_with_link = client_with_examples.get(
+            "/nodes/default.repair_order_details/",
+        ).json()
         assert [
             col["dimension"]["name"]
             for col in node_with_link["columns"]
             if col["name"] == "repair_order_id"
-        ] == ["repair_order"]
+        ] == ["default.repair_order"]
 
-        response = client_with_examples.delete("/nodes/repair_order/")
+        response = client_with_examples.delete("/nodes/default.repair_order/")
         assert response.status_code == 204
 
-        node_with_link = client_with_examples.get("/nodes/repair_order_details/").json()
+        node_with_link = client_with_examples.get(
+            "/nodes/default.repair_order_details/",
+        ).json()
         assert [
             col["dimension"]
             for col in node_with_link["columns"]
@@ -267,7 +271,7 @@ class TestCreateOrUpdateNodes:
         a query service set up should fail.
         """
         basic_source_comments = {
-            "name": "comments",
+            "name": "default.comments",
             "description": "A fact table with comments",
             "columns": [],
             "mode": "published",
@@ -298,7 +302,7 @@ class TestCreateOrUpdateNodes:
         result in the source node columns being inferred via the query service.
         """
         basic_source_comments = {
-            "name": "comments",
+            "name": "default.comments",
             "description": "A fact table with comments",
             "columns": [],
             "mode": "published",
@@ -314,9 +318,9 @@ class TestCreateOrUpdateNodes:
             json=basic_source_comments,
         )
         data = response.json()
-        assert data["name"] == "comments"
+        assert data["name"] == "default.comments"
         assert data["type"] == "source"
-        assert data["display_name"] == "Comments"
+        assert data["display_name"] == "Default: Comments"
         assert data["version"] == "v1.0"
         assert data["status"] == "valid"
         assert data["mode"] == "published"
@@ -529,21 +533,21 @@ class TestCreateOrUpdateNodes:
                     "FROM foo.bar.hard_hats"
                 ),
                 "mode": "published",
-                "name": "avg_length_of_employment_plus_one",
+                "name": "default.avg_length_of_employment_plus_one",
             },
         )
         data = response.json()
         assert data == {
             "message": (
                 "Unable to infer type for some columns on node "
-                "`avg_length_of_employment_plus_one`"
+                "`default.avg_length_of_employment_plus_one`"
             ),
             "errors": [
                 {
                     "code": 302,
                     "message": (
                         "Unable to infer type for some columns on node "
-                        "`avg_length_of_employment_plus_one`"
+                        "`default.avg_length_of_employment_plus_one`"
                     ),
                     "debug": {
                         "columns": {
@@ -577,8 +581,8 @@ class TestCreateOrUpdateNodes:
             json=create_transform_node_payload,
         )
         data = response.json()
-        assert data["name"] == "country_agg"
-        assert data["display_name"] == "Country Agg"
+        assert data["name"] == "default.country_agg"
+        assert data["display_name"] == "Default: Country Agg"
         assert data["type"] == "transform"
         assert data["description"] == "Distinct users per country"
         assert (
@@ -598,15 +602,15 @@ class TestCreateOrUpdateNodes:
 
         # Update the transform node with two minor changes
         response = client.patch(
-            "/nodes/country_agg/",
+            "/nodes/default.country_agg/",
             json={
                 "description": "Some new description",
-                "display_name": "Country Aggregation by User",
+                "display_name": "Default: Country Aggregation by User",
             },
         )
         data = response.json()
-        assert data["name"] == "country_agg"
-        assert data["display_name"] == "Country Aggregation by User"
+        assert data["name"] == "default.country_agg"
+        assert data["display_name"] == "Default: Country Aggregation by User"
         assert data["type"] == "transform"
         assert data["version"] == "v1.1"
         assert data["description"] == "Some new description"
@@ -617,7 +621,7 @@ class TestCreateOrUpdateNodes:
 
         # Try to update with a new query that references a non-existent source
         response = client.patch(
-            "/nodes/country_agg/",
+            "/nodes/default.country_agg/",
             json={
                 "query": "SELECT country, COUNT(DISTINCT id) AS num_users FROM comments",
             },
@@ -630,7 +634,7 @@ class TestCreateOrUpdateNodes:
 
         # Try to update with a new query that references an existing source
         response = client.patch(
-            "/nodes/country_agg/",
+            "/nodes/default.country_agg/",
             json={
                 "query": "SELECT country, COUNT(DISTINCT id) AS num_users, "
                 "COUNT(*) AS num_entries FROM basic.source.users",
@@ -664,7 +668,7 @@ class TestCreateOrUpdateNodes:
         assert data["message"] == "A node with name `random_transform` does not exist."
 
         # Verify that all historical revisions are available for the node
-        response = client.get("/nodes/country_agg/revisions/")
+        response = client.get("/nodes/default.country_agg/revisions/")
         data = response.json()
         assert {rev["version"]: rev["query"] for rev in data} == {
             "v1.0": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
@@ -754,14 +758,14 @@ class TestCreateOrUpdateNodes:
                 "query": "SELECT country, COUNT(1) AS user_cnt "
                 "FROM basic.source.users GROUP BY country",
                 "mode": "published",
-                "name": "countries",
+                "name": "default.countries",
                 "primary_key": ["country", "id"],
             },
         )
         assert response.json()["message"] == (
-            "Some columns in the primary key country,id were not "
+            "Some columns in the primary key [country,id] were not "
             "found in the list of available columns for the node "
-            "countries."
+            "default.countries."
         )
 
     def test_create_update_dimension_node(
@@ -782,8 +786,8 @@ class TestCreateOrUpdateNodes:
         data = response.json()
 
         assert response.status_code == 201
-        assert data["name"] == "countries"
-        assert data["display_name"] == "Countries"
+        assert data["name"] == "default.countries"
+        assert data["display_name"] == "Default: Countries"
         assert data["type"] == "dimension"
         assert data["version"] == "v1.0"
         assert data["description"] == "Country dimension"
@@ -805,7 +809,7 @@ class TestCreateOrUpdateNodes:
 
         # Test updating the dimension node with a new query
         response = client.patch(
-            "/nodes/countries/",
+            "/nodes/default.countries/",
             json={"query": "SELECT country FROM basic.source.users GROUP BY country"},
         )
         data = response.json()
@@ -826,11 +830,11 @@ class TestCreateOrUpdateNodes:
             json={
                 "query": (
                     "SELECT payment_id, payment_amount, customer_id, account_type "
-                    "FROM revenue r LEFT JOIN basic.source.comments b on r.id = b.id"
+                    "FROM default.revenue r LEFT JOIN basic.source.comments b on r.id = b.id"
                 ),
                 "description": "Multicatalog",
                 "mode": "published",
-                "name": "multicatalog",
+                "name": "default.multicatalog",
             },
         )
         assert (
@@ -856,8 +860,8 @@ class TestCreateOrUpdateNodes:
         data = response.json()
 
         assert response.status_code == 201
-        assert data["name"] == "countries"
-        assert data["display_name"] == "Countries"
+        assert data["name"] == "default.countries"
+        assert data["display_name"] == "Default: Countries"
         assert data["type"] == "dimension"
         assert data["version"] == "v1.0"
         assert data["description"] == "Country dimension"
@@ -878,20 +882,20 @@ class TestCreateOrUpdateNodes:
         ]
 
         response = client.patch(
-            "/nodes/countries/",
+            "/nodes/default.countries/",
             json={"mode": "draft"},
         )
         assert response.status_code == 200
 
         # Test updating the dimension node with an invalid query
         response = client.patch(
-            "/nodes/countries/",
+            "/nodes/default.countries/",
             json={"query": "SELECT country FROM missing_parent GROUP BY country"},
         )
         assert response.status_code == 200
 
         # Check that node is now a draft with an invalid status
-        response = client.get("/nodes/countries")
+        response = client.get("/nodes/default.countries")
         assert response.status_code == 200
         data = response.json()
         assert data["mode"] == "draft"
@@ -1313,7 +1317,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             json={
                 "name": "foo",
                 "description": "This is my foo transform node!",
-                "query": "SELECT payment_id FROM large_revenue_payments_only",
+                "query": "SELECT payment_id FROM default.large_revenue_payments_only",
                 "type": "transform",
             },
         )
@@ -1332,14 +1336,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         ]
         assert data["status"] == "valid"
         assert data["node_revision"]["status"] == "valid"
-        assert data["dependencies"][0]["name"] == "large_revenue_payments_only"
+        assert data["dependencies"][0]["name"] == "default.large_revenue_payments_only"
         assert data["message"] == "Node `foo` is valid"
         assert data["node_revision"]["id"] is None
         assert data["node_revision"]["mode"] == "published"
         assert data["node_revision"]["name"] == "foo"
         assert (
             data["node_revision"]["query"]
-            == "SELECT payment_id FROM large_revenue_payments_only"
+            == "SELECT payment_id FROM default.large_revenue_payments_only"
         )
 
     def test_validating_an_invalid_node(self, client: TestClient) -> None:
@@ -1499,56 +1503,47 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         """
         # Attach the payment_type dimension to the payment_type column on the revenue node
         response = client_with_examples.post(
-            "/nodes/revenue/columns/payment_type/?dimension=payment_type",
+            "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
         )
         data = response.json()
         assert data == {
             "message": (
-                "Dimension node payment_type has been successfully "
-                "linked to column payment_type on node revenue"
+                "Dimension node default.payment_type has been successfully "
+                "linked to column payment_type on node default.revenue"
             ),
         }
 
         # Check that the proper error is raised when the column doesn't exist
         response = client_with_examples.post(
-            "/nodes/revenue/columns/non_existent_column/?dimension=payment_type",
+            "/nodes/default.revenue/columns/non_existent_column/?dimension=default.payment_type",
         )
         assert response.status_code == 404
         data = response.json()
         assert data["message"] == (
-            "Column non_existent_column does not exist on node revenue"
+            "Column non_existent_column does not exist on node default.revenue"
         )
 
         # Add a dimension including a specific dimension column name
         response = client_with_examples.post(
-            "/nodes/revenue/columns/payment_type/"
-            "?dimension=payment_type"
+            "/nodes/default.revenue/columns/payment_type/"
+            "?dimension=default.payment_type"
             "&dimension_column=payment_type_name",
         )
         assert response.status_code == 422
         data = response.json()
         assert data["message"] == (
             "The column payment_type has type int and is being linked "
-            "to the dimension payment_type via the dimension column "
+            "to the dimension default.payment_type via the dimension column "
             "payment_type_name, which has type string. These column "
-            "types are incompatible and the dimension cannot be linked!"
+            "types are incompatible and the dimension cannot be linked"
         )
 
         response = client_with_examples.post(
-            "/nodes/revenue/columns/payment_type/?dimension=basic.dimension.users",
+            "/nodes/default.revenue/columns/payment_type/?dimension=basic.dimension.users",
         )
         data = response.json()
         assert data["message"] == (
             "Cannot add dimension to column, because catalogs do not match: default, public"
-        )
-
-        # Check that not including the dimension defaults it to the column name
-        response = client_with_examples.post("/nodes/revenue/columns/payment_type/")
-        assert response.status_code == 201
-        data = response.json()
-        assert data["message"] == (
-            "Dimension node payment_type has been successfully "
-            "linked to column payment_type on node revenue"
         )
 
     def test_node_downstreams(self, client_with_examples: TestClient):
@@ -1556,52 +1551,59 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test getting downstream nodes of different node types.
         """
         response = client_with_examples.get(
-            "/nodes/event_source/downstream/?node_type=metric",
+            "/nodes/default.event_source/downstream/?node_type=metric",
         )
         data = response.json()
         assert {node["name"] for node in data} == {
-            "long_events_distinct_countries",
-            "device_ids_count",
+            "default.long_events_distinct_countries",
+            "default.device_ids_count",
         }
 
         response = client_with_examples.get(
-            "/nodes/event_source/downstream/?node_type=transform",
+            "/nodes/default.event_source/downstream/?node_type=transform",
         )
         data = response.json()
-        assert {node["name"] for node in data} == {"long_events"}
+        assert {node["name"] for node in data} == {"default.long_events"}
 
         response = client_with_examples.get(
-            "/nodes/event_source/downstream/?node_type=dimension",
+            "/nodes/default.event_source/downstream/?node_type=dimension",
         )
         data = response.json()
-        assert {node["name"] for node in data} == {"country_dim"}
+        assert {node["name"] for node in data} == {"default.country_dim"}
 
-        response = client_with_examples.get("/nodes/event_source/downstream/")
+        response = client_with_examples.get("/nodes/default.event_source/downstream/")
         data = response.json()
         assert {node["name"] for node in data} == {
-            "long_events_distinct_countries",
-            "device_ids_count",
-            "long_events",
-            "country_dim",
+            "default.long_events_distinct_countries",
+            "default.device_ids_count",
+            "default.long_events",
+            "default.country_dim",
         }
 
-        response = client_with_examples.get("/nodes/device_ids_count/downstream/")
+        response = client_with_examples.get(
+            "/nodes/default.device_ids_count/downstream/",
+        )
         data = response.json()
         assert data == []
 
-        response = client_with_examples.get("/nodes/long_events/downstream/")
+        response = client_with_examples.get("/nodes/default.long_events/downstream/")
         data = response.json()
-        assert {node["name"] for node in data} == {"long_events_distinct_countries"}
+        assert {node["name"] for node in data} == {
+            "default.long_events_distinct_countries",
+        }
 
     def test_node_upstreams(self, client_with_examples: TestClient):
         """
         Test getting upstream nodes of different node types.
         """
         response = client_with_examples.get(
-            "/nodes/long_events_distinct_countries/upstream/",
+            "/nodes/default.long_events_distinct_countries/upstream/",
         )
         data = response.json()
-        assert {node["name"] for node in data} == {"event_source", "long_events"}
+        assert {node["name"] for node in data} == {
+            "default.event_source",
+            "default.long_events",
+        }
 
 
 def test_node_similarity(session: Session, client: TestClient):
@@ -1702,64 +1704,68 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     """
     # Create draft transform and metric nodes with missing parents
     transform1 = {
-        "name": "comments_by_migrated_users",
+        "name": "default.comments_by_migrated_users",
         "description": "Comments by users who have already migrated",
-        "query": "SELECT id, user_id FROM comments WHERE text LIKE '%migrated%'",
+        "query": "SELECT id, user_id FROM default.comments WHERE text LIKE '%migrated%'",
         "mode": "draft",
     }
 
     transform2 = {
-        "name": "comments_by_users_pending_a_migration",
+        "name": "default.comments_by_users_pending_a_migration",
         "description": "Comments by users who have a migration pending",
-        "query": "SELECT id, user_id FROM comments WHERE text LIKE '%migration pending%'",
+        "query": "SELECT id, user_id FROM default.comments WHERE text LIKE '%migration pending%'",
         "mode": "draft",
     }
 
     transform3 = {
-        "name": "comments_by_users_partially_migrated",
+        "name": "default.comments_by_users_partially_migrated",
         "description": "Comments by users are partially migrated",
         "query": (
-            "SELECT p.id, p.user_id FROM comments_by_users_pending_a_migration p "
-            "INNER JOIN comments_by_migrated_users m ON p.user_id = m.user_id"
+            "SELECT p.id, p.user_id FROM default.comments_by_users_pending_a_migration p "
+            "INNER JOIN default.comments_by_migrated_users m ON p.user_id = m.user_id"
         ),
         "mode": "draft",
     }
 
     transform4 = {
-        "name": "comments_by_banned_users",
+        "name": "default.comments_by_banned_users",
         "description": "Comments by users are partially migrated",
         "query": (
-            "SELECT id, user_id FROM comments "
-            "INNER JOIN banned_users ON comments.user_id = banned_users.banned_user_id"
+            "SELECT id, user_id FROM default.comments AS comment "
+            "INNER JOIN default.banned_users AS banned_users "
+            "ON comments.user_id = banned_users.banned_user_id"
         ),
         "mode": "draft",
     }
 
     transform5 = {
-        "name": "comments_by_users_partially_migrated_sample",
+        "name": "default.comments_by_users_partially_migrated_sample",
         "description": "Sample of comments by users are partially migrated",
-        "query": "SELECT id, user_id, foo FROM comments_by_users_partially_migrated",
+        "query": "SELECT id, user_id, foo FROM default.comments_by_users_partially_migrated",
         "mode": "draft",
     }
 
     metric1 = {
-        "name": "number_of_migrated_users",
+        "name": "default.number_of_migrated_users",
         "description": "Number of migrated users",
-        "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_migrated_users",
+        "query": "SELECT COUNT(DISTINCT user_id) FROM default.comments_by_migrated_users",
         "mode": "draft",
     }
 
     metric2 = {
-        "name": "number_of_users_with_pending_migration",
+        "name": "default.number_of_users_with_pending_migration",
         "description": "Number of users with a migration pending",
-        "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_users_pending_a_migration",
+        "query": (
+            "SELECT COUNT(DISTINCT user_id) FROM "
+            "default.comments_by_users_pending_a_migration"
+        ),
         "mode": "draft",
     }
 
     metric3 = {
-        "name": "number_of_users_partially_migrated",
+        "name": "default.number_of_users_partially_migrated",
         "description": "Number of users partially migrated",
-        "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_users_partially_migrated",
+        "query": "SELECT COUNT(DISTINCT user_id) FROM default.comments_by_users_partially_migrated",
         "mode": "draft",
     }
 
@@ -1785,7 +1791,7 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
 
     # Add the missing parent
     missing_parent_node = {
-        "name": "comments",
+        "name": "default.comments",
         "description": "A fact table with comments",
         "columns": [
             {"name": "id", "type": "int"},

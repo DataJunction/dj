@@ -156,6 +156,6 @@ def get_namespace_from_name(name: str) -> str:
     """
     if "." in name:
         node_namespace, _ = name.rsplit(".", 1)
-    else:
-        node_namespace = "default"
+    else:  # pragma: no cover
+        raise DJException(f"No namespace provided: {name}")
     return node_namespace

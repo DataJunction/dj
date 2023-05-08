@@ -178,7 +178,7 @@ class TestTags:
 
         # Trying tag a node with a nonexistent tag should fail
         response = client_with_examples.post(
-            "/nodes/items_sold_count/tag/?tag_name=random_tag",
+            "/nodes/default.items_sold_count/tag/?tag_name=random_tag",
         )
         assert response.status_code == 404
         response_data = response.json()
@@ -188,13 +188,13 @@ class TestTags:
 
         # Trying tag a node with an existing tag should succeed
         response = client_with_examples.post(
-            "/nodes/items_sold_count/tag/?tag_name=sales_report",
+            "/nodes/default.items_sold_count/tag/?tag_name=sales_report",
         )
         assert response.status_code == 201
         response_data = response.json()
-        assert (
-            response_data["message"]
-            == "Node `items_sold_count` has been successfully tagged with tag `sales_report`"
+        assert response_data["message"] == (
+            "Node `default.items_sold_count` has been "
+            "successfully tagged with tag `sales_report`"
         )
 
         # Test finding all nodes for that tag
@@ -205,18 +205,18 @@ class TestTags:
         response_data = response.json()
         assert len(response_data) == 1
         assert response_data == [
-            "items_sold_count",
+            "default.items_sold_count",
         ]
 
         # Tag a second node
         response = client_with_examples.post(
-            "/nodes/total_profit/tag/?tag_name=sales_report",
+            "/nodes/default.total_profit/tag/?tag_name=sales_report",
         )
         assert response.status_code == 201
         response_data = response.json()
         assert (
             response_data["message"]
-            == "Node `total_profit` has been successfully tagged with tag `sales_report`"
+            == "Node `default.total_profit` has been successfully tagged with tag `sales_report`"
         )
 
         # Check finding nodes for tag
@@ -227,8 +227,8 @@ class TestTags:
         response_data = response.json()
         assert len(response_data) == 2
         assert response_data == [
-            "items_sold_count",
-            "total_profit",
+            "default.items_sold_count",
+            "default.total_profit",
         ]
 
         # Check finding nodes for tag
