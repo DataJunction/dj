@@ -75,6 +75,35 @@ cube = dj.new_cube(
 cube.save()
 ```
 {{< /tab >}}
+{{< tab "javascript" >}}
+```js
+const { DJClient } = require('datajunction')
+
+const dj = DJClient('http://localhost:8000/')
+dj.cubes.create(
+    {
+        metrics: [
+            "num_repair_orders",
+            "avg_repair_price",
+            "total_repair_cost"
+        ],
+        dimensions: [
+            "hard_hat.country",
+            "hard_hat.postal_code",
+            "hard_hat.city",
+            "hard_hat.state",
+            "dispatcher.company_name",
+            "municipality_dim.local_region"
+        ],
+        filters: ["hard_hat.state='"'"'AZ'"'"'"]
+        description: "Cube of various metrics related to repairs",
+        mode: "published",
+        display_name: "Repairs Cube",
+        name: "repairs_cube"
+    }
+)
+```
+{{< /tab >}}
 {{< /tabs >}}
 
 ## Adding Materialization Config
@@ -117,6 +146,28 @@ config = MaterializationConfig(
     }
 )
 cube.add_materialization_config(config)
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+const { DJClient } = require('datajunction')
+
+const dj = DJClient('http://localhost:8000/')
+dj.materializationConfig.create(
+    {
+        name: "repair_orders_w_dispatchers",
+        description: "Repair orders that have a dispatcher",
+        query: `
+            SELECT
+            repair_order_id,
+            municipality_id,
+            hard_hat_id,
+            dispatcher_id
+            FROM repair_orders
+            WHERE dispatcher_id IS NOT NULL
+        `
+    }
+)
 ```
 {{< /tab >}}
 {{< /tabs >}}
