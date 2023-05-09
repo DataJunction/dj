@@ -70,5 +70,4 @@ test = [
     "pytest>=7.3.0",
     "requests-mock>=1.10.0",
     "typing-extensions>=4.5.0",
-    "pdm-bump>=0.4.0",
 ]
