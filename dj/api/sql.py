@@ -72,7 +72,7 @@ def get_sql_for_metrics(
         if engine_name
         else None
     )
-    _, metric_nodes, _, _ = validate_cube(
+    _, metric_nodes, _, _, _ = validate_cube(
         session,
         metrics,
         dimensions,

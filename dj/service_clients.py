@@ -1,5 +1,5 @@
 """Clients for various configurable services."""
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Dict, List, Optional
 from urllib.parse import urljoin
 from uuid import UUID
 
@@ -14,6 +14,7 @@ from dj.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
     from dj.models.engine import Engine
+    from dj.models.node import MaterializationConfig
 
 
 class RequestsSessionWithEndpoint(requests.Session):
@@ -130,3 +131,23 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             )
         query_info = response.json()
         return QueryWithResults(**query_info)
+
+    def materialize_cube(
+        self,
+        node_name: str,
+        schedule: str,
+        druid_spec: Dict,
+    ):
+        """
+        Kick off scheduling of materialization job for cube nodes
+        """
+        response = self.requests_session.post(
+            "/materialization/druid/",
+            json={
+                "node_name": node_name,
+                "schedule": schedule or "@daily",
+                "druid_spec": druid_spec,
+            },
+        )
+        result = response.json()
+        return result

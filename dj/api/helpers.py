@@ -499,7 +499,7 @@ def validate_cube(
     session: Session,
     metric_names: List[str],
     dimension_names: List[str],
-) -> Tuple[List[Column], List[Node], List[Node], List[Column]]:
+) -> Tuple[List[Column], List[Node], List[Node], List[Column], Optional[Catalog]]:
     """
     Validate that a set of metrics and dimensions can be built together.
     """
@@ -508,6 +508,7 @@ def validate_cube(
     dimension_nodes: List[Node] = []
     dimensions: List[Column] = []
     catalogs = []
+    catalog = None
 
     # Verify that the provided metrics are metric nodes
     for node_name in metric_names:
@@ -524,6 +525,7 @@ def validate_cube(
                 http_status_code=http.client.UNPROCESSABLE_ENTITY,
             )
         catalogs.append(metric_node.current.catalog.name)
+        catalog = metric_node.current.catalog
         metrics.append(metric_node.current.columns[0])
         metric_nodes.append(metric_node)
 
@@ -560,4 +562,4 @@ def validate_cube(
             message=("Metrics and dimensions must be part of a common catalog"),
         )
 
-    return metrics, metric_nodes, dimension_nodes, dimensions
+    return metrics, metric_nodes, dimension_nodes, dimensions, catalog
