@@ -1236,12 +1236,6 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
             new_revision.version,
             [p.name for p in new_revision.parents],
         )
-
-        # Keep the dimension links from the last revision if any existed
-        old_columns_mapping = {col.name: col for col in old_revision.columns}
-        for col in validated_node.columns:
-            if col.name in old_columns_mapping:
-                col.dimension_id = old_columns_mapping[col.name].dimension_id
         new_revision.columns = validated_node.columns or []
     return new_revision
 
