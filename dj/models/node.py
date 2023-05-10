@@ -352,7 +352,7 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
 
     # The name of the plugin that handles materialization, if any
     job: str = Field(
-        default="NativeMaterializationJob",
+        default="MaterializationJob",
         sa_column=SqlaColumn("job", String),
     )
 
@@ -836,6 +836,7 @@ class MaterializationConfigOutput(SQLModel):
     engine: EngineInfo
     config: Dict
     schedule: str
+    job: str
 
 
 class NodeRevisionOutput(SQLModel):

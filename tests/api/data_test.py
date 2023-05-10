@@ -303,12 +303,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "id": 1,
         }
 
-    def test_raising_if_availability_catalog_mismatch(
+    def test_availability_catalog_mismatch(
         self,
         client_with_examples: TestClient,
     ) -> None:
         """
-        Test raising when the catalog does not match
+        Test that setting availability works even when the catalogs do not match
         """
         response = client_with_examples.post(
             "/data/default.large_revenue_payments_and_business_only/availability/",
@@ -323,10 +323,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 500
-        assert data["message"] == (
-            "Cannot set availability state in different " "catalog: public, default"
-        )
+        assert response.status_code == 200
+        assert data["message"] == "Availability state successfully posted"
 
     def test_setting_availability_state_multiple_times(
         self,

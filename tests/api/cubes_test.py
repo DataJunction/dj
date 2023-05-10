@@ -1,9 +1,12 @@
 """
 Tests for the cubes API.
 """
+from typing import Iterator
 
+import pytest
 from fastapi.testclient import TestClient
 
+from dj.service_clients import QueryServiceClient
 from tests.sql.utils import compare_query_strings
 
 
@@ -193,9 +196,111 @@ def test_raise_on_cube_with_multiple_catalogs(
     assert "Metrics and dimensions cannot be from multiple catalogs" in data["message"]
 
 
-def test_cube_sql(client_with_examples: TestClient):
+def test_create_cube_with_materialization(client_with_query_service: TestClient):
     """
-    Test that the generated cube materialization SQL makes sense
+    Testing creating cube with materialization configs
+    """
+    metrics_list = [
+        "default.discounted_orders_rate",
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+        "default.total_repair_order_discounts",
+    ]
+
+    response = client_with_query_service.post(
+        "/nodes/cube/",
+        json={
+            "metrics": metrics_list,
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.hard_hat.postal_code",
+                "default.hard_hat.city",
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+                "default.municipality_dim.local_region",
+            ],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": "default.repairs_cube_with_materialization",
+            "materialization_configs": [
+                {
+                    "engine": {
+                        "name": "druid",
+                        "version": "",
+                    },
+                    "config": {
+                        "druid": {
+                            "granularity": "DAY",
+                            "intervals": [],
+                            "timestamp_column": "something",
+                            "parse_spec_format": "parquet",
+                        },
+                        "spark": {},
+                    },
+                    "schedule": "0 * * * *",
+                },
+            ],
+        },
+    )
+    default_materialization = response.json()["materialization_configs"][0]
+    assert default_materialization["job"] == "DruidCubeMaterializationJob"
+    assert default_materialization["schedule"] == "0 * * * *"
+
+
+@pytest.fixture
+def client_with_repairs_cube(client_with_query_service: TestClient):
+    """
+    Adds a repairs cube with a new double total repair cost metric to the test client
+    """
+    metrics_list = [
+        "default.discounted_orders_rate",
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+        "default.total_repair_order_discounts",
+    ]
+
+    # Metric that doubles the total repair cost to test the sum(x) + sum(y) scenario
+    client_with_query_service.post(
+        "/nodes/metric/",
+        json={
+            "description": "Double total repair cost",
+            "query": (
+                "SELECT sum(price) + sum(price) as default_DOT_double_total_repair_cost "
+                "FROM default.repair_order_details"
+            ),
+            "mode": "published",
+            "name": "default.double_total_repair_cost",
+        },
+    )
+    # Should succeed
+    response = client_with_query_service.post(
+        "/nodes/cube/",
+        json={
+            "metrics": metrics_list + ["default.double_total_repair_cost"],
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.hard_hat.postal_code",
+                "default.hard_hat.city",
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+                "default.municipality_dim.local_region",
+            ],
+            "filters": ["default.hard_hat.state='AZ'"],
+            "description": "Cube of various metrics related to repairs",
+            "mode": "published",
+            "name": "default.repairs_cube",
+        },
+    )
+    assert response.status_code == 201
+    return client_with_query_service
+
+
+def test_invalid_cube(client_with_examples: TestClient):
+    """
+    Test that creating a cube without valid dimensions fails
     """
     metrics_list = [
         "default.discounted_orders_rate",
@@ -222,39 +327,14 @@ def test_cube_sql(client_with_examples: TestClient):
         "on every metric and thus cannot be included."
     )
 
-    # Metric that doubles the total repair cost to test the sum(x) + sum(y) scenario
-    response = client_with_examples.post(
-        "/nodes/metric/",
-        json={
-            "description": "Double total repair cost",
-            "query": (
-                "SELECT sum(price) + sum(price) as default_DOT_double_total_repair_cost "
-                "FROM default.repair_order_details"
-            ),
-            "mode": "published",
-            "name": "default.double_total_repair_cost",
-        },
-    )
-    assert response.ok
-    # Should succeed
-    response = client_with_examples.post(
-        "/nodes/cube/",
-        json={
-            "metrics": metrics_list + ["default.double_total_repair_cost"],
-            "dimensions": [
-                "default.hard_hat.country",
-                "default.hard_hat.postal_code",
-                "default.hard_hat.city",
-                "default.hard_hat.state",
-                "default.dispatcher.company_name",
-                "default.municipality_dim.local_region",
-            ],
-            "filters": ["default.hard_hat.state='AZ'"],
-            "description": "Cube of various metrics related to repairs",
-            "mode": "published",
-            "name": "default.repairs_cube",
-        },
-    )
+
+def test_create_cube(  # pylint: disable=redefined-outer-name
+    client_with_repairs_cube: TestClient,
+):
+    """
+    Tests cube creation and the generated cube SQL
+    """
+    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     results = response.json()
 
     assert results["name"] == "default.repairs_cube"
@@ -296,21 +376,14 @@ def test_cube_sql(client_with_examples: TestClient):
     """
     assert compare_query_strings(results["query"], expected_query)
 
-    response = client_with_examples.post(
-        "/nodes/default.repairs_cube/materialization/",
-        json={
-            "engine_name": "druid",
-            "engine_version": "",
-            "config": {},
-            "schedule": "",
-        },
-    )
-    assert response.json() == {
-        "message": "Successfully updated materialization config "
-        "for node `default.repairs_cube` and engine `druid`.",
-    }
 
-    response = client_with_examples.get("/cubes/default.repairs_cube/")
+def test_cube_materialization_sql_and_measures(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Verifies a cube's materialization SQL + measures
+    """
+    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
     assert data["cube_elements"] == [
         {
@@ -400,56 +473,214 @@ def test_cube_sql(client_with_examples: TestClient):
         data["materialization_configs"][0]["config"]["query"],
         expected_materialization_query,
     )
+    assert data["materialization_configs"][0]["job"] == "DefaultCubeMaterialization"
     assert data["materialization_configs"][0]["config"]["measures"] == {
-        "default_DOT_double_total_repair_cost": [
+        "default_DOT_avg_repair_price": [
+            {
+                "name": "price_count",
+                "agg": "count",
+                "type": "bigint",
+            },
             {
                 "name": "price_sum",
                 "agg": "sum",
-                "expr": "sum(default_DOT_repair_order_details.price)",
+                "type": "double",
             },
+        ],
+        "default_DOT_double_total_repair_cost": [
+            {
+                "agg": "sum",
+                "type": "double",
+                "name": "price_sum",
+            },
+        ],
+        "default_DOT_discounted_orders_rate": [
+            {
+                "agg": "sum",
+                "type": "bigint",
+                "name": "discount_sum",
+            },
+            {"agg": "count", "type": "bigint", "name": "placeholder_count"},
         ],
         "default_DOT_num_repair_orders": [
             {
                 "name": "repair_order_id_count",
                 "agg": "count",
-                "expr": "count(default_DOT_repair_orders.repair_order_id)",
+                "type": "bigint",
             },
         ],
         "default_DOT_total_repair_order_discounts": [
             {
+                "agg": "sum",
+                "type": "double",
                 "name": "price_discount_sum",
-                "agg": "sum",
-                "expr": (
-                    "sum(default_DOT_repair_order_details.price * "
-                    "default_DOT_repair_order_details.discount)"
-                ),
             },
-        ],
-        "default_DOT_discounted_orders_rate": [
-            {
-                "name": "discount_sum",
-                "agg": "sum",
-                "expr": "sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0))",
-            },
-            {"name": "placeholder_count", "agg": "count", "expr": "count(*)"},
         ],
         "default_DOT_total_repair_cost": [
             {
                 "name": "price_sum",
                 "agg": "sum",
-                "expr": "sum(default_DOT_repair_order_details.price)",
-            },
-        ],
-        "default_DOT_avg_repair_price": [
-            {
-                "name": "price_count",
-                "agg": "count",
-                "expr": "count(default_DOT_repair_order_details.price)",
-            },
-            {
-                "name": "price_sum",
-                "agg": "sum",
-                "expr": "sum(default_DOT_repair_order_details.price)",
+                "type": "double",
             },
         ],
     }
+
+
+def test_add_materialization_cube_failures(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Verifies failure modes when adding materialization config to cube nodes
+    """
+    response = client_with_repairs_cube.post(
+        "/nodes/default.repairs_cube/materialization/",
+        json={
+            "engine": {"name": "druid", "version": ""},
+            "config": {},
+            "schedule": "",
+        },
+    )
+    assert response.json() == {
+        "message": "No change has been made to the materialization config for node "
+        "`default.repairs_cube` and engine `druid` as the config does not have valid "
+        "configuration for engine `druid`. \nExpecting 'druid' key in `config`.",
+    }
+
+    response = client_with_repairs_cube.post(
+        "/nodes/default.repairs_cube/materialization/",
+        json={
+            "engine": {"name": "druid", "version": ""},
+            "config": {
+                "druid": {"a": "b"},
+                "spark": {},
+            },
+            "schedule": "",
+        },
+    )
+    assert response.json() == {
+        "message": "No change has been made to the materialization config for node "
+        "`default.repairs_cube` and engine `druid` as the config does not have "
+        "valid configuration for engine `druid`. "
+        "\n* field required: granularity"
+        "\n* field required: timestamp_column",
+    }
+
+
+def test_add_materialization_config_to_cube(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+    query_service_client: Iterator[QueryServiceClient],
+):
+    """
+    Verifies adding materialization config to a cube
+    """
+    response = client_with_repairs_cube.post(
+        "/nodes/default.repairs_cube/materialization/",
+        json={
+            "engine": {"name": "druid", "version": ""},
+            "config": {
+                "druid": {
+                    "granularity": "DAY",
+                    "timestamp_column": "something",
+                },
+                "spark": {},
+            },
+            "schedule": "",
+        },
+    )
+    assert response.json() == {
+        "message": "Successfully updated materialization config for node "
+        "`default.repairs_cube` and engine `druid`.",
+    }
+    called_kwargs = [
+        call_[1]
+        for call_ in query_service_client.materialize_cube.call_args_list  # type: ignore
+    ][0]
+    assert called_kwargs["node_name"] == "default.repairs_cube"
+    assert called_kwargs["schedule"] == "@daily"
+    assert called_kwargs["spark_conf"] == {}
+    dimensions_sorted = sorted(
+        called_kwargs["druid_spec"]["dataSchema"]["parser"]["parseSpec"][
+            "dimensionsSpec"
+        ]["dimensions"],
+    )
+    called_kwargs["druid_spec"]["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
+        "dimensions"
+    ] = dimensions_sorted
+    called_kwargs["druid_spec"]["dataSchema"]["metricsSpec"] = sorted(
+        called_kwargs["druid_spec"]["dataSchema"]["metricsSpec"],
+        key=lambda x: x["fieldName"],
+    )
+    assert called_kwargs["druid_spec"] == {
+        "dataSchema": {
+            "dataSource": "default_DOT_repairs_cube",
+            "parser": {
+                "parseSpec": {
+                    "format": "parquet",
+                    "dimensionsSpec": {
+                        "dimensions": [
+                            "city",
+                            "company_name",
+                            "country",
+                            "local_region",
+                            "postal_code",
+                            "state",
+                        ],
+                    },
+                    "timestampSpec": {"column": "something", "format": "yyyyMMdd"},
+                },
+            },
+            "metricsSpec": [
+                {
+                    "fieldName": "discount_sum",
+                    "name": "discount_sum",
+                    "type": "longSum",
+                },
+                {
+                    "fieldName": "placeholder_count",
+                    "name": "placeholder_count",
+                    "type": "longSum",
+                },
+                {"fieldName": "price_count", "name": "price_count", "type": "longSum"},
+                {
+                    "fieldName": "price_discount_sum",
+                    "name": "price_discount_sum",
+                    "type": "doubleSum",
+                },
+                {"fieldName": "price_sum", "name": "price_sum", "type": "doubleSum"},
+                {
+                    "fieldName": "repair_order_id_count",
+                    "name": "repair_order_id_count",
+                    "type": "longSum",
+                },
+            ],
+            "granularitySpec": {
+                "type": "uniform",
+                "segmentGranularity": "DAY",
+                "intervals": None,
+            },
+        },
+    }
+    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
+    materialization_configs = response.json()["materialization_configs"]
+    assert len(materialization_configs) == 2
+    druid_materialization = [
+        materialization
+        for materialization in materialization_configs
+        if materialization["engine"]["name"] == "druid"
+    ][0]
+    assert druid_materialization["engine"] == {
+        "name": "druid",
+        "version": "",
+        "uri": None,
+        "dialect": "druid",
+    }
+    assert set(druid_materialization["config"]["dimensions"]) == {
+        "postal_code",
+        "city",
+        "local_region",
+        "country",
+        "state",
+        "company_name",
+    }
+    assert druid_materialization["config"]["partitions"] is None
+    assert druid_materialization["schedule"] == "@daily"
