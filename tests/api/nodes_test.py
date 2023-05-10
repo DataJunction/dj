@@ -1298,8 +1298,10 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_examples.post(
             "/nodes/basic.source.comments/materialization/",
             json={
-                "engine_name": "spark",
-                "engine_version": "2.4.4",
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
                 "schedule": "0 * * * *",
                 "config": {},
             },
@@ -1314,8 +1316,10 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine_name": "spark",
-                "engine_version": "2.4.4",
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
                 "config": {},
                 "schedule": "0 * * * *",
             },
@@ -1343,8 +1347,10 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine_name": "spark",
-                "engine_version": "2.4.4",
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
                 "config": {},
                 "schedule": "0 * * * *",
             },
@@ -1370,6 +1376,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                     "version": "2.4.4",
                     "dialect": "spark",
                 },
+                "job": "SparkSqlMaterializationJob",
             },
         ]
 
@@ -1377,8 +1384,10 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine_name": "spark",
-                "engine_version": "2.4.4",
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
                 "config": {},
                 "dialect": "spark",
                 "schedule": "0 * * * *",

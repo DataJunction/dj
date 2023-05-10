@@ -6,6 +6,7 @@ Fixtures for testing.
 import re
 from http.client import HTTPException
 from typing import Collection, Iterator, List, Optional
+from unittest.mock import MagicMock
 
 import pytest
 from cachelib.simple import SimpleCache
@@ -98,6 +99,12 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         qs_client,
         "submit_query",
         mock_submit_query,
+    )
+
+    mocker.patch.object(
+        qs_client,
+        "materialize_cube",
+        MagicMock(),
     )
 
     yield qs_client
