@@ -1052,6 +1052,11 @@ def _(ctx: sbp.PrimitiveDataTypeContext) -> ast.Value:
         length = int(fixed_match.group("length"))
         return ct.FixedType(length)
 
+    varchar_match = ct.VARCHAR_PARSER.match(column_type)
+    if varchar_match:
+        length = int(varchar_match.group("length"))
+        return ct.VarcharType(length)
+
     column_type = column_type.lower().strip("()")
     try:
         return ct.PRIMITIVE_TYPES[column_type]

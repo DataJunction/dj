@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 
 try:
     import pandas as pd
-except ImportError:
+except ImportError:  # pragma: no cover
     warnings.warn(
         (
             "Optional dependency `pandas` not found, data retrieval"
@@ -73,6 +73,47 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
         Construct full URL based off the endpoint.
         """
         return urljoin(self.endpoint, url)
+
+
+class Engine(BaseModel):
+    name: str
+    version: str
+
+
+class MaterializationConfig(BaseModel):
+    """
+    A node's materialization config
+    """
+
+    engine: Engine
+    schedule: str
+    config: Dict
+
+
+class NodeMode(str, enum.Enum):
+    """
+    DJ node's mode
+    """
+
+    DRAFT = "draft"
+    PUBLISHED = "published"
+
+
+class UpdateNode(BaseModel):
+    """
+    Fields for updating a node
+    """
+    display_name: Optional[str]
+    description: Optional[str]
+    mode: Optional[NodeMode]
+    primary_key: Optional[List[str]]
+    query: Optional[str]
+
+    # source nodes only
+    catalog: Optional[str]
+    schema_: Optional[str]
+    table: Optional[str]
+    columns: Optional[List["SourceColumnOutput"]] = []
 
 
 class DJClient:  # pylint: disable=too-many-public-methods
@@ -267,6 +308,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         filters: Optional[List[str]] = None,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
+        materialization_configs: Optional[List[MaterializationConfig]] = None,
     ) -> "Cube":
         """
         Instantiates a new cube with the given parameters.
@@ -279,6 +321,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
             filters=filters,
             description=description,
             display_name=display_name,
+            materialization_configs=materialization_configs,
         )
 
     def new_namespace(
@@ -404,6 +447,13 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Retrieves a node.
         """
         response = self._session.get(f"/nodes/{node_name}/")
+        return response.json()
+
+    def update_node(self, node_name: str, input: UpdateNode):
+        """
+        Retrieves a node.
+        """
+        response = self._session.patch(f"/nodes/{node_name}/", json=input)
         return response.json()
 
     def get_cube(self, node_name: str):
@@ -553,15 +603,6 @@ class Column(BaseModel):
     type: str
 
 
-class NodeMode(str, enum.Enum):
-    """
-    DJ node's mode
-    """
-
-    DRAFT = "draft"
-    PUBLISHED = "published"
-
-
 class Tag(BaseModel):
     """
     Node tags
@@ -608,9 +649,20 @@ class Node(ClientEntity):
         """
         Sets the node's mode to PUBLISHED and pushes it to the server.
         """
-        create_response = self.dj_client.create_node(self, mode)
-        self.sync()
-        return create_response
+        existing_node = self.dj_client.get_node(node_name=self.name)
+        if "name" in existing_node:
+            update_node = UpdateNode(
+                display_name=self.display_name,
+                description=self.description,
+                mode=self.mode,
+                primary_key=self.primary_key,
+                query=self.query,
+            )
+            return self.dj_client.update_node(self.name, update_node.dict())
+        else:
+            create_response = self.dj_client.create_node(self, mode)
+            self.sync()
+            return create_response
 
     def sync(self):
         """
@@ -681,13 +733,20 @@ class Node(ClientEntity):
         return f"Successfully deleted `{self.name}`"
 
 
+class EngineRef(BaseModel):
+    """
+    Engine reference
+    """
+    name: str
+    version: Optional[str]
+
+
 class MaterializationConfig(BaseModel):
     """
     A node's materialization config
     """
 
-    engine_name: str
-    engine_version: Optional[str]
+    engine: EngineRef
     schedule: str
     config: Dict
 
@@ -765,6 +824,7 @@ class Cube(Node):
     dimensions: List[str]
     filters: Optional[List[str]]
     columns: Optional[List[Column]]
+    materialization_configs: Optional[List[MaterializationConfig]]
 
 
 class Namespace(ClientEntity):
