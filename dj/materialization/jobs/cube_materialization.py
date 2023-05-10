@@ -3,7 +3,7 @@ Cube materialization jobs
 """
 from typing import Dict
 
-from dj.materialization.jobs import MaterializationJob
+from dj.materialization.jobs.materialization_job import MaterializationJob
 from dj.models.engine import Dialect
 from dj.models.node import DruidCubeConfig, MaterializationConfig
 from dj.service_clients import QueryServiceClient

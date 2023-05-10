@@ -79,8 +79,9 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
 
 class EngineRef(BaseModel):
     """
-    Engine reference
+    Represents an engine
     """
+
     name: str
     version: Optional[str]
 
