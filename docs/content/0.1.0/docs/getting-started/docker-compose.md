@@ -9,13 +9,14 @@ weight: 10
 The easiest way to try out DJ is to use the [dj-demo](https://github.com/DataJunction/dj-demo) docker compose setup. This setup will launch and connect
 a DJ server, a DJRS server, and a jupyter lab instance with a few example notebooks.
 
-Clone the DJ demo repository along with the DJ, DJRS and DJQS repositories.
+Clone the DJ demo repository along with the DJ, DJRS, DJQS and DJ-UI repositories.
 
 ```sh
 git clone git@github.com:DataJunction/dj-demo.git
 git clone git@github.com:DataJunction/dj.git
 git clone git@github.com:DataJunction/djqs.git
 git clone git@github.com:DataJunction/djrs.git
+git clone git@github.com:DataJunction/dj-ui.git
 ```
 
 Change into the `dj-demo/` directory and start the docker compose environment.
