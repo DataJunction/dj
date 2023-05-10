@@ -104,11 +104,13 @@ http://localhost:8000/nodes/repairs_cube/materialization/ \
 {{< tab "python" >}}
 
 ```py
-from datajunction import MaterializationConfig
+from datajunction import MaterializationConfig, EngineRef
 
 config = MaterializationConfig(
-    engine_name="SPARK",
-    engine_version="3.3",
+    engine=EngineRef(
+        name="SPARK",
+        version="3.3"
+    ),
     schedule="0 * * * *",
     config={
         "spark.driver.memory": "4g",

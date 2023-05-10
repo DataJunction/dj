@@ -5,6 +5,7 @@ from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
 from datajunction.client import (
     Cube,
+    EngineRef,
     Dimension,
     DJClient,
     MaterializationConfig,
@@ -37,4 +38,5 @@ __all__ = [
     "Node",
     "NodeMode",
     "Namespace",
+    "EngineRef",
 ]

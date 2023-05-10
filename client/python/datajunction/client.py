@@ -77,13 +77,20 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
         return urljoin(self.endpoint, url)
 
 
+class EngineRef(BaseModel):
+    """
+    Engine reference
+    """
+    name: str
+    version: Optional[str]
+
+
 class MaterializationConfig(BaseModel):
     """
     A node's materialization config
     """
 
-    engine_name: str
-    engine_version: str
+    engine: EngineRef
     schedule: str
     config: Dict
 
