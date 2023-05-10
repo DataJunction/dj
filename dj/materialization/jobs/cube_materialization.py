@@ -2,6 +2,7 @@
 Cube materialization jobs
 """
 import abc
+from typing import Dict
 
 from dj.models.node import DruidCubeConfig, MaterializationConfig
 from dj.service_clients import QueryServiceClient
@@ -67,13 +68,12 @@ class DruidCubeMaterialization(MaterializationJob):
     Druid materialization of a cube node.
     """
 
-    def build_druid_spec(self, materialization: MaterializationConfig):
+    def build_druid_spec(self, cube_config: DruidCubeConfig, node_name: str) -> Dict:
         """
         Builds the Druid ingestion spec from a materialization config.
         """
-        cube_config = DruidCubeConfig.parse_obj(materialization.config)
         druid_datasource_name = (
-            cube_config.prefix + materialization.node_revision.name + cube_config.suffix
+            cube_config.prefix + node_name + cube_config.suffix
         )
         metrics_spec = [
             {
@@ -120,9 +120,12 @@ class DruidCubeMaterialization(MaterializationJob):
         """
         Use the query service to kick off the materialization setup.
         """
-        druid_spec = self.build_druid_spec(materialization)
+        cube_config = DruidCubeConfig.parse_obj(materialization.config)
+        druid_spec = self.build_druid_spec(cube_config, materialization.node_revision.name)
         query_service_client.materialize_cube(
             node_name=materialization.node_revision.name,
             schedule=materialization.schedule,
+            query=cube_config.query,
+            spark_conf=cube_config.spark.__root__,
             druid_spec=druid_spec,
         )

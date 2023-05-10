@@ -136,16 +136,27 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         self,
         node_name: str,
         schedule: str,
+        query: str,
+        spark_conf: str,
         druid_spec: Dict,
     ):
         """
         Kick off scheduling of materialization job for cube nodes
         """
+        print("materialize cube", {
+                "node_name": node_name,
+                "schedule": schedule or "@daily",
+                "query": query,
+                "spark_conf": spark_conf,
+                "druid_spec": druid_spec,
+            })
         response = self.requests_session.post(
             "/materialization/druid/",
             json={
                 "node_name": node_name,
                 "schedule": schedule or "@daily",
+                "query": query,
+                "spark_conf": spark_conf,
                 "druid_spec": druid_spec,
             },
         )
