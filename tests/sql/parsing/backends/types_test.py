@@ -23,3 +23,7 @@ def test_types_compatible():
     assert not ct.StringType().is_compatible(ct.BinaryType())
     assert not ct.StringType().is_compatible(ct.BigIntType())
     assert not ct.StringType().is_compatible(ct.DateType())
+
+
+def test_varchar():
+    assert not ct.VarcharType().is_compatible(ct.DateType())
