@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple, Union
 from fastapi import HTTPException
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from dj.construction.build import build_node
@@ -60,11 +61,14 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
     raise_if_not_exists: bool = True,
+    include_deactivated: bool = False,
 ) -> Node:
     """
     Get a node by name
     """
     statement = select(Node).where(Node.name == name)
+    if not include_deactivated:
+        statement = statement.where(is_(Node.deactivated_at, None))
     if node_type:
         statement = statement.where(Node.type == node_type)
     if with_current:
@@ -92,6 +96,23 @@ def raise_if_node_exists(session: Session, name: str) -> None:
     if node:
         raise DJException(
             message=f"A node with name `{name}` already exists.",
+            http_status_code=HTTPStatus.CONFLICT,
+        )
+
+
+def raise_if_node_inactive(session: Session, name: str) -> None:
+    """
+    Raise an error if the node with the given name exists and is inactive.
+    """
+    node = get_node_by_name(
+        session,
+        name,
+        raise_if_not_exists=False,
+        include_deactivated=True,
+    )
+    if node and node.deactivated_at:
+        raise DJException(
+            message=f"Node `{name}` exists but has been deactivated.",
             http_status_code=HTTPStatus.CONFLICT,
         )
 
@@ -225,7 +246,7 @@ def get_downstream_nodes(
     Gets all downstream children of the given node, filterable by node type.
     Uses a recursive CTE query to build out all descendants from the node.
     """
-    node = get_node_by_name(session=session, name=node_name)
+    node = get_node_by_name(session=session, name=node_name, include_deactivated=True)
 
     dag = (
         select(

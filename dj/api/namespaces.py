@@ -7,6 +7,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy import and_
+from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from dj.api.helpers import get_node_namespace
@@ -88,6 +89,8 @@ def list_nodes_in_namespace(
         )
     )
 
-    list_nodes_query = select(Node.name).where(where_clause)
+    list_nodes_query = (
+        select(Node.name).where(where_clause).where(is_(Node.deactivated_at, None))
+    )
     node_names = session.exec(list_nodes_query).all()
     return node_names  # type: ignore
