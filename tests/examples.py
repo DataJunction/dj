@@ -1612,7 +1612,7 @@ EXAMPLES = (  # type: ignore
         {
             "query": """
             SELECT
-              cast(color_id as varchar(10)) color_id,
+              cast(color_id as varchar) color_id,
               color_name,
               opacity,
               luminosity,

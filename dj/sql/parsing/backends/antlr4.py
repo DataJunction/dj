@@ -1054,8 +1054,8 @@ def _(ctx: sbp.PrimitiveDataTypeContext) -> ast.Value:
 
     varchar_match = ct.VARCHAR_PARSER.match(column_type)
     if varchar_match:
-        length = int(varchar_match.group("length"))
-        return ct.VarcharType(length)
+        length = varchar_match.group("length")
+        return ct.VarcharType(length) if length else ct.VarcharType()
 
     column_type = column_type.lower().strip("()")
     try:
