@@ -529,7 +529,7 @@ def test_cross_join_unnest(client_with_examples: TestClient):
       AVG(basic_DOT_corrected_patches.luminosity) AS cnt
     FROM (
       SELECT
-        CAST(basic_DOT_patches.color_id AS VARCHAR) color_id,
+        CAST(basic_DOT_patches.color_id AS VARCHAR(10)) color_id,
         basic_DOT_patches.color_name,
         basic_DOT_patches.garishness,
         basic_DOT_patches.luminosity,
@@ -582,7 +582,7 @@ def test_lateral_view_explode(client_with_examples: TestClient):
       AVG(basic_DOT_corrected_patches.luminosity) AS cnt
     FROM (
       SELECT
-        CAST(basic_DOT_patches.color_id AS VARCHAR) color_id,
+        CAST(basic_DOT_patches.color_id AS VARCHAR(10)) color_id,
         basic_DOT_patches.color_name,
         basic_DOT_patches.garishness,
         basic_DOT_patches.luminosity,
