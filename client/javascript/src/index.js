@@ -16,14 +16,24 @@ export class DJClient extends HttpClient {
         }
     }
 
-    get catalog() {
+    get catalogs() {
         return {
             list: () => this.get('/catalogs/'),
             get: (catalog) => this.get(`/catalogs/${catalog}/`),
-            create: (engine) =>
+            create: (catalog) =>
                 this.setHeader('Content-Type', 'application/json').post(
-                    '/catalogs/',
-                    engine
+                    `/catalogs/`,
+                    catalog
+                ),
+            addEngine: (catalog, engineName, engineVersion) =>
+                this.setHeader('Content-Type', 'application/json').post(
+                    `/catalogs/${catalog}/engines/`,
+                    [
+                        {
+                            name: engineName,
+                            version: engineVersion,
+                        },
+                    ]
                 ),
         }
     }
@@ -33,11 +43,7 @@ export class DJClient extends HttpClient {
             list: () => this.get('/engines/'),
             get: (engineName, engineVersion) =>
                 this.get(`/engines/${engineName}/${engineVersion}/`),
-            create: (engine) =>
-                this.setHeader('Content-Type', 'application/json').post(
-                    '/engines/',
-                    engine
-                ),
+            create: (engine) => this.post('/engines/', engine),
         }
     }
 
@@ -226,12 +232,17 @@ export class DJClient extends HttpClient {
                 async_ = false,
                 engineName = null,
                 engineVersion = null
-            ) =>
-                this.get(
-                    `/sql/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${
-                        engineName || this.engineName
-                    }&engine_version=${engineVersion || this.engineVersion}`
-                ),
+            ) => {
+                const filtersP = filters ? `&filters=${filters}` : ''
+                const asyncP = async_ ? `&async_=${async_}` : ''
+                const engineNameP = engineName ? `&engine=${engineName}` : ''
+                const engineVersionP = engineVersion
+                    ? `&engine_version=${engineVersion}`
+                    : ''
+                return this.get(
+                    `/sql/?metrics=${metrics}&dimensions=${dimensions}${filtersP}${asyncP}${engineNameP}${engineVersionP}`
+                )
+            },
         }
     }
 
@@ -244,12 +255,17 @@ export class DJClient extends HttpClient {
                 async_ = false,
                 engineName = null,
                 engineVersion = null
-            ) =>
-                this.get(
-                    `/data/?metrics=${metrics}&dimensions=${dimensions}&filters=${filters}&async_=${async_}&engine_name=${
-                        engineName || this.engineName
-                    }&engine_version=${engineVersion || this.engineVersion}`
-                ),
+            ) => {
+                const filtersP = filters ? `&filters=${filters}` : ''
+                const asyncP = async_ ? `&async_=${async_}` : ''
+                const engineNameP = engineName ? `&engine=${engineName}` : ''
+                const engineVersionP = engineVersion
+                    ? `&engine_version=${engineVersion}`
+                    : ''
+                return this.get(
+                    `/data/?metrics=${metrics}&dimensions=${dimensions}${filtersP}${asyncP}${engineNameP}${engineVersionP}`
+                )
+            },
         }
     }
 }

@@ -26,16 +26,13 @@ curl -X POST http://localhost:8000/nodes/metric/ \
     "name": "default.num_repair_orders",
     "description": "Number of repair orders",
     "mode": "published",
-    "query": "SELECT count(repair_order_id) as num_repair_orders FROM repair_orders"
+    "query": "SELECT count(repair_order_id) as num_repair_orders FROM default.repair_orders"
 }'
 ```
 {{< /tab >}}
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient, NodeMode
-
-dj = DJClient("http://localhost:8000/")
 metric = dj.new_metric(
     name="default.num_repair_orders",
     description="Number of repair orders",
@@ -46,16 +43,18 @@ metric.save(NodeMode.PUBLISHED)
 {{< /tab >}}
 {{< tab "javascript" >}}
 ```js
-const { DJClient } = require('datajunction')
-
-const dj = DJClient('http://localhost:8000/')
 dj.metrics.create(
     {
         name: "default.num_repair_orders",
         description: "Number of repair orders",
-        query: "SELECT count(repair_order_id) as num_repair_orders FROM repair_orders"
+        mode: "published",
+        query: `
+            SELECT
+            count(repair_order_id) as num_repair_orders
+            FROM default.repair_orders
+        `
     }
-)
+).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}

@@ -32,18 +32,12 @@ curl -X POST http://localhost:8000/namespaces/default/
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient
-
-dj = DJClient("http://localhost:8000/")
-namespace = dj.new_namespace("default")
+dj.new_namespace("default")
 ```
 {{< /tab >}}
 {{< tab "javascript" >}}
 ```js
-const { DJClient } require('datajunction')
-
-const dj = DJClient("httpL//localhost:8000/")
-dj.namespaces.create("default")
+dj.namespaces.create("default").then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}

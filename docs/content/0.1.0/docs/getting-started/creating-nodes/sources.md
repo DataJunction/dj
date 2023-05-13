@@ -22,7 +22,27 @@ are built upon.
 
 Before creating source nodes, a DataJunction server must contain at least one catalog. A catalog represents a catalog in
 your external data warehouse and includes one or more engine definitions. All nodes that select from a source node,
-automatically inherit that source node's catalog. Here's an example of creating a `spark` engine and a `warehouse` catalog.
+automatically inherit that source node's catalog. Here's an example of creating a `duckdb` engine and a `warehouse` catalog.
+
+### Create a Catalog
+
+{{< tabs "creating a catalog" >}}
+{{< tab "curl" >}}
+```sh
+curl -X POST http://localhost:8000/catalogs/ \
+  -H 'accept: application/json' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "name": "warehouse"
+}'
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+dj.catalogs.create({"name": "warehouse"}).then(data => console.log(data))
+```
+{{< /tab >}}
+{{< /tabs >}}
 
 ### Create an Engine
 
@@ -34,35 +54,27 @@ curl -X 'POST' \
   -H 'accept: application/json' \
   -H 'Content-Type: application/json' \
   -d '{
-  "name": "spark",
-  "version": "3.1.1",
+  "name": "duckdb",
+  "version": "0.7.1",
   "dialect": "spark"
 }'
 ```
 {{< /tab >}}
-{{< /tabs >}}
-
-### Create a Catalog
-
-{{< tabs "creating a catalog" >}}
-{{< tab "curl" >}}
-```sh
-curl -X 'POST' \
-  'http://localhost:8000/catalogs/' \
-  -H 'accept: application/json' \
-  -H 'Content-Type: application/json' \
-  -d '{
-  "name": "warehouse",
-  "engines": [{"name": "spark", "version": "3.1.1"}]
-}'
+{{< tab "javascript" >}}
+```js
+dj.engines.create({
+    name: "duckdb",
+    version: "0.7.1",
+    dialect: "spark",
+}).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
 ### Attaching Existing Engines and Catalogs
 
-If a catalog and engine defintion already exist, the engine definition can be attached to the catalog.
-Here is an example of attaching an existing `spark` engine definition to an existing `warehouse` catalog.
+Once a catalog and engine defintion are created, the engine definition can be attached to the catalog.
+Here is an example of attaching the existing `duckdb` engine definition to the existing `warehouse` catalog.
 
 {{< tabs "attaching an engine" >}}
 {{< tab "curl" >}}
@@ -71,12 +83,15 @@ curl -X 'POST' \
   'http://localhost:8000/catalogs/warehouse/engines/' \
   -H 'accept: application/json' \
   -H 'Content-Type: application/json' \
-  -d '[
-  {
-    "name": "spark",
-    "version": "3.1.1"
-  }
-]'
+  -d '[{
+  "name": "duckdb",
+  "version": "0.7.1"
+}]'
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+dj.catalogs.addEngine("warehouse", "duckdb", "0.7.1").then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -89,7 +104,7 @@ curl -X 'POST' \
 curl -X POST http://localhost:8000/nodes/source/ \
 -H 'Content-Type: application/json' \
 -d '{
-    "name": "warehouse.repair_orders",
+    "name": "default.repair_orders",
     "description": "Repair orders",
     "mode": "published",
     "catalog": "warehouse",
@@ -110,11 +125,8 @@ curl -X POST http://localhost:8000/nodes/source/ \
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient, NodeMode
-
-dj = DJClient("http://localhost:8000/")
 source = dj.new_source(
-    name="warehouse.repair_orders",
+    name="default.repair_orders",
     description="Repair orders",
     catalog="warehouse",
     schema_="roads",
@@ -128,17 +140,13 @@ source = dj.new_source(
         {"name": "dispatched_date", "type": "timestamp"},
         {"name": "dispatcher_id", "type": "int"},
     ],
-)
-source.save(mode=NodeMode.PUBLISHED)
+).save()
 ```
 {{< /tab >}}
 {{< tab "javascript" >}}
 ```js
-const { DJClient } = require('datajunction')
-
-const dj = DJClient('http://localhost:8000/')
 dj.sources.create({
-    name: "warehouse.repair_orders",
+    name: "default.repair_orders",
     description: "Repair orders",
     mode: "published",
     catalog: "warehouse",
@@ -153,7 +161,7 @@ dj.sources.create({
         {name: "dispatched_date", type: "timestamp"},
         {name: "dispatcher_id", type: "int"}
     ]
-})
+}).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -170,7 +178,7 @@ you to exclude the columns when adding a source node.
 curl -X POST http://localhost:8000/nodes/source/ \
 -H 'Content-Type: application/json' \
 -d '{
-    "name": "repair_orders",
+    "name": "default.repair_orders",
     "description": "Repair orders",
     "mode": "published",
     "catalog": "warehouse",
@@ -182,34 +190,25 @@ curl -X POST http://localhost:8000/nodes/source/ \
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient, NodeMode
-
-dj = DJClient("http://localhost:8000/")
-source = dj.new_source(
-    name="warehouse.repair_orders",
+dj.new_source(
+    name="default.repair_orders",
     description="Repair orders",
     catalog="warehouse",
     schema_="roads",
     table="repair_orders",
-)
-source.save(NodeMode.PUBLISHED)
+).save(NodeMode.PUBLISHED)
 ```
 {{< /tab >}}
 {{< tab "javascript" >}}
 ```js
-const { DJClient } = require('datajunction')
-
-const dj = DJClient('http://localhost:8000/')
-dj.sources.create(
-    {
-        name: "warehouse.repair_orders",
-        description: "Repair orders",
-        mode: "published",
-        catalog: "warehouse",
-        schema_: "roads",
-        table: "repair_orders",
-    }
-)
+dj.sources.create({
+    name: "default.repair_orders",
+    description: "Repair orders",
+    mode: "published",
+    catalog: "warehouse",
+    schema_: "roads",
+    table: "repair_orders"
+}).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}

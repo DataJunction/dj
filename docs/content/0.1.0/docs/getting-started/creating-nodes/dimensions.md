@@ -36,10 +36,10 @@ curl -X 'POST' \
             {"name": "company_name", "type": "string"},
             {"name": "phone", "type": "string"}
         ],
-        "description": "Information on different types of repairs",
+        "description": "Contact list for dispatchers",
         "mode": "published",
         "name": "default.dispatchers",
-        "catalog": "default",
+        "catalog": "warehouse",
         "schema_": "roads",
         "table": "dispatchers"
   }'
@@ -52,7 +52,21 @@ curl -X 'POST' \
 {{< /tab >}}
 {{< tab "javascript" >}}
 ```js
-
+dj.sources.create(
+  {
+    name: "default.dispatchers",
+    mode: "published",
+    description: "Contact list for dispatchers",
+    catalog: "warehouse",
+    schema_: "roads",
+    table: "dispatchers",
+    columns: [
+        {name: "dispatcher_id", type: "int"},
+        {name: "company_name", type: "string"},
+        {name: "phone", type: "string"}
+    ]
+  }
+).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -62,17 +76,15 @@ a primary key. Let's call it `default.dispatcher`.
 {{< tabs "creating a dimension node" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X 'POST' \
-  'http://localhost:8000/nodes/dimension/' \
-  -H 'accept: application/json' \
-  -H 'Content-Type: application/json' \
-  -d '{
-        "description": "Dispatcher dimension",
-        "query": "SELECT dispatcher_id, company_name, phone FROM default.dispatchers",
-        "mode": "published",
-        "name": "default.dispatcher",
-        "primary_key": ["dispatcher_id"]
-    }'
+curl -X POST http://localhost:8000/nodes/dimension/ \
+-H 'Content-Type: application/json' \
+-d '{
+    "name": "default.all_dispatchers",
+    "description": "All dispatchers",
+    "mode": "published",
+    "query": "SELECT dispatcher_id, company_name, phone FROM default.dispatchers",
+    "primary_key": ["dispatcher_id"]
+}'
 ```
 {{< /tab >}}
 {{< tab "python" >}}
@@ -82,7 +94,21 @@ curl -X 'POST' \
 {{< /tab >}}
 {{< tab "javascript" >}}
 ```js
-
+dj.dimensions.create(
+  {
+    name: "default.all_dispatchers",
+    mode: "published",
+    description: "All dispatchers",
+    query: `
+        SELECT
+        dispatcher_id,
+        company_name,
+        phone
+        FROM default.dispatchers
+    `,
+    primary_key: ["dispatcher_id"]
+  }
+).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -101,16 +127,13 @@ This connection in DJ can be added using the following request.
 {{< tab "curl" >}}
 ```sh
 curl -X 'POST' \
-  'http://localhost:8000/nodes/default.repair_orders/columns/dispatcher_id/?dimension=default.dispatcher&dimension_column=dispatcher_id' \
+  'http://localhost:8000/nodes/default.repair_orders/columns/dispatcher_id/?dimension=default.all_dispatchers&dimension_column=dispatcher_id' \
   -H 'accept: application/json'
 ```
 {{< /tab >}}
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient
-
-dj = DJClient("http://localhost:8000/")
 dimension = dj.dimension("default.repair_orders")
 dimension.link_dimension(
     column="dispatcher_id",
@@ -121,10 +144,7 @@ dimension.link_dimension(
 {{< /tab >}}
 {{< tab "javascript" >}}
 ```js
-const { DJClient } = require('datajunction')
-
-const dj = DJClient('http://localhost:8000/')
-dj.dimensions.link("default.repair_orders", "dispatcher_id", "default.dispatcher", "dispatcher_id")
+dj.dimensions.link("default.repair_orders", "dispatcher_id", "default.all_dispatchers", "dispatcher_id").then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}

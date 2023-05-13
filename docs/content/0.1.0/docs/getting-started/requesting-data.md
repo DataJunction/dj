@@ -9,34 +9,36 @@ DJ can generate SQL for one or more metrics with a set of compatible filters and
 {{< tabs "retrieving sql" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X GET "http://localhost:8000/data/?metrics=default.num_repair_orders&dimensions=default.dispatcher.dispatcher_id&filters=default.dispatcher.company_name%3D%27RoadsRUs%27"
+curl -X 'GET' \
+  'http://localhost:8000/data/?metrics=default.num_repair_orders&dimensions=default.all_dispatchers.company_name&filters=default.all_dispatchers.company_name%20IS%20NOT%20NULL' \
+  -H 'accept: application/json'
 ```
 {{< /tab >}}
 {{< tab "python" >}}
-
 ```py
-# from datajunction import DJClient
-
-# dj = DJClient("http://localhost:8000/")
-# dj.data(
-#     metrics=[
-#       "num_repair_orders",
-#       "avg_repair_price"
-#     ],
-#     dimensions=[
-#       "hard_hat.city",
-#       "hard_hat.state",
-#       "dispatcher.company_name"
-#     ],
-#     filters=[
-#       "hard_hat.state = 'AZ'"
-#     ],
-# )
+dj.data(
+    metrics=[
+      "num_repair_orders",
+      "avg_repair_price"
+    ],
+    dimensions=[
+      "hard_hat.city",
+      "hard_hat.state",
+      "dispatcher.company_name"
+    ],
+    filters=[
+      "hard_hat.state = 'AZ'"
+    ],
+)
 ```
 {{< /tab >}}
 {{< tab "javascript" >}}
 ```js
-
+dj.data.get(
+  metrics=["default.num_repair_orders"],
+  dimensions=["default.all_dispatchers.company_name"],
+  filters=["default.all_dispatchers.company_name IS NOT NULL"]
+).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
