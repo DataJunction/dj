@@ -10,7 +10,10 @@ export default class HttpClient {
             headers: this._headers,
         })
 
-        if (!res.ok) throw new Error(res.statusText)
+        if (!res.ok)
+            throw new Error(
+                res.statusText + ` (${endpoint}, ${JSON.stringify(options)})`
+            )
 
         if (options.parseResponse !== false && res.status !== 204) {
             return res.json()

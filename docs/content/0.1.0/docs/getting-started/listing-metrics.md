@@ -16,30 +16,24 @@ curl -X GET http://localhost:8000/metrics/
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient
-
-dj = DJClient("http://localhost:8000/")
 metrics = dj.metrics()
 ```
 {{< /tab >}}
 {{< /tabs >}}
 
-You can also narrow the list of metrics to a specific namespace. Here's an example of only listing metrics in a `roads.demo`
+You can also narrow the list of metrics to a specific namespace. Here's an example of only listing metrics in a `default`
 namespace.
 
 {{< tabs "listing metrics in a namespace" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X GET http://localhost:8000/namespaces/roads.demo/?type_=metric
+curl -X GET http://localhost:8000/namespaces/default/?type_=metric
 ```
 {{< /tab >}}
 {{< tab "python" >}}
 ```py
-from datajunction import DJClient
-
-dj = DJClient("http://localhost:8000/")
-namespace = dj.namespace("roads.demo")
-namespace.metrics()
+namespace = dj.namespace("default")
+print(namespace.metrics())
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -47,20 +41,18 @@ namespace.metrics()
 # Metric Details
 
 After selecting a metric, you can retrieve details for the given metric. Here's an example of retrieving
-details for a metric named `num_repair_orders`.
+details for a metric named `default.num_repair_orders`.
 
 {{< tabs "listing metric details" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X GET http://localhost:8000/metrics/num_repair_orders/
+curl -X GET http://localhost:8000/metrics/default.num_repair_orders/
 ```
 {{< /tab >}}
 {{< tab "python" >}}
 ```py
-from datajunction import DJClient
-
 dj = DJClient("http://localhost:8000/")
-metric = dj.metric("num_repair_orders")
+metric = dj.metric("default.num_repair_orders")
 ```
 {{< /tab >}}
 {{< /tabs >}}
