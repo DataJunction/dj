@@ -117,7 +117,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert nodes["a-metric"]["parents"] == []
 
 
-class TestCreateOrUpdateNodes:
+class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
     """
     Test ``POST /nodes/`` and ``PUT /nodes/{name}``.
     """
@@ -220,16 +220,24 @@ class TestCreateOrUpdateNodes:
         session.commit()
         return node
 
-    def test_delete_node(
+    def test_deactivating_node(
         self,
         client_with_examples: TestClient,
     ):
         """
-        Test deleting a node
+        Test deactivating a node
         """
-        response = client_with_examples.delete("/nodes/basic.source.users/")
+        # Deactivate a node
+        response = client_with_examples.post("/nodes/basic.source.users/deactivate/")
         assert response.status_code == 204
-
+        # Check that then retrieving the node returns an error
+        response = client_with_examples.get("/nodes/basic.source.users/")
+        assert not response.ok
+        assert response.json() == {
+            "message": "A node with name `basic.source.users` does not exist.",
+            "errors": [],
+            "warnings": [],
+        }
         # All downstream nodes should be invalid
         expected_downstreams = [
             "basic.dimension.users",
@@ -241,26 +249,395 @@ class TestCreateOrUpdateNodes:
             response = client_with_examples.get(f"/nodes/{downstream}/")
             assert response.json()["status"] == NodeStatus.INVALID
 
-        node_with_link = client_with_examples.get(
-            "/nodes/default.repair_order_details/",
-        ).json()
-        assert [
-            col["dimension"]["name"]
-            for col in node_with_link["columns"]
-            if col["name"] == "repair_order_id"
-        ] == ["default.repair_order"]
+        # Trying to create the node again should reveal that the node exists but is deactivated
+        response = client_with_examples.post(
+            "/nodes/source/",
+            json={
+                "name": "basic.source.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "public",
+                "schema_": "basic",
+                "table": "dim_users",
+            },
+        )
+        assert response.json() == {
+            "message": "Node `basic.source.users` exists but has been deactivated.",
+            "errors": [],
+            "warnings": [],
+        }
 
-        response = client_with_examples.delete("/nodes/default.repair_order/")
-        assert response.status_code == 204
+    def test_deactivating_source_upstream_from_metric(
+        self,
+        client: TestClient,
+    ):
+        """
+        Test deactivating a source that's upstream from a metric
+        """
+        response = client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.ok
+        response = client.post("/namespaces/default/")
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "users",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of users",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.users",
+                "mode": "published",
+                "name": "default.num_users",
+            },
+        )
+        assert response.ok
+        # Deactivate the source node
+        response = client.post("/nodes/default.users/deactivate/")
+        assert response.ok
+        # The downstream metric should have an invalid status
+        assert (
+            client.get("/nodes/default.num_users/").json()["status"]
+            == NodeStatus.INVALID
+        )
+        # Reactivate the source node
+        response = client.post("/nodes/default.users/activate/")
+        assert response.ok
+        # Retrieving the reactivated node should work
+        response = client.get("/nodes/default.users/")
+        assert response.ok
+        # The downstream metric should have been changed to valid
+        response = client.get("/nodes/default.num_users/")
+        assert response.json()["status"] == NodeStatus.VALID
 
-        node_with_link = client_with_examples.get(
-            "/nodes/default.repair_order_details/",
-        ).json()
+    def test_deactivating_transform_upstream_from_metric(
+        self,
+        client: TestClient,
+    ):
+        """
+        Test deactivating a transform that's upstream from a metric
+        """
+        response = client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.ok
+        response = client.post("/namespaces/default/")
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "users",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.us_users",
+                "description": "US users",
+                "query": """
+                    SELECT
+                    id,
+                    full_name,
+                    age,
+                    country,
+                    gender,
+                    preferred_language,
+                    secret_number,
+                    created_at,
+                    post_processing_timestamp
+                    FROM default.users
+                    WHERE country = 'US'
+                """,
+                "mode": "published",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of US users",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.us_users",
+                "mode": "published",
+                "name": "default.num_us_users",
+            },
+        )
+        assert response.ok
+        # Create an invalid draft downstream node
+        # so we can test that it stays invalid
+        # when the upstream node is reactivated
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "An invalid node downstream of default.us_users",
+                "query": "SELECT COUNT(DISTINCT non_existent_column) FROM default.us_users",
+                "mode": "draft",
+                "name": "default.invalid_metric",
+            },
+        )
+        assert response.ok
+        response = client.get("/nodes/default.invalid_metric/")
+        assert response.ok
+        assert response.json()["status"] == NodeStatus.INVALID
+        # Deactivate the transform node
+        response = client.post("/nodes/default.us_users/deactivate/")
+        assert response.ok
+        # Retrieving the deactivated node should respond that the node doesn't exist
+        assert client.get("/nodes/default.us_users/").json()["message"] == (
+            "A node with name `default.us_users` does not exist."
+        )
+        # The downstream metrics should have an invalid status
+        assert (
+            client.get("/nodes/default.num_us_users/").json()["status"]
+            == NodeStatus.INVALID
+        )
+        assert (
+            client.get("/nodes/default.invalid_metric/").json()["status"]
+            == NodeStatus.INVALID
+        )
+        # Reactivate the transform node
+        response = client.post("/nodes/default.us_users/activate/")
+        assert response.ok
+        # Retrieving the reactivated node should work
+        response = client.get("/nodes/default.us_users/")
+        assert response.ok
+        # This downstream metric should have been changed to valid
+        response = client.get("/nodes/default.num_us_users/")
+        assert response.json()["status"] == NodeStatus.VALID
+        # The other downstream metric should have remained invalid
+        response = client.get("/nodes/default.invalid_metric/")
+        assert response.json()["status"] == NodeStatus.INVALID
+
+    def test_deactivating_linked_dimension(
+        self,
+        client: TestClient,
+    ):
+        """
+        Test deactivating a dimension that's linked to columns on other nodes
+        """
+        response = client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.ok
+        response = client.post("/namespaces/default/")
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "users",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "default.us_users",
+                "description": "US users",
+                "query": """
+                    SELECT
+                    id,
+                    full_name,
+                    age,
+                    country,
+                    gender,
+                    preferred_language,
+                    secret_number,
+                    created_at,
+                    post_processing_timestamp
+                    FROM default.users
+                    WHERE country = 'US'
+                """,
+                "primary_key": ["id"],
+                "mode": "published",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.messages",
+                "description": "A table of user messages",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "user_id", "type": "int"},
+                    {"name": "message", "type": "int"},
+                    {"name": "posted_at", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "messages",
+            },
+        )
+        assert response.ok
+        # Create a metric on the source node
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of user messages",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
+                "mode": "published",
+                "name": "default.num_messages",
+            },
+        )
+        assert response.ok
+        # Link the dimension to a column on the source node
+        response = client.post(
+            "/nodes/default.messages/columns/user_id/"
+            "?dimension=default.us_users&dimension_column=id",
+        )
+        assert response.ok
+        # The dimension's attributes should now be available to the metric
+        response = client.get("/metrics/default.num_messages/")
+        assert response.ok
         assert [
-            col["dimension"]
-            for col in node_with_link["columns"]
-            if col["name"] == "repair_order_id"
-        ] == [None]
+            "default.us_users.age",
+            "default.us_users.country",
+            "default.us_users.created_at",
+            "default.us_users.full_name",
+            "default.us_users.gender",
+            "default.us_users.id",
+            "default.us_users.post_processing_timestamp",
+            "default.us_users.preferred_language",
+            "default.us_users.secret_number",
+        ] == response.json()["dimensions"]
+        # Deactivate the dimension node
+        response = client.post("/nodes/default.us_users/deactivate/")
+        assert response.ok
+        # Retrieving the deactivated node should respond that the node doesn't exist
+        assert client.get("/nodes/default.us_users/").json()["message"] == (
+            "A node with name `default.us_users` does not exist."
+        )
+        # The deactivated dimension's attributes should no longer be available to the metric
+        response = client.get("/metrics/default.num_messages/")
+        assert response.ok
+        assert [] == response.json()["dimensions"]
+        # The metric should still be VALID
+        response = client.get("/nodes/default.num_messages/")
+        assert response.json()["status"] == NodeStatus.VALID
+        # Reactivate the dimension node
+        response = client.post("/nodes/default.us_users/activate/")
+        assert response.ok
+        # Retrieving the reactivated node should work
+        response = client.get("/nodes/default.us_users/")
+        assert response.ok
+        # The dimension's attributes should now once again show for the linked metric
+        response = client.get("/metrics/default.num_messages/")
+        assert response.ok
+        assert [
+            "default.us_users.age",
+            "default.us_users.country",
+            "default.us_users.created_at",
+            "default.us_users.full_name",
+            "default.us_users.gender",
+            "default.us_users.id",
+            "default.us_users.post_processing_timestamp",
+            "default.us_users.preferred_language",
+            "default.us_users.secret_number",
+        ] == response.json()["dimensions"]
+        # The metric should still be VALID
+        response = client.get("/nodes/default.num_messages/")
+        assert response.json()["status"] == NodeStatus.VALID
+
+    def test_activating_an_already_active_node(
+        self,
+        client: TestClient,
+    ):
+        """
+        Test raising when activating an already active node
+        """
+        response = client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.ok
+        response = client.post("/namespaces/default/")
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "users",
+            },
+        )
+        assert response.ok
+        response = client.post("/nodes/default.users/activate/")
+        assert not response.ok
+        assert response.json() == {
+            "message": "Cannot activate `default.users`, node already active",
+            "errors": [],
+            "warnings": [],
+        }
 
     def test_create_source_node_without_cols_or_query_service(
         self,

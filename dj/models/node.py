@@ -294,6 +294,11 @@ class Node(NodeBase, table=True):  # type: ignore
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )
+    deactivated_at: UTCDatetime = Field(
+        nullable=True,
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default=None,
+    )
 
     revisions: List["NodeRevision"] = Relationship(back_populates="node")
     current: "NodeRevision" = Relationship(

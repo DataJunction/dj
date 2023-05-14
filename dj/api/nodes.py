@@ -5,15 +5,16 @@ Node related APIs.
 import logging
 import os
 from collections import defaultdict
+from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Union
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from starlette.requests import Request
-from starlette.responses import Response
 
 from dj.api.helpers import (
     get_attribute_type,
@@ -26,6 +27,7 @@ from dj.api.helpers import (
     get_upstream_nodes,
     propagate_valid_status,
     raise_if_node_exists,
+    raise_if_node_inactive,
     resolve_downstream_references,
     validate_cube,
     validate_node_data,
@@ -63,6 +65,7 @@ from dj.service_clients import QueryServiceClient
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.antlr4 import parse
 from dj.sql.parsing.backends.exceptions import DJParseException
+from dj.typing import UTCDatetime
 from dj.utils import (
     Version,
     VersionUpgrade,
@@ -233,7 +236,15 @@ def list_nodes(*, session: Session = Depends(get_session)) -> List[NodeOutput]:
     """
     List the available nodes.
     """
-    nodes = session.exec(select(Node).options(joinedload(Node.current))).unique().all()
+    nodes = (
+        session.exec(
+            select(Node)
+            .where(is_(Node.deactivated_at, None))
+            .options(joinedload(Node.current)),
+        )
+        .unique()
+        .all()
+    )
     return nodes
 
 
@@ -246,10 +257,10 @@ def get_a_node(name: str, *, session: Session = Depends(get_session)) -> NodeOut
     return node  # type: ignore
 
 
-@router.delete("/nodes/{name}/", status_code=204)
-def delete_a_node(name: str, *, session: Session = Depends(get_session)):
+@router.post("/nodes/{name}/deactivate/", status_code=201)
+def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
     """
-    Delete the specified node.
+    Deactivate the specified node.
     """
     node = get_node_by_name(session, name, with_current=True)
 
@@ -259,21 +270,55 @@ def delete_a_node(name: str, *, session: Session = Depends(get_session)):
         downstream.current.status = NodeStatus.INVALID
         session.add(downstream)
 
-    # If the node is a dimension, find all columns that
-    # are linked to this dimension and remove the link
-    if node.type == NodeType.DIMENSION:
-        columns = (
-            session.exec(select(Column).where(Column.dimension_id == node.id))
-            .unique()
-            .all()
-        )
-        for col in columns:
-            col.dimension_id = None
-            col.dimension_column = None
-            session.add(col)
-    session.delete(node)
+    now = datetime.utcnow()
+    node.deactivated_at = UTCDatetime(
+        year=now.year,
+        month=now.month,
+        day=now.day,
+        hour=now.hour,
+        minute=now.minute,
+        second=now.second,
+    )
+    session.add(node)
     session.commit()
-    return Response(status_code=HTTPStatus.NO_CONTENT.value)
+    return JSONResponse(
+        status_code=HTTPStatus.NO_CONTENT,
+        content={"message": f"Node `{name}` has been successfully deactivated"},
+    )
+
+
+@router.post("/nodes/{name}/activate/", status_code=201)
+def activate_a_node(name: str, *, session: Session = Depends(get_session)):
+    """
+    Activate the specified node.
+    """
+    node = get_node_by_name(session, name, with_current=True, include_inactive=True)
+    if not node.deactivated_at:
+        raise DJException(
+            http_status_code=HTTPStatus.BAD_REQUEST,
+            message=f"Cannot activate `{name}`, node already active",
+        )
+    node.deactivated_at = None  # type: ignore
+
+    # Find all downstream nodes and revalidate them
+    downstreams = get_downstream_nodes(session, node.name)
+    for downstream in downstreams:
+        (
+            _,
+            _,
+            missing_parents_map,
+            type_inference_failed_columns,
+        ) = validate_node_data(downstream.current, session)
+        if missing_parents_map or type_inference_failed_columns:
+            downstream.current.status = NodeStatus.INVALID
+            session.add(downstream)
+
+    session.add(node)
+    session.commit()
+    return JSONResponse(
+        status_code=HTTPStatus.NO_CONTENT,
+        content={"message": f"Node `{name}` has been successfully activated"},
+    )
 
 
 def cube_materialization_config(cube_node: NodeRevision, config: Dict):
@@ -654,6 +699,7 @@ def create_a_source(
     will be inferred using the configured query service.
     """
     raise_if_node_exists(session, data.name)
+    raise_if_node_inactive(session, data.name)
 
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
@@ -743,6 +789,7 @@ def create_a_node(
         raise DJInvalidInputException("Dimension nodes must define a primary key!")
 
     raise_if_node_exists(session, data.name)
+    raise_if_node_inactive(session, data.name)
 
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
@@ -794,6 +841,7 @@ def create_a_cube(
     Create a cube node.
     """
     raise_if_node_exists(session, data.name)
+    raise_if_node_inactive(session, data.name)
 
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
@@ -1022,6 +1070,7 @@ def update_a_node(
     query = (
         select(Node)
         .where(Node.name == name)
+        .where(is_(Node.deactivated_at, None))
         .with_for_update()
         .execution_options(populate_existing=True)
     )

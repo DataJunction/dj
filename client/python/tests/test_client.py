@@ -248,13 +248,13 @@ class TestDJClient:
             client.cube("a_cube")
         assert "Cube `a_cube` does not exist" in str(exc_info)
 
-    def test_delete_node(self, client):  # pylint: disable=unused-argument
+    def test_deactivating_a_node(self, client):  # pylint: disable=unused-argument
         """
-        Verifies that deleting a node works.
+        Verifies that deactivating a node works.
         """
         length_metric = client.metric("default.avg_length_of_employment")
-        response = length_metric.delete()
-        assert response == "Successfully deleted `default.avg_length_of_employment`"
+        response = length_metric.deactivate()
+        assert response == "Successfully deactivated `default.avg_length_of_employment`"
         assert (
             "default.avg_length_of_employment"
             not in client.namespace("default").metrics()

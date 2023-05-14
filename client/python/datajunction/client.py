@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 
 try:
     import pandas as pd
-except ImportError:
+except ImportError:  # pragma: no cover
     warnings.warn(
         (
             "Optional dependency `pandas` not found, data retrieval"
@@ -353,11 +353,14 @@ class DJClient:  # pylint: disable=too-many-public-methods
             raise DJClientException(json_response["message"])
         return json_response
 
-    def delete_node(self, node: "Node"):
+    def deactivate_node(self, node: "Node"):
         """
-        Delete this node
+        Deactivate this node
         """
-        response = self._session.delete(f"/nodes/{node.name}/", timeout=self._timeout)
+        response = self._session.post(
+            f"/nodes/{node.name}/deactivate/",
+            timeout=self._timeout,
+        )
         return response
 
     def create_node(self, node: "Node", mode: "NodeMode"):
@@ -672,13 +675,16 @@ class Node(ClientEntity):
             engine_version,
         )
 
-    def delete(self):
+    def deactivate(self):
         """
-        Deletes the node
+        Deactivates the node
         """
-        response = self.dj_client.delete_node(self)
-        assert response.status_code == 204
-        return f"Successfully deleted `{self.name}`"
+        response = self.dj_client.deactivate_node(self)
+        if not response.ok:  # pragma: no cover
+            raise DJClientException(
+                f"Error deactivating node `{self.name}`: {response.text}",
+            )
+        return f"Successfully deactivated `{self.name}`"
 
 
 class MaterializationConfig(BaseModel):
