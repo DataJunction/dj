@@ -1,4 +1,6 @@
 """DataJunction client setup."""
+import abc
+
 # pylint: disable=redefined-outer-name, import-outside-toplevel
 import enum
 import logging
@@ -73,6 +75,55 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
         Construct full URL based off the endpoint.
         """
         return urljoin(self.endpoint, url)
+
+
+class MaterializationConfig(BaseModel):
+    """
+    A node's materialization config
+    """
+
+    engine_name: str
+    engine_version: str
+    schedule: str
+    config: Dict
+
+
+class NodeMode(str, enum.Enum):
+    """
+    DJ node's mode
+    """
+
+    DRAFT = "draft"
+    PUBLISHED = "published"
+
+
+class SourceColumn(BaseModel):
+    """
+    A column used in creation of a source node
+    """
+
+    name: str
+    type: str
+    attributes: Optional[str]
+    dimension: Optional[str]
+
+
+class UpdateNode(BaseModel):
+    """
+    Fields for updating a node
+    """
+
+    display_name: Optional[str]
+    description: Optional[str]
+    mode: Optional[NodeMode]
+    primary_key: Optional[List[str]]
+    query: Optional[str]
+
+    # source nodes only
+    catalog: Optional[str]
+    schema_: Optional[str]
+    table: Optional[str]
+    columns: Optional[List[SourceColumn]] = []
 
 
 class DJClient:  # pylint: disable=too-many-public-methods
@@ -402,6 +453,13 @@ class DJClient:  # pylint: disable=too-many-public-methods
         )
         return response.json()
 
+    def update_node(self, node_name: str, update_input: UpdateNode):
+        """
+        Retrieves a node.
+        """
+        response = self._session.patch(f"/nodes/{node_name}/", json=update_input.dict())
+        return response.json()
+
     def get_node(self, node_name: str):
         """
         Retrieves a node.
@@ -414,6 +472,13 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Retrieves a node.
         """
         response = self._session.get(f"/cubes/{node_name}/")
+        return response.json()
+
+    def get_node_revisions(self, node_name: str):
+        """
+        Retrieve all revisions of the node
+        """
+        response = self._session.get(f"/nodes/{node_name}/revisions")
         return response.json()
 
     def link_dimension_to_node(
@@ -556,15 +621,6 @@ class Column(BaseModel):
     type: str
 
 
-class NodeMode(str, enum.Enum):
-    """
-    DJ node's mode
-    """
-
-    DRAFT = "draft"
-    PUBLISHED = "published"
-
-
 class Tag(BaseModel):
     """
     Node tags
@@ -606,14 +662,25 @@ class Node(ClientEntity):
     tags: Optional[List[Tag]]
     primary_key: Optional[List[str]]
     materialization_configs: Optional[List[Dict[str, Any]]]
+    version: Optional[str]
 
     def save(self, mode: NodeMode = NodeMode.PUBLISHED):
         """
         Sets the node's mode to PUBLISHED and pushes it to the server.
         """
-        create_response = self.dj_client.create_node(self, mode)
+        existing_node = self.dj_client.get_node(node_name=self.name)
+        if "name" in existing_node:
+            response = self.update()
+        else:
+            response = self.dj_client.create_node(self, mode)
         self.sync()
-        return create_response
+        return response
+
+    @abc.abstractmethod
+    def update(self) -> Dict:
+        """
+        Update the node for fields that have changed
+        """
 
     def sync(self):
         """
@@ -686,16 +753,11 @@ class Node(ClientEntity):
             )
         return f"Successfully deactivated `{self.name}`"
 
-
-class MaterializationConfig(BaseModel):
-    """
-    A node's materialization config
-    """
-
-    engine_name: str
-    engine_version: Optional[str]
-    schedule: str
-    config: Dict
+    def revisions(self):
+        """
+        List all revisions of this node
+        """
+        return self.dj_client.get_node_revisions(self.name)
 
 
 class Source(Node):
@@ -722,24 +784,59 @@ class Source(Node):
             return value
         return value["name"]
 
+    def update(self) -> Dict:
+        """
+        Update the node for fields that have changed
+        """
+        update_node = UpdateNode(
+            display_name=self.display_name,
+            description=self.description,
+            mode=self.mode,
+            primary_key=self.primary_key,
+            catalog=self.catalog,
+            schema_=self.schema_,
+            table=self.table,
+            columns=self.columns,
+        )
+        return self.dj_client.update_node(self.name, update_node)
 
-class Transform(Node):
+
+class NodeWithQuery(Node):
+    """
+    Nodes with query attribute
+    """
+
+    query: str
+
+    def update(self) -> Dict:
+        """
+        Update the node for fields that have changed
+        """
+        update_node = UpdateNode(
+            display_name=self.display_name,
+            description=self.description,
+            mode=self.mode,
+            primary_key=self.primary_key,
+            query=self.query,
+        )
+        return self.dj_client.update_node(self.name, update_node)
+
+
+class Transform(NodeWithQuery):
     """
     DJ transform node
     """
 
     type: str = "transform"
-    query: str
     columns: Optional[List[Column]]
 
 
-class Metric(Node):
+class Metric(NodeWithQuery):
     """
     DJ metric node
     """
 
     type: str = "metric"
-    query: str
     columns: Optional[List[Column]]
 
     def dimensions(self):
@@ -750,7 +847,7 @@ class Metric(Node):
         return metric["dimensions"]
 
 
-class Dimension(Node):
+class Dimension(NodeWithQuery):
     """
     DJ dimension node
     """
@@ -760,7 +857,7 @@ class Dimension(Node):
     columns: Optional[List[Column]]
 
 
-class Cube(Node):
+class Cube(Node):  # pylint: disable=abstract-method
     """
     DJ cube node
     """
