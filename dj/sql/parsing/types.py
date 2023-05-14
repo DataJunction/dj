@@ -25,6 +25,7 @@ if TYPE_CHECKING:
 
 DECIMAL_REGEX = re.compile(r"(?i)decimal\((?P<precision>\d+),\s*(?P<scale>\d+)\)")
 FIXED_PARSER = re.compile(r"(?i)fixed\((?P<length>\d+)\)")
+VARCHAR_PARSER = re.compile(r"(?i)varchar(\((?P<length>\d+)\))?")
 
 
 class Singleton:  # pylint: disable=too-few-public-methods
@@ -849,8 +850,16 @@ class VarcharType(StringBase):
         True
     """
 
-    def __init__(self):
+    def __init__(self, length: Optional[int] = None):
         super().__init__("varchar", "VarcharType()")
+        self._length = length
+
+    def __str__(self):
+        return (
+            f"{self._type_string}({self._length})"
+            if self._length
+            else self._type_string
+        )
 
 
 class UUIDType(PrimitiveType, Singleton):
