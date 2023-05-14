@@ -519,3 +519,96 @@ class TestDJClient:
         with pytest.raises(DJClientException) as exc_info:
             client.new_namespace(namespace="roads.demo")
         assert "Node namespace `roads.demo` already exists" in str(exc_info.value)
+
+    def test_get_node_revisions(self, client):
+        """
+        Verifies that retrieving node revisions works
+        """
+        local_hard_hats = client.dimension("default.local_hard_hats")
+        local_hard_hats.display_name = "local hard hats"
+        local_hard_hats.description = "Local hard hats dimension"
+        local_hard_hats.save()
+        local_hard_hats.primary_key = ["hard_hat_id", "last_name"]
+        local_hard_hats.save()
+        revs = local_hard_hats.revisions()
+        assert len(revs) == 3
+        assert [rev["version"] for rev in revs] == ["v1.0", "v1.1", "v2.0"]
+
+    def test_update_node_with_query(self, client):
+        """
+        Verify that updating a node with a query works
+        """
+        local_hard_hats = client.dimension("default.local_hard_hats")
+        local_hard_hats.query = """
+        SELECT
+        hh.hard_hat_id,
+        last_name,
+        first_name,
+        title,
+        birth_date,
+        hire_date,
+        address,
+        city,
+        state,
+        postal_code,
+        country,
+        manager,
+        contractor_id,
+        hhs.state_id AS state_id
+        FROM default.hard_hats hh
+        LEFT JOIN default.hard_hat_state hhs
+        ON hh.hard_hat_id = hhs.hard_hat_id
+        WHERE hh.state_id = 'CA'
+        """
+        response = local_hard_hats.save()
+        assert "WHERE hh.state_id = 'CA'" in response["query"]
+        assert response["version"] == "v2.0"
+
+        local_hard_hats.display_name = "local hard hats"
+        local_hard_hats.description = "Local hard hats dimension"
+        response = local_hard_hats.save()
+        assert response["display_name"] == "local hard hats"
+        assert response["description"] == "Local hard hats dimension"
+        assert response["version"] == "v2.1"
+
+        local_hard_hats.primary_key = ["hard_hat_id", "last_name"]
+        response = local_hard_hats.save()
+
+        assert response["version"] == "v3.0"
+        assert {
+            "name": "hard_hat_id",
+            "type": "int",
+            "attributes": [
+                {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+            ],
+            "dimension": None,
+        } in response["columns"]
+        assert {
+            "name": "last_name",
+            "type": "string",
+            "attributes": [
+                {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+            ],
+            "dimension": None,
+        } in response["columns"]
+
+    def test_update_source_node(self, client):
+        """
+        Verify that updating a source node's columns works
+        """
+        us_states = client.source("default.us_states")
+        new_columns = [
+            {"name": "state_id", "type": "int"},
+            {"name": "name", "type": "string"},
+            {"name": "abbr", "type": "string"},
+            {"name": "region", "type": "int"},
+        ]
+        us_states.columns = new_columns
+        response = us_states.save()
+        assert response["columns"] == [
+            {"attributes": [], "dimension": None, "name": "state_id", "type": "int"},
+            {"attributes": [], "dimension": None, "name": "name", "type": "string"},
+            {"attributes": [], "dimension": None, "name": "abbr", "type": "string"},
+            {"attributes": [], "dimension": None, "name": "region", "type": "int"},
+        ]
+        assert response["version"] == "v2.0"

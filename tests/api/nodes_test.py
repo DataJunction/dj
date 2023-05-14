@@ -1195,7 +1195,14 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
 
         # The columns should have been updated
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {
+                "name": "country",
+                "type": "string",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
         ]
 
     def test_raise_on_multi_catalog_node(self, client_with_examples: TestClient):
@@ -1922,6 +1929,75 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert data["message"] == (
             "Cannot add dimension to column, because catalogs do not match: default, public"
         )
+
+    def test_update_node_with_dimension_links(self, client_with_examples: TestClient):
+        """
+        When a node is updated with a new query, the original dimension links and attributes
+        on its columns should be preserved where possible (that is, where the new and old
+        columns have the same names).
+        """
+        client_with_examples.patch(
+            "/nodes/default.hard_hat/",
+            json={
+                "query": """
+                SELECT
+                    hard_hat_id,
+                    title,
+                    state
+                FROM default.hard_hats
+                """,
+            },
+        )
+        response = client_with_examples.get("/nodes/default.hard_hat").json()
+        assert response["columns"] == [
+            {
+                "name": "hard_hat_id",
+                "type": "int",
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+            },
+            {"name": "title", "type": "string", "attributes": [], "dimension": None},
+            {
+                "name": "state",
+                "type": "string",
+                "attributes": [],
+                "dimension": {"name": "default.us_state"},
+            },
+        ]
+
+    def test_update_dimension_remove_pk_column(self, client_with_examples: TestClient):
+        """
+        When a dimension node is updated with a new query that removes the original primary key
+        column, either a new primary key must be set or the node will be set to invalid.
+        """
+        response = client_with_examples.patch(
+            "/nodes/default.hard_hat/",
+            json={
+                "query": """
+                SELECT
+                    title,
+                    state
+                FROM default.hard_hats
+                """,
+                # "primary_key": ["title"],
+            },
+        )
+        assert response.json()["status"] == "invalid"
+        response = client_with_examples.patch(
+            "/nodes/default.hard_hat/",
+            json={
+                "query": """
+                SELECT
+                    title,
+                    state
+                FROM default.hard_hats
+                """,
+                "primary_key": ["title"],
+            },
+        )
+        assert response.json()["status"] == "valid"
 
     def test_node_downstreams(self, client_with_examples: TestClient):
         """
