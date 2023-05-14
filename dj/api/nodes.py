@@ -1053,23 +1053,22 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
         new_revision.parents = list(parent_refs)
         new_revision.columns = validated_node.columns or []
 
-        pk_attribute = session.exec(
-            select(AttributeType).where(AttributeType.name == "primary_key"),
-        ).one()
-
+        # Update the primary key if one was set in the input
         if data is not None and data.primary_key:
+            pk_attribute = session.exec(
+                select(AttributeType).where(AttributeType.name == "primary_key"),
+            ).one()
             for col in new_revision.columns:
                 if col.name in data.primary_key and not col.has_primary_key_attribute():
                     col.attributes.append(
                         ColumnAttribute(column=col, attribute_type=pk_attribute),
                     )
 
-        if (
-            missing_parents_map
-            or type_inference_failed_columns
-            or new_revision.type == NodeType.DIMENSION
-            and not new_revision.primary_key()
-        ):
+        # Set the node's validity status
+        valid_primary_key = (
+            new_revision.type == NodeType.DIMENSION and not new_revision.primary_key()
+        )
+        if missing_parents_map or type_inference_failed_columns or valid_primary_key:
             new_revision.status = NodeStatus.INVALID
         else:
             new_revision.status = NodeStatus.VALID
