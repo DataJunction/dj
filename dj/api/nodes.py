@@ -975,7 +975,12 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
         and data.columns is not None
         and ({col.identifier() for col in old_revision.columns} != data.columns)
     )
-    major_changes = query_changes or column_changes
+    pk_changes = (
+        data is not None
+        and data.primary_key
+        and {col.name for col in old_revision.primary_key()} != data.primary_key
+    )
+    major_changes = query_changes or column_changes or pk_changes
 
     # If nothing has changed, do not create the new node revision
     if not minor_changes and not major_changes and not version_upgrade:
@@ -1005,6 +1010,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
                 name=column_data.name,
                 type=column_data.type,
                 dimension_column=column_data.dimension,
+                attributes=column_data.attributes or [],
             )
             for column_data in data.columns
         ]
@@ -1019,16 +1025,22 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
     )
 
     # Link the new revision to its parents if the query has changed
-    if (
-        new_revision.type != NodeType.SOURCE
-        and new_revision.query != old_revision.query
-    ):
+    if new_revision.type != NodeType.SOURCE and (query_changes or pk_changes):
         (
             validated_node,
             dependencies_map,
             missing_parents_map,
             type_inference_failed_columns,
         ) = validate_node_data(new_revision, session)
+
+        # Keep the dimension links and attributes on the columns from the node's
+        # last revision if any existed
+        old_columns_mapping = {col.name: col for col in old_revision.columns}
+        for col in validated_node.columns:
+            if col.name in old_columns_mapping:
+                col.dimension_id = old_columns_mapping[col.name].dimension_id
+                col.attributes = old_columns_mapping[col.name].attributes or []
+
         new_parents = [n.name for n in dependencies_map]
         parent_refs = session.exec(
             select(Node).where(
@@ -1039,10 +1051,29 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
             ),
         ).all()
         new_revision.parents = list(parent_refs)
-        if missing_parents_map or type_inference_failed_columns:
+        new_revision.columns = validated_node.columns or []
+
+        pk_attribute = session.exec(
+            select(AttributeType).where(AttributeType.name == "primary_key"),
+        ).one()
+
+        if data is not None and data.primary_key:
+            for col in new_revision.columns:
+                if col.name in data.primary_key and not col.has_primary_key_attribute():
+                    col.attributes.append(
+                        ColumnAttribute(column=col, attribute_type=pk_attribute),
+                    )
+
+        if (
+            missing_parents_map
+            or type_inference_failed_columns
+            or new_revision.type == NodeType.DIMENSION
+            and not new_revision.primary_key()
+        ):
             new_revision.status = NodeStatus.INVALID
         else:
             new_revision.status = NodeStatus.VALID
+
         new_revision.missing_parents = [
             MissingParent(name=missing_parent) for missing_parent in missing_parents_map
         ]
