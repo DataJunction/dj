@@ -2,6 +2,7 @@
 Tests for types
 """
 import dj.sql.parsing.types as ct
+from dj.sql.parsing import ast
 
 
 def test_types_compatible():
@@ -23,3 +24,14 @@ def test_types_compatible():
     assert not ct.StringType().is_compatible(ct.BinaryType())
     assert not ct.StringType().is_compatible(ct.BigIntType())
     assert not ct.StringType().is_compatible(ct.DateType())
+
+
+def test_varchar_in_ast():
+    """
+    Test that varchar types support length as a parameter.
+    """
+    cast_expr = ast.Cast(
+        data_type=ast.ColumnType("varchar(10)"),
+        expression=ast.Column(ast.Name("abc")),
+    )
+    assert str(cast_expr) == "CAST(abc AS VARCHAR(10))"
