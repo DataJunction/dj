@@ -61,13 +61,13 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
     raise_if_not_exists: bool = True,
-    include_deactivated: bool = False,
+    include_inactive: bool = False,
 ) -> Node:
     """
     Get a node by name
     """
     statement = select(Node).where(Node.name == name)
-    if not include_deactivated:
+    if not include_inactive:
         statement = statement.where(is_(Node.deactivated_at, None))
     if node_type:
         statement = statement.where(Node.type == node_type)
@@ -108,7 +108,7 @@ def raise_if_node_inactive(session: Session, name: str) -> None:
         session,
         name,
         raise_if_not_exists=False,
-        include_deactivated=True,
+        include_inactive=True,
     )
     if node and node.deactivated_at:
         raise DJException(
@@ -246,7 +246,7 @@ def get_downstream_nodes(
     Gets all downstream children of the given node, filterable by node type.
     Uses a recursive CTE query to build out all descendants from the node.
     """
-    node = get_node_by_name(session=session, name=node_name, include_deactivated=True)
+    node = get_node_by_name(session=session, name=node_name, include_inactive=True)
 
     dag = (
         select(

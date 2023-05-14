@@ -292,7 +292,7 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
     """
     Activate the specified node.
     """
-    node = get_node_by_name(session, name, with_current=True, include_deactivated=True)
+    node = get_node_by_name(session, name, with_current=True, include_inactive=True)
     if not node.deactivated_at:
         raise DJException(
             http_status_code=HTTPStatus.BAD_REQUEST,
