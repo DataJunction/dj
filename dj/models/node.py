@@ -445,7 +445,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         """
         primary_key_columns = []
         for col in self.columns:  # pylint: disable=not-an-iterable
-            if "primary_key" in {attr.attribute_type.name for attr in col.attributes}:
+            if col.has_primary_key_attribute():
                 primary_key_columns.append(col)
         return primary_key_columns
 
