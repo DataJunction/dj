@@ -25,7 +25,7 @@ from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
 from dj.models.engine import Dialect, Engine, EngineInfo
 from dj.models.tag import Tag, TagNodeRelationship
-from dj.sql.parse import is_metric
+from dj.sql.parse import check_is_metric
 from dj.sql.parsing.types import ColumnType
 from dj.typing import UTCDatetime
 from dj.utils import Version
@@ -466,11 +466,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 )
 
         if self.type == NodeType.METRIC:
-            if not is_metric(self.query):
-                raise DJInvalidInputException(
-                    f"Node {self.name} of type metric has an invalid query, "
-                    "should have a single aggregation",
-                )
+            check_is_metric(self)
 
         if self.type == NodeType.CUBE:
             if not self.cube_elements:

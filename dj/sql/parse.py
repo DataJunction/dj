@@ -2,26 +2,52 @@
 SQL parsing functions.
 """
 
-from typing import Optional
+
+from typing import TYPE_CHECKING
+
+from dj.errors import DJInvalidInputException
+
+if TYPE_CHECKING:
+    from dj.models.node import NodeRevision
 
 
-def is_metric(query: Optional[str]) -> bool:
+def check_is_metric(node: "NodeRevision"):
     """
-    Return if a SQL query defines a metric.
+    Check if a SQL query defines a metric.
 
-    The SQL query should have a single expression in its projections, and it should
-    be an aggregation function in order for it to be considered a metric.
+    The SQL query should have a single expression in its projections, it should
+    be an aggregation function and should have the same name
+    as the node in order for it to be considered a metric.
     """
 
     from dj.sql.parsing.backends.antlr4 import parse  # pylint: disable=C0415
 
-    if query is None:
-        return False
+    if node.query is None:
+        raise DJInvalidInputException("Invalid Metric. Node has no query.")
 
-    tree = parse(query)
+    tree = parse(node.query)
 
     # must have a single expression
     if len(tree.select.projection) != 1:
-        return False
+        raise DJInvalidInputException(
+            "Invalid Metric. Node query has does not have "
+            "a single expression in the projection.",
+        )
 
-    return tree.select.projection[0].is_aggregation()  # type: ignore
+    if (
+        not hasattr(tree.select.projection[0], "alias_or_name")
+        or tree.select.projection[0].alias_or_name.name != node.name  # type: ignore
+    ):
+        raise DJInvalidInputException(
+            "Invalid Metric. The expression in the projection "
+            "must have a name or alias the same as the node name.",
+        )
+
+    if (
+        not hasattr(tree.select.projection[0], "is_aggregation")
+        or not tree.select.projection[0].is_aggregation()  # type: ignore
+    ):
+        raise DJInvalidInputException(
+            "Invalid Metric. The expression in the "
+            "projection must be an aggregation.",
+        )
