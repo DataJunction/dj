@@ -305,3 +305,117 @@ def test_type_inference_structs(client_with_examples: TestClient):
         },
     )
     response.json()
+
+
+def test_raise_on_non_named_expression(client_with_examples: TestClient):
+    """
+    Testing raising when a name can't be retrieved
+    """
+    client_with_examples.post(
+        "/nodes/source/",
+        json={
+            "columns": [
+                {
+                    "name": "counts",
+                    "type": "struct<a string, b bigint>",
+                },
+            ],
+            "description": "Collection of dreams",
+            "mode": "published",
+            "name": "basic.dreams",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "dreams",
+        },
+    )
+
+    response = client_with_examples.post(
+        "/nodes/metric/",
+        json={
+            "query": "SELECT SUM(counts.b) + SUM(counts.b) FROM basic.dreams",
+            "description": "Dream Counts",
+            "mode": "published",
+            "name": "basic.dream_count",
+        },
+    )
+    assert response.status_code == 422
+    assert (
+        "Metric expression of type BinaryOp must "
+        "be aliased as the node name: `basic_DOT_dream_count`"
+    ) in response.json()["message"]
+
+
+def test_raise_on_malformated_expression_alias(client_with_examples: TestClient):
+    """
+    Testing raising when an invalid alias is used for a metric expression
+    """
+    client_with_examples.post(
+        "/nodes/source/",
+        json={
+            "columns": [
+                {
+                    "name": "counts",
+                    "type": "struct<a string, b bigint>",
+                },
+            ],
+            "description": "Collection of dreams",
+            "mode": "published",
+            "name": "basic.dreams",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "dreams",
+        },
+    )
+
+    response = client_with_examples.post(
+        "/nodes/metric/",
+        json={
+            "query": "SELECT SUM(counts.b) as foo FROM basic.dreams",
+            "description": "Dream Counts",
+            "mode": "published",
+            "name": "basic.dream_count",
+        },
+    )
+    assert response.status_code == 422
+    assert (
+        "Invalid Metric. The expression in the projection cannot "
+        "have alias different from the node name. Got `foo` "
+        "but expected `basic_DOT_dream_count`"
+    ) in response.json()["message"]
+
+
+def test_raise_on_multiple_expressions(client_with_examples: TestClient):
+    """
+    Testing raising when there is more than one expression
+    """
+    client_with_examples.post(
+        "/nodes/source/",
+        json={
+            "columns": [
+                {
+                    "name": "counts",
+                    "type": "struct<a string, b bigint>",
+                },
+            ],
+            "description": "Collection of dreams",
+            "mode": "published",
+            "name": "basic.dreams",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "dreams",
+        },
+    )
+
+    response = client_with_examples.post(
+        "/nodes/metric/",
+        json={
+            "query": "SELECT SUM(counts.b), COUNT(counts.b) FROM basic.dreams",
+            "description": "Dream Counts",
+            "mode": "published",
+            "name": "basic.dream_count",
+        },
+    )
+    assert response.status_code == 422
+    assert (
+        "Metric queries can only have a single expression, found 2"
+    ) in response.json()["message"]

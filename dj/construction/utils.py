@@ -2,8 +2,7 @@
 Utilities used around construction
 """
 
-from string import ascii_letters, digits
-from typing import TYPE_CHECKING, List, Optional, Set
+from typing import TYPE_CHECKING, Optional, Set
 
 from sqlalchemy.orm.exc import NoResultFound
 from sqlmodel import Session, select
@@ -36,49 +35,6 @@ def get_dj_node(
             ),
         ) from no_result_exc
     return match.current if match else match
-
-
-ACCEPTABLE_CHARS = set(ascii_letters + digits + "_")
-LOOKUP_CHARS = {
-    ".": "DOT",
-    "'": "QUOTE",
-    '"': "DQUOTE",
-    "`": "BTICK",
-    "!": "EXCL",
-    "@": "AT",
-    "#": "HASH",
-    "$": "DOLLAR",
-    "%": "PERC",
-    "^": "CARAT",
-    "&": "AMP",
-    "*": "STAR",
-    "(": "LPAREN",
-    ")": "RPAREN",
-    "[": "LBRACK",
-    "]": "RBRACK",
-    "-": "MINUS",
-    "+": "PLUS",
-    "=": "EQ",
-    "/": "FSLSH",
-    "\\": "BSLSH",
-    "|": "PIPE",
-    "~": "TILDE",
-}
-
-
-def amenable_name(name: str) -> str:
-    """Takes a string and makes it have only alphanumerics"""
-    ret: List[str] = []
-    cont: List[str] = []
-    for char in name:
-        if char in ACCEPTABLE_CHARS:
-            cont.append(char)
-        else:
-            ret.append("".join(cont))
-            ret.append(LOOKUP_CHARS.get(char, "UNK"))
-            cont = []
-
-    return ("_".join(ret) + "_" + "".join(cont)).strip("_")
 
 
 def to_namespaced_name(name: str) -> "Name":

@@ -65,7 +65,7 @@ def test_extra_validation() -> None:
     with pytest.raises(Exception) as excinfo:
         node_revision.extra_validation()
     assert str(excinfo.value) == "Node A of type metric needs a query"
-    
+
     node = Node(name="A", type=NodeType.METRIC, current_version="1")
     node_revision = NodeRevision(
         name=node.name,
@@ -73,25 +73,11 @@ def test_extra_validation() -> None:
         node=node,
         version="1",
         query="SELECT count(repair_order_id) "
-        "AS num_repair_orders "
+        "AS Anum_repair_orders "
         "FROM repair_orders",
     )
     node_revision.extra_validation()
-  
-    node = Node(name="A", type=NodeType.METRIC, current_version="1")
-    node_revision = NodeRevision(
-        name=node.name,
-        type=node.type,
-        node=node,
-        version="1",
-        query="SELECT count(repair_order_id) "
-        "AS oops "
-        "FROM repair_orders",
-    )
-    with pytest.raises(Exception) as excinfo:
-        node_revision.extra_validation()
-    assert "cannot have alias different from the node name" in str(excinfo.value)
-    
+
     node = Node(name="A", type=NodeType.METRIC, current_version="1")
     node_revision = NodeRevision(
         name=node.name,
@@ -99,14 +85,13 @@ def test_extra_validation() -> None:
         node=node,
         version="1",
         query="SELECT count(repair_order_id) + "
-        "repair_order_id AS num_repair_orders "
+        "repair_order_id AS Anum_repair_orders "
         "FROM repair_orders",
     )
     with pytest.raises(Exception) as excinfo:
         node_revision.extra_validation()
     assert str(excinfo.value) == (
-        "Node A of type metric has an invalid query, "
-        "should have a single aggregation"
+        "Metric A has an invalid query, should have a single aggregation"
     )
 
     node = Node(name="A", type=NodeType.TRANSFORM, current_version="1")

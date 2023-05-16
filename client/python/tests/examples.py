@@ -415,7 +415,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Number of repair orders",
             "query": (
-                "SELECT count(repair_order_id) as num_repair_orders "
+                "SELECT count(repair_order_id) "
                 "FROM default.repair_orders"
             ),
             "mode": "published",
@@ -426,7 +426,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Average repair price",
-            "query": "SELECT avg(price) as avg_repair_price FROM default.repair_order_details",
+            "query": "SELECT avg(price) as default_DOT_avg_repair_price FROM default.repair_order_details",
             "mode": "published",
             "name": "default.avg_repair_price",
         },
@@ -435,7 +435,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair cost",
-            "query": "SELECT sum(price) as total_repair_cost FROM default.repair_order_details",
+            "query": "SELECT sum(price) as default_DOT_total_repair_cost FROM default.repair_order_details",
             "mode": "published",
             "name": "default.total_repair_cost",
         },
@@ -445,7 +445,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Average length of employment",
             "query": (
-                "SELECT avg(NOW() - hire_date) as avg_length_of_employment "
+                "SELECT avg(NOW() - hire_date) as default_DOT_avg_length_of_employment "
                 "FROM default.hard_hats"
             ),
             "mode": "published",
@@ -457,7 +457,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT sum(price * discount) as total_repair_order_discounts "
+                "SELECT sum(price * discount) "
                 "FROM default.repair_order_details"
             ),
             "mode": "published",
@@ -469,7 +469,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT avg(price * discount) as avg_repair_order_discounts "
+                "SELECT avg(price * discount) "
                 "FROM default.repair_order_details"
             ),
             "mode": "published",
@@ -481,7 +481,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Average time to dispatch a repair order",
             "query": (
-                "SELECT avg(dispatched_date - order_date) as avg_time_to_dispatch "
+                "SELECT avg(dispatched_date - order_date) "
                 "FROM default.repair_orders"
             ),
             "mode": "published",
@@ -941,7 +941,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Number of repair orders",
             "query": (
-                "SELECT count(repair_order_id) as num_repair_orders "
+                "SELECT count(repair_order_id) "
                 "FROM foo.bar.repair_orders"
             ),
             "mode": "published",
@@ -952,7 +952,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Average repair price",
-            "query": "SELECT avg(price) as avg_repair_price FROM foo.bar.repair_order_details",
+            "query": "SELECT avg(price) FROM foo.bar.repair_order_details",
             "mode": "published",
             "name": "foo.bar.avg_repair_price",
         },
@@ -961,7 +961,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair cost",
-            "query": "SELECT sum(price) as total_repair_cost FROM foo.bar.repair_order_details",
+            "query": "SELECT sum(price) FROM foo.bar.repair_order_details",
             "mode": "published",
             "name": "foo.bar.total_repair_cost",
         },
@@ -971,7 +971,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Average length of employment",
             "query": (
-                "SELECT avg(NOW() - hire_date) as avg_length_of_employment "
+                "SELECT avg(NOW() - hire_date) "
                 "FROM foo.bar.hard_hats"
             ),
             "mode": "published",
@@ -983,7 +983,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT sum(price * discount) as total_repair_order_discounts "
+                "SELECT sum(price * discount) "
                 "FROM foo.bar.repair_order_details"
             ),
             "mode": "published",
@@ -995,7 +995,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT avg(price * discount) as avg_repair_order_discounts "
+                "SELECT avg(price * discount) "
                 "FROM foo.bar.repair_order_details"
             ),
             "mode": "published",
@@ -1007,7 +1007,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Average time to dispatch a repair order",
             "query": (
-                "SELECT avg(dispatched_date - order_date) as avg_time_to_dispatch "
+                "SELECT avg(dispatched_date - order_date) "
                 "FROM foo.bar.repair_orders"
             ),
             "mode": "published",

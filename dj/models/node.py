@@ -25,10 +25,9 @@ from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
 from dj.models.engine import Dialect, Engine, EngineInfo
 from dj.models.tag import Tag, TagNodeRelationship
-
 from dj.sql.parsing.types import ColumnType
 from dj.typing import UTCDatetime
-from dj.utils import Version
+from dj.utils import Version, amenable_name
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
 DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
@@ -449,52 +448,68 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 primary_key_columns.append(col)
         return primary_key_columns
 
-    def check_metric(self):
+    @staticmethod
+    def format_metric_alias(query: str, name: str) -> str:
         """
-        Check if the Node defines a metric.
-
-        The Node SQL query should have a single expression in its
-        projections, it should be an aggregation function and should have
-        the same name as the node in order for it to be considered a metric.
+        Metric aliases must have the same name as the node.
         """
-        from dj.sql.parsing.backends.antlr4 import parse
-        from dj.sql.parsing import ast
-        tree = parse(self.query)
+        from dj.sql.parsing import ast  # pylint: disable=import-outside-toplevel
+        from dj.sql.parsing.backends.antlr4 import (  # pylint: disable=import-outside-toplevel
+            parse,
+        )
 
-        # must have a single expression
-        if len(tree.select.projection) != 1:
-            raise DJInvalidInputException(
-                "Invalid Metric. Node query has does not have "
-                "a single expression in the projection.",
-            )
+        tree = parse(query)
         projection_0 = tree.select.projection[0]
         # the expression has to be something we can get a name out of
         if not hasattr(projection_0, "alias_or_name"):
             raise DJInvalidInputException(
-                "Invalid Metric. The expression in the projection "
-                "must have a name or alias the same as the node name.",
+                f"Metric expression of type {type(projection_0).__name__} "
+                f"must be aliased as the node name: `{amenable_name(name)}`",
             )
         # if the name is not what we expect, check if it is an alias
         # if it is an alias, we will raise because the user will have
         # deliberately named this expression
         # otherwise, we will just add the alias we want e.g. the node name
         expr_name: ast.Name = projection_0.alias_or_name  # type: ignore
-        if expr_name.name != self.name.split('.')[-1]:
+        if expr_name.name != amenable_name(name):
             if expr_name.parent_key == "alias":
-                import pdb; pdb.set_trace()
                 raise DJInvalidInputException(
                     "Invalid Metric. The expression in the projection "
-                    "cannot have alias different from the node name.",
+                    "cannot have alias different from the node name. Got "
+                    f"`{expr_name}` but expected `{amenable_name(name)}`",
                 )
-            tree.select.projection[0] = projection_0.set_alias(ast.Name(self.name.split('.')[-1]))
+            tree.select.projection[0] = projection_0.set_alias(
+                ast.Name(amenable_name(name)),
+            )
+        return str(tree)
+
+    def check_metric(self):
+        """
+        Check if the Node defines a metric.
+
+        The Node SQL query should have a single expression in its
+        projections and it should be an aggregation function.
+        """
+        from dj.sql.parsing.backends.antlr4 import (  # pylint: disable=import-outside-toplevel
+            parse,
+        )
+
+        # must have a single expression
+        tree = parse(self.query)
+        if len(tree.select.projection) != 1:
+            raise DJInvalidInputException(
+                "Metric queries can only have a single "
+                f"expression, found {len(tree.select.projection)}",
+            )
+        projection_0 = tree.select.projection[0]
 
         if (
             not hasattr(projection_0, "is_aggregation")
             or not projection_0.is_aggregation()  # type: ignore
         ):
             raise DJInvalidInputException(
-                "Invalid Metric. The expression in the "
-                "projection must be an aggregation.",
+                f"Metric {self.name} has an invalid query, "
+                "should have a single aggregation",
             )
 
     def extra_validation(self) -> None:

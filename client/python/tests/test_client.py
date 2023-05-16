@@ -237,7 +237,7 @@ class TestDJClient:
         assert num_repair_orders.name == "default.num_repair_orders"
         assert (
             num_repair_orders.query
-            == "SELECT count(repair_order_id) as num_repair_orders FROM default.repair_orders"
+            == "SELECT count(repair_order_id) as default_DOT_num_repair_orders FROM default.repair_orders"
         )
         assert num_repair_orders.type == "metric"
 
@@ -398,7 +398,7 @@ class TestDJClient:
         number_of_account_types = client.new_metric(
             name="default.number_of_account_types",
             description="Total number of account types",
-            query="SELECT count(id) as number_of_account_types FROM default.account_type",
+            query="SELECT count(id) FROM default.account_type",
         )
         result = number_of_account_types.save(NodeMode.PUBLISHED)
         assert result["name"] == "default.number_of_account_types"

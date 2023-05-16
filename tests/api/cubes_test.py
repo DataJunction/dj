@@ -46,7 +46,7 @@ def test_read_cube(client_with_examples: TestClient) -> None:
         """
         SELECT
           default_DOT_account_type.account_type_name,
-          count(default_DOT_account_type.id) AS number_of_account_types
+          count(default_DOT_account_type.id) default_DOT_number_of_account_types
         FROM (
           SELECT
             default_DOT_account_type_table.account_type_classification,
@@ -228,7 +228,7 @@ def test_cube_sql(client_with_examples: TestClient):
         json={
             "description": "Double total repair cost",
             "query": (
-                "SELECT sum(price) + sum(price) as double_total_repair_cost "
+                "SELECT sum(price) + sum(price) as default_DOT_double_total_repair_cost "
                 "FROM default.repair_order_details"
             ),
             "mode": "published",
@@ -267,12 +267,12 @@ def test_cube_sql(client_with_examples: TestClient):
                 default_DOT_hard_hat.postal_code,
                 default_DOT_hard_hat.state,
                 default_DOT_municipality_dim.local_region,
-                sum(default_DOT_repair_order_details.price) + sum(default_DOT_repair_order_details.price) AS double_total_repair_cost,
-                avg(default_DOT_repair_order_details.price) AS avg_repair_price,
-                sum(default_DOT_repair_order_details.price * default_DOT_repair_order_details.discount) AS total_repair_order_discounts,
-                CAST(sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS discounted_orders_rate,
-                count(default_DOT_repair_orders.repair_order_id) AS num_repair_orders,
-                sum(default_DOT_repair_order_details.price) AS total_repair_cost
+                sum(default_DOT_repair_order_details.price) + sum(default_DOT_repair_order_details.price) AS default_DOT_double_total_repair_cost,
+                count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders,
+                CAST(sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate,
+                sum(default_DOT_repair_order_details.price * default_DOT_repair_order_details.discount) default_DOT_total_repair_order_discounts,
+                avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price,
+                sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost
         FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
                 default_DOT_repair_orders.hard_hat_id,
                 default_DOT_repair_orders.municipality_id,
@@ -314,32 +314,32 @@ def test_cube_sql(client_with_examples: TestClient):
     data = response.json()
     assert data["cube_elements"] == [
         {
-            "name": "discounted_orders_rate",
+            "name": "default_DOT_discounted_orders_rate",
             "node_name": "default.discounted_orders_rate",
             "type": "metric",
         },
         {
-            "name": "num_repair_orders",
+            "name": "default_DOT_num_repair_orders",
             "node_name": "default.num_repair_orders",
             "type": "metric",
         },
         {
-            "name": "avg_repair_price",
+            "name": "default_DOT_avg_repair_price",
             "node_name": "default.avg_repair_price",
             "type": "metric",
         },
         {
-            "name": "total_repair_cost",
+            "name": "default_DOT_total_repair_cost",
             "node_name": "default.total_repair_cost",
             "type": "metric",
         },
         {
-            "name": "total_discount",
+            "name": "default_DOT_total_repair_order_discounts",
             "node_name": "default.total_repair_order_discounts",
             "type": "metric",
         },
         {
-            "name": "double_total_repair_cost",
+            "name": "default_DOT_double_total_repair_cost",
             "node_name": "default.double_total_repair_cost",
             "type": "metric",
         },
@@ -401,14 +401,21 @@ def test_cube_sql(client_with_examples: TestClient):
         expected_materialization_query,
     )
     assert data["materialization_configs"][0]["config"]["measures"] == {
-        "double_total_repair_cost": [
+        "default_DOT_double_total_repair_cost": [
             {
                 "name": "price_sum",
                 "agg": "sum",
                 "expr": "sum(default_DOT_repair_order_details.price)",
             },
         ],
-        "total_discount": [
+        "default_DOT_num_repair_orders": [
+            {
+                "name": "repair_order_id_count",
+                "agg": "count",
+                "expr": "count(default_DOT_repair_orders.repair_order_id)",
+            },
+        ],
+        "default_DOT_total_repair_order_discounts": [
             {
                 "name": "price_discount_sum",
                 "agg": "sum",
@@ -418,14 +425,22 @@ def test_cube_sql(client_with_examples: TestClient):
                 ),
             },
         ],
-        "total_repair_cost": [
+        "default_DOT_discounted_orders_rate": [
+            {
+                "name": "discount_sum",
+                "agg": "sum",
+                "expr": "sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0))",
+            },
+            {"name": "placeholder_count", "agg": "count", "expr": "count(*)"},
+        ],
+        "default_DOT_total_repair_cost": [
             {
                 "name": "price_sum",
                 "agg": "sum",
                 "expr": "sum(default_DOT_repair_order_details.price)",
             },
         ],
-        "avg_repair_price": [
+        "default_DOT_avg_repair_price": [
             {
                 "name": "price_count",
                 "agg": "count",
@@ -436,20 +451,5 @@ def test_cube_sql(client_with_examples: TestClient):
                 "agg": "sum",
                 "expr": "sum(default_DOT_repair_order_details.price)",
             },
-        ],
-        "num_repair_orders": [
-            {
-                "name": "repair_order_id_count",
-                "agg": "count",
-                "expr": "count(default_DOT_repair_orders.repair_order_id)",
-            },
-        ],
-        "discounted_orders_rate": [
-            {
-                "name": "discount_sum",
-                "agg": "sum",
-                "expr": "sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0))",
-            },
-            {"name": "placeholder_count", "agg": "count", "expr": "count(*)"},
         ],
     }
