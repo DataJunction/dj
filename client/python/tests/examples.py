@@ -457,7 +457,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT sum(price * discount) as total_discount "
+                "SELECT sum(price * discount) as total_repair_order_discounts "
                 "FROM default.repair_order_details"
             ),
             "mode": "published",
@@ -469,7 +469,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT avg(price * discount) as avg_repair_order_discount "
+                "SELECT avg(price * discount) as avg_repair_order_discounts "
                 "FROM default.repair_order_details"
             ),
             "mode": "published",
@@ -983,7 +983,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT sum(price * discount) as total_discount "
+                "SELECT sum(price * discount) as total_repair_order_discounts "
                 "FROM foo.bar.repair_order_details"
             ),
             "mode": "published",
@@ -995,7 +995,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT avg(price * discount) as avg_repair_order_discount "
+                "SELECT avg(price * discount) as avg_repair_order_discounts "
                 "FROM foo.bar.repair_order_details"
             ),
             "mode": "published",

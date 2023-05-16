@@ -398,7 +398,7 @@ class TestDJClient:
         number_of_account_types = client.new_metric(
             name="default.number_of_account_types",
             description="Total number of account types",
-            query="SELECT count(id) as num_accounts FROM default.account_type",
+            query="SELECT count(id) as number_of_account_types FROM default.account_type",
         )
         result = number_of_account_types.save(NodeMode.PUBLISHED)
         assert result["name"] == "default.number_of_account_types"

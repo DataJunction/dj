@@ -25,7 +25,7 @@ from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
 from dj.models.engine import Dialect, Engine, EngineInfo
 from dj.models.tag import Tag, TagNodeRelationship
-from dj.sql.parse import check_is_metric
+
 from dj.sql.parsing.types import ColumnType
 from dj.typing import UTCDatetime
 from dj.utils import Version
@@ -449,6 +449,54 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 primary_key_columns.append(col)
         return primary_key_columns
 
+    def check_metric(self):
+        """
+        Check if the Node defines a metric.
+
+        The Node SQL query should have a single expression in its
+        projections, it should be an aggregation function and should have
+        the same name as the node in order for it to be considered a metric.
+        """
+        from dj.sql.parsing.backends.antlr4 import parse
+        from dj.sql.parsing import ast
+        tree = parse(self.query)
+
+        # must have a single expression
+        if len(tree.select.projection) != 1:
+            raise DJInvalidInputException(
+                "Invalid Metric. Node query has does not have "
+                "a single expression in the projection.",
+            )
+        projection_0 = tree.select.projection[0]
+        # the expression has to be something we can get a name out of
+        if not hasattr(projection_0, "alias_or_name"):
+            raise DJInvalidInputException(
+                "Invalid Metric. The expression in the projection "
+                "must have a name or alias the same as the node name.",
+            )
+        # if the name is not what we expect, check if it is an alias
+        # if it is an alias, we will raise because the user will have
+        # deliberately named this expression
+        # otherwise, we will just add the alias we want e.g. the node name
+        expr_name: ast.Name = projection_0.alias_or_name  # type: ignore
+        if expr_name.name != self.name.split('.')[-1]:
+            if expr_name.parent_key == "alias":
+                import pdb; pdb.set_trace()
+                raise DJInvalidInputException(
+                    "Invalid Metric. The expression in the projection "
+                    "cannot have alias different from the node name.",
+                )
+            tree.select.projection[0] = projection_0.set_alias(ast.Name(self.name.split('.')[-1]))
+
+        if (
+            not hasattr(projection_0, "is_aggregation")
+            or not projection_0.is_aggregation()  # type: ignore
+        ):
+            raise DJInvalidInputException(
+                "Invalid Metric. The expression in the "
+                "projection must be an aggregation.",
+            )
+
     def extra_validation(self) -> None:
         """
         Extra validation for node data.
@@ -466,7 +514,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 )
 
         if self.type == NodeType.METRIC:
-            check_is_metric(self)
+            self.check_metric()
 
         if self.type == NodeType.CUBE:
             if not self.cube_elements:

@@ -46,7 +46,7 @@ def test_read_cube(client_with_examples: TestClient) -> None:
         """
         SELECT
           default_DOT_account_type.account_type_name,
-          count(default_DOT_account_type.id) AS num_accounts
+          count(default_DOT_account_type.id) AS number_of_account_types
         FROM (
           SELECT
             default_DOT_account_type_table.account_type_classification,
@@ -269,7 +269,7 @@ def test_cube_sql(client_with_examples: TestClient):
                 default_DOT_municipality_dim.local_region,
                 sum(default_DOT_repair_order_details.price) + sum(default_DOT_repair_order_details.price) AS double_total_repair_cost,
                 avg(default_DOT_repair_order_details.price) AS avg_repair_price,
-                sum(default_DOT_repair_order_details.price * default_DOT_repair_order_details.discount) AS total_discount,
+                sum(default_DOT_repair_order_details.price * default_DOT_repair_order_details.discount) AS total_repair_order_discounts,
                 CAST(sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS discounted_orders_rate,
                 count(default_DOT_repair_orders.repair_order_id) AS num_repair_orders,
                 sum(default_DOT_repair_order_details.price) AS total_repair_cost
