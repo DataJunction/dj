@@ -152,7 +152,7 @@ def test_sql(
             [],
             [],
             """
-              SELECT  count(default_DOT_repair_orders.repair_order_id) AS num_repair_orders
+              SELECT  count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
               FROM roads.repair_orders AS default_DOT_repair_orders
             """,
         ),
@@ -162,7 +162,7 @@ def test_sql(
             ["default.repair_orders.dispatcher_id=1", "hard_hat.state='AZ'"],
             """
               SELECT  default_DOT_hard_hat.state,
-                      count(default_DOT_repair_orders.repair_order_id) AS num_repair_orders
+                      count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
               FROM roads.repair_orders AS default_DOT_repair_orders
               LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
                       default_DOT_hard_hats.state
@@ -190,7 +190,7 @@ def test_sql(
                       default_DOT_hard_hat.city,
                       default_DOT_hard_hat.last_name,
                       default_DOT_municipality_dim.local_region,
-                      count(default_DOT_repair_orders.repair_order_id) AS num_repair_orders
+                      count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
               FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
                       default_DOT_dispatchers.dispatcher_id,
                       default_DOT_dispatchers.phone
@@ -214,7 +214,7 @@ def test_sql(
             ["default.hard_hat.city"],
             [],
             """
-              SELECT  avg(default_DOT_repair_order_details.price) AS avg_repair_price,
+              SELECT  avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price,
                       default_DOT_hard_hat.city
               FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
                       default_DOT_repair_orders.hard_hat_id,
@@ -234,7 +234,7 @@ def test_sql(
             ["default.hard_hat.city", "default.dispatcher.company_name"],
             [],
             """
-              SELECT  avg(default_DOT_repair_order_details.price) AS avg_repair_price,
+              SELECT  avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price,
                       default_DOT_dispatcher.company_name,
                       default_DOT_hard_hat.city
               FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
@@ -259,7 +259,7 @@ def test_sql(
             [],
             """
               SELECT  default_DOT_us_state.state_region_description,
-                      count(default_DOT_repair_orders.repair_order_id) AS num_repair_orders
+                      count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
               FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
                       default_DOT_hard_hats.state
               FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
@@ -361,7 +361,7 @@ def test_sql_with_filters(
             [],
             """
             SELECT
-              count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS num_repair_orders
+              count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS foo_DOT_bar_DOT_num_repair_orders
             FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
             """,
         ),
@@ -372,7 +372,7 @@ def test_sql_with_filters(
             """
             SELECT
               foo_DOT_bar_DOT_hard_hat.state,
-              count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS num_repair_orders
+              count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS foo_DOT_bar_DOT_num_repair_orders
             FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
             LEFT OUTER JOIN (
               SELECT
@@ -409,7 +409,7 @@ def test_sql_with_filters(
               foo_DOT_bar_DOT_hard_hat.city,
               foo_DOT_bar_DOT_hard_hat.last_name,
               foo_DOT_bar_DOT_municipality_dim.local_region,
-              count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS num_repair_orders
+              count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS foo_DOT_bar_DOT_num_repair_orders
             FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
               LEFT OUTER JOIN (
                 SELECT foo_DOT_bar_DOT_dispatchers.company_name,
@@ -457,7 +457,7 @@ def test_sql_with_filters(
             [],
             """
             SELECT
-              avg(foo_DOT_bar_DOT_repair_order_details.price) AS avg_repair_price,
+              avg(foo_DOT_bar_DOT_repair_order_details.price) foo_DOT_bar_DOT_avg_repair_price,
               foo_DOT_bar_DOT_hard_hat.city
             FROM roads.repair_order_details AS foo_DOT_bar_DOT_repair_order_details
             LEFT OUTER JOIN (
@@ -676,8 +676,8 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
               default_DOT_hard_hat.postal_code,
               default_DOT_hard_hat.state,
               default_DOT_municipality_dim.local_region,
-              count(default_DOT_repair_orders.repair_order_id) AS num_repair_orders,
-              CAST(sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS discounted_orders_rate
+              count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders,
+              CAST(sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate
       FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
               default_DOT_dispatchers.dispatcher_id
       FROM roads.dispatchers AS default_DOT_dispatchers) AS default_DOT_dispatcher ON default_DOT_repair_orders.dispatcher_id = default_DOT_dispatcher.dispatcher_id
@@ -701,6 +701,6 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
         {"name": "postal_code", "type": "string"},
         {"name": "state", "type": "string"},
         {"name": "local_region", "type": "string"},
-        {"name": "num_repair_orders", "type": "bigint"},
-        {"name": "discounted_orders_rate", "type": "double"},
+        {"name": "default_DOT_num_repair_orders", "type": "bigint"},
+        {"name": "default_DOT_discounted_orders_rate", "type": "double"},
     ]

@@ -906,7 +906,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             json={
                 "description": "Average length of employment",
                 "query": (
-                    "SELECT avg(NOW() - hire_date + 1) as avg_length_of_employment "
+                    "SELECT avg(NOW() - hire_date + 1) as "
+                    "default_DOT_avg_length_of_employment_plus_one "
                     "FROM foo.bar.hard_hats"
                 ),
                 "mode": "published",
@@ -928,9 +929,10 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                     ),
                     "debug": {
                         "columns": {
-                            "avg_length_of_employment": "Incompatible types in binary "
-                            "operation NOW() - hard_hats.hire_date + 1. Got left "
-                            "timestamp, right int.",
+                            "default_DOT_avg_length_of_employment_plus_one": (
+                                "Incompatible types in binary operation NOW() - "
+                                "hard_hats.hire_date + 1. Got left timestamp, right int."
+                            ),
                         },
                         "errors": [],
                     },

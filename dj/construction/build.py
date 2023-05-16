@@ -6,7 +6,7 @@ from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, 
 
 from sqlmodel import Session
 
-from dj.construction.utils import amenable_name, to_namespaced_name
+from dj.construction.utils import to_namespaced_name
 from dj.errors import DJException, DJInvalidInputException
 from dj.models.column import Column
 from dj.models.engine import Dialect
@@ -14,6 +14,7 @@ from dj.models.node import BuildCriteria, Node, NodeRevision, NodeType
 from dj.sql.dag import get_shared_dimensions
 from dj.sql.parsing.ast import CompileContext
 from dj.sql.parsing.backends.antlr4 import ast, parse
+from dj.utils import amenable_name
 
 
 def _get_tables_from_select(

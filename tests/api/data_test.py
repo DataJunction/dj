@@ -179,7 +179,7 @@ class TestDataForNode:
             "engine_name": None,
             "engine_version": None,
             "submitted_query": (
-                'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" '
+                'SELECT  COUNT(1) basic_DOT_num_comments \n FROM "basic"."comments" '
                 "AS basic_DOT_source_DOT_comments"
             ),
             "executed_query": None,
@@ -192,7 +192,7 @@ class TestDataForNode:
             "results": [
                 {
                     "sql": "",
-                    "columns": [{"name": "cnt", "type": "bigint"}],
+                    "columns": [{"name": "basic_DOT_num_comments", "type": "bigint"}],
                     "rows": [[1]],
                     "row_count": 0,
                 },
@@ -216,46 +216,45 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
             "engine_name": None,
             "engine_version": None,
-            "errors": [],
+            "submitted_query": (
+                "SELECT  avg(repair_order_details.price) AS default_DOT_avg_repair_price,"
+                "\\n\\tdispatcher.company_name,\\n\\tcount(repair_orders.repair_order_id) "
+                "AS default_DOT_num_repair_ordersdefault_DOT_num_repair_orders \\n FROM "
+                "roads.repair_order_details AS repair_order_details LEFT OUTER JOIN (SELECT  "
+                "repair_orders.dispatcher_id,\\n\\trepair_orders.hard_hat_id,\\n\\t"
+                "repair_orders.municipality_id,\\n\\trepair_orders.repair_order_id "
+                "\\n FROM roads.repair_orders AS repair_orders) AS repair_order ON "
+                "repair_order_details.repair_order_id = repair_order.repair_order_id"
+                "\\nLEFT OUTER JOIN (SELECT  dispatchers.company_name,\\n\\t"
+                "dispatchers.dispatcher_id \\n FROM roads.dispatchers AS dispatchers) "
+                "AS dispatcher ON repair_order.dispatcher_id = dispatcher.dispatcher_id "
+                "\\n GROUP BY  dispatcher.company_name\\n"
+            ),
             "executed_query": None,
-            "finished": None,
-            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
-            "next": None,
-            "output_table": None,
-            "previous": None,
-            "progress": 0.0,
-            "results": [
-                {
-                    "columns": [
-                        {"name": "avg_repair_price", "type": "double"},
-                        {"name": "company_name", "type": "string"},
-                        {"name": "num_repair_orders", "type": "bigint"},
-                    ],
-                    "row_count": 0,
-                    "rows": [[1.0, "Foo", 100], [2.0, "Bar", 200]],
-                    "sql": "",
-                },
-            ],
             "scheduled": None,
             "started": None,
+            "finished": None,
             "state": "FINISHED",
-            "submitted_query": (
-                "SELECT  avg(repair_order_details.price) AS avg_repair_price,\\n\\t"
-                "dispatcher.company_name,\\n\\tcount(repair_orders.repair_order_id) AS "
-                "num_repair_orders \\n FROM roads.repair_order_details AS repair_order_details "
-                "LEFT OUTER JOIN (SELECT  repair_orders.dispatcher_id,\\n\\t"
-                "repair_orders.hard_hat_id,"
-                "\\n\\trepair_orders.municipality_id,\\n\\trepair_orders.repair_order_id \\n FROM "
-                "roads.repair_orders AS repair_orders) AS repair_order ON "
-                "repair_order_details.repair_order_id "
-                "= repair_order.repair_order_id\\nLEFT OUTER JOIN (SELECT  "
-                "dispatchers.company_name,\\n\\tdispatchers.dispatcher_id \\n FROM "
-                "roads.dispatchers AS dispatchers) AS dispatcher "
-                "ON repair_order.dispatcher_id = dispatcher.dispatcher_id \\n GROUP BY  "
-                "dispatcher.company_name\\n"
-            ),
+            "progress": 0.0,
+            "output_table": None,
+            "results": [
+                {
+                    "sql": "",
+                    "columns": [
+                        {"name": "company_name", "type": "string"},
+                        {"name": "default_DOT_avg_repair_price", "type": "double"},
+                        {"name": "default_DOT_num_repair_orders", "type": "bigint"},
+                    ],
+                    "rows": [[1.0, "Foo", 100], [2.0, "Bar", 200]],
+                    "row_count": 0,
+                },
+            ],
+            "next": None,
+            "previous": None,
+            "errors": [],
         }
 
 

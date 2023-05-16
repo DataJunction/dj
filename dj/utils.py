@@ -6,6 +6,7 @@ import os
 import re
 from enum import Enum
 from functools import lru_cache
+from string import ascii_letters, digits
 
 # pylint: disable=line-too-long
 from typing import Iterator, List, Optional
@@ -159,3 +160,46 @@ def get_namespace_from_name(name: str) -> str:
     else:  # pragma: no cover
         raise DJException(f"No namespace provided: {name}")
     return node_namespace
+
+
+ACCEPTABLE_CHARS = set(ascii_letters + digits + "_")
+LOOKUP_CHARS = {
+    ".": "DOT",
+    "'": "QUOTE",
+    '"': "DQUOTE",
+    "`": "BTICK",
+    "!": "EXCL",
+    "@": "AT",
+    "#": "HASH",
+    "$": "DOLLAR",
+    "%": "PERC",
+    "^": "CARAT",
+    "&": "AMP",
+    "*": "STAR",
+    "(": "LPAREN",
+    ")": "RPAREN",
+    "[": "LBRACK",
+    "]": "RBRACK",
+    "-": "MINUS",
+    "+": "PLUS",
+    "=": "EQ",
+    "/": "FSLSH",
+    "\\": "BSLSH",
+    "|": "PIPE",
+    "~": "TILDE",
+}
+
+
+def amenable_name(name: str) -> str:
+    """Takes a string and makes it have only alphanumerics"""
+    ret: List[str] = []
+    cont: List[str] = []
+    for char in name:
+        if char in ACCEPTABLE_CHARS:
+            cont.append(char)
+        else:
+            ret.append("".join(cont))
+            ret.append(LOOKUP_CHARS.get(char, "UNK"))
+            cont = []
+
+    return ("_".join(ret) + "_" + "".join(cont)).strip("_")
