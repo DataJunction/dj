@@ -429,10 +429,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Number of repair orders",
-            "query": (
-                "SELECT count(repair_order_id) as num_repair_orders "
-                "FROM default.repair_orders"
-            ),
+            "query": ("SELECT count(repair_order_id) " "FROM default.repair_orders"),
             "mode": "published",
             "name": "default.num_repair_orders",
         },
@@ -441,7 +438,10 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Average repair price",
-            "query": "SELECT avg(price) as avg_repair_price FROM default.repair_order_details",
+            "query": (
+                "SELECT avg(price) as default_DOT_avg_repair_price "
+                "FROM default.repair_order_details"
+            ),
             "mode": "published",
             "name": "default.avg_repair_price",
         },
@@ -450,7 +450,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair cost",
-            "query": "SELECT sum(price) as total_repair_cost FROM default.repair_order_details",
+            "query": "SELECT sum(price) FROM default.repair_order_details",
             "mode": "published",
             "name": "default.total_repair_cost",
         },
@@ -460,7 +460,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Average length of employment",
             "query": (
-                "SELECT avg(NOW() - hire_date) as avg_length_of_employment "
+                "SELECT avg(NOW() - hire_date) as default_DOT_avg_length_of_employment "
                 "FROM default.hard_hats"
             ),
             "mode": "published",
@@ -475,7 +475,7 @@ EXAMPLES = (  # type: ignore
                 """
                 SELECT
                   cast(sum(if(discount > 0.0, 1, 0)) as double) / count(*)
-                    AS discounted_orders_rate
+                    AS default_DOT_discounted_orders_rate
                 FROM default.repair_order_details
                 """
             ),
@@ -488,8 +488,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT sum(price * discount) as total_discount "
-                "FROM default.repair_order_details"
+                "SELECT sum(price * discount) " "FROM default.repair_order_details"
             ),
             "mode": "published",
             "name": "default.total_repair_order_discounts",
@@ -500,8 +499,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT avg(price * discount) as avg_repair_order_discount "
-                "FROM default.repair_order_details"
+                "SELECT avg(price * discount) " "FROM default.repair_order_details"
             ),
             "mode": "published",
             "name": "default.avg_repair_order_discounts",
@@ -512,8 +510,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Average time to dispatch a repair order",
             "query": (
-                "SELECT avg(dispatched_date - order_date) as avg_time_to_dispatch "
-                "FROM default.repair_orders"
+                "SELECT avg(dispatched_date - order_date) " "FROM default.repair_orders"
             ),
             "mode": "published",
             "name": "default.avg_time_to_dispatch",
@@ -972,7 +969,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Number of repair orders",
             "query": (
-                "SELECT count(repair_order_id) as num_repair_orders "
+                "SELECT count(repair_order_id) as foo_DOT_bar_DOT_num_repair_orders "
                 "FROM foo.bar.repair_orders"
             ),
             "mode": "published",
@@ -983,7 +980,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Average repair price",
-            "query": "SELECT avg(price) as avg_repair_price FROM foo.bar.repair_order_details",
+            "query": "SELECT avg(price) FROM foo.bar.repair_order_details",
             "mode": "published",
             "name": "foo.bar.avg_repair_price",
         },
@@ -992,7 +989,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total repair cost",
-            "query": "SELECT sum(price) as total_repair_cost FROM foo.bar.repair_order_details",
+            "query": "SELECT sum(price) FROM foo.bar.repair_order_details",
             "mode": "published",
             "name": "foo.bar.total_repair_cost",
         },
@@ -1001,10 +998,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Average length of employment",
-            "query": (
-                "SELECT avg(NOW() - hire_date) as avg_length_of_employment "
-                "FROM foo.bar.hard_hats"
-            ),
+            "query": ("SELECT avg(NOW() - hire_date) " "FROM foo.bar.hard_hats"),
             "mode": "published",
             "name": "foo.bar.avg_length_of_employment",
         },
@@ -1014,8 +1008,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT sum(price * discount) as total_discount "
-                "FROM foo.bar.repair_order_details"
+                "SELECT sum(price * discount) " "FROM foo.bar.repair_order_details"
             ),
             "mode": "published",
             "name": "foo.bar.total_repair_order_discounts",
@@ -1026,8 +1019,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Total repair order discounts",
             "query": (
-                "SELECT avg(price * discount) as avg_repair_order_discount "
-                "FROM foo.bar.repair_order_details"
+                "SELECT avg(price * discount) " "FROM foo.bar.repair_order_details"
             ),
             "mode": "published",
             "name": "foo.bar.avg_repair_order_discounts",
@@ -1038,8 +1030,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Average time to dispatch a repair order",
             "query": (
-                "SELECT avg(dispatched_date - order_date) as avg_time_to_dispatch "
-                "FROM foo.bar.repair_orders"
+                "SELECT avg(dispatched_date - order_date) " "FROM foo.bar.repair_orders"
             ),
             "mode": "published",
             "name": "foo.bar.avg_time_to_dispatch",
@@ -1216,7 +1207,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total number of account types",
-            "query": "SELECT count(id) as num_accounts FROM default.account_type",
+            "query": "SELECT count(id) FROM default.account_type",
             "mode": "published",
             "name": "default.number_of_account_types",
         },
@@ -1324,7 +1315,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Number of comments",
-            "query": ("SELECT COUNT(1) AS cnt " "FROM basic.source.comments"),
+            "query": ("SELECT COUNT(1) FROM basic.source.comments"),
             "mode": "published",
             "name": "basic.num_comments",
         },
@@ -1334,7 +1325,7 @@ EXAMPLES = (  # type: ignore
         {
             "description": "Number of users.",
             "type": "metric",
-            "query": ("SELECT SUM(num_users) " "FROM basic.transform.country_agg"),
+            "query": ("SELECT SUM(num_users) FROM basic.transform.country_agg"),
             "mode": "published",
             "name": "basic.num_users",
         },
@@ -1546,7 +1537,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total units sold",
-            "query": "SELECT SUM(sold_count) as num_sold FROM default.sales",
+            "query": "SELECT SUM(sold_count) as default_DOT_items_sold_count FROM default.sales",
             "mode": "published",
             "name": "default.items_sold_count",
         },
@@ -1555,7 +1546,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "description": "Total profit",
-            "query": "SELECT SUM(sold_count * price_per_unit) as num_sold FROM default.sales",
+            "query": "SELECT SUM(sold_count * price_per_unit) FROM default.sales",
             "mode": "published",
             "name": "default.total_profit",
         },
@@ -1674,7 +1665,7 @@ EXAMPLES = (  # type: ignore
         "/nodes/metric/",
         {
             "query": """
-        SELECT AVG(luminosity) as cnt FROM basic.corrected_patches
+        SELECT AVG(luminosity) FROM basic.corrected_patches
         """,
             "description": "Average luminosity of color patch",
             "mode": "published",
@@ -1695,21 +1686,20 @@ COLUMN_MAPPINGS = {
 
 QUERY_DATA_MAPPINGS = {
     (
-        "SELECT  avg(default_DOT_repair_order_details.price) AS "
-        "avg_repair_price,\n\tdefault_DOT_dispatcher.company_name,"
-        "\n\tcount(default_DOT_repair_orders.repair_order_id) AS "
-        "num_repair_orders \n FROM roads.repair_order_details "
-        "AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  "
-        "default_DOT_repair_orders.dispatcher_id,\n\t"
-        "default_DOT_repair_orders.hard_hat_id,\n\tdefault_DOT_repair_orders.municipality_id"
-        ",\n\tdefault_DOT_repair_orders.repair_order_id \n FROM "
-        "roads.repair_orders AS default_DOT_repair_orders) AS default_DOT_repair_order "
-        "ON default_DOT_repair_order_details.repair_order_id = "
+        "SELECT  default_DOT_dispatcher.company_name,\n\t"
+        "avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price,"
+        "\n\tcount(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders "
+        "\n FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN "
+        "(SELECT  default_DOT_repair_orders.dispatcher_id,\n\t"
+        "default_DOT_repair_orders.hard_hat_id,\n\tdefault_DOT_repair_orders.municipality_id,"
+        "\n\tdefault_DOT_repair_orders.repair_order_id \n FROM roads.repair_orders AS "
+        "default_DOT_repair_orders) AS default_DOT_repair_order ON "
+        "default_DOT_repair_order_details.repair_order_id = "
         "default_DOT_repair_order.repair_order_id\nLEFT OUTER JOIN (SELECT  "
         "default_DOT_dispatchers.company_name,\n\tdefault_DOT_dispatchers.dispatcher_id "
         "\n FROM roads.dispatchers AS default_DOT_dispatchers) AS default_DOT_dispatcher "
         "ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id "
-        "\n GROUP BY  default_DOT_dispatcher.company_name"
+        "\n GROUP BY  default_DOT_dispatcher.company_name\n"
     )
     .strip()
     .replace('"', "")
@@ -1719,9 +1709,9 @@ QUERY_DATA_MAPPINGS = {
             "id": uuid.UUID("bd98d6be-e2d2-413e-94c7-96d9411ddee2"),
             "submitted_query": (
                 "SELECT  avg(repair_order_details.price) AS "
-                "avg_repair_price,\\n\\tdispatcher.company_name,"
-                "\\n\\tcount(repair_orders.repair_order_id) "
-                "AS num_repair_orders \\n FROM roads.repair_order_details AS "
+                "default_DOT_avg_repair_price,\\n\\tdispatcher.company_name,"
+                "\\n\\tcount(repair_orders.repair_order_id) AS default_DOT_num_repair_orders"
+                "default_DOT_num_repair_orders \\n FROM roads.repair_order_details AS "
                 "repair_order_details LEFT OUTER JOIN (SELECT  "
                 "repair_orders.dispatcher_id,\\n\\trepair_orders.hard_hat_id,\\n\\t"
                 "repair_orders.municipality_id,\\n\\trepair_orders.repair_order_id "
@@ -1786,14 +1776,18 @@ QUERY_DATA_MAPPINGS = {
             "errors": [],
         }
     ),
-    'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" AS basic_DOT_source_DOT_comments'.strip()
+    (
+        "SELECT  COUNT(1) basic_DOT_num_comments \n FROM "
+        '"basic"."comments" AS basic_DOT_source_DOT_comments'
+    )
+    .strip()
     .replace('"', "")
     .replace("\n", "")
     .replace(" ", ""): QueryWithResults(
         **{
             "id": uuid.UUID("ee41ea6c-2303-4fe1-8bf0-f0ce3d6a35ca"),
             "submitted_query": (
-                'SELECT  COUNT(1) AS cnt \n FROM "basic"."comments" '
+                'SELECT  COUNT(1) basic_DOT_num_comments \n FROM "basic"."comments" '
                 "AS basic_DOT_source_DOT_comments"
             ),
             "state": QueryState.FINISHED,

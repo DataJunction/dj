@@ -7,11 +7,12 @@ from typing import List, Optional, Set, cast
 from sqlmodel import Session
 
 from dj.construction.build import build_ast
-from dj.construction.utils import amenable_name, get_dj_node
+from dj.construction.utils import get_dj_node
 from dj.errors import DJErrorException
 from dj.models.node import NodeRevision, NodeType
 from dj.sql.parsing.backends.antlr4 import ast, parse
 from dj.sql.parsing.backends.exceptions import DJParseException
+from dj.utils import amenable_name
 
 
 def try_get_dj_node(

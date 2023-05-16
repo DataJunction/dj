@@ -788,6 +788,9 @@ def create_a_node(
     if node_type == NodeType.DIMENSION and not data.primary_key:
         raise DJInvalidInputException("Dimension nodes must define a primary key!")
 
+    if node_type == NodeType.METRIC:
+        data.query = NodeRevision.format_metric_alias(data.query, data.name)
+
     raise_if_node_exists(session, data.name)
     raise_if_node_inactive(session, data.name)
 

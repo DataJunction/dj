@@ -136,7 +136,7 @@ num_repair_orders = dj.new_metric(
     name="num_repair_orders",
     query="""
     SELECT
-      count(repair_order_id) AS num_repair_orders
+      count(repair_order_id)
     FROM repair_orders
     """,
     description="Number of repair orders",

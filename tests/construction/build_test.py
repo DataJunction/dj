@@ -7,10 +7,11 @@ from sqlalchemy import select
 from sqlmodel import Session
 
 import dj.sql.parsing.types as ct
-from dj.construction.build import amenable_name, build_node
+from dj.construction.build import build_node
 from dj.errors import DJException
 from dj.models import Column, NodeRevision
 from dj.models.node import Node, NodeType
+from dj.utils import amenable_name
 
 from ..sql.utils import compare_query_strings
 from .fixtures import BUILD_EXPECTATION_PARAMETERS
