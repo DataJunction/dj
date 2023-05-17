@@ -339,11 +339,12 @@ def _build_select_ast(
     _build_tables_on_select(session, select, tables, build_criteria)
 
 
-def add_filters_and_dimensions_to_query_ast(
+def add_filters_dimensions_limit_to_query_ast(
     query: ast.Query,
     dialect: Optional[str] = None,  # pylint: disable=unused-argument
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
+    limit: Optional[int] = None
 ):
     """
     Add filters and dimensions to a query ast
@@ -379,6 +380,9 @@ def add_filters_and_dimensions_to_query_ast(
             if col.is_aggregation()  # type: ignore
             or col.name.name in {gc.name.name for gc in query.select.group_by}  # type: ignore
         ]
+        
+    if limit:
+        query.limit=ast.Number(limit)
 
 
 def _get_node_table(
@@ -426,6 +430,7 @@ def build_node(  # pylint: disable=too-many-arguments
     node: NodeRevision,
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
+    limit: Optional[int] = None, 
     build_criteria: Optional[BuildCriteria] = None,
 ) -> ast.Query:
     """
@@ -456,11 +461,12 @@ def build_node(  # pylint: disable=too-many-arguments
     else:
         query = build_source_node_query(node)
 
-    add_filters_and_dimensions_to_query_ast(
+    add_filters_dimensions_limit_to_query_ast(
         query,
         build_criteria.dialect,
         filters,
         dimensions,
+        limit
     )
 
     return build_ast(session, query, build_criteria)

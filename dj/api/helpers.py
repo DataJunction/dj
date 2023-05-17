@@ -170,6 +170,7 @@ def get_query(  # pylint: disable=too-many-arguments
     node_name: str,
     dimensions: List[str],
     filters: List[str],
+    limit: Optional[int] = None,
     engine: Optional[Engine],
 ) -> ast.Query:
     """
@@ -200,6 +201,7 @@ def get_query(  # pylint: disable=too-many-arguments
         node=node.current,
         filters=filters,
         dimensions=dimensions,
+        limit=limit,
         build_criteria=build_criteria,
     )
     return query_ast

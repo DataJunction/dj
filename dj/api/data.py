@@ -96,6 +96,7 @@ def get_data(  # pylint: disable=too-many-locals
     *,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    limit: Optional[int] = None,
     async_: bool = False,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -124,6 +125,7 @@ def get_data(  # pylint: disable=too-many-locals
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
+        limit=limit,
         engine=engine,
     )
     columns = [
