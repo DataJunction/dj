@@ -82,7 +82,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
                         "dimensionsSpec": {"dimensions": cube_config.dimensions},
                         "timestampSpec": {
                             "column": cube_config.druid.timestamp_column,  # type: ignore
-                            "format": "yyyyMMdd",
+                            "format": cube_config.druid.timestamp_format or "yyyyMMdd",  # type: ignore
                         },
                     },
                 },

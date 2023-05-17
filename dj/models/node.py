@@ -723,6 +723,7 @@ class DruidConf(BaseSQLModel):
     granularity: str
     intervals: Optional[List[str]]
     timestamp_column: str
+    timestamp_format: Optional[str]
     parse_spec_format: Optional[str]
 
 
