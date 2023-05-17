@@ -20,7 +20,7 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
         ...
 
     @abc.abstractmethod
-    def execute(
+    def schedule(
         self,
         materialization: MaterializationConfig,
         query_service_client: QueryServiceClient,
@@ -40,7 +40,7 @@ class TrinoMaterializationJob(  # pylint: disable=too-few-public-methods # pragm
 
     dialect = Dialect.TRINO
 
-    def execute(
+    def schedule(
         self,
         materialization: MaterializationConfig,
         query_service_client: QueryServiceClient,
@@ -59,7 +59,7 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
 
     dialect = Dialect.SPARK
 
-    def execute(
+    def schedule(
         self,
         materialization: MaterializationConfig,
         query_service_client: QueryServiceClient,

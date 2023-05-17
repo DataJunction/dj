@@ -32,7 +32,7 @@ class DefaultCubeMaterialization(
     settings needed for to materialize a generic cube.
     """
 
-    def execute(
+    def schedule(
         self,
         materialization: MaterializationConfig,
         query_service_client: QueryServiceClient,
@@ -96,7 +96,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
         }
         return druid_spec
 
-    def execute(
+    def schedule(
         self,
         materialization: MaterializationConfig,
         query_service_client: QueryServiceClient,
@@ -111,6 +111,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
         )
         query_service_client.materialize_cube(
             node_name=materialization.node_revision.name,
+            node_type=materialization.node_revision.type,
             schedule=materialization.schedule,
             query=cube_config.query,
             spark_conf=cube_config.spark.__root__,

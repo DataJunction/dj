@@ -596,6 +596,7 @@ def test_add_materialization_config_to_cube(
         for call_ in query_service_client.materialize_cube.call_args_list  # type: ignore
     ][0]
     assert called_kwargs["node_name"] == "default.repairs_cube"
+    assert called_kwargs["node_type"] == "cube"
     assert called_kwargs["schedule"] == "@daily"
     assert called_kwargs["spark_conf"] == {}
     dimensions_sorted = sorted(

@@ -225,7 +225,9 @@ def get_engine(session: Session, name: str, version: str) -> Engine:
     Return an Engine instance given an engine name and version
     """
     statement = (
-        select(Engine).where(Engine.name == name).where(Engine.version == version)
+        select(Engine)
+        .where(Engine.name == name)
+        .where(Engine.version == (version or ""))
     )
     try:
         engine = session.exec(statement).one()
