@@ -171,7 +171,7 @@ def get_query(  # pylint: disable=too-many-arguments
     dimensions: List[str],
     filters: List[str],
     limit: Optional[int] = None,
-    engine: Optional[Engine],
+    engine: Optional[Engine] = None,
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
