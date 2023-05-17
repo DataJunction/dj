@@ -14,7 +14,7 @@ from dj.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
     from dj.models.engine import Engine
-    from dj.models.node import MaterializationConfig
+    from dj.models.node import MaterializationConfig, NodeType
 
 
 class RequestsSessionWithEndpoint(requests.Session):
@@ -135,18 +135,22 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
     def materialize_cube(  # pylint: disable=too-many-arguments
         self,
         node_name: str,
+        node_type: "NodeType",
         schedule: str,
         query: str,
-        spark_conf: str,
+        spark_conf: Dict,
         druid_spec: Dict,
     ):
         """
-        Kick off scheduling of materialization job for cube nodes
+        Post a request to the query service asking it to set up a scheduled materialization
+        for the cube node. The query service is expected to manage all reruns of this job. Note
+        that this functionality may be moved to the materialization service at a later point.
         """
         response = self.requests_session.post(  # pragma: no cover
-            "/materialization/druid/",
+            "/materialization/",
             json={
                 "node_name": node_name,
+                "node_type": node_type,
                 "schedule": schedule or "@daily",
                 "query": query,
                 "spark_conf": spark_conf,

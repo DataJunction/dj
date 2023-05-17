@@ -8,11 +8,11 @@ __all__ = [
     "DefaultCubeMaterialization",
     "DruidCubeMaterializationJob",
 ]
-from .cube_materialization import (
+from dj.materialization.jobs.cube_materialization import (
     DefaultCubeMaterialization,
     DruidCubeMaterializationJob,
 )
-from .materialization_job import (
+from dj.materialization.jobs.materialization_job import (
     MaterializationJob,
     SparkSqlMaterializationJob,
     TrinoMaterializationJob,

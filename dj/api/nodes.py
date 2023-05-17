@@ -335,7 +335,7 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
     )
 
 
-def build_cube_custom_config(
+def build_cube_config(
     cube_node: NodeRevision,
     config: Dict,
     combined_ast: ast.Query,
@@ -759,7 +759,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
             name=materialization_config.engine.name,
             version=materialization_config.engine.version,
         )
-        cube_custom_config = build_cube_custom_config(
+        cube_custom_config = build_cube_config(
             node_revision,
             materialization_config.config.dict(),
             combined_ast,
@@ -1009,7 +1009,7 @@ def schedule_materialization_jobs(
     for materialization in materialization_configs:
         clazz = materialization_jobs.get(materialization.job)
         if clazz:  # pragma: no cover
-            clazz().execute(  # type: ignore
+            clazz().schedule(  # type: ignore
                 materialization,
                 query_service_client,
             )
