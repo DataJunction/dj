@@ -6,7 +6,7 @@ import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
@@ -23,7 +23,7 @@ from dj.models.base import BaseSQLModel, NodeColumns, generate_display_name
 from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
-from dj.models.engine import Dialect, Engine, EngineInfo
+from dj.models.engine import Dialect, Engine, EngineInfo, EngineRef
 from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parsing.types import ColumnType
 from dj.typing import UTCDatetime
@@ -349,6 +349,12 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
 
     # Arbitrary config relevant to the materialization engine
     config: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
+
+    # The name of the plugin that handles materialization, if any
+    job: str = Field(
+        default="MaterializationJob",
+        sa_column=SqlaColumn("job", String),
+    )
 
 
 class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
@@ -695,17 +701,73 @@ class CreateSourceNode(ImmutableNodeFields, MutableNodeFields, SourceNodeFields)
     """
 
 
+class UpsertMaterializationConfig(BaseSQLModel):
+    """
+    An upsert object for materialization configs
+    """
+
+    engine: EngineRef
+    config: Dict
+    schedule: str
+
+
+class SparkConf(BaseSQLModel):
+    """Spark configuration"""
+
+    __root__: Dict[str, str]
+
+
+class DruidConf(BaseSQLModel):
+    """Druid configuration"""
+
+    granularity: str
+    intervals: Optional[List[str]]
+    timestamp_column: str
+    timestamp_format: Optional[str]
+    parse_spec_format: Optional[str]
+
+
+class GenericCubeConfig(BaseModel):
+    """
+    Generic cube materialization config needed by any materialization
+    choices and engine combinations
+    """
+
+    node_name: Optional[str]
+    query: Optional[str]
+    dimensions: Optional[List[str]]
+    measures: Optional[Dict[str, List[Dict[str, str]]]]
+    partitions: Optional[List[str]]
+
+
+class DruidCubeConfig(GenericCubeConfig):
+    """
+    Specific cube materialization implementation with Spark and Druid ingestion and
+    optional prefix and/or suffix to include with the materialized entity's name.
+    """
+
+    prefix: Optional[str] = ""
+    suffix: Optional[str] = ""
+    spark: Optional[SparkConf]
+    druid: Optional[DruidConf]
+
+
+class UpsertCubeMaterializationConfig(BaseSQLModel):
+    """
+    An upsert object for cube materialization configs
+    """
+
+    engine: EngineRef
+    config: Union[DruidCubeConfig, GenericCubeConfig]
+    schedule: str
+
+
 class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
     """
     A create object for cube nodes
     """
 
-    # class Config:  # pylint: disable=too-few-public-methods
-    #     """
-    #     Do not allow extra fields in input
-    #     """
-    #
-    #     extra = Extra.forbid
+    materialization_configs: Optional[List[UpsertCubeMaterializationConfig]] = []
 
 
 class UpdateNode(MutableNodeFields, SourceNodeFields):
@@ -728,17 +790,6 @@ class UpdateNode(MutableNodeFields, SourceNodeFields):
         """
 
         extra = Extra.forbid
-
-
-class UpsertMaterializationConfig(BaseSQLModel):
-    """
-    An upsert object for materialization configs
-    """
-
-    engine_name: str
-    engine_version: str
-    config: Dict
-    schedule: str
 
 
 #
@@ -786,6 +837,7 @@ class MaterializationConfigOutput(SQLModel):
     engine: EngineInfo
     config: Dict
     schedule: str
+    job: str
 
 
 class NodeRevisionOutput(SQLModel):

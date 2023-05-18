@@ -77,13 +77,21 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
         return urljoin(self.endpoint, url)
 
 
+class Engine(BaseModel):
+    """
+    Represents an engine
+    """
+
+    name: str
+    version: Optional[str]
+
+
 class MaterializationConfig(BaseModel):
     """
     A node's materialization config
     """
 
-    engine_name: str
-    engine_version: str
+    engine: Engine
     schedule: str
     config: Dict
 
@@ -318,6 +326,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         filters: Optional[List[str]] = None,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
+        # materialization_configs: Optional[List[MaterializationConfig]] = None,
     ) -> "Cube":
         """
         Instantiates a new cube with the given parameters.
@@ -729,13 +738,31 @@ class Node(ClientEntity):
         dimensions: List[str],
         filters: List[str],
         engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
+        engine_version: Optional[str] = "",
     ):
         """
         Builds the SQL for this node, given the provided dimensions and filters.
         """
         return self.dj_client.sql_for_metric(
             self.name,
+            dimensions,
+            filters,
+            engine_name,
+            engine_version,
+        )
+
+    def data(
+        self,
+        dimensions: List[str],
+        filters: List[str],
+        engine_name: Optional[str] = None,
+        engine_version: Optional[str] = None,
+    ):
+        """
+        Retrieves data for this node, given the provided dimensions and filters.
+        """
+        return self.dj_client.data(  # pragma: no cover
+            [self.name],
             dimensions,
             filters,
             engine_name,
@@ -868,6 +895,9 @@ class Cube(Node):  # pylint: disable=abstract-method
     dimensions: List[str]
     filters: Optional[List[str]]
     columns: Optional[List[Column]]
+
+    def update(self):  # pragma: no cover
+        pass
 
 
 class Namespace(ClientEntity):

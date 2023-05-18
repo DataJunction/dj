@@ -79,24 +79,37 @@ cube.save()
 
 ## Adding Materialization Config
 
-Any non-source node in DJ can have materialization config settings, 
-which allows users to set engine-specific materialization config as
-well as a cron schedule to materialize the node at.
+Any non-source node in DJ can have user-configurable materialization settings, but for cube nodes, DJ
+will seed the node with a set of generic cube materialization settings that can be used downstream by 
+different materialization engines. Like all other non-source nodes, users can then set engine-specific 
+materialization config, which will be layered on top of the generic cube materialization settings.
 
-This can be added using the following request:
-{{< tabs "connecting dimension" >}}
+DJ currently supports materialization of cubes into Druid.
+
+This can be added using the following request, assuming that the Druid engine is already configured in 
+your DJ setup:
+{{< tabs "adding materialization" >}}
 {{< tab "curl" >}}
 ```sh
 curl -X POST \
 http://localhost:8000/nodes/repairs_cube/materialization/ \
 -H 'Content-Type: application/json'
 -d '{
-  "engine_name": "SPARK",
-  "engine_version": "3.3",
+  "engine": {
+    "name": "DRUID",
+    "version": ""
+  },
   "schedule": "0 * * * *",
   "config": {
-    "spark.driver.memory": "4g",
-    "spark.executor.memory": "6g"
+    "spark": {
+      "spark.driver.memory": "4g",
+      "spark.executor.memory": "6g"
+    },
+    "druid": {
+      "timestamp_column": "dateint",
+      "intervals": ["2023-01-01/2023-03-31"],
+      "granularity": "DAY"
+    }
   }
 }'
 ```
@@ -104,17 +117,27 @@ http://localhost:8000/nodes/repairs_cube/materialization/ \
 {{< tab "python" >}}
 
 ```py
-from datajunction import MaterializationConfig
+from datajunction import MaterializationConfig, Engine
 
 config = MaterializationConfig(
-    engine_name="SPARK",
-    engine_version="3.3",
+    engine=Engine(
+        name="DRUID",
+        version="",
+    ),
     schedule="0 * * * *",
     config={
-        "spark.driver.memory": "4g",
-        "spark.executor.memory": "6g",
-        # ...
-    }
+        "spark": {
+            "spark.driver.memory": "4g",
+            "spark.executor.memory": "6g",
+            "spark.executor.cores": "2",
+            "spark.memory.fraction": "0.3",
+        },
+        "druid": {
+            "timestamp_column": "dateint",
+            "intervals": ["2023-01-01/2023-03-31"],
+            "granularity": "DAY",
+        },
+    },
 )
 cube.add_materialization_config(config)
 ```
