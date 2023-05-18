@@ -761,7 +761,7 @@ class Node(ClientEntity):
         """
         Retrieves data for this node, given the provided dimensions and filters.
         """
-        return self.dj_client.data(
+        return self.dj_client.data(  # pragma: no cover
             [self.name],
             dimensions,
             filters,
@@ -896,7 +896,7 @@ class Cube(Node):  # pylint: disable=abstract-method
     filters: Optional[List[str]]
     columns: Optional[List[Column]]
 
-    def update(self):
+    def update(self):  # pragma: no cover
         pass
 
 
