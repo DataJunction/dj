@@ -7,6 +7,7 @@ from datajunction.client import (
     Cube,
     Dimension,
     DJClient,
+    Engine,
     MaterializationConfig,
     Metric,
     Namespace,
@@ -37,4 +38,5 @@ __all__ = [
     "Node",
     "NodeMode",
     "Namespace",
+    "Engine",
 ]

@@ -2,7 +2,7 @@
 import pytest
 
 from datajunction import DJClient
-from datajunction.client import Column, MaterializationConfig, NodeMode
+from datajunction.client import Column, Engine, MaterializationConfig, NodeMode
 from datajunction.exceptions import DJClientException
 
 
@@ -364,8 +364,7 @@ class TestDJClient:
 
         result = large_revenue_payments_only.add_materialization_config(
             MaterializationConfig(
-                engine_name="spark",
-                engine_version="3.1.1",
+                engine=Engine(name="spark", version="3.1.1"),
                 schedule="0 * * * *",
                 config={},
             ),
