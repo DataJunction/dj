@@ -211,7 +211,7 @@ class TestDataForNode:
         """
         response = client_with_query_service.get(
             "/data?metrics=default.num_repair_orders&metrics="
-            "default.avg_repair_price&dimensions=default.dispatcher.company_name",
+            "default.avg_repair_price&dimensions=default.dispatcher.company_name&limit=10",
         )
         data = response.json()
         assert response.status_code == 200
@@ -231,7 +231,7 @@ class TestDataForNode:
                 "\\nLEFT OUTER JOIN (SELECT  dispatchers.company_name,\\n\\t"
                 "dispatchers.dispatcher_id \\n FROM roads.dispatchers AS dispatchers) "
                 "AS dispatcher ON repair_order.dispatcher_id = dispatcher.dispatcher_id "
-                "\\n GROUP BY  dispatcher.company_name\\n"
+                "\\n GROUP BY  dispatcher.company_name\\nLIMIT 10"
             ),
             "executed_query": None,
             "scheduled": None,

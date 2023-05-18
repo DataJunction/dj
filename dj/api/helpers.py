@@ -170,7 +170,8 @@ def get_query(  # pylint: disable=too-many-arguments
     node_name: str,
     dimensions: List[str],
     filters: List[str],
-    engine: Optional[Engine],
+    limit: Optional[int] = None,
+    engine: Optional[Engine] = None,
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -200,8 +201,10 @@ def get_query(  # pylint: disable=too-many-arguments
         node=node.current,
         filters=filters,
         dimensions=dimensions,
+        limit=limit,
         build_criteria=build_criteria,
     )
+
     return query_ast
 
 

@@ -1699,7 +1699,7 @@ QUERY_DATA_MAPPINGS = {
         "default_DOT_dispatchers.company_name,\n\tdefault_DOT_dispatchers.dispatcher_id "
         "\n FROM roads.dispatchers AS default_DOT_dispatchers) AS default_DOT_dispatcher "
         "ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id "
-        "\n GROUP BY  default_DOT_dispatcher.company_name\n"
+        "\n GROUP BY  default_DOT_dispatcher.company_name\n LIMIT 10"
     )
     .strip()
     .replace('"', "")
@@ -1720,7 +1720,7 @@ QUERY_DATA_MAPPINGS = {
                 "OUTER JOIN (SELECT  dispatchers.company_name,\\n\\tdispatchers.dispatcher_id "
                 "\\n FROM roads.dispatchers AS dispatchers) AS dispatcher ON "
                 "repair_order.dispatcher_id = dispatcher.dispatcher_id \\n GROUP BY  "
-                "dispatcher.company_name\\n"
+                "dispatcher.company_name\\nLIMIT 10"
             ),
             "state": QueryState.FINISHED,
             "results": [

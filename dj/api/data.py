@@ -95,6 +95,7 @@ def get_data(  # pylint: disable=too-many-locals
     *,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    limit: Optional[int] = None,
     async_: bool = False,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -123,6 +124,7 @@ def get_data(  # pylint: disable=too-many-locals
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
+        limit=limit,
         engine=engine,
     )
     columns = [
@@ -153,6 +155,7 @@ def get_data_for_metrics(  # pylint: disable=R0914
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    limit: Optional[int] = None,
     async_: bool = False,
     *,
     session: Session = Depends(get_session),
@@ -186,6 +189,7 @@ def get_data_for_metrics(  # pylint: disable=R0914
         metric_nodes,
         filters=filters or [],
         dimensions=dimensions or [],
+        limit=limit,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
