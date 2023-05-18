@@ -339,11 +339,12 @@ def _build_select_ast(
     _build_tables_on_select(session, select, tables, build_criteria)
 
 
-def add_filters_and_dimensions_to_query_ast(
+def add_filters_dimensions_limit_to_query_ast(
     query: ast.Query,
     dialect: Optional[str] = None,  # pylint: disable=unused-argument
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
+    limit: Optional[int] = None,
 ):
     """
     Add filters and dimensions to a query ast
@@ -379,6 +380,9 @@ def add_filters_and_dimensions_to_query_ast(
             if col.is_aggregation()  # type: ignore
             or col.name.name in {gc.name.name for gc in query.select.group_by}  # type: ignore
         ]
+
+    if limit is not None:
+        query.limit = ast.Number(limit)
 
 
 def _get_node_table(
@@ -426,6 +430,7 @@ def build_node(  # pylint: disable=too-many-arguments
     node: NodeRevision,
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
+    limit: Optional[int] = None,
     build_criteria: Optional[BuildCriteria] = None,
 ) -> ast.Query:
     """
@@ -456,11 +461,12 @@ def build_node(  # pylint: disable=too-many-arguments
     else:
         query = build_source_node_query(node)
 
-    add_filters_and_dimensions_to_query_ast(
+    add_filters_dimensions_limit_to_query_ast(
         query,
         build_criteria.dialect,
         filters,
         dimensions,
+        limit,
     )
 
     return build_ast(session, query, build_criteria)
@@ -471,6 +477,7 @@ def build_metric_nodes(
     metric_nodes: List[Node],
     filters: List[str],
     dimensions: List[str],
+    limit: Optional[int] = None,
     build_criteria: Optional[BuildCriteria] = None,
 ):
     """
@@ -490,7 +497,7 @@ def build_metric_nodes(
         metric_nodes[0].current,
         filters,
         dimensions,
-        build_criteria,
+        build_criteria=build_criteria,
     )
     metric_dependencies: Set[str] = set()
     for metric_node in metric_nodes[1:]:
@@ -505,7 +512,7 @@ def build_metric_nodes(
             metric_node.current,
             filters,
             dimensions,
-            build_criteria,
+            build_criteria=build_criteria,
         )
         metric_dependencies = metric_dependencies.union(
             {tbl.alias_or_name.name for tbl in metric_ast.find_all(ast.Table)},
@@ -531,6 +538,9 @@ def build_metric_nodes(
             "querying from the same sources. Metric dependencies include "
             ", ".join(metric_dependencies),
         )
+    if limit is not None:
+        combined_ast.limit = ast.Number(limit)
+
     return combined_ast
 
 
