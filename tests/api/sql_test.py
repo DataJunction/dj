@@ -573,6 +573,7 @@ def test_lateral_view_explode(client_with_examples: TestClient):
                 "basic.paint_colors_spark.color_id",
                 "basic.paint_colors_spark.color_name",
             ],
+            "limit": 5,
         },
     )
     expected = """
@@ -605,6 +606,7 @@ def test_lateral_view_explode(client_with_examples: TestClient):
     GROUP BY
       paint_colors_spark.color_id,
       basic_DOT_paint_colors_trino.color_name
+    LIMIT 5
     """
     query = response.json()["sql"]
     compare_query_strings(query, expected)
@@ -666,6 +668,7 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
                 "default.municipality_dim.local_region",
             ],
             "filters": [],
+            "limit": 10,
         },
     )
     data = response.json()
@@ -692,6 +695,7 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
       FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
       LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc) AS default_DOT_municipality_dim ON default_DOT_repair_orders.municipality_id = default_DOT_municipality_dim.municipality_id
       GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
+      LIMIT 10
     """
     assert compare_query_strings(data["sql"], expected_sql)
     assert data["columns"] == [

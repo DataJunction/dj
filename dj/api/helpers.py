@@ -204,6 +204,7 @@ def get_query(  # pylint: disable=too-many-arguments
         limit=limit,
         build_criteria=build_criteria,
     )
+
     return query_ast
 
 
