@@ -2141,15 +2141,15 @@ class Organization(Node):
     Sets up organization for the query
     """
 
-    order: List[SortItem]
-    sort: List[SortItem]
+    order: Optional[List[SortItem]] = None
+    sort: Optional[List[SortItem]] = None
 
     def __str__(self) -> str:
         ret = ""
-        ret += f"ORDER BY {', '.join(str(i) for i in self.order)}" if self.order else ""
+        ret += f"ORDER BY {', '.join(str(i) for i in self.order)}" if self.order is not None else ""
         if ret:
             ret += "\n"
-        ret += f"SORT BY {', '.join(str(i) for i in self.sort)}" if self.sort else ""
+        ret += f"SORT BY {', '.join(str(i) for i in self.sort)}" if self.sort is not None else ""
         return ret
 
 

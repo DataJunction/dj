@@ -5,7 +5,7 @@ import collections
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
 from sqlmodel import Session
-
+from itertools import chain
 from dj.construction.utils import to_namespaced_name
 from dj.errors import DJException, DJInvalidInputException
 from dj.models.column import Column
@@ -344,25 +344,15 @@ def add_filters_dimensions_limit_to_query_ast(
     dialect: Optional[str] = None,  # pylint: disable=unused-argument
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
+    orderbys: Optional[List[str]] = None,
     limit: Optional[int] = None,
 ):
     """
     Add filters and dimensions to a query ast
     """
     projection_addition = []
-    if filters:
-        filter_asts = (  # pylint: disable=consider-using-ternary
-            query.select.where and [query.select.where] or []
-        )
 
-        for filter_ in filters:
-            temp_select = parse(f"select * where {filter_}").select
-            filter_asts.append(
-                # use parse to get the asts from the strings we got
-                temp_select.where,  # type:ignore
-            )
-        query.select.where = ast.BinaryOp.And(*filter_asts)
-
+    dimension_tables = set()
     if dimensions:
         for agg in dimensions:
             temp_select = parse(
@@ -370,6 +360,42 @@ def add_filters_dimensions_limit_to_query_ast(
             ).select
             query.select.group_by += temp_select.group_by  # type:ignore
             projection_addition += list(temp_select.find_all(ast.Column))
+            dimension_tables|=set(temp_select.find_all(ast.Table))
+    
+    if filters:
+        filter_asts = (  # pylint: disable=consider-using-ternary
+            query.select.where and [query.select.where] or []
+        )
+
+        for filter_ in filters:
+            # use parse to get the asts from the strings we got
+            temp_select = parse(f"select * where {filter_}").select
+            filter_asts.append(
+                temp_select.where,  # type:ignore
+            )
+            dimension_tables|=set(temp_select.find_all(ast.Table))
+            
+        query.select.where = ast.BinaryOp.And(*filter_asts)
+    
+    if not query.organization:
+        query.organization=ast.Organization([])
+        
+    orderby_tables=set()
+    if orderbys:
+        for order in orderbys:
+            temp_select = parse(
+                f"select * order by {order}",
+            ).select
+            orderby_tables|=set(temp_select.find_all(ast.Table))
+            query.organization.order += temp_select.organization.order  # type:ignore
+            projection_addition += list(temp_select.find_all(ast.Column))
+            
+    if diff:=(orderby_tables-dimension_tables):
+        raise DJInvalidInputException("Order by columns can only be from "
+                                        "dimensions used in filters or dimensions arguments"
+                                        f"found {', '.join(str(d) for d in diff)}.")
+         
+    # add all used dimension columns to the projection 
     query.select.projection += list(projection_addition)
 
     # Cannot select for columns that aren't in GROUP BY and aren't aggregations
@@ -430,6 +456,7 @@ def build_node(  # pylint: disable=too-many-arguments
     node: NodeRevision,
     filters: Optional[List[str]] = None,
     dimensions: Optional[List[str]] = None,
+    orderbys: Optional[List[str]] = None,
     limit: Optional[int] = None,
     build_criteria: Optional[BuildCriteria] = None,
 ) -> ast.Query:
@@ -466,6 +493,7 @@ def build_node(  # pylint: disable=too-many-arguments
         build_criteria.dialect,
         filters,
         dimensions,
+        orderbys,
         limit,
     )
 
@@ -477,19 +505,20 @@ def build_metric_nodes(
     metric_nodes: List[Node],
     filters: List[str],
     dimensions: List[str],
+    orderbys: List[str],
     limit: Optional[int] = None,
     build_criteria: Optional[BuildCriteria] = None,
 ):
     """
     Build a single query for all metrics in the list, including the
-    specified group bys (dimensions) and filters.
+    specified dimensions (group bys) and filters.
     """
     shared_dimensions = get_shared_dimensions(metric_nodes)
     for dimension_attribute in dimensions:
         if dimension_attribute not in shared_dimensions:
             raise DJInvalidInputException(
                 f"The dimension attribute `{dimension_attribute}` is not "
-                "available on every metric and thus cannot be included.",
+                "available on every requested metric and thus cannot be included.",
             )
 
     combined_ast = build_node(
@@ -497,6 +526,7 @@ def build_metric_nodes(
         metric_nodes[0].current,
         filters,
         dimensions,
+        orderbys,
         build_criteria=build_criteria,
     )
     metric_dependencies: Set[str] = set()
@@ -512,6 +542,7 @@ def build_metric_nodes(
             metric_node.current,
             filters,
             dimensions,
+            orderbys,
             build_criteria=build_criteria,
         )
         metric_dependencies = metric_dependencies.union(
