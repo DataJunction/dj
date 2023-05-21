@@ -68,7 +68,7 @@ jobs:
           export LIBRARY=${{ github.event.inputs.library }}
           git commit -am "Bumping $LIBRARY to version $NEW_VERSION"
           git checkout -b releases/$LIBRARY-$NEW_VERSION
-          git push --set-upstream origin releases/version-bump-$LIBRARY-$NEW_VERSION
+          git push --set-upstream origin releases/$LIBRARY-$NEW_VERSION
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
 
@@ -77,20 +77,5 @@ jobs:
           export NEW_VERSION=v$(hatch version)
           export LIBRARY=${{ github.event.inputs.library }}
           gh pr create -B main -H releases/$LIBRARY-$NEW_VERSION --title 'Bumping $LIBRARY to version $NEW_VERSION'
-        env:
-          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
-
-      - name: Publish to pypi
-        env:
-          HATCH_INDEX_USER: __token__
-          HATCH_INDEX_AUTH: ${{ secrets.PYPI_TOKEN }}
-        run: |
-          hatch build
-          hatch publish
-
-      - name: Create Github release
-        run: |
-          export LIBRARY=${{ github.event.inputs.library }}
-          gh release create $(hatch version)-$LIBRARY --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
