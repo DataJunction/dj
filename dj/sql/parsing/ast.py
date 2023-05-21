@@ -2207,7 +2207,7 @@ class Query(TableExpression):
         if self.alias:
             as_ = " AS " if self.as_ else " "
             if is_cte:
-                query = f"{self.alias} AS (\n{query}\n)"
+                query = f"{self.alias}{as_}{query}"
             else:
                 query = f"{query}{as_}{self.alias}"
         return query

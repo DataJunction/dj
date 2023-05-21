@@ -489,9 +489,9 @@ def build_metric_nodes(
     (c) join the node queries together via the dimension columns
     """
     if any(metric_node.type != NodeType.METRIC for metric_node in metric_nodes):
-        raise DJInvalidInputException(
+        raise DJInvalidInputException(  # pragma: no cover
             "Cannot build a query for multiple nodes if one or more "
-            f"of them aren't metric nodes.",
+            "of them aren't metric nodes.",
         )
 
     shared_dimensions = get_shared_dimensions(metric_nodes)
@@ -504,10 +504,10 @@ def build_metric_nodes(
 
     combined_ast: ast.Query = ast.Query(
         select=ast.Select(from_=ast.From(relations=[])),
-        ctes=[]
+        ctes=[],
     )
     initial_dimension_columns = []
-
+    all_dimension_columns = []
     for (idx, metric_node) in enumerate(metric_nodes):
         # Build each metric node separately
         metric_ast = build_node(
@@ -521,41 +521,67 @@ def build_metric_nodes(
         # Add the WITH statements to the combined query
         metric_ast_alias = ast.Name(f"m{idx}_" + metric_node.name.replace(".", "_DOT_"))
         metric_ast.alias = metric_ast_alias
+        metric_ast.parenthesized = True
+        metric_ast.as_ = True
         combined_ast.ctes += [metric_ast]
 
         # Add the metric and dimensions to the final query layer's SELECT
         current_table = ast.Table(metric_ast_alias)
         final_select_columns = [
-            ast.Column(name=col.alias_or_name, _table=current_table, _type=col.type)
+            ast.Column(
+                name=col.alias_or_name,  # type: ignore
+                _table=current_table,
+                _type=col.type,  # type: ignore
+            )
             for col in metric_ast.select.projection
         ]
         metric_columns = [
-            col for col in final_select_columns
+            col
+            for col in final_select_columns
             if str(col.alias_or_name) not in dimensions
         ]
         dimension_columns = [
-            col for col in final_select_columns
-            if str(col.alias_or_name) in dimensions
+            col for col in final_select_columns if str(col.alias_or_name) in dimensions
         ]
-        combined_ast.select.projection.extend(metric_columns + dimension_columns)
+        all_dimension_columns += dimension_columns
+        combined_ast.select.projection.extend(metric_columns)
 
-        if not combined_ast.select.from_.relations:
+        if not combined_ast.select.from_.relations:  # type: ignore
             initial_dimension_columns = dimension_columns
-            combined_ast.select.from_.relations.append(ast.Relation(current_table))
+            combined_ast.select.from_.relations.append(  # type: ignore
+                ast.Relation(current_table),
+            )
         else:
-            combined_ast.select.from_.relations[0].extensions.append(
+            combined_ast.select.from_.relations[0].extensions.append(  # type: ignore
                 ast.Join(
                     "FULL OUTER",
                     ast.Table(metric_ast_alias),
                     ast.JoinCriteria(
-                        on=ast.BinaryOp.And(*[  # pylint: disable=E1120
-                            ast.BinaryOp.Eq(initial_dim_col, current_dim_col)
-                            for initial_dim_col, current_dim_col in
-                            zip(initial_dimension_columns, dimension_columns)
-                        ]),
+                        on=ast.BinaryOp.And(
+                            *[  # pylint: disable=E1120
+                                ast.BinaryOp.Eq(initial_dim_col, current_dim_col)
+                                for initial_dim_col, current_dim_col in zip(
+                                    initial_dimension_columns,
+                                    dimension_columns,
+                                )
+                            ]
+                        ),
                     ),
                 ),
             )
+
+    dimension_grouping: Dict[str, List] = {}
+    for col in all_dimension_columns:
+        dimension_grouping.setdefault(str(col.alias_or_name.name), []).append(col)
+    dimension_columns = [
+        ast.Function(name=ast.Name("COALESCE"), args=list(columns)).set_alias(
+            ast.Name(col_name),
+        )
+        if len(columns) > 1
+        else columns[0]
+        for col_name, columns in dimension_grouping.items()
+    ]
+    combined_ast.select.projection.extend(dimension_columns)
 
     if limit is not None:
         combined_ast.limit = ast.Number(limit)
