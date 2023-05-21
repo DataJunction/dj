@@ -744,3 +744,28 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
         {"name": "state", "type": "string"},
         {"name": "local_region", "type": "string"},
     ]
+
+
+def test_get_sql_for_metrics_filters_validate_dimensions(
+    client_with_examples: TestClient,
+):
+    """
+    Test that we extract the columns from filters to validate that they are from shared dimensions
+    """
+    response = client_with_examples.get(
+        "/sql/",
+        params={
+            "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
+            "dimensions": [
+                "foo.bar.hard_hat.country",
+            ],
+            "filters": ["default.hard_hat.city = 'Las Vegas'"],
+            "limit": 10,
+        },
+    )
+    data = response.json()
+    assert data["message"] == (
+        "The filter `default.hard_hat.city = 'Las Vegas'` references the dimension "
+        "attribute `default.hard_hat.city`, which is not available on every metric and "
+        "thus cannot be included."
+    )

@@ -502,6 +502,17 @@ def build_metric_nodes(
                 "available on every metric and thus cannot be included.",
             )
 
+    for filter_ in filters:
+        temp_select = parse(f"select * where {filter_}").select
+        columns_in_filter = temp_select.where.find_all(ast.Column)  # type: ignore
+        for col in columns_in_filter:
+            if str(col) not in shared_dimensions:
+                raise DJInvalidInputException(
+                    f"The filter `{filter_}` references the dimension attribute "
+                    f"`{col}`, which is not available on every"
+                    " metric and thus cannot be included.",
+                )
+
     combined_ast: ast.Query = ast.Query(
         select=ast.Select(from_=ast.From(relations=[])),
         ctes=[],
