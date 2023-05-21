@@ -151,10 +151,11 @@ def get_data(  # pylint: disable=too-many-locals
 
 
 @router.get("/data/", response_model=QueryWithResults)
-def get_data_for_metrics(  # pylint: disable=R0914
+def get_data_for_metrics(  # pylint: disable=R0914, R0913
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    orderbys: List[str] = Query([]),
     limit: Optional[int] = None,
     async_: bool = False,
     *,
@@ -189,6 +190,7 @@ def get_data_for_metrics(  # pylint: disable=R0914
         metric_nodes,
         filters=filters or [],
         dimensions=dimensions or [],
+        orderbys=orderbys or [],
         limit=limit,
     )
     columns = [

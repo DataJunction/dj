@@ -129,8 +129,8 @@ def test_create_invalid_cube(client_with_examples: TestClient):
     assert response.status_code == 422
     data = response.json()
     assert data == {
-        "message": "The dimension attribute `default.payment_type.payment_type_name` is not "
-        "available on every metric and thus cannot be included.",
+        "message": "The dimension attribute `default.payment_type.payment_type_name` "
+        "is not available on every requested metric and thus cannot be included.",
         "errors": [],
         "warnings": [],
     }
@@ -323,8 +323,8 @@ def test_invalid_cube(client_with_examples: TestClient):
         },
     )
     assert response.json()["message"] == (
-        "The dimension attribute `default.contractor.company_name` is not available "
-        "on every metric and thus cannot be included."
+        "The dimension attribute `default.contractor.company_name` "
+        "is not available on every requested metric and thus cannot be included."
     )
 
 

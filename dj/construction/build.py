@@ -5,7 +5,7 @@ import collections
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
 from sqlmodel import Session
-from itertools import chain
+
 from dj.construction.utils import to_namespaced_name
 from dj.errors import DJException, DJInvalidInputException
 from dj.models.column import Column
@@ -339,7 +339,7 @@ def _build_select_ast(
     _build_tables_on_select(session, select, tables, build_criteria)
 
 
-def add_filters_dimensions_limit_to_query_ast(
+def add_filters_dimensions_orderby_limit_to_query_ast(
     query: ast.Query,
     dialect: Optional[str] = None,  # pylint: disable=unused-argument
     filters: Optional[List[str]] = None,
@@ -350,7 +350,7 @@ def add_filters_dimensions_limit_to_query_ast(
     """
     Add filters and dimensions to a query ast
     """
-    projection_addition = []
+    projection_addition = set()
 
     dimension_tables = set()
     if dimensions:
@@ -359,9 +359,9 @@ def add_filters_dimensions_limit_to_query_ast(
                 f"select * group by {agg}",
             ).select
             query.select.group_by += temp_select.group_by  # type:ignore
-            projection_addition += list(temp_select.find_all(ast.Column))
-            dimension_tables|=set(temp_select.find_all(ast.Table))
-    
+            projection_addition |= set(temp_select.find_all(ast.Column))
+            dimension_tables |= set(temp_select.find_all(ast.Table))
+
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
             query.select.where and [query.select.where] or []
@@ -373,29 +373,31 @@ def add_filters_dimensions_limit_to_query_ast(
             filter_asts.append(
                 temp_select.where,  # type:ignore
             )
-            dimension_tables|=set(temp_select.find_all(ast.Table))
-            
+            dimension_tables |= set(temp_select.find_all(ast.Table))
+            projection_addition |= set(temp_select.find_all(ast.Column))
         query.select.where = ast.BinaryOp.And(*filter_asts)
-    
+
     if not query.organization:
-        query.organization=ast.Organization([])
-        
-    orderby_tables=set()
+        query.organization = ast.Organization([])
+
+    orderby_tables = set()
     if orderbys:
         for order in orderbys:
-            temp_select = parse(
+            temp_query = parse(
                 f"select * order by {order}",
-            ).select
-            orderby_tables|=set(temp_select.find_all(ast.Table))
-            query.organization.order += temp_select.organization.order  # type:ignore
-            projection_addition += list(temp_select.find_all(ast.Column))
-            
-    if diff:=(orderby_tables-dimension_tables):
-        raise DJInvalidInputException("Order by columns can only be from "
-                                        "dimensions used in filters or dimensions arguments"
-                                        f"found {', '.join(str(d) for d in diff)}.")
-         
-    # add all used dimension columns to the projection 
+            )
+            orderby_tables |= set(temp_query.find_all(ast.Table))
+            projection_addition |= set(temp_query.find_all(ast.Column))
+            query.organization.order += temp_query.organization.order  # type:ignore
+
+    if diff := orderby_tables - dimension_tables:
+        raise DJInvalidInputException(
+            "Order by columns can only be from "
+            "dimensions used in filters or dimensions arguments"
+            f"found {', '.join(str(d) for d in diff)}.",
+        )
+
+    # add all used dimension columns to the projection
     query.select.projection += list(projection_addition)
 
     # Cannot select for columns that aren't in GROUP BY and aren't aggregations
@@ -488,7 +490,7 @@ def build_node(  # pylint: disable=too-many-arguments
     else:
         query = build_source_node_query(node)
 
-    add_filters_dimensions_limit_to_query_ast(
+    add_filters_dimensions_orderby_limit_to_query_ast(
         query,
         build_criteria.dialect,
         filters,

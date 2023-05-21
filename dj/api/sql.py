@@ -61,6 +61,7 @@ def get_sql_for_metrics(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    orderbys: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
     session: Session = Depends(get_session),
@@ -85,6 +86,7 @@ def get_sql_for_metrics(
         metric_nodes,
         filters=filters or [],
         dimensions=dimensions or [],
+        orderbys=orderbys or [],
         limit=limit,
     )
     columns = [

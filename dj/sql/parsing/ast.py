@@ -2146,10 +2146,10 @@ class Organization(Node):
 
     def __str__(self) -> str:
         ret = ""
-        ret += f"ORDER BY {', '.join(str(i) for i in self.order)}" if self.order is not None else ""
+        ret += f"ORDER BY {', '.join(str(i) for i in self.order)}" if self.order else ""
         if ret:
             ret += "\n"
-        ret += f"SORT BY {', '.join(str(i) for i in self.sort)}" if self.sort is not None else ""
+        ret += f"SORT BY {', '.join(str(i) for i in self.sort)}" if self.sort else ""
         return ret
 
 
