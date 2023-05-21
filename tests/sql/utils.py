@@ -27,11 +27,23 @@ def compare_query_strings(str1: str, str2: str) -> bool:
         query1.select.projection,
         key=lambda x: str(x.alias_or_name),  # type: ignore
     )[:]
+    for cte in query1.ctes:
+        cte.select.projection = sorted(
+            query1.select.projection,
+            key=lambda x: str(x.alias_or_name),  # type: ignore
+        )[:]
+
     query2 = parse(str2)
     query2.select.projection = sorted(
         query2.select.projection,
         key=lambda x: str(x.alias_or_name),  # type: ignore
     )[:]
+    for cte in query2.ctes:
+        cte.select.projection = sorted(
+            query2.select.projection,
+            key=lambda x: str(x.alias_or_name),  # type: ignore
+        )[:]
+
     for relation in query1.find_all(ast.Relation):
         relation.extensions = sorted(
             relation.extensions,
