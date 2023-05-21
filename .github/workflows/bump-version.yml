@@ -61,7 +61,7 @@ jobs:
           git config user.name "GitHub Actions Bot"
           git config user.email "<>"
 
-      - name: Bump release version with poetry and tag
+      - name: Bump release version with hatch and commit
         run: |
           hatch version ${{ github.event.inputs.bump }}
           export NEW_VERSION=v$(hatch version)
@@ -72,7 +72,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
 
-      - name: Open a PR
+      - name: Open a PR with the version bump
         run: |
           export NEW_VERSION=v$(hatch version)
           export LIBRARY=${{ github.event.inputs.library }}
