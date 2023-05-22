@@ -49,7 +49,7 @@ jobs:
       - name: Test DJ ${{ matrix.library }} with pytest
         run: |
           export module=${{ matrix.library == 'server' && 'dj' || 'datajunction' }}
-          pdm run pytest --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
+          pdm run pytest ${{ matrix.library == 'server' && '-n auto' || '' }} --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
 
   build-javascript:
     runs-on: ubuntu-latest

@@ -24,6 +24,10 @@ def get_dimensions(node: Node) -> List[str]:
 
     while to_process:
         current_node = to_process.popleft()
+
+        # Don't include attributes from deactivated dimensions
+        if current_node.deactivated_at:
+            continue
         processed.add(current_node)
 
         for column in current_node.current.columns:

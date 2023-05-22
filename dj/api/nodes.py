@@ -5,15 +5,17 @@ Node related APIs.
 import logging
 import os
 from collections import defaultdict
+from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Union
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+from pydantic import ValidationError
 from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from starlette.requests import Request
-from starlette.responses import Response
 
 from dj.api.helpers import (
     get_attribute_type,
@@ -26,6 +28,7 @@ from dj.api.helpers import (
     get_upstream_nodes,
     propagate_valid_status,
     raise_if_node_exists,
+    raise_if_node_inactive,
     resolve_downstream_references,
     validate_cube,
     validate_node_data,
@@ -33,11 +36,19 @@ from dj.api.helpers import (
 from dj.api.tags import get_tag_by_name
 from dj.construction.build import build_metric_nodes
 from dj.errors import DJDoesNotExistException, DJException, DJInvalidInputException
+from dj.materialization.jobs import (
+    DefaultCubeMaterialization,
+    DruidCubeMaterializationJob,
+    MaterializationJob,
+    SparkSqlMaterializationJob,
+    TrinoMaterializationJob,
+)
 from dj.models import ColumnAttribute
 from dj.models.attribute import AttributeType, UniquenessScope
 from dj.models.base import generate_display_name
 from dj.models.column import Column, ColumnAttributeInput
 from dj.models.cube import Measure
+from dj.models.engine import Dialect, Engine
 from dj.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -45,6 +56,9 @@ from dj.models.node import (
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
+    DruidConf,
+    DruidCubeConfig,
+    GenericCubeConfig,
     MaterializationConfig,
     MissingParent,
     Node,
@@ -56,13 +70,16 @@ from dj.models.node import (
     NodeStatus,
     NodeType,
     NodeValidation,
+    SparkConf,
     UpdateNode,
+    UpsertCubeMaterializationConfig,
     UpsertMaterializationConfig,
 )
 from dj.service_clients import QueryServiceClient
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.antlr4 import parse
 from dj.sql.parsing.backends.exceptions import DJParseException
+from dj.typing import UTCDatetime
 from dj.utils import (
     Version,
     VersionUpgrade,
@@ -233,7 +250,15 @@ def list_nodes(*, session: Session = Depends(get_session)) -> List[NodeOutput]:
     """
     List the available nodes.
     """
-    nodes = session.exec(select(Node).options(joinedload(Node.current))).unique().all()
+    nodes = (
+        session.exec(
+            select(Node)
+            .where(is_(Node.deactivated_at, None))
+            .options(joinedload(Node.current)),
+        )
+        .unique()
+        .all()
+    )
     return nodes
 
 
@@ -246,10 +271,10 @@ def get_a_node(name: str, *, session: Session = Depends(get_session)) -> NodeOut
     return node  # type: ignore
 
 
-@router.delete("/nodes/{name}/", status_code=204)
-def delete_a_node(name: str, *, session: Session = Depends(get_session)):
+@router.post("/nodes/{name}/deactivate/", status_code=201)
+def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
     """
-    Delete the specified node.
+    Deactivate the specified node.
     """
     node = get_node_by_name(session, name, with_current=True)
 
@@ -259,24 +284,62 @@ def delete_a_node(name: str, *, session: Session = Depends(get_session)):
         downstream.current.status = NodeStatus.INVALID
         session.add(downstream)
 
-    # If the node is a dimension, find all columns that
-    # are linked to this dimension and remove the link
-    if node.type == NodeType.DIMENSION:
-        columns = (
-            session.exec(select(Column).where(Column.dimension_id == node.id))
-            .unique()
-            .all()
-        )
-        for col in columns:
-            col.dimension_id = None
-            col.dimension_column = None
-            session.add(col)
-    session.delete(node)
+    now = datetime.utcnow()
+    node.deactivated_at = UTCDatetime(
+        year=now.year,
+        month=now.month,
+        day=now.day,
+        hour=now.hour,
+        minute=now.minute,
+        second=now.second,
+    )
+    session.add(node)
     session.commit()
-    return Response(status_code=HTTPStatus.NO_CONTENT.value)
+    return JSONResponse(
+        status_code=HTTPStatus.NO_CONTENT,
+        content={"message": f"Node `{name}` has been successfully deactivated"},
+    )
 
 
-def cube_materialization_config(cube_node: NodeRevision, config: Dict):
+@router.post("/nodes/{name}/activate/", status_code=201)
+def activate_a_node(name: str, *, session: Session = Depends(get_session)):
+    """
+    Activate the specified node.
+    """
+    node = get_node_by_name(session, name, with_current=True, include_inactive=True)
+    if not node.deactivated_at:
+        raise DJException(
+            http_status_code=HTTPStatus.BAD_REQUEST,
+            message=f"Cannot activate `{name}`, node already active",
+        )
+    node.deactivated_at = None  # type: ignore
+
+    # Find all downstream nodes and revalidate them
+    downstreams = get_downstream_nodes(session, node.name)
+    for downstream in downstreams:
+        (
+            _,
+            _,
+            missing_parents_map,
+            type_inference_failed_columns,
+        ) = validate_node_data(downstream.current, session)
+        if missing_parents_map or type_inference_failed_columns:
+            downstream.current.status = NodeStatus.INVALID
+            session.add(downstream)
+
+    session.add(node)
+    session.commit()
+    return JSONResponse(
+        status_code=HTTPStatus.NO_CONTENT,
+        content={"message": f"Node `{name}` has been successfully activated"},
+    )
+
+
+def build_cube_config(
+    cube_node: NodeRevision,
+    config: Dict,
+    combined_ast: ast.Query,
+) -> Union[DruidCubeConfig, GenericCubeConfig]:
     """
     Builds the materialization config for a cube. This includes two parts:
     (a) building a query that decomposes each of the cube's metrics into their
@@ -293,7 +356,6 @@ def cube_materialization_config(cube_node: NodeRevision, config: Dict):
     The query directly on the cube node is meant for direct querying of the cube
     without materialization to an OLAP database.
     """
-    combined_ast = parse(cube_node.query)
     dimensions_set = {
         dim.name for dim in cube_node.columns if dim.has_dimension_attribute()
     }
@@ -307,31 +369,56 @@ def cube_materialization_config(cube_node: NodeRevision, config: Dict):
         else:
             new_select_projection.add(expr)
     combined_ast.select.projection = list(new_select_projection)
-
-    config = {
-        **config,
-        **{
-            "measures": {
-                metric.alias_or_name.name: sorted(
-                    [
-                        measure_obj.dict()
-                        for measure_obj in {
-                            Measure(
-                                name=str(measure.alias_or_name),
-                                agg=str(measure.child.name),
-                                expr=str(measure.child),
-                            )
-                            for measure in measures
-                        }
-                    ],
-                    key=lambda x: x["name"],
-                )
-                for metric, measures in metrics_to_measures.items()
-            },
-        },
-        **{"query": str(combined_ast)},
+    measures = {
+        metric.alias_or_name.name: sorted(
+            [
+                measure_obj.dict()
+                for measure_obj in {
+                    Measure(
+                        name=str(measure.alias_or_name),
+                        agg=str(measure.child.name),
+                        type=str(measure.type),
+                    )
+                    for measure in measures
+                }
+            ],
+            key=lambda x: x["name"],
+        )
+        for metric, measures in metrics_to_measures.items()
     }
-    return config
+    if config.get("druid"):
+        return DruidCubeConfig(
+            node_name=cube_node.name,
+            query=str(combined_ast),
+            dimensions=list(dimensions_set),
+            measures=measures,
+            spark=SparkConf(__root__=config.get("spark", {})),
+            druid=DruidConf(**config["druid"]),
+        )
+    return GenericCubeConfig(
+        node_name=cube_node.name,
+        query=str(combined_ast),
+        dimensions=list(dimensions_set),
+        measures=measures,
+        partitions=[],
+    )
+
+
+def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
+    """
+    Finds the appropriate materialization job based on the choice of engine.
+    """
+    engine_to_job_mapping = {
+        Dialect.SPARK: SparkSqlMaterializationJob,
+        Dialect.TRINO: TrinoMaterializationJob,
+        Dialect.DRUID: DruidCubeMaterializationJob,
+    }
+    if engine.dialect not in engine_to_job_mapping:
+        raise DJInvalidInputException(  # pragma: no cover
+            f"The engine used for materialization ({engine.name}) "
+            "must have a dialect configured.",
+        )
+    return engine_to_job_mapping[engine.dialect]  # type: ignore
 
 
 @router.post("/nodes/{name}/materialization/", status_code=201)
@@ -340,6 +427,7 @@ def upsert_a_materialization_config(
     data: UpsertMaterializationConfig,
     *,
     session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> JSONResponse:
     """
     Update materialization config of the specified node.
@@ -356,7 +444,7 @@ def upsert_a_materialization_config(
     existing_config_for_engine = [
         config
         for config in current_revision.materialization_configs
-        if config.engine.name == data.engine_name
+        if config.engine.name == data.engine.name
     ]
     if (
         existing_config_for_engine
@@ -373,22 +461,59 @@ def upsert_a_materialization_config(
         )
 
     # Materialization config changed, so create a new materialization config
-    engine = get_engine(session, data.engine_name, data.engine_version)
-
+    engine = get_engine(session, data.engine.name, data.engine.version)
     unchanged_existing_configs = [
         config
         for config in current_revision.materialization_configs
-        if config.engine.name != data.engine_name
+        if config.engine.name != data.engine.name
     ]
 
     if current_revision.type == NodeType.CUBE:
-        data.config = cube_materialization_config(current_revision, data.config)
+        # Check to see if a default materialization was already configured, so that we
+        # can copy over the default cube setup and layer on specific config as needed
+        default_job = [
+            conf
+            for conf in current_revision.materialization_configs
+            if conf.job == DefaultCubeMaterialization.__name__
+        ][0]
+        default_job_config = GenericCubeConfig.parse_obj(default_job.config)
+        try:
+            data.config = DruidCubeConfig(
+                node_name=current_revision.name,
+                query=default_job_config.query,
+                dimensions=default_job_config.dimensions,
+                measures=default_job_config.measures,
+                spark=SparkConf(__root__=data.config.get("spark", {})),
+                druid=DruidConf(**data.config["druid"]),
+            ).dict()
+        except (KeyError, ValidationError) as exception:
+            return JSONResponse(
+                status_code=500,
+                content={
+                    "message": (
+                        f"No change has been made to the materialization config for node `{name}`"
+                        f" and engine `{engine.name}` as the config does not have valid "
+                        f"configuration for engine `{engine.name}`. \n"
+                        + (
+                            "\n".join(
+                                [
+                                    f"* {err['msg']}: {err['loc'][0]}"
+                                    for err in exception.errors()
+                                ],
+                            )
+                            if isinstance(exception, ValidationError)
+                            else f"Expecting {exception} key in `config`."
+                        )
+                    ),
+                },
+            )
 
     new_config = MaterializationConfig(
         node_revision=current_revision,
         engine=engine,
         config=data.config,
-        schedule=data.schedule,
+        schedule=data.schedule or "@daily",
+        job=materialization_job_from_engine(engine).__name__,  # type: ignore
     )
     current_revision.materialization_configs = unchanged_existing_configs + [  # type: ignore
         new_config,
@@ -398,6 +523,8 @@ def upsert_a_materialization_config(
     session.add(current_revision)
     session.add(node)
     session.commit()
+
+    schedule_materialization_jobs([new_config], query_service_client)
 
     return JSONResponse(
         status_code=200,
@@ -558,7 +685,13 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     """
     Create a cube node revision.
     """
-    metric_columns, metric_nodes, dimension_nodes, dimension_columns = validate_cube(
+    (
+        metric_columns,
+        metric_nodes,
+        dimension_nodes,
+        dimension_columns,
+        catalog,
+    ) = validate_cube(
         session,
         data.metrics,
         data.dimensions,
@@ -597,7 +730,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
             type_inference_failed_columns.append(col.alias_or_name.name)  # type: ignore
             status = NodeStatus.INVALID
 
-    return NodeRevision(
+    node_revision = NodeRevision(
         name=data.name,
         namespace=data.namespace,
         description=data.description,
@@ -607,7 +740,43 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         cube_elements=metric_columns + dimension_columns,
         parents=list(set(dimension_nodes + metric_nodes)),
         status=status,
+        catalog=catalog,
     )
+
+    # If a materialization was configured, set it up for the cube
+    node_revision.materialization_configs = []
+    default_materialization_config = UpsertCubeMaterializationConfig(
+        engine=node_revision.catalog.engines[0],  # pylint: disable=no-member
+        schedule="@daily",
+        config={},
+        job="CubeMaterializationJob",
+    )
+    for materialization_config in data.materialization_configs or [
+        default_materialization_config,
+    ]:
+        engine = get_engine(
+            session,
+            name=materialization_config.engine.name,
+            version=materialization_config.engine.version,
+        )
+        cube_custom_config = build_cube_config(
+            node_revision,
+            materialization_config.config.dict(),
+            combined_ast,
+        )
+        new_config = MaterializationConfig(
+            node_revision=node_revision,
+            engine=engine,
+            config=cube_custom_config.dict(),
+            schedule=materialization_config.schedule,
+            job=(
+                DefaultCubeMaterialization.__name__
+                if not isinstance(cube_custom_config, DruidCubeConfig)
+                else DruidCubeMaterializationJob.__name__
+            ),
+        )
+        node_revision.materialization_configs.append(new_config)
+    return node_revision
 
 
 def save_node(
@@ -654,8 +823,8 @@ def create_a_source(
     will be inferred using the configured query service.
     """
     raise_if_node_exists(session, data.name)
+    raise_if_node_inactive(session, data.name)
 
-    # Extract and assign namespace if one exists
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
         session=session,
@@ -743,7 +912,11 @@ def create_a_node(
     if node_type == NodeType.DIMENSION and not data.primary_key:
         raise DJInvalidInputException("Dimension nodes must define a primary key!")
 
+    if node_type == NodeType.METRIC:
+        data.query = NodeRevision.format_metric_alias(data.query, data.name)
+
     raise_if_node_exists(session, data.name)
+    raise_if_node_inactive(session, data.name)
 
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
@@ -767,7 +940,7 @@ def create_a_node(
         key_column not in column_names for key_column in data.primary_key
     ):
         raise DJInvalidInputException(
-            f"Some columns in the primary key {','.join(data.primary_key)} "
+            f"Some columns in the primary key [{','.join(data.primary_key)}] "
             f"were not found in the list of available columns for the node {node.name}.",
         )
     if data.primary_key:
@@ -789,14 +962,16 @@ def create_a_node(
 @router.post("/nodes/cube/", response_model=NodeOutput, status_code=201)
 def create_a_cube(
     data: CreateCubeNode,
+    *,
     session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
     """
     Create a cube node.
     """
     raise_if_node_exists(session, data.name)
+    raise_if_node_inactive(session, data.name)
 
-    # Extract and assign namespace if one exists
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
         session=session,
@@ -812,23 +987,45 @@ def create_a_cube(
     )
     node_revision = create_cube_node_revision(session=session, data=data)
     save_node(session, node_revision, node, data.mode)
+
+    # Schedule materialization jobs, if any
+    schedule_materialization_jobs(
+        node_revision.materialization_configs,
+        query_service_client,
+    )
     return node  # type: ignore
+
+
+def schedule_materialization_jobs(
+    materialization_configs: List[MaterializationConfig],
+    query_service_client: QueryServiceClient,
+):
+    """
+    Schedule recurring materialization jobs
+    """
+    materialization_jobs = {
+        cls.__name__: cls for cls in MaterializationJob.__subclasses__()
+    }
+    for materialization in materialization_configs:
+        clazz = materialization_jobs.get(materialization.job)
+        if clazz:  # pragma: no cover
+            clazz().schedule(  # type: ignore
+                materialization,
+                query_service_client,
+            )
 
 
 @router.post("/nodes/{name}/columns/{column}/", status_code=201)
 def link_a_dimension(
     name: str,
     column: str,
-    dimension: Optional[str] = None,
+    dimension: str,
     dimension_column: Optional[str] = None,
     session: Session = Depends(get_session),
 ) -> JSONResponse:
     """
     Add information to a node column
     """
-    if not dimension:  # If no dimension is set, assume it matches the column name
-        dimension = column
-
     node = get_node_by_name(session=session, name=name)
     dimension_node = get_node_by_name(
         session=session,
@@ -854,7 +1051,7 @@ def link_a_dimension(
                 f"The column {target_column.name} has type {target_column.type} "
                 f"and is being linked to the dimension {dimension} via the dimension"
                 f" column {dimension_column}, which has type {column_from_dimension.type}."
-                " These column types are incompatible and the dimension cannot be linked!",
+                " These column types are incompatible and the dimension cannot be linked",
             )
 
     target_column.dimension = dimension_node
@@ -932,7 +1129,12 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
         and data.columns is not None
         and ({col.identifier() for col in old_revision.columns} != data.columns)
     )
-    major_changes = query_changes or column_changes
+    pk_changes = (
+        data is not None
+        and data.primary_key
+        and {col.name for col in old_revision.primary_key()} != data.primary_key
+    )
+    major_changes = query_changes or column_changes or pk_changes
 
     # If nothing has changed, do not create the new node revision
     if not minor_changes and not major_changes and not version_upgrade:
@@ -962,6 +1164,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
                 name=column_data.name,
                 type=column_data.type,
                 dimension_column=column_data.dimension,
+                attributes=column_data.attributes or [],
             )
             for column_data in data.columns
         ]
@@ -976,16 +1179,22 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
     )
 
     # Link the new revision to its parents if the query has changed
-    if (
-        new_revision.type != NodeType.SOURCE
-        and new_revision.query != old_revision.query
-    ):
+    if new_revision.type != NodeType.SOURCE and (query_changes or pk_changes):
         (
             validated_node,
             dependencies_map,
             missing_parents_map,
             type_inference_failed_columns,
         ) = validate_node_data(new_revision, session)
+
+        # Keep the dimension links and attributes on the columns from the node's
+        # last revision if any existed
+        old_columns_mapping = {col.name: col for col in old_revision.columns}
+        for col in validated_node.columns:
+            if col.name in old_columns_mapping:
+                col.dimension_id = old_columns_mapping[col.name].dimension_id
+                col.attributes = old_columns_mapping[col.name].attributes or []
+
         new_parents = [n.name for n in dependencies_map]
         parent_refs = session.exec(
             select(Node).where(
@@ -996,10 +1205,28 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
             ),
         ).all()
         new_revision.parents = list(parent_refs)
-        if missing_parents_map or type_inference_failed_columns:
+        new_revision.columns = validated_node.columns or []
+
+        # Update the primary key if one was set in the input
+        if data is not None and data.primary_key:
+            pk_attribute = session.exec(
+                select(AttributeType).where(AttributeType.name == "primary_key"),
+            ).one()
+            for col in new_revision.columns:
+                if col.name in data.primary_key and not col.has_primary_key_attribute():
+                    col.attributes.append(
+                        ColumnAttribute(column=col, attribute_type=pk_attribute),
+                    )
+
+        # Set the node's validity status
+        valid_primary_key = (
+            new_revision.type == NodeType.DIMENSION and not new_revision.primary_key()
+        )
+        if missing_parents_map or type_inference_failed_columns or valid_primary_key:
             new_revision.status = NodeStatus.INVALID
         else:
             new_revision.status = NodeStatus.VALID
+
         new_revision.missing_parents = [
             MissingParent(name=missing_parent) for missing_parent in missing_parents_map
         ]
@@ -1027,6 +1254,7 @@ def update_a_node(
     query = (
         select(Node)
         .where(Node.name == name)
+        .where(is_(Node.deactivated_at, None))
         .with_for_update()
         .execution_options(populate_existing=True)
     )

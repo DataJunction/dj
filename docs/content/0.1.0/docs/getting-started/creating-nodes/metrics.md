@@ -36,7 +36,7 @@ curl -X POST http://localhost:8000/nodes/metric/ \
 metric = dj.new_metric(
     name="default.num_repair_orders",
     description="Number of repair orders",
-    query="SELECT count(repair_order_id) as num_repair_orders FROM repair_orders",
+    query="SELECT count(repair_order_id) FROM repair_orders",
 )
 metric.save(NodeMode.PUBLISHED)
 ```

@@ -7,6 +7,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
+from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from dj.api.helpers import get_node_by_name
@@ -38,7 +39,9 @@ def list_metrics(*, session: Session = Depends(get_session)) -> List[str]:
     List all available metrics.
     """
     return session.exec(
-        select(Node.name).where(Node.type == NodeType.METRIC),
+        select(Node.name)
+        .where(Node.type == NodeType.METRIC)
+        .where(is_(Node.deactivated_at, None)),
     ).all()
 
 
@@ -65,7 +68,11 @@ async def get_common_dimensions(
     metric_nodes = []
     errors = []
     for node_name in metric:
-        statement = select(Node).where(Node.name == node_name)
+        statement = (
+            select(Node)
+            .where(Node.name == node_name)
+            .where(is_(Node.deactivated_at, None))
+        )
         try:
             node = session.exec(statement).one()
             if node.type != NodeType.METRIC:

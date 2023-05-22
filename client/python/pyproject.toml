@@ -46,6 +46,7 @@ test = [
     "pytest>=7.3.1",
     "responses>=0.23.1",
     "fastapi>=0.79.0",
+    "urllib3<2",
     "dj @ {root:uri}/../..",
 ]
 

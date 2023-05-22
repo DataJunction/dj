@@ -89,8 +89,20 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         """
         Whether the dimension attribute is set on this column.
         """
+        return self.has_attribute("dimension")
+
+    def has_primary_key_attribute(self) -> bool:
+        """
+        Whether the primary key attribute is set on this column.
+        """
+        return self.has_attribute("primary_key")
+
+    def has_attribute(self, attribute_name: str) -> bool:
+        """
+        Whether the given attribute is set on this column.
+        """
         return any(
-            attr.attribute_type.name == "dimension"
+            attr.attribute_type.name == attribute_name
             for attr in self.attributes  # pylint: disable=not-an-iterable
         )
 

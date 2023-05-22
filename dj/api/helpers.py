@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple, Union
 from fastapi import HTTPException
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import joinedload
+from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from dj.construction.build import build_node
@@ -60,11 +61,14 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     node_type: Optional[NodeType] = None,
     with_current: bool = False,
     raise_if_not_exists: bool = True,
+    include_inactive: bool = False,
 ) -> Node:
     """
     Get a node by name
     """
     statement = select(Node).where(Node.name == name)
+    if not include_inactive:
+        statement = statement.where(is_(Node.deactivated_at, None))
     if node_type:
         statement = statement.where(Node.type == node_type)
     if with_current:
@@ -92,6 +96,23 @@ def raise_if_node_exists(session: Session, name: str) -> None:
     if node:
         raise DJException(
             message=f"A node with name `{name}` already exists.",
+            http_status_code=HTTPStatus.CONFLICT,
+        )
+
+
+def raise_if_node_inactive(session: Session, name: str) -> None:
+    """
+    Raise an error if the node with the given name exists and is inactive.
+    """
+    node = get_node_by_name(
+        session,
+        name,
+        raise_if_not_exists=False,
+        include_inactive=True,
+    )
+    if node and node.deactivated_at:
+        raise DJException(
+            message=f"Node `{name}` exists but has been deactivated.",
             http_status_code=HTTPStatus.CONFLICT,
         )
 
@@ -149,7 +170,8 @@ def get_query(  # pylint: disable=too-many-arguments
     node_name: str,
     dimensions: List[str],
     filters: List[str],
-    engine: Optional[Engine],
+    limit: Optional[int] = None,
+    engine: Optional[Engine] = None,
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -179,8 +201,10 @@ def get_query(  # pylint: disable=too-many-arguments
         node=node.current,
         filters=filters,
         dimensions=dimensions,
+        limit=limit,
         build_criteria=build_criteria,
     )
+
     return query_ast
 
 
@@ -204,7 +228,9 @@ def get_engine(session: Session, name: str, version: str) -> Engine:
     Return an Engine instance given an engine name and version
     """
     statement = (
-        select(Engine).where(Engine.name == name).where(Engine.version == version)
+        select(Engine)
+        .where(Engine.name == name)
+        .where(Engine.version == (version or ""))
     )
     try:
         engine = session.exec(statement).one()
@@ -225,7 +251,7 @@ def get_downstream_nodes(
     Gets all downstream children of the given node, filterable by node type.
     Uses a recursive CTE query to build out all descendants from the node.
     """
-    node = get_node_by_name(session=session, name=node_name)
+    node = get_node_by_name(session=session, name=node_name, include_inactive=True)
 
     dag = (
         select(
@@ -478,7 +504,7 @@ def validate_cube(
     session: Session,
     metric_names: List[str],
     dimension_names: List[str],
-) -> Tuple[List[Column], List[Node], List[Node], List[Column]]:
+) -> Tuple[List[Column], List[Node], List[Node], List[Column], Optional[Catalog]]:
     """
     Validate that a set of metrics and dimensions can be built together.
     """
@@ -487,6 +513,7 @@ def validate_cube(
     dimension_nodes: List[Node] = []
     dimensions: List[Column] = []
     catalogs = []
+    catalog = None
 
     # Verify that the provided metrics are metric nodes
     for node_name in metric_names:
@@ -503,6 +530,7 @@ def validate_cube(
                 http_status_code=http.client.UNPROCESSABLE_ENTITY,
             )
         catalogs.append(metric_node.current.catalog.name)
+        catalog = metric_node.current.catalog
         metrics.append(metric_node.current.columns[0])
         metric_nodes.append(metric_node)
 
@@ -539,4 +567,4 @@ def validate_cube(
             message=("Metrics and dimensions must be part of a common catalog"),
         )
 
-    return metrics, metric_nodes, dimension_nodes, dimensions
+    return metrics, metric_nodes, dimension_nodes, dimensions, catalog
