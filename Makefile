@@ -42,4 +42,4 @@ version:
 	@hatch version
 
 release:
-	@hatch publish --build
+	@hatch publish
