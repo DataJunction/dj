@@ -10,7 +10,7 @@ from sqlmodel import SQLModel
 from dj.models.node import (
     AvailabilityState,
     ColumnOutput,
-    MaterializationConfig,
+    MaterializationConfigOutput,
     NodeType,
 )
 from dj.typing import UTCDatetime
@@ -43,7 +43,7 @@ class Measure(SQLModel):
 
     name: str
     agg: str
-    expr: str
+    type: str
 
     def __eq__(self, other):
         return tuple(self.__dict__.items()) == tuple(other.__dict__.items())
@@ -69,7 +69,7 @@ class CubeRevisionMetadata(SQLModel):
     query: str
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
-    materialization_configs: List[MaterializationConfig]
+    materialization_configs: List[MaterializationConfigOutput]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True

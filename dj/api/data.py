@@ -36,13 +36,12 @@ def add_an_availability_state(
 
     # Source nodes require that any availability states set are for one of the defined tables
     node_revision = node.current
-    if data.catalog != node_revision.catalog.name:
-        raise DJException(
-            "Cannot set availability state in different catalog: "
-            f"{data.catalog}, {node_revision.catalog}",
-        )
     if node.current.type == NodeType.SOURCE:
-        if node_revision.schema_ != data.schema_ or node_revision.table != data.table:
+        if (
+            data.catalog != node_revision.catalog.name
+            or node_revision.schema_ != data.schema_
+            or node_revision.table != data.table
+        ):
             raise DJException(
                 message=(
                     "Cannot set availability state, "
@@ -96,6 +95,7 @@ def get_data(  # pylint: disable=too-many-locals
     *,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    limit: Optional[int] = None,
     async_: bool = False,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -124,6 +124,7 @@ def get_data(  # pylint: disable=too-many-locals
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
+        limit=limit,
         engine=engine,
     )
     columns = [
@@ -154,6 +155,7 @@ def get_data_for_metrics(  # pylint: disable=R0914
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    limit: Optional[int] = None,
     async_: bool = False,
     *,
     session: Session = Depends(get_session),
@@ -177,7 +179,7 @@ def get_data_for_metrics(  # pylint: disable=R0914
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
 
-    _, metric_nodes, _, _ = validate_cube(
+    _, metric_nodes, _, _, _ = validate_cube(
         session,
         metrics,
         dimensions,
@@ -187,6 +189,7 @@ def get_data_for_metrics(  # pylint: disable=R0914
         metric_nodes,
         filters=filters or [],
         dimensions=dimensions or [],
+        limit=limit,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore

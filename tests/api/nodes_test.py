@@ -18,7 +18,7 @@ def test_read_node(client_with_examples: TestClient) -> None:
     """
     Test ``GET /nodes/{node_id}``.
     """
-    response = client_with_examples.get("/nodes/repair_orders/")
+    response = client_with_examples.get("/nodes/default.repair_orders/")
     data = response.json()
 
     assert response.status_code == 200
@@ -27,11 +27,11 @@ def test_read_node(client_with_examples: TestClient) -> None:
     assert data["node_revision_id"] == 1
     assert data["type"] == "source"
 
-    response = client_with_examples.get("/nodes/nothing/")
+    response = client_with_examples.get("/nodes/default.nothing/")
     data = response.json()
 
     assert response.status_code == 404
-    assert data["message"] == "A node with name `nothing` does not exist."
+    assert data["message"] == "A node with name `default.nothing` does not exist."
 
 
 def test_read_nodes(session: Session, client: TestClient) -> None:
@@ -117,7 +117,7 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert nodes["a-metric"]["parents"] == []
 
 
-class TestCreateOrUpdateNodes:
+class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
     """
     Test ``POST /nodes/`` and ``PUT /nodes/{name}``.
     """
@@ -133,7 +133,7 @@ class TestCreateOrUpdateNodes:
             "query": "SELECT country, COUNT(1) AS user_cnt "
             "FROM basic.source.users GROUP BY country",
             "mode": "published",
-            "name": "countries",
+            "name": "default.countries",
             "primary_key": ["country"],
         }
 
@@ -144,7 +144,7 @@ class TestCreateOrUpdateNodes:
         """
 
         return {
-            "name": "country_agg",
+            "name": "default.country_agg",
             "query": "SELECT country, COUNT(DISTINCT id) AS num_users FROM comments",
             "mode": "published",
             "description": "Distinct users per country",
@@ -161,7 +161,7 @@ class TestCreateOrUpdateNodes:
         """
 
         return {
-            "name": "country_agg",
+            "name": "default.country_agg",
             "query": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
             "mode": "published",
             "description": "Distinct users per country",
@@ -220,16 +220,24 @@ class TestCreateOrUpdateNodes:
         session.commit()
         return node
 
-    def test_delete_node(
+    def test_deactivating_node(
         self,
         client_with_examples: TestClient,
     ):
         """
-        Test deleting a node
+        Test deactivating a node
         """
-        response = client_with_examples.delete("/nodes/basic.source.users/")
+        # Deactivate a node
+        response = client_with_examples.post("/nodes/basic.source.users/deactivate/")
         assert response.status_code == 204
-
+        # Check that then retrieving the node returns an error
+        response = client_with_examples.get("/nodes/basic.source.users/")
+        assert not response.ok
+        assert response.json() == {
+            "message": "A node with name `basic.source.users` does not exist.",
+            "errors": [],
+            "warnings": [],
+        }
         # All downstream nodes should be invalid
         expected_downstreams = [
             "basic.dimension.users",
@@ -241,22 +249,395 @@ class TestCreateOrUpdateNodes:
             response = client_with_examples.get(f"/nodes/{downstream}/")
             assert response.json()["status"] == NodeStatus.INVALID
 
-        node_with_link = client_with_examples.get("/nodes/repair_order_details/").json()
-        assert [
-            col["dimension"]["name"]
-            for col in node_with_link["columns"]
-            if col["name"] == "repair_order_id"
-        ] == ["repair_order"]
+        # Trying to create the node again should reveal that the node exists but is deactivated
+        response = client_with_examples.post(
+            "/nodes/source/",
+            json={
+                "name": "basic.source.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "public",
+                "schema_": "basic",
+                "table": "dim_users",
+            },
+        )
+        assert response.json() == {
+            "message": "Node `basic.source.users` exists but has been deactivated.",
+            "errors": [],
+            "warnings": [],
+        }
 
-        response = client_with_examples.delete("/nodes/repair_order/")
-        assert response.status_code == 204
+    def test_deactivating_source_upstream_from_metric(
+        self,
+        client: TestClient,
+    ):
+        """
+        Test deactivating a source that's upstream from a metric
+        """
+        response = client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.ok
+        response = client.post("/namespaces/default/")
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "users",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of users",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.users",
+                "mode": "published",
+                "name": "default.num_users",
+            },
+        )
+        assert response.ok
+        # Deactivate the source node
+        response = client.post("/nodes/default.users/deactivate/")
+        assert response.ok
+        # The downstream metric should have an invalid status
+        assert (
+            client.get("/nodes/default.num_users/").json()["status"]
+            == NodeStatus.INVALID
+        )
+        # Reactivate the source node
+        response = client.post("/nodes/default.users/activate/")
+        assert response.ok
+        # Retrieving the reactivated node should work
+        response = client.get("/nodes/default.users/")
+        assert response.ok
+        # The downstream metric should have been changed to valid
+        response = client.get("/nodes/default.num_users/")
+        assert response.json()["status"] == NodeStatus.VALID
 
-        node_with_link = client_with_examples.get("/nodes/repair_order_details/").json()
+    def test_deactivating_transform_upstream_from_metric(
+        self,
+        client: TestClient,
+    ):
+        """
+        Test deactivating a transform that's upstream from a metric
+        """
+        response = client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.ok
+        response = client.post("/namespaces/default/")
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "users",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/transform/",
+            json={
+                "name": "default.us_users",
+                "description": "US users",
+                "query": """
+                    SELECT
+                    id,
+                    full_name,
+                    age,
+                    country,
+                    gender,
+                    preferred_language,
+                    secret_number,
+                    created_at,
+                    post_processing_timestamp
+                    FROM default.users
+                    WHERE country = 'US'
+                """,
+                "mode": "published",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of US users",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.us_users",
+                "mode": "published",
+                "name": "default.num_us_users",
+            },
+        )
+        assert response.ok
+        # Create an invalid draft downstream node
+        # so we can test that it stays invalid
+        # when the upstream node is reactivated
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "An invalid node downstream of default.us_users",
+                "query": "SELECT COUNT(DISTINCT non_existent_column) FROM default.us_users",
+                "mode": "draft",
+                "name": "default.invalid_metric",
+            },
+        )
+        assert response.ok
+        response = client.get("/nodes/default.invalid_metric/")
+        assert response.ok
+        assert response.json()["status"] == NodeStatus.INVALID
+        # Deactivate the transform node
+        response = client.post("/nodes/default.us_users/deactivate/")
+        assert response.ok
+        # Retrieving the deactivated node should respond that the node doesn't exist
+        assert client.get("/nodes/default.us_users/").json()["message"] == (
+            "A node with name `default.us_users` does not exist."
+        )
+        # The downstream metrics should have an invalid status
+        assert (
+            client.get("/nodes/default.num_us_users/").json()["status"]
+            == NodeStatus.INVALID
+        )
+        assert (
+            client.get("/nodes/default.invalid_metric/").json()["status"]
+            == NodeStatus.INVALID
+        )
+        # Reactivate the transform node
+        response = client.post("/nodes/default.us_users/activate/")
+        assert response.ok
+        # Retrieving the reactivated node should work
+        response = client.get("/nodes/default.us_users/")
+        assert response.ok
+        # This downstream metric should have been changed to valid
+        response = client.get("/nodes/default.num_us_users/")
+        assert response.json()["status"] == NodeStatus.VALID
+        # The other downstream metric should have remained invalid
+        response = client.get("/nodes/default.invalid_metric/")
+        assert response.json()["status"] == NodeStatus.INVALID
+
+    def test_deactivating_linked_dimension(
+        self,
+        client: TestClient,
+    ):
+        """
+        Test deactivating a dimension that's linked to columns on other nodes
+        """
+        response = client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.ok
+        response = client.post("/namespaces/default/")
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "users",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/dimension/",
+            json={
+                "name": "default.us_users",
+                "description": "US users",
+                "query": """
+                    SELECT
+                    id,
+                    full_name,
+                    age,
+                    country,
+                    gender,
+                    preferred_language,
+                    secret_number,
+                    created_at,
+                    post_processing_timestamp
+                    FROM default.users
+                    WHERE country = 'US'
+                """,
+                "primary_key": ["id"],
+                "mode": "published",
+            },
+        )
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.messages",
+                "description": "A table of user messages",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "user_id", "type": "int"},
+                    {"name": "message", "type": "int"},
+                    {"name": "posted_at", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "messages",
+            },
+        )
+        assert response.ok
+        # Create a metric on the source node
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of user messages",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
+                "mode": "published",
+                "name": "default.num_messages",
+            },
+        )
+        assert response.ok
+        # Link the dimension to a column on the source node
+        response = client.post(
+            "/nodes/default.messages/columns/user_id/"
+            "?dimension=default.us_users&dimension_column=id",
+        )
+        assert response.ok
+        # The dimension's attributes should now be available to the metric
+        response = client.get("/metrics/default.num_messages/")
+        assert response.ok
         assert [
-            col["dimension"]
-            for col in node_with_link["columns"]
-            if col["name"] == "repair_order_id"
-        ] == [None]
+            "default.us_users.age",
+            "default.us_users.country",
+            "default.us_users.created_at",
+            "default.us_users.full_name",
+            "default.us_users.gender",
+            "default.us_users.id",
+            "default.us_users.post_processing_timestamp",
+            "default.us_users.preferred_language",
+            "default.us_users.secret_number",
+        ] == response.json()["dimensions"]
+        # Deactivate the dimension node
+        response = client.post("/nodes/default.us_users/deactivate/")
+        assert response.ok
+        # Retrieving the deactivated node should respond that the node doesn't exist
+        assert client.get("/nodes/default.us_users/").json()["message"] == (
+            "A node with name `default.us_users` does not exist."
+        )
+        # The deactivated dimension's attributes should no longer be available to the metric
+        response = client.get("/metrics/default.num_messages/")
+        assert response.ok
+        assert [] == response.json()["dimensions"]
+        # The metric should still be VALID
+        response = client.get("/nodes/default.num_messages/")
+        assert response.json()["status"] == NodeStatus.VALID
+        # Reactivate the dimension node
+        response = client.post("/nodes/default.us_users/activate/")
+        assert response.ok
+        # Retrieving the reactivated node should work
+        response = client.get("/nodes/default.us_users/")
+        assert response.ok
+        # The dimension's attributes should now once again show for the linked metric
+        response = client.get("/metrics/default.num_messages/")
+        assert response.ok
+        assert [
+            "default.us_users.age",
+            "default.us_users.country",
+            "default.us_users.created_at",
+            "default.us_users.full_name",
+            "default.us_users.gender",
+            "default.us_users.id",
+            "default.us_users.post_processing_timestamp",
+            "default.us_users.preferred_language",
+            "default.us_users.secret_number",
+        ] == response.json()["dimensions"]
+        # The metric should still be VALID
+        response = client.get("/nodes/default.num_messages/")
+        assert response.json()["status"] == NodeStatus.VALID
+
+    def test_activating_an_already_active_node(
+        self,
+        client: TestClient,
+    ):
+        """
+        Test raising when activating an already active node
+        """
+        response = client.post("/catalogs/", json={"name": "warehouse"})
+        assert response.ok
+        response = client.post("/namespaces/default/")
+        assert response.ok
+        response = client.post(
+            "/nodes/source/",
+            json={
+                "name": "default.users",
+                "description": "A user table",
+                "columns": [
+                    {"name": "id", "type": "int"},
+                    {"name": "full_name", "type": "string"},
+                    {"name": "age", "type": "int"},
+                    {"name": "country", "type": "string"},
+                    {"name": "gender", "type": "string"},
+                    {"name": "preferred_language", "type": "string"},
+                    {"name": "secret_number", "type": "float"},
+                    {"name": "created_at", "type": "timestamp"},
+                    {"name": "post_processing_timestamp", "type": "timestamp"},
+                ],
+                "mode": "published",
+                "catalog": "warehouse",
+                "schema_": "db",
+                "table": "users",
+            },
+        )
+        assert response.ok
+        response = client.post("/nodes/default.users/activate/")
+        assert not response.ok
+        assert response.json() == {
+            "message": "Cannot activate `default.users`, node already active",
+            "errors": [],
+            "warnings": [],
+        }
 
     def test_create_source_node_without_cols_or_query_service(
         self,
@@ -267,7 +648,7 @@ class TestCreateOrUpdateNodes:
         a query service set up should fail.
         """
         basic_source_comments = {
-            "name": "comments",
+            "name": "default.comments",
             "description": "A fact table with comments",
             "columns": [],
             "mode": "published",
@@ -298,7 +679,7 @@ class TestCreateOrUpdateNodes:
         result in the source node columns being inferred via the query service.
         """
         basic_source_comments = {
-            "name": "comments",
+            "name": "default.comments",
             "description": "A fact table with comments",
             "columns": [],
             "mode": "published",
@@ -314,9 +695,9 @@ class TestCreateOrUpdateNodes:
             json=basic_source_comments,
         )
         data = response.json()
-        assert data["name"] == "comments"
+        assert data["name"] == "default.comments"
         assert data["type"] == "source"
-        assert data["display_name"] == "Comments"
+        assert data["display_name"] == "Default: Comments"
         assert data["version"] == "v1.0"
         assert data["status"] == "valid"
         assert data["mode"] == "published"
@@ -525,31 +906,33 @@ class TestCreateOrUpdateNodes:
             json={
                 "description": "Average length of employment",
                 "query": (
-                    "SELECT avg(NOW() - hire_date + 1) as avg_length_of_employment "
+                    "SELECT avg(NOW() - hire_date + 1) as "
+                    "default_DOT_avg_length_of_employment_plus_one "
                     "FROM foo.bar.hard_hats"
                 ),
                 "mode": "published",
-                "name": "avg_length_of_employment_plus_one",
+                "name": "default.avg_length_of_employment_plus_one",
             },
         )
         data = response.json()
         assert data == {
             "message": (
                 "Unable to infer type for some columns on node "
-                "`avg_length_of_employment_plus_one`"
+                "`default.avg_length_of_employment_plus_one`"
             ),
             "errors": [
                 {
                     "code": 302,
                     "message": (
                         "Unable to infer type for some columns on node "
-                        "`avg_length_of_employment_plus_one`"
+                        "`default.avg_length_of_employment_plus_one`"
                     ),
                     "debug": {
                         "columns": {
-                            "avg_length_of_employment": "Incompatible types in binary "
-                            "operation NOW() - hard_hats.hire_date + 1. Got left "
-                            "timestamp, right int.",
+                            "default_DOT_avg_length_of_employment_plus_one": (
+                                "Incompatible types in binary operation NOW() - "
+                                "hard_hats.hire_date + 1. Got left timestamp, right int."
+                            ),
                         },
                         "errors": [],
                     },
@@ -577,8 +960,8 @@ class TestCreateOrUpdateNodes:
             json=create_transform_node_payload,
         )
         data = response.json()
-        assert data["name"] == "country_agg"
-        assert data["display_name"] == "Country Agg"
+        assert data["name"] == "default.country_agg"
+        assert data["display_name"] == "Default: Country Agg"
         assert data["type"] == "transform"
         assert data["description"] == "Distinct users per country"
         assert (
@@ -598,15 +981,15 @@ class TestCreateOrUpdateNodes:
 
         # Update the transform node with two minor changes
         response = client.patch(
-            "/nodes/country_agg/",
+            "/nodes/default.country_agg/",
             json={
                 "description": "Some new description",
-                "display_name": "Country Aggregation by User",
+                "display_name": "Default: Country Aggregation by User",
             },
         )
         data = response.json()
-        assert data["name"] == "country_agg"
-        assert data["display_name"] == "Country Aggregation by User"
+        assert data["name"] == "default.country_agg"
+        assert data["display_name"] == "Default: Country Aggregation by User"
         assert data["type"] == "transform"
         assert data["version"] == "v1.1"
         assert data["description"] == "Some new description"
@@ -617,7 +1000,7 @@ class TestCreateOrUpdateNodes:
 
         # Try to update with a new query that references a non-existent source
         response = client.patch(
-            "/nodes/country_agg/",
+            "/nodes/default.country_agg/",
             json={
                 "query": "SELECT country, COUNT(DISTINCT id) AS num_users FROM comments",
             },
@@ -630,7 +1013,7 @@ class TestCreateOrUpdateNodes:
 
         # Try to update with a new query that references an existing source
         response = client.patch(
-            "/nodes/country_agg/",
+            "/nodes/default.country_agg/",
             json={
                 "query": "SELECT country, COUNT(DISTINCT id) AS num_users, "
                 "COUNT(*) AS num_entries FROM basic.source.users",
@@ -664,7 +1047,7 @@ class TestCreateOrUpdateNodes:
         assert data["message"] == "A node with name `random_transform` does not exist."
 
         # Verify that all historical revisions are available for the node
-        response = client.get("/nodes/country_agg/revisions/")
+        response = client.get("/nodes/default.country_agg/revisions/")
         data = response.json()
         assert {rev["version"]: rev["query"] for rev in data} == {
             "v1.0": "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users",
@@ -754,14 +1137,14 @@ class TestCreateOrUpdateNodes:
                 "query": "SELECT country, COUNT(1) AS user_cnt "
                 "FROM basic.source.users GROUP BY country",
                 "mode": "published",
-                "name": "countries",
+                "name": "default.countries",
                 "primary_key": ["country", "id"],
             },
         )
         assert response.json()["message"] == (
-            "Some columns in the primary key country,id were not "
+            "Some columns in the primary key [country,id] were not "
             "found in the list of available columns for the node "
-            "countries."
+            "default.countries."
         )
 
     def test_create_update_dimension_node(
@@ -782,8 +1165,8 @@ class TestCreateOrUpdateNodes:
         data = response.json()
 
         assert response.status_code == 201
-        assert data["name"] == "countries"
-        assert data["display_name"] == "Countries"
+        assert data["name"] == "default.countries"
+        assert data["display_name"] == "Default: Countries"
         assert data["type"] == "dimension"
         assert data["version"] == "v1.0"
         assert data["description"] == "Country dimension"
@@ -805,7 +1188,7 @@ class TestCreateOrUpdateNodes:
 
         # Test updating the dimension node with a new query
         response = client.patch(
-            "/nodes/countries/",
+            "/nodes/default.countries/",
             json={"query": "SELECT country FROM basic.source.users GROUP BY country"},
         )
         data = response.json()
@@ -814,7 +1197,14 @@ class TestCreateOrUpdateNodes:
 
         # The columns should have been updated
         assert data["columns"] == [
-            {"name": "country", "type": "string", "attributes": [], "dimension": None},
+            {
+                "name": "country",
+                "type": "string",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
         ]
 
     def test_raise_on_multi_catalog_node(self, client_with_examples: TestClient):
@@ -826,11 +1216,11 @@ class TestCreateOrUpdateNodes:
             json={
                 "query": (
                     "SELECT payment_id, payment_amount, customer_id, account_type "
-                    "FROM revenue r LEFT JOIN basic.source.comments b on r.id = b.id"
+                    "FROM default.revenue r LEFT JOIN basic.source.comments b on r.id = b.id"
                 ),
                 "description": "Multicatalog",
                 "mode": "published",
-                "name": "multicatalog",
+                "name": "default.multicatalog",
             },
         )
         assert (
@@ -856,8 +1246,8 @@ class TestCreateOrUpdateNodes:
         data = response.json()
 
         assert response.status_code == 201
-        assert data["name"] == "countries"
-        assert data["display_name"] == "Countries"
+        assert data["name"] == "default.countries"
+        assert data["display_name"] == "Default: Countries"
         assert data["type"] == "dimension"
         assert data["version"] == "v1.0"
         assert data["description"] == "Country dimension"
@@ -878,20 +1268,20 @@ class TestCreateOrUpdateNodes:
         ]
 
         response = client.patch(
-            "/nodes/countries/",
+            "/nodes/default.countries/",
             json={"mode": "draft"},
         )
         assert response.status_code == 200
 
         # Test updating the dimension node with an invalid query
         response = client.patch(
-            "/nodes/countries/",
+            "/nodes/default.countries/",
             json={"query": "SELECT country FROM missing_parent GROUP BY country"},
         )
         assert response.status_code == 200
 
         # Check that node is now a draft with an invalid status
-        response = client.get("/nodes/countries")
+        response = client.get("/nodes/default.countries")
         assert response.status_code == 200
         data = response.json()
         assert data["mode"] == "draft"
@@ -908,8 +1298,10 @@ class TestCreateOrUpdateNodes:
         response = client_with_examples.post(
             "/nodes/basic.source.comments/materialization/",
             json={
-                "engine_name": "spark",
-                "engine_version": "2.4.4",
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
                 "schedule": "0 * * * *",
                 "config": {},
             },
@@ -924,8 +1316,10 @@ class TestCreateOrUpdateNodes:
         response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine_name": "spark",
-                "engine_version": "2.4.4",
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
                 "config": {},
                 "schedule": "0 * * * *",
             },
@@ -953,8 +1347,10 @@ class TestCreateOrUpdateNodes:
         response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine_name": "spark",
-                "engine_version": "2.4.4",
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
                 "config": {},
                 "schedule": "0 * * * *",
             },
@@ -980,6 +1376,7 @@ class TestCreateOrUpdateNodes:
                     "version": "2.4.4",
                     "dialect": "spark",
                 },
+                "job": "SparkSqlMaterializationJob",
             },
         ]
 
@@ -987,8 +1384,10 @@ class TestCreateOrUpdateNodes:
         response = client_with_examples.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
-                "engine_name": "spark",
-                "engine_version": "2.4.4",
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
                 "config": {},
                 "dialect": "spark",
                 "schedule": "0 * * * *",
@@ -1313,7 +1712,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             json={
                 "name": "foo",
                 "description": "This is my foo transform node!",
-                "query": "SELECT payment_id FROM large_revenue_payments_only",
+                "query": "SELECT payment_id FROM default.large_revenue_payments_only",
                 "type": "transform",
             },
         )
@@ -1332,14 +1731,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         ]
         assert data["status"] == "valid"
         assert data["node_revision"]["status"] == "valid"
-        assert data["dependencies"][0]["name"] == "large_revenue_payments_only"
+        assert data["dependencies"][0]["name"] == "default.large_revenue_payments_only"
         assert data["message"] == "Node `foo` is valid"
         assert data["node_revision"]["id"] is None
         assert data["node_revision"]["mode"] == "published"
         assert data["node_revision"]["name"] == "foo"
         assert (
             data["node_revision"]["query"]
-            == "SELECT payment_id FROM large_revenue_payments_only"
+            == "SELECT payment_id FROM default.large_revenue_payments_only"
         )
 
     def test_validating_an_invalid_node(self, client: TestClient) -> None:
@@ -1499,109 +1898,176 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         """
         # Attach the payment_type dimension to the payment_type column on the revenue node
         response = client_with_examples.post(
-            "/nodes/revenue/columns/payment_type/?dimension=payment_type",
+            "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
         )
         data = response.json()
         assert data == {
             "message": (
-                "Dimension node payment_type has been successfully "
-                "linked to column payment_type on node revenue"
+                "Dimension node default.payment_type has been successfully "
+                "linked to column payment_type on node default.revenue"
             ),
         }
 
         # Check that the proper error is raised when the column doesn't exist
         response = client_with_examples.post(
-            "/nodes/revenue/columns/non_existent_column/?dimension=payment_type",
+            "/nodes/default.revenue/columns/non_existent_column/?dimension=default.payment_type",
         )
         assert response.status_code == 404
         data = response.json()
         assert data["message"] == (
-            "Column non_existent_column does not exist on node revenue"
+            "Column non_existent_column does not exist on node default.revenue"
         )
 
         # Add a dimension including a specific dimension column name
         response = client_with_examples.post(
-            "/nodes/revenue/columns/payment_type/"
-            "?dimension=payment_type"
+            "/nodes/default.revenue/columns/payment_type/"
+            "?dimension=default.payment_type"
             "&dimension_column=payment_type_name",
         )
         assert response.status_code == 422
         data = response.json()
         assert data["message"] == (
             "The column payment_type has type int and is being linked "
-            "to the dimension payment_type via the dimension column "
+            "to the dimension default.payment_type via the dimension column "
             "payment_type_name, which has type string. These column "
-            "types are incompatible and the dimension cannot be linked!"
+            "types are incompatible and the dimension cannot be linked"
         )
 
         response = client_with_examples.post(
-            "/nodes/revenue/columns/payment_type/?dimension=basic.dimension.users",
+            "/nodes/default.revenue/columns/payment_type/?dimension=basic.dimension.users",
         )
         data = response.json()
         assert data["message"] == (
             "Cannot add dimension to column, because catalogs do not match: default, public"
         )
 
-        # Check that not including the dimension defaults it to the column name
-        response = client_with_examples.post("/nodes/revenue/columns/payment_type/")
-        assert response.status_code == 201
-        data = response.json()
-        assert data["message"] == (
-            "Dimension node payment_type has been successfully "
-            "linked to column payment_type on node revenue"
+    def test_update_node_with_dimension_links(self, client_with_examples: TestClient):
+        """
+        When a node is updated with a new query, the original dimension links and attributes
+        on its columns should be preserved where possible (that is, where the new and old
+        columns have the same names).
+        """
+        client_with_examples.patch(
+            "/nodes/default.hard_hat/",
+            json={
+                "query": """
+                SELECT
+                    hard_hat_id,
+                    title,
+                    state
+                FROM default.hard_hats
+                """,
+            },
         )
+        response = client_with_examples.get("/nodes/default.hard_hat").json()
+        assert response["columns"] == [
+            {
+                "name": "hard_hat_id",
+                "type": "int",
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+            },
+            {"name": "title", "type": "string", "attributes": [], "dimension": None},
+            {
+                "name": "state",
+                "type": "string",
+                "attributes": [],
+                "dimension": {"name": "default.us_state"},
+            },
+        ]
+
+    def test_update_dimension_remove_pk_column(self, client_with_examples: TestClient):
+        """
+        When a dimension node is updated with a new query that removes the original primary key
+        column, either a new primary key must be set or the node will be set to invalid.
+        """
+        response = client_with_examples.patch(
+            "/nodes/default.hard_hat/",
+            json={
+                "query": """
+                SELECT
+                    title,
+                    state
+                FROM default.hard_hats
+                """,
+                # "primary_key": ["title"],
+            },
+        )
+        assert response.json()["status"] == "invalid"
+        response = client_with_examples.patch(
+            "/nodes/default.hard_hat/",
+            json={
+                "query": """
+                SELECT
+                    title,
+                    state
+                FROM default.hard_hats
+                """,
+                "primary_key": ["title"],
+            },
+        )
+        assert response.json()["status"] == "valid"
 
     def test_node_downstreams(self, client_with_examples: TestClient):
         """
         Test getting downstream nodes of different node types.
         """
         response = client_with_examples.get(
-            "/nodes/event_source/downstream/?node_type=metric",
+            "/nodes/default.event_source/downstream/?node_type=metric",
         )
         data = response.json()
         assert {node["name"] for node in data} == {
-            "long_events_distinct_countries",
-            "device_ids_count",
+            "default.long_events_distinct_countries",
+            "default.device_ids_count",
         }
 
         response = client_with_examples.get(
-            "/nodes/event_source/downstream/?node_type=transform",
+            "/nodes/default.event_source/downstream/?node_type=transform",
         )
         data = response.json()
-        assert {node["name"] for node in data} == {"long_events"}
+        assert {node["name"] for node in data} == {"default.long_events"}
 
         response = client_with_examples.get(
-            "/nodes/event_source/downstream/?node_type=dimension",
+            "/nodes/default.event_source/downstream/?node_type=dimension",
         )
         data = response.json()
-        assert {node["name"] for node in data} == {"country_dim"}
+        assert {node["name"] for node in data} == {"default.country_dim"}
 
-        response = client_with_examples.get("/nodes/event_source/downstream/")
+        response = client_with_examples.get("/nodes/default.event_source/downstream/")
         data = response.json()
         assert {node["name"] for node in data} == {
-            "long_events_distinct_countries",
-            "device_ids_count",
-            "long_events",
-            "country_dim",
+            "default.long_events_distinct_countries",
+            "default.device_ids_count",
+            "default.long_events",
+            "default.country_dim",
         }
 
-        response = client_with_examples.get("/nodes/device_ids_count/downstream/")
+        response = client_with_examples.get(
+            "/nodes/default.device_ids_count/downstream/",
+        )
         data = response.json()
         assert data == []
 
-        response = client_with_examples.get("/nodes/long_events/downstream/")
+        response = client_with_examples.get("/nodes/default.long_events/downstream/")
         data = response.json()
-        assert {node["name"] for node in data} == {"long_events_distinct_countries"}
+        assert {node["name"] for node in data} == {
+            "default.long_events_distinct_countries",
+        }
 
     def test_node_upstreams(self, client_with_examples: TestClient):
         """
         Test getting upstream nodes of different node types.
         """
         response = client_with_examples.get(
-            "/nodes/long_events_distinct_countries/upstream/",
+            "/nodes/default.long_events_distinct_countries/upstream/",
         )
         data = response.json()
-        assert {node["name"] for node in data} == {"event_source", "long_events"}
+        assert {node["name"] for node in data} == {
+            "default.event_source",
+            "default.long_events",
+        }
 
 
 def test_node_similarity(session: Session, client: TestClient):
@@ -1702,64 +2168,68 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
     """
     # Create draft transform and metric nodes with missing parents
     transform1 = {
-        "name": "comments_by_migrated_users",
+        "name": "default.comments_by_migrated_users",
         "description": "Comments by users who have already migrated",
-        "query": "SELECT id, user_id FROM comments WHERE text LIKE '%migrated%'",
+        "query": "SELECT id, user_id FROM default.comments WHERE text LIKE '%migrated%'",
         "mode": "draft",
     }
 
     transform2 = {
-        "name": "comments_by_users_pending_a_migration",
+        "name": "default.comments_by_users_pending_a_migration",
         "description": "Comments by users who have a migration pending",
-        "query": "SELECT id, user_id FROM comments WHERE text LIKE '%migration pending%'",
+        "query": "SELECT id, user_id FROM default.comments WHERE text LIKE '%migration pending%'",
         "mode": "draft",
     }
 
     transform3 = {
-        "name": "comments_by_users_partially_migrated",
+        "name": "default.comments_by_users_partially_migrated",
         "description": "Comments by users are partially migrated",
         "query": (
-            "SELECT p.id, p.user_id FROM comments_by_users_pending_a_migration p "
-            "INNER JOIN comments_by_migrated_users m ON p.user_id = m.user_id"
+            "SELECT p.id, p.user_id FROM default.comments_by_users_pending_a_migration p "
+            "INNER JOIN default.comments_by_migrated_users m ON p.user_id = m.user_id"
         ),
         "mode": "draft",
     }
 
     transform4 = {
-        "name": "comments_by_banned_users",
+        "name": "default.comments_by_banned_users",
         "description": "Comments by users are partially migrated",
         "query": (
-            "SELECT id, user_id FROM comments "
-            "INNER JOIN banned_users ON comments.user_id = banned_users.banned_user_id"
+            "SELECT id, user_id FROM default.comments AS comment "
+            "INNER JOIN default.banned_users AS banned_users "
+            "ON comments.user_id = banned_users.banned_user_id"
         ),
         "mode": "draft",
     }
 
     transform5 = {
-        "name": "comments_by_users_partially_migrated_sample",
+        "name": "default.comments_by_users_partially_migrated_sample",
         "description": "Sample of comments by users are partially migrated",
-        "query": "SELECT id, user_id, foo FROM comments_by_users_partially_migrated",
+        "query": "SELECT id, user_id, foo FROM default.comments_by_users_partially_migrated",
         "mode": "draft",
     }
 
     metric1 = {
-        "name": "number_of_migrated_users",
+        "name": "default.number_of_migrated_users",
         "description": "Number of migrated users",
-        "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_migrated_users",
+        "query": "SELECT COUNT(DISTINCT user_id) FROM default.comments_by_migrated_users",
         "mode": "draft",
     }
 
     metric2 = {
-        "name": "number_of_users_with_pending_migration",
+        "name": "default.number_of_users_with_pending_migration",
         "description": "Number of users with a migration pending",
-        "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_users_pending_a_migration",
+        "query": (
+            "SELECT COUNT(DISTINCT user_id) FROM "
+            "default.comments_by_users_pending_a_migration"
+        ),
         "mode": "draft",
     }
 
     metric3 = {
-        "name": "number_of_users_partially_migrated",
+        "name": "default.number_of_users_partially_migrated",
         "description": "Number of users partially migrated",
-        "query": "SELECT COUNT(DISTINCT user_id) FROM comments_by_users_partially_migrated",
+        "query": "SELECT COUNT(DISTINCT user_id) FROM default.comments_by_users_partially_migrated",
         "mode": "draft",
     }
 
@@ -1785,7 +2255,7 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
 
     # Add the missing parent
     missing_parent_node = {
-        "name": "comments",
+        "name": "default.comments",
         "description": "A fact table with comments",
         "columns": [
             {"name": "id", "type": "int"},

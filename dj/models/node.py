@@ -6,7 +6,7 @@ import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
@@ -23,12 +23,11 @@ from dj.models.base import BaseSQLModel, NodeColumns, generate_display_name
 from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
-from dj.models.engine import Dialect, Engine, EngineInfo
+from dj.models.engine import Dialect, Engine, EngineInfo, EngineRef
 from dj.models.tag import Tag, TagNodeRelationship
-from dj.sql.parse import is_metric
 from dj.sql.parsing.types import ColumnType
 from dj.typing import UTCDatetime
-from dj.utils import Version
+from dj.utils import Version, amenable_name
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
 DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
@@ -294,6 +293,11 @@ class Node(NodeBase, table=True):  # type: ignore
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
     )
+    deactivated_at: UTCDatetime = Field(
+        nullable=True,
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default=None,
+    )
 
     revisions: List["NodeRevision"] = Relationship(back_populates="node")
     current: "NodeRevision" = Relationship(
@@ -345,6 +349,12 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
 
     # Arbitrary config relevant to the materialization engine
     config: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
+
+    # The name of the plugin that handles materialization, if any
+    job: str = Field(
+        default="MaterializationJob",
+        sa_column=SqlaColumn("job", String),
+    )
 
 
 class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
@@ -440,9 +450,73 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         """
         primary_key_columns = []
         for col in self.columns:  # pylint: disable=not-an-iterable
-            if "primary_key" in {attr.attribute_type.name for attr in col.attributes}:
+            if col.has_primary_key_attribute():
                 primary_key_columns.append(col)
         return primary_key_columns
+
+    @staticmethod
+    def format_metric_alias(query: str, name: str) -> str:
+        """
+        Metric aliases must have the same name as the node.
+        """
+        from dj.sql.parsing import ast  # pylint: disable=import-outside-toplevel
+        from dj.sql.parsing.backends.antlr4 import (  # pylint: disable=import-outside-toplevel
+            parse,
+        )
+
+        tree = parse(query)
+        projection_0 = tree.select.projection[0]
+        # the expression has to be something we can get a name out of
+        if not hasattr(projection_0, "alias_or_name"):
+            raise DJInvalidInputException(
+                f"Metric expression of type {type(projection_0).__name__} "
+                f"must be aliased as the node name: `{amenable_name(name)}`",
+            )
+        # if the name is not what we expect, check if it is an alias
+        # if it is an alias, we will raise because the user will have
+        # deliberately named this expression
+        # otherwise, we will just add the alias we want e.g. the node name
+        expr_name: ast.Name = projection_0.alias_or_name  # type: ignore
+        if expr_name.name != amenable_name(name):
+            if expr_name.parent_key == "alias":
+                raise DJInvalidInputException(
+                    "Invalid Metric. The expression in the projection "
+                    "cannot have alias different from the node name. Got "
+                    f"`{expr_name}` but expected `{amenable_name(name)}`",
+                )
+            tree.select.projection[0] = projection_0.set_alias(
+                ast.Name(amenable_name(name)),
+            )
+        return str(tree)
+
+    def check_metric(self):
+        """
+        Check if the Node defines a metric.
+
+        The Node SQL query should have a single expression in its
+        projections and it should be an aggregation function.
+        """
+        from dj.sql.parsing.backends.antlr4 import (  # pylint: disable=import-outside-toplevel
+            parse,
+        )
+
+        # must have a single expression
+        tree = parse(self.query)
+        if len(tree.select.projection) != 1:
+            raise DJInvalidInputException(
+                "Metric queries can only have a single "
+                f"expression, found {len(tree.select.projection)}",
+            )
+        projection_0 = tree.select.projection[0]
+
+        if (
+            not hasattr(projection_0, "is_aggregation")
+            or not projection_0.is_aggregation()  # type: ignore
+        ):
+            raise DJInvalidInputException(
+                f"Metric {self.name} has an invalid query, "
+                "should have a single aggregation",
+            )
 
     def extra_validation(self) -> None:
         """
@@ -461,11 +535,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 )
 
         if self.type == NodeType.METRIC:
-            if not is_metric(self.query):
-                raise DJInvalidInputException(
-                    f"Node {self.name} of type metric has an invalid query, "
-                    "should have a single aggregation",
-                )
+            self.check_metric()
 
         if self.type == NodeType.CUBE:
             if not self.cube_elements:
@@ -631,17 +701,73 @@ class CreateSourceNode(ImmutableNodeFields, MutableNodeFields, SourceNodeFields)
     """
 
 
+class UpsertMaterializationConfig(BaseSQLModel):
+    """
+    An upsert object for materialization configs
+    """
+
+    engine: EngineRef
+    config: Dict
+    schedule: str
+
+
+class SparkConf(BaseSQLModel):
+    """Spark configuration"""
+
+    __root__: Dict[str, str]
+
+
+class DruidConf(BaseSQLModel):
+    """Druid configuration"""
+
+    granularity: str
+    intervals: Optional[List[str]]
+    timestamp_column: str
+    timestamp_format: Optional[str]
+    parse_spec_format: Optional[str]
+
+
+class GenericCubeConfig(BaseModel):
+    """
+    Generic cube materialization config needed by any materialization
+    choices and engine combinations
+    """
+
+    node_name: Optional[str]
+    query: Optional[str]
+    dimensions: Optional[List[str]]
+    measures: Optional[Dict[str, List[Dict[str, str]]]]
+    partitions: Optional[List[str]]
+
+
+class DruidCubeConfig(GenericCubeConfig):
+    """
+    Specific cube materialization implementation with Spark and Druid ingestion and
+    optional prefix and/or suffix to include with the materialized entity's name.
+    """
+
+    prefix: Optional[str] = ""
+    suffix: Optional[str] = ""
+    spark: Optional[SparkConf]
+    druid: Optional[DruidConf]
+
+
+class UpsertCubeMaterializationConfig(BaseSQLModel):
+    """
+    An upsert object for cube materialization configs
+    """
+
+    engine: EngineRef
+    config: Union[DruidCubeConfig, GenericCubeConfig]
+    schedule: str
+
+
 class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
     """
     A create object for cube nodes
     """
 
-    # class Config:  # pylint: disable=too-few-public-methods
-    #     """
-    #     Do not allow extra fields in input
-    #     """
-    #
-    #     extra = Extra.forbid
+    materialization_configs: Optional[List[UpsertCubeMaterializationConfig]] = []
 
 
 class UpdateNode(MutableNodeFields, SourceNodeFields):
@@ -664,17 +790,6 @@ class UpdateNode(MutableNodeFields, SourceNodeFields):
         """
 
         extra = Extra.forbid
-
-
-class UpsertMaterializationConfig(BaseSQLModel):
-    """
-    An upsert object for materialization configs
-    """
-
-    engine_name: str
-    engine_version: str
-    config: Dict
-    schedule: str
 
 
 #
@@ -722,6 +837,7 @@ class MaterializationConfigOutput(SQLModel):
     engine: EngineInfo
     config: Dict
     schedule: str
+    job: str
 
 
 class NodeRevisionOutput(SQLModel):

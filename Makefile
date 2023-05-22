@@ -18,7 +18,7 @@ docker-run:
 	docker compose up
 
 test:
-	pdm run pytest --cov=dj --cov-report=html -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
+	pdm run pytest -n auto --cov=dj --cov-report=html -vv tests/ --doctest-modules dj --without-integration --without-slow-integration ${PYTEST_ARGS}
 
 integration:
 	pdm run pytest --cov=dj -vv tests/ --doctest-modules dj --with-integration --with-slow-integration
@@ -42,4 +42,4 @@ version:
 	@hatch version
 
 release:
-	@hatch publish --build
+	@hatch publish

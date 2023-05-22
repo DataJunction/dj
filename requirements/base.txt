@@ -19,6 +19,7 @@ click-plugins==1.1.1
 click-repl==0.2.0
 deprecated==1.2.13
 fastapi==0.79.1
+greenlet==2.0.2
 idna==3.4
 importlib-metadata==6.0.1
 kombu==5.2.4

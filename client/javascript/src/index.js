@@ -1,10 +1,10 @@
 import HttpClient from './httpclient.js'
 
 export class DJClient extends HttpClient {
-    constructor(baseURL, namespace, engineName = null, engineVersion = null) {
+    constructor(baseURL, namespace, engineName = null, engineVersion = null, httpAgent = null) {
         super({
             baseURL,
-        })
+        }, httpAgent)
         this.namespace = namespace
         this.engineName = engineName
         this.engineVersion = engineVersion

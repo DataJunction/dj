@@ -23,6 +23,7 @@ def get_sql(
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    limit: Optional[int] = None,
     *,
     session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
@@ -41,6 +42,7 @@ def get_sql(
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
+        limit=limit,
         engine=engine,
     )
     columns = [
@@ -59,6 +61,7 @@ def get_sql_for_metrics(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    limit: Optional[int] = None,
     *,
     session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
@@ -72,7 +75,7 @@ def get_sql_for_metrics(
         if engine_name
         else None
     )
-    _, metric_nodes, _, _ = validate_cube(
+    _, metric_nodes, _, _, _ = validate_cube(
         session,
         metrics,
         dimensions,
@@ -82,6 +85,7 @@ def get_sql_for_metrics(
         metric_nodes,
         filters=filters or [],
         dimensions=dimensions or [],
+        limit=limit,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
