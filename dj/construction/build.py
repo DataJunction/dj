@@ -4,10 +4,8 @@ import collections
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
-from sqlalchemy.sql import operators
-
 from sqlmodel import Session
-import operator
+
 from dj.construction.utils import to_namespaced_name
 from dj.errors import DJException, DJInvalidInputException
 from dj.models.column import Column
@@ -301,7 +299,10 @@ def _build_tables_on_select(
                 ]
             node_ast.compile(context)
 
-            select.replace(tbl, node_ast)#, lambda x, y: type(x)==type(y) and hasattr(x, 'identifier') and hasattr(y, 'identifier') and x.identifier(False) == y.identifier(False))
+            select.replace(
+                tbl,
+                node_ast,
+            )
 
 
 def dimension_columns_mapping(
@@ -341,9 +342,10 @@ def _build_select_ast(
     join_tables_for_dimensions(session, dimension_columns, tables, build_criteria)
     _build_tables_on_select(session, select, tables, build_criteria)
 
+
 def _consolidate_tables(query: ast.Query):
     """
-    Checks all the tables whose nearest query is 
+    Checks all the tables whose nearest query is
     the one given, matching identifiers, and makes them
     all the same `Table` in memory
     """
@@ -355,12 +357,12 @@ def _consolidate_tables(query: ast.Query):
         ident = tbl.identifier(False)
         if isinstance(tbl.parent, ast.Column):
             if ident not in column_tables_map:
-                column_tables_map[ident]=[tbl]
+                column_tables_map[ident] = [tbl]
             else:
                 column_tables_map[ident].append(tbl)
         else:
             if ident not in foundation_tables_map:
-                foundation_tables_map[ident]=[tbl]
+                foundation_tables_map[ident] = [tbl]
             else:
                 foundation_tables_map[ident].append(tbl)
 
@@ -371,12 +373,13 @@ def _consolidate_tables(query: ast.Query):
             for col_tbl in column_tables_map[ident]:
                 col_tbl.swap(tbls[0])
             del column_tables_map[ident]
- 
+
     for tbls in column_tables_map.values():
         for tbl in tbls[1:]:
             tbl.swap(tbls[0])
 
-    
+
+# pylint: disable=R0915
 def add_filters_dimensions_orderby_limit_to_query_ast(
     query: ast.Query,
     dialect: Optional[str] = None,  # pylint: disable=unused-argument
@@ -420,24 +423,24 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 if col.table:
                     dimension_tables.add(cast(ast.Table, col.table).identifier(False))
         query.select.where = ast.BinaryOp.And(*filter_asts)
-        
+
     if not query.organization:
         query.organization = ast.Organization([])
-        
+
     # for order bys, we must be using dimensions
     # that are already used in dimensions, filters
     # so for the sake of building rn, we will dupe cols
     # if used already, otherwise, the orderby col will
     # be put in the projection as with the dimensions, filters
     # columns
-    orderby_tables=set()
+    orderby_tables = set()
     if orderbys:
         for order in orderbys:
-            temp_select = parse(
+            temp_query = parse(
                 f"select * order by {order}",
             )
-            
-            for col in temp_select.find_all(ast.Column):
+
+            for col in temp_query.find_all(ast.Column):
                 ident = col.identifier(False)
                 col.namespace_table()
                 if ident in projection_addition:
@@ -463,19 +466,19 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
         else:
             ident = exp.identifier(False)
             added = None
-            for k, v in projection_addition.items():
-                if k.endswith(ident):
-                    projection_update.append(v)
-                    added = k
+            for exist_idents, exist_cols in projection_addition.items():
+                if exist_idents.endswith(ident):
+                    projection_update.append(exist_cols)
+                    added = exist_idents
                     break
 
             if added is None:
                 projection_update.append(exp)
             else:
                 del projection_addition[added]
-        
-    projection_update+=list(projection_addition.values())
-    
+
+    projection_update += list(projection_addition.values())
+
     query.select.projection = projection_update
 
     # Cannot select for columns that aren't in GROUP BY and aren't aggregations
@@ -576,7 +579,7 @@ def build_node(  # pylint: disable=too-many-arguments
         orderbys,
         limit,
     )
-    _consolidate_tables(query) 
+    _consolidate_tables(query)
     return build_ast(session, query, build_criteria)
 
 

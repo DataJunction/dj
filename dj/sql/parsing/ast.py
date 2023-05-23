@@ -579,8 +579,8 @@ class Name(Node):
 
     def __post_init__(self):
         if isinstance(self.name, Name):
-            self.quote_style=self.quote_style or self.name.quote_style
-            self.namespace=self.namespace or self.name.namespace
+            self.quote_style = self.quote_style or self.name.quote_style
+            self.namespace = self.namespace or self.name.namespace
             self.name = self.name.name
 
     def __str__(self) -> str:
@@ -597,7 +597,7 @@ class Name(Node):
 
     def identifier(self, quotes: bool = True) -> str:
         """
-        Yield a string of all the names making up 
+        Yield a string of all the names making up
         the name with or without quotes
         """
         quote_style = "" if not quotes else self.quote_style
@@ -619,13 +619,20 @@ class Named(Node):
     name: Name
 
     @staticmethod
-    def namespaces_intersect(namespace_a: List[Name], namespace_b: List[Name], quotes: bool = False):
-        return all(na.name==nb.name if not quotes else str(na)==str(nb) for na, nb in zip(reversed(namespace_a), reversed(namespace_b)))
-    
+    def namespaces_intersect(
+        namespace_a: List[Name],
+        namespace_b: List[Name],
+        quotes: bool = False,
+    ):
+        return all(
+            na.name == nb.name if not quotes else str(na) == str(nb)
+            for na, nb in zip(reversed(namespace_a), reversed(namespace_b))
+        )
+
     @property
     def names(self) -> List[Name]:
         return self.name.names
-    
+
     @property
     def namespace(self) -> List[Name]:
         return self.names[:-1]
@@ -700,8 +707,8 @@ class Column(Aliasable, Named, Expression):
             self._table = Table(name=self.name.namespace)
             self.name.namespace = None
             self._table.parent = self
-            self._table.parent_key='_table' 
-    
+            self._table.parent_key = "_table"
+
     def add_expression(self, expression: "Expression") -> "Column":
         """
         Add a referenced expression where the column came from
@@ -718,13 +725,13 @@ class Column(Aliasable, Named, Expression):
         Return the table the column was referenced from
         """
         return self._table
-    
+
     @property
-    def children(self)->Iterator[Node]:
+    def children(self) -> Iterator[Node]:
         if self.table and self.table.parent is self:
             return chain(super().children, (self.table,))
         return super().children
-            
+
     @property
     def is_api_column(self) -> bool:
         """
