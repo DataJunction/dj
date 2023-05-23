@@ -577,10 +577,29 @@ class Name(Node):
     quote_style: str = ""
     namespace: Optional["Name"] = None
 
+    def __post_init__(self):
+        if isinstance(self.name, Name):
+            self.quote_style=self.quote_style or self.name.quote_style
+            self.namespace=self.namespace or self.name.namespace
+            self.name = self.name.name
+
     def __str__(self) -> str:
         return self.identifier(True)
 
+    @property
+    def names(self) -> List["Name"]:
+        namespace = [self]
+        name = self
+        while name.namespace:
+            namespace.append(name.namespace)
+            name = name.namespace
+        return namespace[::-1]
+
     def identifier(self, quotes: bool = True) -> str:
+        """
+        Yield a string of all the names making up 
+        the name with or without quotes
+        """
         quote_style = "" if not quotes else self.quote_style
         namespace = str(self.namespace) + "." if self.namespace else ""
         return (
@@ -599,14 +618,17 @@ class Named(Node):
 
     name: Name
 
+    @staticmethod
+    def namespaces_intersect(namespace_a: List[Name], namespace_b: List[Name], quotes: bool = False):
+        return all(na.name==nb.name if not quotes else str(na)==str(nb) for na, nb in zip(reversed(namespace_a), reversed(namespace_b)))
+    
+    @property
+    def names(self) -> List[Name]:
+        return self.name.names
+    
     @property
     def namespace(self) -> List[Name]:
-        namespace = []
-        name = self.name
-        while name.namespace:
-            namespace.append(name.namespace)
-            name = name.namespace
-        return namespace[::-1]
+        return self.names[:-1]
 
     @property
     def columns(self):
@@ -654,7 +676,6 @@ class Column(Aliasable, Named, Expression):
         if self.expression:
             self.add_type(self.expression.type)
             return self.expression.type
-
         raise DJParseException(f"Cannot resolve type of column {self}.")
 
     def add_type(self, type_: ColumnType) -> "Column":
@@ -671,6 +692,16 @@ class Column(Aliasable, Named, Expression):
         """
         return self._expression
 
+    def namespace_table(self):
+        """
+        Turns the column's namespace into a table.
+        """
+        if self.name.namespace:
+            self._table = Table(name=self.name.namespace)
+            self.name.namespace = None
+            self._table.parent = self
+            self._table.parent_key='_table' 
+    
     def add_expression(self, expression: "Expression") -> "Column":
         """
         Add a referenced expression where the column came from
@@ -687,7 +718,13 @@ class Column(Aliasable, Named, Expression):
         Return the table the column was referenced from
         """
         return self._table
-
+    
+    @property
+    def children(self)->Iterator[Node]:
+        if self.table and self.table.parent is self:
+            return chain(super().children, (self.table,))
+        return super().children
+            
     @property
     def is_api_column(self) -> bool:
         """
@@ -814,34 +851,38 @@ class Column(Aliasable, Named, Expression):
 
         if self.is_compiled():
             return
-        found_sources = self.find_table_sources(ctx)
-        if len(found_sources) < 1:
-            ctx.exception.errors.append(
-                DJError(
-                    code=ErrorCode.INVALID_COLUMN,
-                    message=f"Column`{self}` does not exist on any valid table.",
-                ),
-            )
-            return
 
-        if len(found_sources) > 1:
-            ctx.exception.errors.append(
-                DJError(
-                    code=ErrorCode.INVALID_COLUMN,
-                    message=f"Column `{self.name.name}` found in multiple tables. Consider namespacing.",
-                ),
-            )
-            return
+        if self.table and self.table.parent is self:
+            self.table.add_ref_column(self, ctx)
+        else:
+            found_sources = self.find_table_sources(ctx)
+            if len(found_sources) < 1:
+                ctx.exception.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=f"Column`{self}` does not exist on any valid table.",
+                    ),
+                )
+                return
 
-        source_table = cast(TableExpression, found_sources[0])
-        source_table.add_ref_column(self, ctx)
+            if len(found_sources) > 1:
+                ctx.exception.errors.append(
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=f"Column `{self.name.name}` found in multiple tables. Consider namespacing.",
+                    ),
+                )
+                return
+
+            source_table = cast(TableExpression, found_sources[0])
+            source_table.add_ref_column(self, ctx)
         self._is_compiled = True
 
     def __str__(self) -> str:
         as_ = " AS " if self.as_ else " "
         alias = "" if not self.alias else f"{as_}{self.alias}"
         if self.table is not None and not isinstance(self.table, FunctionTable):
-            ret = f"{self.table.alias_or_name.name}.{self.name.quote_style}{self.name.name}{self.name.quote_style}"
+            ret = f"{self.table.alias_or_name.identifier()}.{self.name.quote_style}{self.name.name}{self.name.quote_style}"
         else:
             ret = str(self.name)
         if self.parenthesized:
