@@ -470,7 +470,7 @@ def test_sql_with_filters(
         ),
     ],
 )
-def test_sql_with_filters_on_namespaced_nodes(
+def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
     node_name,
     dimensions,
     filters,
@@ -655,37 +655,73 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
                 "default.municipality_dim.local_region",
             ],
             "filters": [],
-            "orderby": ["default.hard_hat.country", "default.dispatcher.address"],
+            "orderby": ["default.hard_hat.country", "default.dispatcher.phone"],
             "limit": 100,
         },
     )
     data = response.json()
     expected_sql = """
-      SELECT  default_DOT_dispatcher.company_name,
-              default_DOT_dispatcher.address,
-              default_DOT_hard_hat.city,
-              default_DOT_hard_hat.country,
-              default_DOT_hard_hat.postal_code,
-              default_DOT_hard_hat.state,
-              default_DOT_municipality_dim.local_region,
-              count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders,
-              CAST(sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate
-      FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
-              default_DOT_dispatchers.dispatcher_id
-      FROM roads.dispatchers AS default_DOT_dispatchers) AS default_DOT_dispatcher ON default_DOT_repair_orders.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-      LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
-              default_DOT_hard_hats.country,
-              default_DOT_hard_hats.hard_hat_id,
-              default_DOT_hard_hats.postal_code,
-              default_DOT_hard_hats.state
-      FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-      LEFT OUTER JOIN (SELECT  default_DOT_municipality.local_region,
-              default_DOT_municipality.municipality_id
-      FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
-      LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc) AS default_DOT_municipality_dim ON default_DOT_repair_orders.municipality_id = default_DOT_municipality_dim.municipality_id
-      GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
-      ORDER BY default_DOT_hard_hat.country, default_DOT_dispatcher.address
-      LIMIT 100
+                  SELECT
+                    default_DOT_hard_hat.city,
+                    default_DOT_dispatcher.company_name,
+                    default_DOT_hard_hat.country,
+                    count(
+                      default_DOT_repair_orders.repair_order_id
+                    ) default_DOT_num_repair_orders,
+                    default_DOT_municipality_dim.local_region,
+                    default_DOT_dispatcher.phone,
+                    default_DOT_hard_hat.postal_code,
+                    default_DOT_hard_hat.state,
+                    CAST(
+                      sum(
+                        if(
+                          default_DOT_repair_order_details.discount > 0.0,
+                          1, 0
+                        )
+                      ) AS DOUBLE
+                    ) / count(*) AS default_DOT_discounted_orders_rate
+                  FROM
+                    roads.repair_orders AS default_DOT_repair_orders
+                    LEFT OUTER JOIN (
+                      SELECT
+                        default_DOT_dispatchers.company_name,
+                        default_DOT_dispatchers.dispatcher_id,
+                        default_DOT_dispatchers.phone
+                      FROM
+                        roads.dispatchers AS default_DOT_dispatchers
+                    ) AS default_DOT_dispatcher ON default_DOT_repair_orders.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+                    LEFT OUTER JOIN (
+                      SELECT
+                        default_DOT_hard_hats.city,
+                        default_DOT_hard_hats.country,
+                        default_DOT_hard_hats.hard_hat_id,
+                        default_DOT_hard_hats.postal_code,
+                        default_DOT_hard_hats.state
+                      FROM
+                        roads.hard_hats AS default_DOT_hard_hats
+                    ) AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+                    LEFT OUTER JOIN (
+                      SELECT
+                        default_DOT_municipality.local_region,
+                        default_DOT_municipality.municipality_id
+                      FROM
+                        roads.municipality AS default_DOT_municipality
+                        LEFT JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
+                        LEFT JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc
+                    ) AS default_DOT_municipality_dim ON default_DOT_repair_orders.municipality_id = default_DOT_municipality_dim.municipality_id
+                  GROUP BY
+                    default_DOT_hard_hat.country,
+                    default_DOT_hard_hat.postal_code,
+                    default_DOT_hard_hat.city,
+                    default_DOT_hard_hat.state,
+                    default_DOT_dispatcher.company_name,
+                    default_DOT_municipality_dim.local_region
+                  ORDER BY
+                    default_DOT_hard_hat.country,
+                    default_DOT_dispatcher.phone
+                  LIMIT
+                    100
+
     """
     assert compare_query_strings(data["sql"], expected_sql)
     assert data["columns"] == [
@@ -694,6 +730,7 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
         {"name": "country", "type": "string"},
         {"name": "default_DOT_num_repair_orders", "type": "bigint"},
         {"name": "local_region", "type": "string"},
+        {"name": "phone", "type": "string"},
         {"name": "postal_code", "type": "string"},
         {"name": "state", "type": "string"},
         {"name": "default_DOT_discounted_orders_rate", "type": "double"},

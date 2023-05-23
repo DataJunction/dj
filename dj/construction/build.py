@@ -353,7 +353,7 @@ def _consolidate_tables(query: ast.Query):
     column_tables_map = {}
     for tbl in query.find_all(ast.Table):
         if tbl.get_nearest_parent_of_type(ast.Query) is not query:
-            continue#pragma: no cover
+            continue  # pragma: no cover
         ident = tbl.identifier(False)
         if isinstance(tbl.parent, ast.Column):
             if ident not in column_tables_map:
@@ -364,11 +364,11 @@ def _consolidate_tables(query: ast.Query):
             if ident not in foundation_tables_map:
                 foundation_tables_map[ident] = [tbl]
             else:
-                foundation_tables_map[ident].append(tbl)#pragma: no cover
+                foundation_tables_map[ident].append(tbl)  # pragma: no cover
 
     for ident, tbls in foundation_tables_map.items():
         for tbl in tbls[1:]:
-            tbl.swap(tbls[0])#pragma: no cover
+            tbl.swap(tbls[0])  # pragma: no cover
         if ident in column_tables_map:
             for col_tbl in column_tables_map[ident]:
                 col_tbl.swap(tbls[0])
@@ -403,7 +403,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 projection_addition[col.identifier(False)] = col
                 col.namespace_table()
-                if col.table:#pragma: no cover
+                if col.table:  # pragma: no cover
                     dimension_tables.add(cast(ast.Table, col.table).identifier(False))
 
     if filters:
@@ -420,7 +420,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 projection_addition[col.identifier(False)] = col
                 col.namespace_table()
-                if col.table:#pragma: no cover
+                if col.table:  # pragma: no cover
                     dimension_tables.add(cast(ast.Table, col.table).identifier(False))
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
@@ -447,13 +447,13 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                     col.swap(projection_addition[ident])
                 else:
                     projection_addition[ident] = col
-                if col.table:#pragma: no cover
+                if col.table:  # pragma: no cover
                     orderby_tables.add(cast(ast.Table, col.table).identifier(False))
-            
+
             query.organization.order += temp_query.organization.order  # type:ignore
 
     if diff := orderby_tables - dimension_tables:
-        raise DJInvalidInputException(
+        raise DJInvalidInputException(  # pragma: no cover
             "Order by columns can only be from "
             "dimensions used in filters or dimensions arguments"
             f"found {', '.join(str(d) for d in diff)}.",

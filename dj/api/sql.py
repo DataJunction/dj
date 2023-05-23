@@ -43,7 +43,7 @@ def get_sql(
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
-        orderby=orderby,        
+        orderby=orderby,
         limit=limit,
         engine=engine,
     )

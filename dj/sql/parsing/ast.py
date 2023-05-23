@@ -859,7 +859,8 @@ class Column(Aliasable, Named, Expression):
         if self.is_compiled():
             return
 
-        if self.table and self.table.parent is self:
+        # check if the column was already given a table
+        if self.table and isinstance(self.table.parent, Column):
             self.table.add_ref_column(self, ctx)
         else:
             found_sources = self.find_table_sources(ctx)
