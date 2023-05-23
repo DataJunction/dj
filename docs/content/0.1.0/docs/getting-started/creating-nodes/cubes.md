@@ -26,34 +26,24 @@ Cubes are used to represent a set of metrics with dimensions and filters.
 curl -X POST http://localhost:8000/nodes/cube/ \
 -H 'Content-Type: application/json' \
 -d '{
+    "name": "default.repairs_cube",
+    "mode": "published",
+    "display_name": "Repairs for each company",
+    "description": "Cube of the number of repair orders grouped by dispatcher companies",
     "metrics": [
-        "num_repair_orders",
-        "avg_repair_price",
-        "total_repair_cost"
+        "default.num_repair_orders"
     ],
     "dimensions": [
-        "hard_hat.country",
-        "hard_hat.postal_code",
-        "hard_hat.city",
-        "hard_hat.state",
-        "dispatcher.company_name",
-        "municipality_dim.local_region"
+        "default.all_dispatchers.company_name"
     ],
-    "filters": ["hard_hat.state='"'"'AZ'"'"'"]
-    "description": "Cube of various metrics related to repairs",
-    "mode": "published",
-    "display_name": "Repairs Cube",
-    "name": "repairs_cube"
+    "filters": ["default.all_dispatchers.company_name IS NOT NULL"],
 }'
 ```
 {{< /tab >}}
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient
-
-dj = DJClient("http://localhost:8000/")
-cube = dj.new_cube(
+dj.new_cube(
     name="repairs_cube",
     display_name="Repairs Cube",
     description="Cube of various metrics related to repairs",
@@ -71,8 +61,26 @@ cube = dj.new_cube(
         "municipality_dim.local_region"
     ],
     filters=["hard_hat.state='AZ'"]
-)
-cube.save()
+).save()
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+dj.cubes.create(
+    {
+        name: "default.repairs_cube",
+        mode: "published",
+        display_name: "Repairs for each company",
+        description: "Cube of the number of repair orders grouped by dispatcher companies",
+        metrics: [
+            "default.num_repair_orders"
+        ],
+        dimensions: [
+            "default.all_dispatchers.company_name"
+        ],
+        filters: ["default.all_dispatchers.company_name IS NOT NULL"]
+    }
+).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
@@ -92,7 +100,7 @@ your DJ setup:
 {{< tab "curl" >}}
 ```sh
 curl -X POST \
-http://localhost:8000/nodes/repairs_cube/materialization/ \
+http://localhost:8000/nodes/default.repairs_cube/materialization/ \
 -H 'Content-Type: application/json'
 -d '{
   "engine": {

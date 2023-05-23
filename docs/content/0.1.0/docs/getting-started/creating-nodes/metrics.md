@@ -23,25 +23,38 @@ a single source, transform, or dimension node.
 curl -X POST http://localhost:8000/nodes/metric/ \
 -H 'Content-Type: application/json' \
 -d '{
-    "name": "num_repair_orders",
+    "name": "default.num_repair_orders",
     "description": "Number of repair orders",
     "mode": "published",
-    "query": "SELECT count(repair_order_id) FROM repair_orders"
+    "query": "SELECT count(repair_order_id) as num_repair_orders FROM default.repair_orders"
 }'
 ```
 {{< /tab >}}
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient, NodeMode
-
-dj = DJClient("http://localhost:8000/")
 metric = dj.new_metric(
-    name="num_repair_orders",
+    name="default.num_repair_orders",
     description="Number of repair orders",
     query="SELECT count(repair_order_id) FROM repair_orders",
 )
 metric.save(NodeMode.PUBLISHED)
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+dj.metrics.create(
+    {
+        name: "default.num_repair_orders",
+        description: "Number of repair orders",
+        mode: "published",
+        query: `
+            SELECT
+            count(repair_order_id) as num_repair_orders
+            FROM default.repair_orders
+        `
+    }
+).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
