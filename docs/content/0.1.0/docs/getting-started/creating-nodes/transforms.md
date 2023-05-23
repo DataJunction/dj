@@ -25,28 +25,17 @@ engine supports.
 curl -X POST http://localhost:8000/nodes/transform/ \
 -H 'Content-Type: application/json' \
 -d '{
-    "name": "repair_orders_w_dispatchers",
+    "name": "default.repair_orders_w_dispatchers",
     "description": "Repair orders that have a dispatcher",
     "mode": "published",
-    "query": """
-        SELECT
-        repair_order_id,
-        municipality_id,
-        hard_hat_id,
-        dispatcher_id
-        FROM repair_orders
-        WHERE dispatcher_id IS NOT NULL
-    """
+    "query": "SELECT repair_order_id, municipality_id, hard_hat_id, dispatcher_id FROM default.repair_orders WHERE dispatcher_id IS NOT NULL"
 }'
 ```
 {{< /tab >}}
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient, NodeMode
-
-dj = DJClient("http://localhost:8000/")
-transform = dj.new_transform(
+dj.new_transform(
     name="repair_orders_w_dispatchers",
     description="Repair orders that have a dispatcher",
     query="""
@@ -55,11 +44,30 @@ transform = dj.new_transform(
         municipality_id,
         hard_hat_id,
         dispatcher_id
-        FROM repair_orders
+        FROM default.repair_orders
         WHERE dispatcher_id IS NOT NULL
     """,
-)
-transform.save(NodeMode.PUBLISHED)
+).save()
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+dj.transforms.create(
+    {
+        name: "default.repair_orders_w_dispatchers",
+        mode: "published",
+        description: "Repair orders that have a dispatcher",
+        query: `
+            SELECT
+            repair_order_id,
+            municipality_id,
+            hard_hat_id,
+            dispatcher_id
+            FROM default.repair_orders
+            WHERE dispatcher_id IS NOT NULL
+        `
+    }
+).then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}
