@@ -68,7 +68,7 @@ jobs:
           export LIBRARY=${{ github.event.inputs.library }}
           git commit -am "Bumping $LIBRARY to version $NEW_VERSION"
           git checkout -b releases/$LIBRARY-$NEW_VERSION
-          git push --set-upstream origin releases/$LIBRARY-$NEW_VERSION
+          git push --set-upstream origin releases/$LIBRARY-$NEW_VERSION -f
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
 
@@ -76,6 +76,6 @@ jobs:
         run: |
           export NEW_VERSION=v$(hatch version)
           export LIBRARY=${{ github.event.inputs.library }}
-          gh pr create -B main -H releases/$LIBRARY-$NEW_VERSION --title 'Bumping $LIBRARY to version $NEW_VERSION'
+          gh pr create -B main -H "releases/$LIBRARY-$NEW_VERSION" --title "Bumping $LIBRARY to version $NEW_VERSION" --body "This is an automated PR triggered by the Bump Version action. Merging this PR will bump the DataJunction $LIBRARY to version $NEW_VERSION"
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
