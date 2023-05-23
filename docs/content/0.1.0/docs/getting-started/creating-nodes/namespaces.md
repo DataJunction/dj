@@ -1,5 +1,5 @@
 ---
-weight: 15
+weight: 5
 ---
 
 # Namespaces
@@ -21,21 +21,23 @@ the node name with the namespace. In other words, creating a node named `roads.d
 
 # Creating Namespaces
 
-Before creating nodes in a namespace, the namespace must already exist. Here is an example of creating a `roads.demo` namespace.
+Before creating nodes in a namespace, the namespace must already exist. Here is an example of creating a `default` namespace.
 
 {{< tabs "creating namespaces" >}}
 {{< tab "curl" >}}
 ```sh
-curl -X POST http://localhost:8000/namespaces/roads.demo/
+curl -X POST http://localhost:8000/namespaces/default/
 ```
 {{< /tab >}}
 {{< tab "python" >}}
 
 ```py
-from datajunction import DJClient
-
-dj = DJClient("http://localhost:8000/")
-namespace = dj.new_namespace("roads.demo")
+dj.new_namespace("default")
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+dj.namespaces.create("default").then(data => console.log(data))
 ```
 {{< /tab >}}
 {{< /tabs >}}

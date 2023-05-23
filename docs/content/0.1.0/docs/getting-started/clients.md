@@ -14,6 +14,7 @@ pip install datajunction
 
 ```py
 from datajunction import DJClient
+
 dj = DJClient("http://localhost:8000")
 print(dj.metrics())
 ```

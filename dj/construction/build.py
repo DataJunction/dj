@@ -551,7 +551,7 @@ def build_node(  # pylint: disable=too-many-arguments
         )
 
     # if no dimensions need to be added then we can see if the node is directly materialized
-    if not (filters or dimensions or limit):
+    if not (filters or dimensions):
         if select := cast(
             ast.Select,
             _get_node_table(node, build_criteria, as_select=True),
@@ -586,64 +586,137 @@ def build_metric_nodes(
 ):
     """
     Build a single query for all metrics in the list, including the
-    specified dimensions (group bys) and filters.
+    specified group bys (dimensions) and filters. As long as all
+    metric nodes share the same set of dimensions, we can:
+    (a) build each metric node query separately
+    (b) wrap each built metric node query in a WITH statement
+    (c) join the node queries together via the dimension columns
     """
+    if any(metric_node.type != NodeType.METRIC for metric_node in metric_nodes):
+        raise DJInvalidInputException(  # pragma: no cover
+            "Cannot build a query for multiple nodes if one or more "
+            "of them aren't metric nodes.",
+        )
+
     shared_dimensions = get_shared_dimensions(metric_nodes)
     for dimension_attribute in dimensions:
         if dimension_attribute not in shared_dimensions:
             raise DJInvalidInputException(
                 f"The dimension attribute `{dimension_attribute}` is not "
-                "available on every requested metric and thus cannot be included.",
+                "available on every metric and thus cannot be included.",
             )
 
-    combined_ast = build_node(
-        session,
-        metric_nodes[0].current,
-        filters,
-        dimensions,
-        orderby,
-        build_criteria=build_criteria,
+    for filter_ in filters:
+        temp_select = parse(f"select * where {filter_}").select
+        columns_in_filter = temp_select.where.find_all(ast.Column)  # type: ignore
+        for col in columns_in_filter:
+            if str(col) not in shared_dimensions:
+                raise DJInvalidInputException(
+                    f"The filter `{filter_}` references the dimension attribute "
+                    f"`{col}`, which is not available on every"
+                    " metric and thus cannot be included.",
+                )
+
+    combined_ast: ast.Query = ast.Query(
+        select=ast.Select(from_=ast.From(relations=[])),
+        ctes=[],
     )
-    metric_dependencies: Set[str] = set()
-    for metric_node in metric_nodes[1:]:
-        if metric_node.type != NodeType.METRIC:  # pragma: no cover
-            raise DJInvalidInputException(
-                "Cannot build a query for multiple nodes if one or more "
-                f"of them aren't metric nodes. ({metric_node.name} is not"
-                "a metric node)",
-            )
+    initial_dimension_columns = []
+    all_dimension_columns = []
+
+    organization = None
+    for (idx, metric_node) in enumerate(metric_nodes):
+        # Build each metric node separately
         metric_ast = build_node(
-            session,
-            metric_node.current,
-            filters,
-            dimensions,
-            orderby,
+            session=session,
+            node=metric_node.current,
+            filters=filters,
+            dimensions=dimensions,
+            orderby=orderby if organization is None else None,
             build_criteria=build_criteria,
         )
-        metric_dependencies = metric_dependencies.union(
-            {tbl.alias_or_name.name for tbl in metric_ast.find_all(ast.Table)},
-        )
-        built_source_tables = {
-            tbl.alias_or_name.name for tbl in metric_ast.find_all(ast.Table)
-        }
-        diff_columns = set(combined_ast.select.projection).difference(
-            metric_ast.select.projection,
-        )
-        if all(tbl in built_source_tables for tbl in metric_dependencies):
-            metric_ast.select.projection.extend(diff_columns)
-            combined_ast = metric_ast
-        else:
-            combined_ast.select.projection.extend(diff_columns)  # pragma: no cover
 
-    built_source_tables = {
-        tbl.alias_or_name.name for tbl in combined_ast.find_all(ast.Table)
-    }
-    if not all(tbl in built_source_tables for tbl in metric_dependencies):
-        raise DJInvalidInputException(  # pragma: no cover
-            "We cannot build these metrics together as they aren't "
-            "querying from the same sources. Metric dependencies include "
-            ", ".join(metric_dependencies),
+        # Add the WITH statements to the combined query
+        metric_ast_alias = ast.Name(f"m{idx}_" + metric_node.name.replace(".", "_DOT_"))
+        metric_ast.alias = metric_ast_alias
+        metric_ast.parenthesized = True
+        metric_ast.as_ = True
+        combined_ast.ctes += [metric_ast]
+
+        # Add the metric and dimensions to the final query layer's SELECT
+        current_table = ast.Table(metric_ast_alias)
+
+        if orderby and organization is None:
+            organization = cast(ast.Organization, metric_ast.organization)
+            metric_ast.organization = None
+            for col in organization.find_all(ast.Column):
+                col.add_table(current_table)
+
+        final_select_columns = [
+            ast.Column(
+                name=col.alias_or_name,  # type: ignore
+                _table=current_table,
+                _type=col.type,  # type: ignore
+            )
+            for col in metric_ast.select.projection
+        ]
+        metric_column_idents = {
+            col.alias_or_name.name
+            for col in parse(metric_node.current.query).select.projection
+        }
+
+        metric_columns = []
+
+        dimension_columns = []
+
+        for col in final_select_columns:
+            if col.name.name in metric_column_idents:
+                metric_columns.append(col)
+            else:
+                dimension_columns.append(col)
+
+        all_dimension_columns += dimension_columns
+        combined_ast.select.projection.extend(metric_columns)
+
+        if not combined_ast.select.from_.relations:  # type: ignore
+            initial_dimension_columns = dimension_columns
+            combined_ast.select.from_.relations.append(  # type: ignore
+                ast.Relation(current_table),
+            )
+        else:
+            comparisons = [
+                ast.BinaryOp.Eq(initial_dim_col, current_dim_col)
+                for initial_dim_col, current_dim_col in zip(
+                    initial_dimension_columns,
+                    dimension_columns,
+                )
+            ]
+            combined_ast.select.from_.relations[0].extensions.append(  # type: ignore
+                ast.Join(
+                    "FULL OUTER",
+                    ast.Table(metric_ast_alias),
+                    ast.JoinCriteria(
+                        on=ast.BinaryOp.And(*comparisons),
+                    ),
+                ),
+            )
+
+    dimension_grouping: Dict[str, List] = {}
+    for col in all_dimension_columns:
+        dimension_grouping.setdefault(str(col.alias_or_name.name), []).append(col)
+    dimension_columns = [
+        ast.Function(name=ast.Name("COALESCE"), args=list(columns)).set_alias(
+            ast.Name(col_name),
         )
+        if len(columns) > 1
+        else columns[0]
+        for col_name, columns in dimension_grouping.items()
+    ]
+    combined_ast.select.projection.extend(dimension_columns)
+
+    if organization is not None:
+        combined_ast.organization = organization
+
     if limit is not None:
         combined_ast.limit = ast.Number(limit)
 

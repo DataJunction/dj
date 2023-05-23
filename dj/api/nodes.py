@@ -359,16 +359,40 @@ def build_cube_config(
     dimensions_set = {
         dim.name for dim in cube_node.columns if dim.has_dimension_attribute()
     }
-    metrics_to_measures = decompose_metrics(combined_ast, dimensions_set)
-    new_select_projection: Set[Union[ast.Aliasable, ast.Expression]] = set()
-    for expr in combined_ast.select.projection:
-        if expr in metrics_to_measures:
-            new_select_projection = set(new_select_projection).union(
-                metrics_to_measures[expr],
-            )
-        else:
-            new_select_projection.add(expr)
-    combined_ast.select.projection = list(new_select_projection)
+    metrics_to_measures = {}
+    for cte in combined_ast.ctes:
+        metrics_to_measures.update(decompose_metrics(cte, dimensions_set))
+        new_select_projection: Set[Union[ast.Aliasable, ast.Expression]] = set()
+        for expr in cte.select.projection:
+            if expr in metrics_to_measures:
+                new_select_projection = set(new_select_projection).union(
+                    metrics_to_measures[expr],
+                )
+            else:
+                new_select_projection.add(expr)
+        cte.select.projection = list(new_select_projection)
+
+    combined_ast.select.projection = [
+        ast.Column(name=col.alias_or_name, _table=cte)  # type: ignore
+        for cte in combined_ast.ctes
+        for col in cte.select.projection
+        if col.alias_or_name.name not in dimensions_set  # type: ignore
+    ]
+    dimension_grouping: Dict[str, List[ast.Column]] = {}
+    for col in [
+        ast.Column(name=col.alias_or_name, _table=cte)  # type: ignore
+        for cte in combined_ast.ctes
+        for col in cte.select.projection
+        if col.alias_or_name.name in dimensions_set  # type: ignore
+    ]:
+        dimension_grouping.setdefault(str(col.alias_or_name.name), []).append(col)
+
+    for col_name, columns in dimension_grouping.items():
+        combined_ast.select.projection.append(
+            ast.Function(name=ast.Name("COALESCE"), args=list(columns)).set_alias(
+                ast.Name(col_name),
+            ),
+        )
     measures = {
         metric.alias_or_name.name: sorted(
             [
@@ -660,6 +684,7 @@ def decompose_expression(expr: Union[ast.Aliasable, ast.Expression]) -> List[ast
             return measures_left + measures_right
     if isinstance(expr, ast.Cast):
         return decompose_expression(expr.expression)
+
     raise DJInvalidInputException(  # pragma: no cover
         f"Metric expression {expr} cannot be decomposed into its constituent measures",
     )
