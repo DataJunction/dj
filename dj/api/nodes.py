@@ -702,7 +702,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         metric_nodes,
         filters=data.filters or [],
         dimensions=data.dimensions or [],
-        orderbys=data.orderbys or [],
+        orderby=data.orderby or [],
         limit=data.limit or None,
     )
     dimension_attribute = session.exec(

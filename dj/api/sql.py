@@ -23,6 +23,7 @@ def get_sql(
     node_name: str,
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
+    orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
     session: Session = Depends(get_session),
@@ -42,6 +43,7 @@ def get_sql(
         node_name=node_name,
         dimensions=dimensions,
         filters=filters,
+        orderby=orderby,        
         limit=limit,
         engine=engine,
     )
@@ -61,7 +63,7 @@ def get_sql_for_metrics(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),
     filters: List[str] = Query([]),
-    orderbys: List[str] = Query([]),
+    orderby: List[str] = Query([]),
     limit: Optional[int] = None,
     *,
     session: Session = Depends(get_session),
@@ -86,7 +88,7 @@ def get_sql_for_metrics(
         metric_nodes,
         filters=filters or [],
         dimensions=dimensions or [],
-        orderbys=orderbys or [],
+        orderby=orderby or [],
         limit=limit,
     )
     columns = [

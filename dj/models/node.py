@@ -680,7 +680,7 @@ class CubeNodeFields(BaseSQLModel):
     metrics: List[str]
     dimensions: List[str]
     filters: Optional[List[str]]
-    orderbys: Optional[List[str]]
+    orderby: Optional[List[str]]
     limit: Optional[int]
     description: str
     mode: NodeMode

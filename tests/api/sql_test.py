@@ -299,13 +299,14 @@ def test_sql_with_filters(
 
 
 @pytest.mark.parametrize(
-    "node_name, dimensions, filters, sql",
+    "node_name, dimensions, filters, orderby, sql",
     [
         # querying on source node with filter on joinable dimension
         (
             "foo.bar.repair_orders",
             [],
             ["foo.bar.hard_hat.state='CA'"],
+            [],
             """
             SELECT  foo_DOT_bar_DOT_repair_orders.dispatched_date,
                     foo_DOT_bar_DOT_repair_orders.dispatcher_id,
@@ -326,6 +327,7 @@ def test_sql_with_filters(
             "foo.bar.repair_orders",
             [],
             ["foo.bar.repair_orders.order_date='2009-08-14'"],
+            [],
             """
             SELECT
               foo_DOT_bar_DOT_repair_orders.dispatched_date,
@@ -344,6 +346,7 @@ def test_sql_with_filters(
             "foo.bar.num_repair_orders",
             [],
             [],
+            [],
             """
             SELECT
               count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS foo_DOT_bar_DOT_num_repair_orders
@@ -354,6 +357,7 @@ def test_sql_with_filters(
             "foo.bar.num_repair_orders",
             ["foo.bar.hard_hat.state"],
             ["foo.bar.repair_orders.dispatcher_id=1", "foo.bar.hard_hat.state='AZ'"],
+            [],
             """
             SELECT  foo_DOT_bar_DOT_repair_orders.dispatcher_id,
                     count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS foo_DOT_bar_DOT_num_repair_orders,
@@ -379,6 +383,7 @@ def test_sql_with_filters(
                 "foo.bar.dispatcher.phone = '4082021022'",
                 "foo.bar.repair_orders.order_date >= '2020-01-01'",
             ],
+            ["foo.bar.hard_hat.last_name"],
             """
             SELECT
               foo_DOT_bar_DOT_hard_hat.city,
@@ -430,11 +435,13 @@ def test_sql_with_filters(
               foo_DOT_bar_DOT_hard_hat.last_name,
               foo_DOT_bar_DOT_dispatcher.company_name,
               foo_DOT_bar_DOT_municipality_dim.local_region
+            ORDER BY foo_DOT_bar_DOT_hard_hat.last_name
             """,
         ),
         (
             "foo.bar.avg_repair_price",
             ["foo.bar.hard_hat.city"],
+            [],
             [],
             """
             SELECT
@@ -467,6 +474,7 @@ def test_sql_with_filters_on_namespaced_nodes(
     node_name,
     dimensions,
     filters,
+    orderby,
     sql,
     client_with_examples: TestClient,
 ):
@@ -476,10 +484,7 @@ def test_sql_with_filters_on_namespaced_nodes(
     """
     response = client_with_examples.get(
         f"/sql/{node_name}/",
-        params={
-            "dimensions": dimensions,
-            "filters": filters,
-        },
+        params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
     )
     data = response.json()
     assert compare_query_strings(data["sql"], sql)
@@ -650,13 +655,14 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
                 "default.municipality_dim.local_region",
             ],
             "filters": [],
-            "orderbys": ["default.hard_hat.country"],
+            "orderby": ["default.hard_hat.country", "default.dispatcher.address"],
             "limit": 100,
         },
     )
     data = response.json()
     expected_sql = """
       SELECT  default_DOT_dispatcher.company_name,
+              default_DOT_dispatcher.address,
               default_DOT_hard_hat.city,
               default_DOT_hard_hat.country,
               default_DOT_hard_hat.postal_code,
@@ -678,7 +684,7 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
       FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
       LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc) AS default_DOT_municipality_dim ON default_DOT_repair_orders.municipality_id = default_DOT_municipality_dim.municipality_id
       GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
-      ORDER BY default_DOT_hard_hat.country
+      ORDER BY default_DOT_hard_hat.country, default_DOT_dispatcher.address
       LIMIT 100
     """
     assert compare_query_strings(data["sql"], expected_sql)
