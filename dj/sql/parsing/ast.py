@@ -877,7 +877,7 @@ class Column(Aliasable, Named, Expression):
                 ctx.exception.errors.append(
                     DJError(
                         code=ErrorCode.INVALID_COLUMN,
-                        message=f"Column `{self.name.name}` found in multiple tables. Consider namespacing.",
+                        message=f"Column `{self.name.name}` found in multiple tables. Consider using fully qualified name.",
                     ),
                 )
                 return

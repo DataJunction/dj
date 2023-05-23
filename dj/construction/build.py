@@ -661,7 +661,7 @@ def build_metric_nodes(
             for col in metric_ast.select.projection
         ]
         metric_column_idents = {
-            col.alias_or_name.name
+            col.alias_or_name.name  # type: ignore
             for col in parse(metric_node.current.query).select.projection
         }
 
