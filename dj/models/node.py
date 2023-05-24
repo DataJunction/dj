@@ -473,15 +473,20 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         # otherwise, we will just add the alias we want e.g. the node name
         expr_name: Optional[ast.Name] = (
             projection_0.alias_or_name  # type: ignore
-            if not hasattr(projection_0, "alias_or_name") else None
+            if hasattr(projection_0, "alias")
+            else None
         )
-        if not expr_name or expr_name.name != amenable_name(name):
-            if expr_name and expr_name.parent_key == "alias":
-                raise DJInvalidInputException(
-                    "Invalid Metric. The expression in the projection "
-                    "cannot have alias different from the node name. Got "
-                    f"`{expr_name}` but expected `{amenable_name(name)}`",
-                )
+        if (
+            expr_name
+            and expr_name.parent_key == "alias"
+            and expr_name.name != amenable_name(name)
+        ):
+            raise DJInvalidInputException(
+                "Invalid Metric. The expression in the projection "
+                "cannot have alias different from the node name. Got "
+                f"`{expr_name}` but expected `{amenable_name(name)}`",
+            )
+        if not expr_name or expr_name and expr_name.parent_key != "alias":
             tree.select.projection[0] = projection_0.set_alias(
                 ast.Name(amenable_name(name)),
             )
