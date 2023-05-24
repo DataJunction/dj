@@ -455,7 +455,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
     if diff := orderby_tables - dimension_tables:
         raise DJInvalidInputException(  # pragma: no cover
             "Order by columns can only be from "
-            "dimensions used in filters or dimensions arguments"
+            "dimensions used in filters or group bys"
             f"found {', '.join(str(d) for d in diff)}.",
         )
 
