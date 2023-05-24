@@ -143,7 +143,7 @@ def test_ast_compile_raise_on_ambiguous_column(
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
     assert (
-        "Column `country` found in multiple tables. Consider namespacing."
+        "Column `country` found in multiple tables. Consider using fully qualified name."
         in exc.errors[0].message
     )
 
