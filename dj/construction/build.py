@@ -599,12 +599,20 @@ def build_metric_nodes(
     for filter_ in filters:
         temp_select = parse(f"select * where {filter_}").select
         columns_in_filter = temp_select.where.find_all(ast.Column)  # type: ignore
+        dims_without_prefix = {
+            dim.split(".")[-1]: dim
+            for dim in shared_dimensions
+        }
         for col in columns_in_filter:
             if str(col) not in shared_dimensions:
+                potential_dimension_match = (
+                    f"Did you mean `{dims_without_prefix[str(col)]}`?"
+                    if str(col) in dims_without_prefix else ""
+                )
                 raise DJInvalidInputException(
                     f"The filter `{filter_}` references the dimension attribute "
                     f"`{col}`, which is not available on every"
-                    " metric and thus cannot be included.",
+                    f" metric and thus cannot be included. {potential_dimension_match}",
                 )
 
     combined_ast: ast.Query = ast.Query(
