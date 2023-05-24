@@ -393,7 +393,6 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
     """
     projection_addition = {}
 
-    dimension_tables = set()
     if dimensions:
         for agg in dimensions:
             temp_select = parse(
@@ -403,8 +402,6 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 projection_addition[col.identifier(False)] = col
                 col.namespace_table()
-                if col.table:  # pragma: no cover
-                    dimension_tables.add(cast(ast.Table, col.table).identifier(False))
 
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
@@ -418,10 +415,10 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 temp_select.where,  # type:ignore
             )
             for col in temp_select.find_all(ast.Column):
-                projection_addition[col.identifier(False)] = col
+                if not dimensions:
+                    projection_addition[col.identifier(False)] = col
                 col.namespace_table()
-                if col.table:  # pragma: no cover
-                    dimension_tables.add(cast(ast.Table, col.table).identifier(False))
+
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
     if not query.organization:
@@ -433,7 +430,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
     # if used already, otherwise, the orderby col will
     # be put in the projection as with the dimensions, filters
     # columns
-    orderby_tables = set()
+
     if orderby:
         for order in orderby:
             temp_query = parse(
@@ -446,18 +443,11 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 if ident in projection_addition:
                     col.swap(projection_addition[ident])
                 else:
-                    projection_addition[ident] = col
-                if col.table:  # pragma: no cover
-                    orderby_tables.add(cast(ast.Table, col.table).identifier(False))
-
+                    raise DJInvalidInputException(
+                        f"Column {col} found in order-by clause must"
+                        " also be specified in the dimensions.",
+                    )
             query.organization.order += temp_query.organization.order  # type:ignore
-
-    if diff := orderby_tables - dimension_tables:
-        raise DJInvalidInputException(  # pragma: no cover
-            "Order by columns can only be from "
-            "dimensions used in filters or group bys"
-            f"found {', '.join(str(d) for d in diff)}.",
-        )
 
     # add all used dimension columns to the projection without duplicates
     projection_update = []
