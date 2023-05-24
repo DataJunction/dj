@@ -33,9 +33,14 @@ def get_dimensions(node: Node) -> List[str]:
         for column in current_node.current.columns:
             # Include the dimension if it's a column belonging to a dimension node
             # or if it's tagged with the dimension column attribute
-            if current_node.type == NodeType.DIMENSION or any(
-                attr.attribute_type.name == "dimension" for attr in column.attributes
-            ) or column.dimension:
+            if (
+                current_node.type == NodeType.DIMENSION
+                or any(
+                    attr.attribute_type.name == "dimension"
+                    for attr in column.attributes
+                )
+                or column.dimension
+            ):
                 dimensions.append(f"{current_node.name}.{column.name}")
             if column.dimension and column.dimension not in processed:
                 to_process.append(column.dimension)
