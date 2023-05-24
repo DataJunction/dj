@@ -444,7 +444,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                     col.swap(projection_addition[ident])
                 else:
                     raise DJInvalidInputException(
-                        f"Order by columns must be used as dimensions but found {col}.",
+                        f"Column {col} found in order-by clause must also be specified in the dimensions.",
                     )
             query.organization.order += temp_query.organization.order  # type:ignore
 
