@@ -157,6 +157,7 @@ async def test_build_metric_with_dimensions_filters(request):
     )
     expected = """
     SELECT
+        basic_DOT_dimension_DOT_users.age,
       COUNT(1) AS cnt
     FROM basic.source.comments AS basic_DOT_source_DOT_comments
     LEFT OUTER JOIN (

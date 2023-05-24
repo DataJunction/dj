@@ -80,8 +80,11 @@ def test_raise_on_unnamed_subquery_in_implicit_join(construction_session: Sessio
         exception=DJException(),
     )
     query.extract_dependencies(context)
-    assert "Column `country` found in multiple tables. Consider namespacing." in str(
-        context.exception.errors,
+    assert (
+        "Column `country` found in multiple tables. Consider using fully qualified name."
+        in str(
+            context.exception.errors,
+        )
     )
 
 
@@ -98,8 +101,11 @@ def test_raise_on_ambiguous_column(construction_session: Session):
         exception=DJException(),
     )
     query.compile(context)
-    assert "Column `country` found in multiple tables. Consider namespacing." in str(
-        context.exception.errors,
+    assert (
+        "Column `country` found in multiple tables. Consider using fully qualified name."
+        in str(
+            context.exception.errors,
+        )
     )
 
 

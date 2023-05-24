@@ -931,7 +931,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                         "columns": {
                             "default_DOT_avg_length_of_employment_plus_one": (
                                 "Incompatible types in binary operation NOW() - "
-                                "hard_hats.hire_date + 1. Got left timestamp, right int."
+                                "foo.bar.hard_hats.hire_date + 1. Got left timestamp, right int."
                             ),
                         },
                         "errors": [],
