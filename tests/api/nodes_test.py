@@ -584,6 +584,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert [
+            "default.messages.user_id",
             "default.us_users.age",
             "default.us_users.country",
             "default.us_users.created_at",
