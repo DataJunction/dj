@@ -433,7 +433,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         try:
             response = self._session.get(f"/nodes/{node_name}/")
             return response.json()
-        except DJClientException as exc:
+        except DJClientException as exc:  # pragma: no cover
             return exc.__dict__
 
     def get_cube(self, node_name: str):
@@ -579,6 +579,9 @@ class DJClient:  # pylint: disable=too-many-public-methods
                         " correctly.",
                     )
 
+                # Update the query state
+                job_state = models.QueryState(results["state"])
+
                 # Immediately return results if the job has finished
                 if job_state == models.QueryState.FINISHED:
                     if "results" in results and results["results"]:
@@ -590,8 +593,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
                         )
                     raise DJClientException("No data for query!")
 
-                # Update the query state and polling interval
-                job_state = models.QueryState(results["state"])
+                # Update the polling interval
                 time.sleep(poll_interval)
                 poll_interval *= 2
 
