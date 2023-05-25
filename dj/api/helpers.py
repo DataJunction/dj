@@ -18,6 +18,7 @@ from dj.errors import DJError, DJException, DJInvalidInputException, ErrorCode
 from dj.models import AttributeType, Catalog, Column, Engine
 from dj.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from dj.models.engine import Dialect
+from dj.models.history import EntityType, History
 from dj.models.node import (
     BuildCriteria,
     MissingParent,
@@ -568,3 +569,22 @@ def validate_cube(
         )
 
     return metrics, metric_nodes, dimension_nodes, dimensions, catalog
+
+
+def get_history(
+    session: Session,
+    entity_type: EntityType,
+    entity_name: str,
+    offset: int,
+    limit: int,
+):
+    """
+    Get the history for a given entity type and name
+    """
+    return session.exec(
+        select(History)
+        .where(History.entity_type == entity_type)
+        .where(History.entity_name == entity_name)
+        .offset(offset)
+        .limit(limit),
+    ).all()

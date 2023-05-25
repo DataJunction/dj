@@ -49,6 +49,7 @@ from dj.models.base import generate_display_name
 from dj.models.column import Column, ColumnAttributeInput
 from dj.models.cube import Measure
 from dj.models.engine import Dialect, Engine
+from dj.models.history import ActivityType, EntityType, History
 from dj.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -915,8 +916,17 @@ def create_a_source(
         parents=[],
     )
 
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=data.name,
+            activity_type=ActivityType.CREATE,
+        ),
+    )
+
     # Point the node to the new node revision.
     save_node(session, node_revision, node, data.mode)
+
     return node  # type: ignore
 
 

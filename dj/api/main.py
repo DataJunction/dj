@@ -23,6 +23,7 @@ from dj.api import (
     data,
     engines,
     health,
+    history,
     metrics,
     namespaces,
     nodes,
@@ -78,6 +79,7 @@ def get_dj_app(
     application.include_router(namespaces.router)
     application.include_router(data.router)
     application.include_router(health.router)
+    application.include_router(history.router)
     application.include_router(cubes.router)
     application.include_router(tags.router)
     application.include_router(attributes.router)
