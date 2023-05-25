@@ -50,6 +50,9 @@ uvicorn = [
     "uvicorn[standard]>=0.21.1",
 ]
 
+[project.entry-points.'superset.db_engine_specs']
+dj = 'dj.superset:DJEngineSpec'
+
 [tool.hatch.version]
 path = "dj/__about__.py"
 
