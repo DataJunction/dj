@@ -2,9 +2,25 @@
 # It is not intended for manual editing.
 
 [[package]]
+name = "about-time"
+version = "4.2.1"
+requires_python = ">=3.7, <4"
+summary = "Easily measure timing and throughput of code blocks, with beautiful human friendly representations."
+
+[[package]]
 name = "accept-types"
 version = "0.4.1"
 summary = "Determine the best content to send in an HTTP response"
+
+[[package]]
+name = "alive-progress"
+version = "3.1.2"
+requires_python = ">=3.7, <4"
+summary = "A new kind of Progress Bar, with real-time throughput, ETA, and very cool animations!"
+dependencies = [
+    "about-time==4.2.1",
+    "grapheme==0.6.0",
+]
 
 [[package]]
 name = "amqp"
@@ -181,7 +197,7 @@ dependencies = [
     "python-dotenv<1.0.0,>=0.19.0",
     "pyyaml<7.0,>=6.0",
     "redis<5.0.0,>=4.5.4",
-    "requests<3.0.0,>=2.28.2",
+    "requests<=2.29.0,>=2.28.2",
     "rich<14.0.0,>=13.3.3",
     "sqlalchemy-utils<1.0.0,>=0.40.0",
     "sqlalchemy<2.0.0,>=1.4.41",
@@ -231,6 +247,11 @@ name = "filelock"
 version = "3.12.0"
 requires_python = ">=3.7"
 summary = "A platform independent file lock."
+
+[[package]]
+name = "grapheme"
+version = "0.6.0"
+summary = "Unicode grapheme helpers"
 
 [[package]]
 name = "greenlet"
@@ -537,14 +558,14 @@ dependencies = [
 
 [[package]]
 name = "requests"
-version = "2.30.0"
+version = "2.29.0"
 requires_python = ">=3.7"
 summary = "Python HTTP for Humans."
 dependencies = [
     "certifi>=2017.4.17",
     "charset-normalizer<4,>=2",
     "idna<4,>=2.5",
-    "urllib3<3,>=1.21.1",
+    "urllib3<1.27,>=1.21.1",
 ]
 
 [[package]]
@@ -717,13 +738,22 @@ summary = "Backport of pathlib-compatible object wrapper for zip files"
 
 [metadata]
 lock_version = "4.2"
+cross_platform = true
 groups = ["default", "test"]
-content_hash = "sha256:307140b41a4d260574f69bc36c28c7068cb9a8f6cd779d0ec81652eb0aee261a"
+content_hash = "sha256:3ad015bc51f14ae17efaaa5bf6f657214665ccb579138c7308f8c561fe514240"
 
 [metadata.files]
+"about-time 4.2.1" = [
+    {url = "https://files.pythonhosted.org/packages/1c/3f/ccb16bdc53ebb81c1bf837c1ee4b5b0b69584fd2e4a802a2a79936691c0a/about-time-4.2.1.tar.gz", hash = "sha256:6a538862d33ce67d997429d14998310e1dbfda6cb7d9bbfbf799c4709847fece"},
+    {url = "https://files.pythonhosted.org/packages/fb/cd/7ee00d6aa023b1d0551da0da5fee3bc23c3eeea632fbfc5126d1fec52b7e/about_time-4.2.1-py3-none-any.whl", hash = "sha256:8bbf4c75fe13cbd3d72f49a03b02c5c7dca32169b6d49117c257e7eb3eaee341"},
+]
 "accept-types 0.4.1" = [
     {url = "https://files.pythonhosted.org/packages/08/24/559c0f1959134a0e7615a0ece082734209b1942365ec479cbe3bcca9098b/accept_types-0.4.1-py3-none-any.whl", hash = "sha256:c87feccdffb66b02f9343ff387d7fd5c451ccb2e1221fbd37ea0cedef5cf290f"},
     {url = "https://files.pythonhosted.org/packages/a3/84/6f51d94019411892c9f7fa9d461d4cef06beb35d54cd9944ea19728c4d45/accept-types-0.4.1.tar.gz", hash = "sha256:fb27099716d8f0360408c8ca86d69dbfed44455834b70d1506250abe521b535a"},
+]
+"alive-progress 3.1.2" = [
+    {url = "https://files.pythonhosted.org/packages/78/ae/6578d3b5e01f034e8099ea268272a922ac36093651229c4777648d6da6ab/alive-progress-3.1.2.tar.gz", hash = "sha256:b22ba960151f582cdd6d489c56462d2f9adca821608075d0d8d2cd15d1b6845b"},
+    {url = "https://files.pythonhosted.org/packages/d8/ee/73c4f15227a268c296b6e4619821415eff6d32275581a3836348781c4a16/alive_progress-3.1.2-py3-none-any.whl", hash = "sha256:d2b89b60fee2f112668117a9f361ceea44a685a37cafd009f396b87b9816efa3"},
 ]
 "amqp 5.1.1" = [
     {url = "https://files.pythonhosted.org/packages/cb/e7/bcaab89065e17915a28247fa5d4f582ca107b4544e2b1aba92d32f794a0f/amqp-5.1.1.tar.gz", hash = "sha256:2c1b13fecc0893e946c65cbd5f36427861cffa4ea2201d8f6fca22e2a373b5e2"},
@@ -946,6 +976,9 @@ content_hash = "sha256:307140b41a4d260574f69bc36c28c7068cb9a8f6cd779d0ec81652eb0
 "filelock 3.12.0" = [
     {url = "https://files.pythonhosted.org/packages/24/85/cf4df939cc0a037ebfe18353005e775916faec24dcdbc7a2f6539ad9d943/filelock-3.12.0.tar.gz", hash = "sha256:fc03ae43288c013d2ea83c8597001b1129db351aad9c57fe2409327916b8e718"},
     {url = "https://files.pythonhosted.org/packages/ad/73/b094a662ae05cdc4ec95bc54e434e307986a5de5960166b8161b7c1373ee/filelock-3.12.0-py3-none-any.whl", hash = "sha256:ad98852315c2ab702aeb628412cbf7e95b7ce8c3bf9565670b4eaecf1db370a9"},
+]
+"grapheme 0.6.0" = [
+    {url = "https://files.pythonhosted.org/packages/ce/e7/bbaab0d2a33e07c8278910c1d0d8d4f3781293dfbc70b5c38197159046bf/grapheme-0.6.0.tar.gz", hash = "sha256:44c2b9f21bbe77cfb05835fec230bd435954275267fea1858013b102f8603cca"},
 ]
 "greenlet 2.0.2" = [
     {url = "https://files.pythonhosted.org/packages/07/ef/6bfa2ea34f76dea02833d66d28ae7cf4729ddab74ee93ee069c7f1d47c4f/greenlet-2.0.2-cp37-cp37m-macosx_10_15_x86_64.whl", hash = "sha256:d5508f0b173e6aa47273bdc0a0b5ba055b59662ba7c7ee5119528f466585526b"},
@@ -1392,9 +1425,9 @@ content_hash = "sha256:307140b41a4d260574f69bc36c28c7068cb9a8f6cd779d0ec81652eb0
     {url = "https://files.pythonhosted.org/packages/53/30/128c5599bc3fa61488866be0228326b3e486be34480126f70e572043adf8/redis-4.5.5.tar.gz", hash = "sha256:dc87a0bdef6c8bfe1ef1e1c40be7034390c2ae02d92dcd0c7ca1729443899880"},
     {url = "https://files.pythonhosted.org/packages/e0/7f/21a09f8c9f5db6f5e24432f7a0f916ca386025d74e4da6d0f5164aa9a78a/redis-4.5.5-py3-none-any.whl", hash = "sha256:77929bc7f5dab9adf3acba2d3bb7d7658f1e0c2f1cafe7eb36434e751c471119"},
 ]
-"requests 2.30.0" = [
-    {url = "https://files.pythonhosted.org/packages/96/80/034ffeca15c0f4e01b7b9c6ad0fb704b44e190cde4e757edbd60be404c41/requests-2.30.0-py3-none-any.whl", hash = "sha256:10e94cc4f3121ee6da529d358cdaeaff2f1c409cd377dbc72b825852f2f7e294"},
-    {url = "https://files.pythonhosted.org/packages/e0/69/122171604bcef06825fa1c05bd9e9b1d43bc9feb8c6c0717c42c92cc6f3c/requests-2.30.0.tar.gz", hash = "sha256:239d7d4458afcb28a692cdd298d87542235f4ca8d36d03a15bfc128a6559a2f4"},
+"requests 2.29.0" = [
+    {url = "https://files.pythonhosted.org/packages/4c/d2/70fc708727b62d55bc24e43cc85f073039023212d482553d853c44e57bdb/requests-2.29.0.tar.gz", hash = "sha256:f2e34a75f4749019bb0e3effb66683630e4ffeaf75819fb51bebef1bf5aef059"},
+    {url = "https://files.pythonhosted.org/packages/cf/e1/2aa539876d9ed0ddc95882451deb57cfd7aa8dbf0b8dbce68e045549ba56/requests-2.29.0-py3-none-any.whl", hash = "sha256:e8f3c9be120d3333921d213eef078af392fba3933ab7ed2d1cba3b56f2568c3b"},
 ]
 "responses 0.23.1" = [
     {url = "https://files.pythonhosted.org/packages/72/6a/64c85e69c6a7b02e828ed193b2fc15e3ff6581f87501666b98feabc54809/responses-0.23.1-py3-none-any.whl", hash = "sha256:8a3a5915713483bf353b6f4079ba8b2a29029d1d1090a503c70b0dc5d9d0c7bd"},

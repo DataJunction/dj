@@ -2,8 +2,8 @@
 import pytest
 
 from datajunction import DJClient
-from datajunction.client import Column, Engine, MaterializationConfig, NodeMode
 from datajunction.exceptions import DJClientException
+from datajunction.models import Column, Engine, MaterializationConfig, NodeMode
 
 
 class TestDJClient:

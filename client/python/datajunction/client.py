@@ -2,9 +2,9 @@
 import abc
 
 # pylint: disable=redefined-outer-name, import-outside-toplevel
-import enum
 import logging
 import platform
+import time
 import warnings
 from typing import Any, Dict, List, Optional, Union
 from urllib.parse import urljoin
@@ -20,9 +20,11 @@ except ImportError:  # pragma: no cover
         ImportWarning,
     )
 import requests
+from alive_progress import alive_bar
 from pydantic import BaseModel, Field, validator
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
+from datajunction import models
 from datajunction.exceptions import DJClientException
 
 DEFAULT_NAMESPACE = "default"
@@ -57,7 +59,19 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
         Make the request with the full URL.
         """
         url = self.construct_url(url)
-        return super().request(method, url, *args, **kwargs)
+        try:
+            response = super().request(method, url, *args, **kwargs)
+            response.raise_for_status()
+            return response
+        except requests.exceptions.RequestException as exc:
+            error_message = None
+            if exc.response.headers.get("Content-Type") == "application/json":
+                error_message = exc.response.json().get("message")
+            if not error_message:
+                error_message = (
+                    f"Request failed with status code {exc.response.status_code}"
+                )
+            raise DJClientException(error_message) from exc
 
     def prepare_request(self, request, *args, **kwargs):
         """
@@ -75,63 +89,6 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
         Construct full URL based off the endpoint.
         """
         return urljoin(self.endpoint, url)
-
-
-class Engine(BaseModel):
-    """
-    Represents an engine
-    """
-
-    name: str
-    version: Optional[str]
-
-
-class MaterializationConfig(BaseModel):
-    """
-    A node's materialization config
-    """
-
-    engine: Engine
-    schedule: str
-    config: Dict
-
-
-class NodeMode(str, enum.Enum):
-    """
-    DJ node's mode
-    """
-
-    DRAFT = "draft"
-    PUBLISHED = "published"
-
-
-class SourceColumn(BaseModel):
-    """
-    A column used in creation of a source node
-    """
-
-    name: str
-    type: str
-    attributes: Optional[str]
-    dimension: Optional[str]
-
-
-class UpdateNode(BaseModel):
-    """
-    Fields for updating a node
-    """
-
-    display_name: Optional[str]
-    description: Optional[str]
-    mode: Optional[NodeMode]
-    primary_key: Optional[List[str]]
-    query: Optional[str]
-
-    # source nodes only
-    catalog: Optional[str]
-    schema_: Optional[str]
-    table: Optional[str]
-    columns: Optional[List[SourceColumn]] = []
 
 
 class DJClient:  # pylint: disable=too-many-public-methods
@@ -178,9 +135,9 @@ class DJClient:  # pylint: disable=too-many-public-methods
         table: str,
         description: Optional[str] = None,
         display_name: Optional[str] = None,
-        columns: Optional[List["Column"]] = None,
+        columns: Optional[List[models.Column]] = None,
         primary_key: Optional[List[str]] = None,
-        tags: Optional[List["Tag"]] = None,
+        tags: Optional[List[models.Tag]] = None,
     ) -> "Source":
         """
         Instantiates a new Source object with the given parameters.
@@ -215,7 +172,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         primary_key: Optional[List[str]] = None,
-        tags: Optional[List["Tag"]] = None,
+        tags: Optional[List[models.Tag]] = None,
     ) -> "Transform":
         """
         Instantiates a new Transform object with the given parameters.
@@ -247,7 +204,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         primary_key: Optional[List[str]],
         description: Optional[str] = None,
         display_name: Optional[str] = None,
-        tags: Optional[List["Tag"]] = None,
+        tags: Optional[List[models.Tag]] = None,
     ) -> "Dimension":
         """
         Instantiates a new Dimension object with the given parameters.
@@ -279,7 +236,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         description: Optional[str] = None,
         display_name: Optional[str] = None,
         primary_key: Optional[List[str]] = None,
-        tags: Optional[List["Tag"]] = None,
+        tags: Optional[List[models.Tag]] = None,
     ) -> "Metric":
         """
         Instantiates a new Metric object with the given parameters.
@@ -423,7 +380,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         )
         return response
 
-    def create_node(self, node: "Node", mode: "NodeMode"):
+    def create_node(self, node: "Node", mode: models.NodeMode):
         """
         Helper function to create a node.
         """
@@ -462,7 +419,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         )
         return response.json()
 
-    def update_node(self, node_name: str, update_input: UpdateNode):
+    def update_node(self, node_name: str, update_input: models.UpdateNode):
         """
         Retrieves a node.
         """
@@ -473,8 +430,11 @@ class DJClient:  # pylint: disable=too-many-public-methods
         """
         Retrieves a node.
         """
-        response = self._session.get(f"/nodes/{node_name}/")
-        return response.json()
+        try:
+            response = self._session.get(f"/nodes/{node_name}/")
+            return response.json()
+        except DJClientException as exc:
+            return exc.__dict__
 
     def get_cube(self, node_name: str):
         """
@@ -583,33 +543,66 @@ class DJClient:  # pylint: disable=too-many-public-methods
                     "disabled. You can install pandas by running `pip install pandas`."
                 ),
             ) from exc
-        response = self._session.get(
-            "/data/",
-            params={
-                "metrics": metrics,
-                "dimensions": dimensions,
-                "filters": filters,
-                "engine_name": engine_name or self.engine_name,
-                "engine_version": engine_version or self.engine_version,
-            },
-        )
-        results = response.json()
-        if not response.ok:
-            raise DJClientException(f"Error retrieving data: {response.text}")
-        if results["state"] != "FINISHED":
-            raise DJClientException(
-                f"Query state {results['state']}, errors: {results['errors']}",
-            )
-        if not results["results"]:
-            raise DJClientException("No data returned for requested set")
-        columns = results["results"][0]["columns"]
-        rows = results["results"][0]["rows"]
-        return pd.DataFrame(rows, columns=[col["name"] for col in columns])
+
+        with alive_bar(
+            title="Processing",
+            length=20,
+            bar="smooth",
+            force_tty=True,
+            calibration=5e40,
+        ) as progress_bar:
+            poll_interval = 1  # Initial polling interval in seconds
+            job_state = models.QueryState.UNKNOWN
+            results = None
+            while job_state not in models.END_JOB_STATES:
+                progress_bar()  # pylint: disable=not-callable
+                response = self._session.get(
+                    "/data/",
+                    params={
+                        "metrics": metrics,
+                        "dimensions": dimensions,
+                        "filters": filters,
+                        "engine_name": engine_name or self.engine_name,
+                        "engine_version": engine_version or self.engine_version,
+                        "async_": True,
+                    },
+                )
+                results = response.json()
+
+                # Raise errors if any
+                if not response.ok:
+                    raise DJClientException(f"Error retrieving data: {response.text}")
+                if results["state"] not in models.QueryState.list():
+                    raise DJClientException(
+                        f"Query state {results['state']} is not a DJ-parseable query state!"
+                        " Please reach out to your server admin to make sure DJ is configured"
+                        " correctly.",
+                    )
+
+                # Immediately return results if the job has finished
+                if job_state == models.QueryState.FINISHED:
+                    if "results" in results and results["results"]:
+                        columns = results["results"][0]["columns"]
+                        rows = results["results"][0]["rows"]
+                        return pd.DataFrame(
+                            rows,
+                            columns=[col["name"] for col in columns],
+                        )
+                    raise DJClientException("No data for query!")
+
+                # Update the query state and polling interval
+                job_state = models.QueryState(results["state"])
+                time.sleep(poll_interval)
+                poll_interval *= 2
+
+            columns = results["results"][0]["columns"]  # type: ignore
+            rows = results["results"][0]["rows"]  # type: ignore
+            return pd.DataFrame(rows, columns=[col["name"] for col in columns])
 
     def upsert_materialization_config(
         self,
         node_name: str,
-        config: "MaterializationConfig",
+        config: models.MaterializationConfig,
     ):
         """
         Upserts a materialization config for the node.
@@ -619,25 +612,6 @@ class DJClient:  # pylint: disable=too-many-public-methods
             json=config.dict(),
         )
         return response.json()
-
-
-class Column(BaseModel):
-    """
-    Represents a column
-    """
-
-    name: str
-    type: str
-
-
-class Tag(BaseModel):
-    """
-    Node tags
-    """
-
-    name: str
-    display_name: str
-    tag_type: str
 
 
 class ClientEntity(BaseModel):
@@ -665,15 +639,15 @@ class Node(ClientEntity):
     name: str
     description: Optional[str]
     type: str
-    mode: Optional[NodeMode]
+    mode: Optional[models.NodeMode]
     display_name: Optional[str]
     availability: Optional[Dict]
-    tags: Optional[List[Tag]]
+    tags: Optional[List[models.Tag]]
     primary_key: Optional[List[str]]
     materialization_configs: Optional[List[Dict[str, Any]]]
     version: Optional[str]
 
-    def save(self, mode: NodeMode = NodeMode.PUBLISHED):
+    def save(self, mode: models.NodeMode = models.NodeMode.PUBLISHED):
         """
         Sets the node's mode to PUBLISHED and pushes it to the server.
         """
@@ -721,7 +695,7 @@ class Node(ClientEntity):
         self.sync()
         return link_response
 
-    def add_materialization_config(self, config: "MaterializationConfig"):
+    def add_materialization_config(self, config: models.MaterializationConfig):
         """
         Adds a materialization config for the node. This will not work for source nodes
         as they don't need to be materialized.
@@ -796,7 +770,7 @@ class Source(Node):
     catalog: str
     schema_: str
     table: str
-    columns: Optional[List[Column]]
+    columns: Optional[List[models.Column]]
 
     @validator("catalog", pre=True)
     def parse_cls(  # pylint: disable=no-self-argument
@@ -815,7 +789,7 @@ class Source(Node):
         """
         Update the node for fields that have changed
         """
-        update_node = UpdateNode(
+        update_node = models.UpdateNode(
             display_name=self.display_name,
             description=self.description,
             mode=self.mode,
@@ -839,7 +813,7 @@ class NodeWithQuery(Node):
         """
         Update the node for fields that have changed
         """
-        update_node = UpdateNode(
+        update_node = models.UpdateNode(
             display_name=self.display_name,
             description=self.description,
             mode=self.mode,
@@ -855,7 +829,7 @@ class Transform(NodeWithQuery):
     """
 
     type: str = "transform"
-    columns: Optional[List[Column]]
+    columns: Optional[List[models.Column]]
 
 
 class Metric(NodeWithQuery):
@@ -864,7 +838,7 @@ class Metric(NodeWithQuery):
     """
 
     type: str = "metric"
-    columns: Optional[List[Column]]
+    columns: Optional[List[models.Column]]
 
     def dimensions(self):
         """
@@ -881,7 +855,7 @@ class Dimension(NodeWithQuery):
 
     type: str = "dimension"
     query: str
-    columns: Optional[List[Column]]
+    columns: Optional[List[models.Column]]
 
 
 class Cube(Node):  # pylint: disable=abstract-method
@@ -894,7 +868,7 @@ class Cube(Node):  # pylint: disable=abstract-method
     metrics: List[str]
     dimensions: List[str]
     filters: Optional[List[str]]
-    columns: Optional[List[Column]]
+    columns: Optional[List[models.Column]]
 
     def update(self):  # pragma: no cover
         pass

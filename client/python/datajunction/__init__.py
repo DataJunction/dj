@@ -7,15 +7,13 @@ from datajunction.client import (
     Cube,
     Dimension,
     DJClient,
-    Engine,
-    MaterializationConfig,
     Metric,
     Namespace,
     Node,
-    NodeMode,
     Source,
     Transform,
 )
+from datajunction.models import Engine, MaterializationConfig, NodeMode
 
 try:
     # Change here if project is renamed and does not equal the package name
