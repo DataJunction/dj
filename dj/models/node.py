@@ -466,24 +466,27 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
 
         tree = parse(query)
         projection_0 = tree.select.projection[0]
-        # the expression has to be something we can get a name out of
-        if not hasattr(projection_0, "alias_or_name"):
-            raise DJInvalidInputException(
-                f"Metric expression of type {type(projection_0).__name__} "
-                f"must be aliased as the node name: `{amenable_name(name)}`",
-            )
+
         # if the name is not what we expect, check if it is an alias
         # if it is an alias, we will raise because the user will have
         # deliberately named this expression
         # otherwise, we will just add the alias we want e.g. the node name
-        expr_name: ast.Name = projection_0.alias_or_name  # type: ignore
-        if expr_name.name != amenable_name(name):
-            if expr_name.parent_key == "alias":
-                raise DJInvalidInputException(
-                    "Invalid Metric. The expression in the projection "
-                    "cannot have alias different from the node name. Got "
-                    f"`{expr_name}` but expected `{amenable_name(name)}`",
-                )
+        expr_name: Optional[ast.Name] = (
+            projection_0.alias_or_name  # type: ignore
+            if hasattr(projection_0, "alias")
+            else None
+        )
+        if (
+            expr_name
+            and expr_name.parent_key == "alias"
+            and expr_name.name != amenable_name(name)
+        ):
+            raise DJInvalidInputException(
+                "Invalid Metric. The expression in the projection "
+                "cannot have alias different from the node name. Got "
+                f"`{expr_name}` but expected `{amenable_name(name)}`",
+            )
+        if not expr_name or expr_name and expr_name.parent_key != "alias":
             tree.select.projection[0] = projection_0.set_alias(
                 ast.Name(amenable_name(name)),
             )

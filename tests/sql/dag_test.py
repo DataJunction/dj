@@ -68,4 +68,4 @@ def test_get_dimensions() -> None:
     )
     child_ref.current = child
 
-    assert get_dimensions(child_ref) == ["B.attribute", "B.id"]
+    assert get_dimensions(child_ref) == ["A.b_id", "B.attribute", "B.id"]
