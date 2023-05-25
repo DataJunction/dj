@@ -173,6 +173,7 @@ def test_common_dimensions(
             "default.repair_order.order_date",
             "default.repair_order.repair_order_id",
             "default.repair_order.required_date",
+            "default.repair_order_details.repair_order_id",
             "default.us_state.state_id",
             "default.us_state.state_name",
             "default.us_state.state_region",
@@ -265,6 +266,7 @@ def test_get_dimensions(client_with_examples: TestClient):
         "default.repair_order.order_date",
         "default.repair_order.repair_order_id",
         "default.repair_order.required_date",
+        "default.repair_order_details.repair_order_id",
         "default.us_state.state_id",
         "default.us_state.state_name",
         "default.us_state.state_region",
@@ -307,9 +309,9 @@ def test_type_inference_structs(client_with_examples: TestClient):
     response.json()
 
 
-def test_raise_on_non_named_expression(client_with_examples: TestClient):
+def test_metric_expression_auto_aliased(client_with_examples: TestClient):
     """
-    Testing raising when a name can't be retrieved
+    Testing that a metric's expression column is automatically aliased
     """
     client_with_examples.post(
         "/nodes/source/",
@@ -338,11 +340,10 @@ def test_raise_on_non_named_expression(client_with_examples: TestClient):
             "name": "basic.dream_count",
         },
     )
-    assert response.status_code == 422
-    assert (
-        "Metric expression of type BinaryOp must "
-        "be aliased as the node name: `basic_DOT_dream_count`"
-    ) in response.json()["message"]
+    assert response.status_code == 201
+    assert response.json()["query"] == (
+        "SELECT  SUM(counts.b) + SUM(counts.b) basic_DOT_dream_count \n FROM basic.dreams\n"
+    )
 
 
 def test_raise_on_malformated_expression_alias(client_with_examples: TestClient):

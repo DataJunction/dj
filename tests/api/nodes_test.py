@@ -549,6 +549,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert [
+            "default.messages.user_id",
             "default.us_users.age",
             "default.us_users.country",
             "default.us_users.created_at",
@@ -569,7 +570,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # The deactivated dimension's attributes should no longer be available to the metric
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
-        assert [] == response.json()["dimensions"]
+        assert ["default.messages.user_id"] == response.json()["dimensions"]
         # The metric should still be VALID
         response = client.get("/nodes/default.num_messages/")
         assert response.json()["status"] == NodeStatus.VALID
@@ -583,6 +584,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert [
+            "default.messages.user_id",
             "default.us_users.age",
             "default.us_users.country",
             "default.us_users.created_at",
