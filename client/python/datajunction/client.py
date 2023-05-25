@@ -549,7 +549,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
             length=20,
             bar="smooth",
             force_tty=True,
-            calibration=5e40,
+            calibrate=5e40,
         ) as progress_bar:
             poll_interval = 1  # Initial polling interval in seconds
             job_state = models.QueryState.UNKNOWN
