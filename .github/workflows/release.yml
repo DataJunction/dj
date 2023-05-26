@@ -55,7 +55,7 @@ jobs:
       - name: Tag release
         run: |
           export NEW_VERSION=v$(hatch version)
-          export LIBRARY=${{ steps.changes.outputs.server ? "server" : "client" }}
+          export LIBRARY=${{ steps.changes.outputs.server && 'server' || 'client'  }}
           git tag -a $NEW_VERSION-$LIBRARY -m $NEW_VERSION-$LIBRARY
           git push origin $NEW_VERSION-$LIBRARY
         env:
