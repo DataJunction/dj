@@ -106,3 +106,9 @@ repos:
   rev: 2.6.1
   hooks:
     - id: pdm-lock-check
+#    - id: pdm-export
+#      args: ['-o', 'requirements/docker.txt', '--without-hashes', '--prod']
+#      files: ^pdm.lock$
+#    - id: pdm-export
+#      args: ['-o', 'requirements/test.txt', '--without-hashes', '--dev']
+#      files: ^pdm.lock$

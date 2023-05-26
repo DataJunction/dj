@@ -1,6 +1,0 @@
-# include test dependencies so we can run tests inside Docker
--r test.in
-
-alembic>=1.7.7
-uvicorn==0.17.6
-psycopg2-binary>=2.9.3
