@@ -30,8 +30,8 @@ dependencies = [
 
 [[package]]
 name = "antlr4-python3-runtime"
-version = "4.13.0"
-summary = "ANTLR 4.13.0 runtime for Python 3"
+version = "4.12.0"
+summary = "ANTLR 4.12.0 runtime for Python 3"
 
 [[package]]
 name = "anyio"
@@ -824,7 +824,7 @@ summary = "Backport of pathlib-compatible object wrapper for zip files"
 lock_version = "4.2"
 cross_platform = true
 groups = ["default", "test", "uvicorn"]
-content_hash = "sha256:de25b183156033ecb9dbaeef5b35149d315b039ce972d613f178477aa12adb44"
+content_hash = "sha256:a453a49714da01659ef37cefb893242624e68f9679606503a0ce7e430c8f30b3"
 
 [metadata.files]
 "accept-types 0.4.1" = [
@@ -839,9 +839,9 @@ content_hash = "sha256:de25b183156033ecb9dbaeef5b35149d315b039ce972d613f178477aa
     {url = "https://files.pythonhosted.org/packages/cb/e7/bcaab89065e17915a28247fa5d4f582ca107b4544e2b1aba92d32f794a0f/amqp-5.1.1.tar.gz", hash = "sha256:2c1b13fecc0893e946c65cbd5f36427861cffa4ea2201d8f6fca22e2a373b5e2"},
     {url = "https://files.pythonhosted.org/packages/de/a3/e7b3b9d34239bae066df135060e225929d639731050c920fdc740d6b7897/amqp-5.1.1-py3-none-any.whl", hash = "sha256:6f0956d2c23d8fa6e7691934d8c3930eadb44972cbbd1a7ae3a520f735d43359"},
 ]
-"antlr4-python3-runtime 4.13.0" = [
-    {url = "https://files.pythonhosted.org/packages/44/ff/72821c7790e33cd54bfd4b4a948da4cc240a6533aa26061d246a290c9166/antlr4_python3_runtime-4.13.0-py3-none-any.whl", hash = "sha256:53e6e208cf4a1ad53fb8b1b4467b756375a4f827331e290618aedcf481cb1d5c"},
-    {url = "https://files.pythonhosted.org/packages/e3/fe/db1120682e306744a3cc3ae06fc26692d95da5b8432382d8e86140f0afc6/antlr4-python3-runtime-4.13.0.tar.gz", hash = "sha256:0d5454928ae40c8a6b653caa35046cd8492c8743b5fbc22ff4009099d074c7ae"},
+"antlr4-python3-runtime 4.12.0" = [
+    {url = "https://files.pythonhosted.org/packages/2c/be/14afc05b4789239a9d597a7fdb64abe5d7babb3a28563dc96d9c53c880f7/antlr4_python3_runtime-4.12.0-py3-none-any.whl", hash = "sha256:2c08f4dfbdc7dfd10f680681a96a55579c1e4f866f01d27099c9a54027923d70"},
+    {url = "https://files.pythonhosted.org/packages/f5/4a/9335ed671e57bc8cc0a6ef7f17652b978f7098db56e29b9bea5eb7bf4a19/antlr4-python3-runtime-4.12.0.tar.gz", hash = "sha256:0a8b82f55032734f43ed6b60b8a48c25754721a75cd714eb1fe9ce6ed418b361"},
 ]
 "anyio 3.6.2" = [
     {url = "https://files.pythonhosted.org/packages/77/2b/b4c0b7a3f3d61adb1a1e0b78f90a94e2b6162a043880704b7437ef297cad/anyio-3.6.2-py3-none-any.whl", hash = "sha256:fbbe32bd270d2a2ef3ed1c5d45041250284e31fc0a4df4a5a6071842051a51e3"},
