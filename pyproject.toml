@@ -13,10 +13,11 @@ authors = [
     {name = "DataJunction Authors", email = "yian.shang@gmail.com"},
 ]
 dependencies = [
+    "alembic>=1.10.3",
     "PyYAML<7.0,>=6.0",
     "SQLAlchemy-Utils<1.0.0,>=0.40.0",
     "accept-types<1.0.0,>=0.4.1",
-    "antlr4-python3-runtime<5.0.0,>=4.12.0",
+    "antlr4-python3-runtime==4.12.0",
     "asciidag<1.0.0,>=0.2.0",
     "cachelib<1.0.0,>=0.10.2",
     "celery<6.0.0,>=5.2.7",
@@ -61,7 +62,6 @@ repository = "https://github.com/DataJunction/dj"
 
 [tool.pdm.dev-dependencies]
 test = [
-    "alembic>=1.10.3",
     "codespell>=2.2.4",
     "freezegun>=1.2.2",
     "pre-commit>=3.2.2",
@@ -73,7 +73,15 @@ test = [
     "pytest>=7.3.0",
     "requests-mock>=1.10.0",
     "typing-extensions>=4.5.0",
-]
-dev = [
     "pytest-xdist>=3.3.0",
 ]
+
+[[tool.pdm.autoexport]]
+filename = "requirements/docker.txt"
+groups = ["default", "uvicorn"]
+without-hashes = true
+
+[[tool.pdm.autoexport]]
+filename = "requirements/test.txt"
+groups = ["default", "test"]
+without-hashes = true

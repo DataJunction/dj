@@ -40,8 +40,10 @@ jobs:
           architecture: x64
           prerelease: true
           enable-pep582: true
+
       - name: Install dependencies
-        run: pdm install
+        run: pdm sync -d
+
       - name: Python Linters
         run: |
           pdm run pre-commit run --all-files
