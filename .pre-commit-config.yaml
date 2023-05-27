@@ -103,6 +103,6 @@ repos:
     - id: black-nb
       files: '\.ipynb$'
 - repo: https://github.com/pdm-project/pdm
-  rev: 2.5.3
+  rev: 2.6.1
   hooks:
     - id: pdm-lock-check
