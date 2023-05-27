@@ -4,12 +4,10 @@ on:
     branches: [ main ]
     paths:
       - 'dj/__about__.py'
-      - 'datajunction/__about__.py'
+      - 'client/python/datajunction/__about__.py'
 
 jobs:
   publish:
-    env:
-      PDM_DEPS: 'urllib3<2'
     strategy:
       fail-fast: false
       matrix:
@@ -30,14 +28,6 @@ jobs:
           python -m pip install --upgrade pip
           pip install hatch
 
-      - uses: pdm-project/setup-pdm@v3
-        name: Setup PDM
-        with:
-          python-version: ${{ matrix.python-version }}
-          architecture: x64
-          prerelease: true
-          enable-pep582: true
-
       - name: Configure Git
         run: |
           git config user.name "GitHub Actions Bot"
@@ -50,7 +40,7 @@ jobs:
               server:
                 - 'dj/__about__.py'
               client:
-                - 'datajunction/__about__.py'
+                - 'client/python/datajunction/__about__.py'
 
       - name: Tag release
         run: |
@@ -71,7 +61,7 @@ jobs:
 
       - name: Create Github release
         run: |
-          export LIBRARY=${{ "server" ? steps.changes.outputs.server : "client" }}
+          export LIBRARY=${{ steps.changes.outputs.server && 'server' || 'client' }}
           gh release create $(hatch version)-$LIBRARY --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}

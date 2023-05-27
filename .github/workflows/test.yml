@@ -12,6 +12,8 @@ concurrency:
 
 jobs:
   build:
+    env:
+      PDM_DEPS: 'urllib3<2'
     runs-on: ubuntu-latest
 
     strategy:
@@ -36,12 +38,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           architecture: x64
-          cache: true
           prerelease: true
           enable-pep582: true
-          version: head
-        env:
-          PDM_DEPS: "urllib3<2"
 
       - name: Install dependencies
         run: pdm sync -d

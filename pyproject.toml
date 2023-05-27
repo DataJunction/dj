@@ -17,7 +17,7 @@ dependencies = [
     "PyYAML<7.0,>=6.0",
     "SQLAlchemy-Utils<1.0.0,>=0.40.0",
     "accept-types<1.0.0,>=0.4.1",
-    "antlr4-python3-runtime<5.0.0,>=4.12.0",
+    "antlr4-python3-runtime==4.12.0",
     "asciidag<1.0.0,>=0.2.0",
     "cachelib<1.0.0,>=0.10.2",
     "celery<6.0.0,>=5.2.7",

@@ -31,8 +31,6 @@ spellcheck:
 
 check:
 	pdm run pre-commit run --all-files
-	pdm export -o requirements/docker.txt --without-hashes --prod
-	pdm export -o requirements/test.txt --without-hashes --dev
 
 version:
 	@hatch version $(v)
