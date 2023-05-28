@@ -523,6 +523,20 @@ class DJClient:  # pylint: disable=too-many-public-methods
             return response.json()["sql"]
         return response.json()
 
+    @staticmethod
+    def results_to_dataframe(results) -> pd.DataFrame:
+        """
+        Return a pandas dataframe of the results.
+        """
+        if "results" in results and results["results"]:
+            columns = results["results"][0]["columns"]
+            rows = results["results"][0]["rows"]
+            return pd.DataFrame(
+                rows,
+                columns=[col["name"] for col in columns],
+            )
+        raise DJClientException("No data for query!")
+
     def data(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         metrics: List[str],
@@ -530,20 +544,10 @@ class DJClient:  # pylint: disable=too-many-public-methods
         filters: List[str],
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
-    ):  # pragma: no cover
+    ):
         """
         Retrieves the data for the node with the provided dimensions and filters.
         """
-        try:
-            import pandas as pd  # noqa: F811
-        except ImportError as exc:
-            raise RuntimeError(
-                (
-                    "Optional dependency `pandas` not found, data retrieval"
-                    "disabled. You can install pandas by running `pip install pandas`."
-                ),
-            ) from exc
-
         printed_links = False
         with alive_bar(
             title="Processing",
@@ -574,7 +578,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
                 if not response.ok:
                     raise DJClientException(f"Error retrieving data: {response.text}")
                 if results["state"] not in models.QueryState.list():
-                    raise DJClientException(
+                    raise DJClientException(  # pragma: no cover
                         f"Query state {results['state']} is not a DJ-parseable query state!"
                         " Please reach out to your server admin to make sure DJ is configured"
                         " correctly.",
@@ -582,7 +586,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
 
                 # Update the query state and print links if any
                 job_state = models.QueryState(results["state"])
-                if not printed_links and results["links"]:
+                if not printed_links and results["links"]:  # pragma: no cover
                     print(
                         "Links:\n"
                         + "\n".join([f"\t* {link}" for link in results["links"]]),
@@ -590,24 +594,18 @@ class DJClient:  # pylint: disable=too-many-public-methods
                     printed_links = True
                 progress_bar.title = f"Status: {job_state.value}"
 
-                # Immediately return results if the job has finished
-                if job_state == models.QueryState.FINISHED:
-                    if "results" in results and results["results"]:
-                        columns = results["results"][0]["columns"]
-                        rows = results["results"][0]["rows"]
-                        return pd.DataFrame(
-                            rows,
-                            columns=[col["name"] for col in columns],
-                        )
-                    raise DJClientException("No data for query!")
-
                 # Update the polling interval
                 time.sleep(poll_interval)
                 poll_interval *= 2
 
-            columns = results["results"][0]["columns"]  # type: ignore
-            rows = results["results"][0]["rows"]  # type: ignore
-            return pd.DataFrame(rows, columns=[col["name"] for col in columns])
+            # Return results if the job has finished
+            if job_state == models.QueryState.FINISHED:
+                return self.results_to_dataframe(results)
+            if job_state == models.QueryState.CANCELED:  # pragma: no cover
+                raise DJClientException("Query execution was canceled!")
+            raise DJClientException(  # pragma: no cover
+                f"Error retrieving data: {response.text}",
+            )
 
     def upsert_materialization_config(
         self,
