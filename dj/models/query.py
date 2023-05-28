@@ -102,6 +102,7 @@ class QueryWithResults(BaseSQLModel):
     next: Optional[AnyHttpUrl] = None
     previous: Optional[AnyHttpUrl] = None
     errors: List[str]
+    links: Optional[List[AnyHttpUrl]] = None
 
     @validator("scheduled", pre=True)
     def parse_scheduled_date_string(cls, value):  # pylint: disable=no-self-argument

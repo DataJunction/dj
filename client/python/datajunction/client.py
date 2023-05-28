@@ -523,7 +523,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
             return response.json()["sql"]
         return response.json()
 
-    def data(  # pylint: disable=too-many-arguments
+    def data(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         metrics: List[str],
         dimensions: List[str],
@@ -544,6 +544,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
                 ),
             ) from exc
 
+        printed_links = False
         with alive_bar(
             title="Processing",
             length=20,
@@ -579,8 +580,15 @@ class DJClient:  # pylint: disable=too-many-public-methods
                         " correctly.",
                     )
 
-                # Update the query state
+                # Update the query state and print links if any
                 job_state = models.QueryState(results["state"])
+                if not printed_links and results["links"]:
+                    print(
+                        "Links:\n"
+                        + "\n".join([f"\t* {link}" for link in results["links"]]),
+                    )
+                    printed_links = True
+                progress_bar.title = f"Status: {job_state.value}"
 
                 # Immediately return results if the job has finished
                 if job_state == models.QueryState.FINISHED:
