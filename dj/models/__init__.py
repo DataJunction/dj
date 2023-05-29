@@ -9,6 +9,7 @@ __all__ = [
     "Column",
     "Database",
     "Engine",
+    "History",
     "Node",
     "NodeRevision",
     "Table",
@@ -20,6 +21,7 @@ from dj.models.catalog import Catalog
 from dj.models.column import Column
 from dj.models.database import Database
 from dj.models.engine import Engine
+from dj.models.history import History
 from dj.models.node import Node, NodeRevision
 from dj.models.table import Table
 from dj.models.tag import Tag
