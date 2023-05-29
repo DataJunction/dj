@@ -76,6 +76,7 @@ def test_msgpack() -> None:
         "next": None,
         "previous": None,
         "errors": [],
+        "links": None,
     }
 
 

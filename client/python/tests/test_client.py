@@ -1,9 +1,10 @@
 """Tests DJ client"""
+import pandas
 import pytest
 
 from datajunction import DJClient
-from datajunction.client import Column, Engine, MaterializationConfig, NodeMode
 from datajunction.exceptions import DJClientException
+from datajunction.models import Column, Engine, MaterializationConfig, NodeMode
 
 
 class TestDJClient:
@@ -611,3 +612,26 @@ class TestDJClient:
             {"attributes": [], "dimension": None, "name": "region", "type": "int"},
         ]
         assert response["version"] == "v2.0"
+
+    def test_data(self, client):
+        """
+        Verify that updating a source node's columns works
+        """
+        metric = client.metric(node_name="default.avg_repair_price")
+
+        # Retrieve data for a single metric
+        result = metric.data(dimensions=["default.hard_hat.city"], filters=[])
+        expected_df = pandas.DataFrame.from_dict(
+            {"default_DOT_avg_repair_price": [1.0, 2.0], "city": ["Foo", "Bar"]},
+        )
+        pandas.testing.assert_frame_equal(result, expected_df)
+
+        # No data
+        with pytest.raises(DJClientException) as exc_info:
+            metric.data(dimensions=["default.hard_hat.state"], filters=[])
+        assert "No data for query!" in str(exc_info)
+
+        # Error propagation
+        with pytest.raises(DJClientException) as exc_info:
+            metric.data(dimensions=["default.hard_hat.postal_code"], filters=[])
+        assert "Error response from query service" in str(exc_info)
