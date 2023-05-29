@@ -38,6 +38,8 @@ def test_get_history(client_with_examples: TestClient):
     assert history == [
         {
             "id": 1,
+            "pre": {},
+            "post": {},
             "entity_type": "node",
             "entity_name": "default.repair_orders",
             "activity_type": "create",

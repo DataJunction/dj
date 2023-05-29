@@ -51,6 +51,8 @@ class History(SQLModel, table=True):  # type: ignore
     entity_name: Optional[str] = Field(default=None)
     activity_type: Optional[ActivityType] = Field(default=None)
     user: Optional[str] = Field(default=None)
+    pre: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
+    post: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
     details: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
     created_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
