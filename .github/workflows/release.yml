@@ -45,7 +45,7 @@ jobs:
       - name: Tag release
         run: |
           export NEW_VERSION=v$(hatch version)
-          export LIBRARY=${{ steps.changes.outputs.server && 'server' || 'client'  }}
+          export LIBRARY=${{ steps.changes.outputs.server == 'true' && 'server' || 'client'  }}
           git tag -a $NEW_VERSION-$LIBRARY -m $NEW_VERSION-$LIBRARY
           git push origin $NEW_VERSION-$LIBRARY
         env:
@@ -61,7 +61,7 @@ jobs:
 
       - name: Create Github release
         run: |
-          export LIBRARY=${{ steps.changes.outputs.server && 'server' || 'client' }}
+          export LIBRARY=${{ steps.changes.outputs.server == 'true' && 'server' || 'client' }}
           gh release create $(hatch version)-$LIBRARY --generate-notes
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}

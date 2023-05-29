@@ -76,6 +76,7 @@ class TestDataForNode:
             "next": None,
             "previous": None,
             "errors": [],
+            "links": None,
         }
 
     def test_get_source_data(
@@ -111,6 +112,7 @@ class TestDataForNode:
             "next": None,
             "previous": None,
             "errors": [],
+            "links": None,
         }
 
     def test_get_transform_data(
@@ -162,6 +164,7 @@ class TestDataForNode:
             "next": None,
             "previous": None,
             "errors": [],
+            "links": None,
         }
 
     def test_get_metric_data(
@@ -200,6 +203,7 @@ class TestDataForNode:
             "next": None,
             "previous": None,
             "errors": [],
+            "links": None,
         }
 
     def test_get_multiple_metrics_and_dimensions_data(
@@ -255,6 +259,7 @@ class TestDataForNode:
             "next": None,
             "previous": None,
             "errors": [],
+            "links": None,
         }
 
 
