@@ -174,7 +174,6 @@ class Function(Dispatch):  # pylint: disable=too-few-public-methods
         a lambda function. This allows us to evaluate the lambda's expression and
         determine the result's type.
         """
-        ...
 
 
 class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
