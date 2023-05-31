@@ -1175,7 +1175,7 @@ def infer_type(  # noqa: F811
     map_arg: ct.MapType,
     _: ct.NumberType,
 ) -> ct.ColumnType:
-    return map_arg.value.type
+    return map_arg.type.value.type
 
 
 class Split(Function):  # pylint: disable=abstract-method

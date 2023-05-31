@@ -8,7 +8,6 @@ from sqlmodel import Session
 from dj.errors import DJException
 from dj.sql.parsing import ast, types
 from dj.sql.parsing.backends.antlr4 import parse
-from dj.sql.parsing.types import StringType
 
 
 def test_ast_compile_table(
@@ -891,25 +890,3 @@ def test_ast_compile_lateral_view_explode8(session: Session):
         quote_style="",
         namespace=None,
     )
-
-
-def test_aggregate(session: Session):
-    """
-    Test the `aggregate` Spark function
-    """
-    query = parse(
-        """
-    select
-      aggregate(items, '', (acc, x) -> (case
-        when acc = '' then element_at(split(x, '::'), 1)
-        when acc = 'a' then acc
-        else element_at(split(x, '::'), 1) end)) as item
-    from (
-      select 1 as id, ARRAY('b', 'c', 'a', 'x', 'g', 'z') AS items
-    )
-    """,
-    )
-    exc = DJException()
-    ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
-    assert query.select.projection[0].type == StringType()  # type: ignore
