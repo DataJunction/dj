@@ -30,17 +30,16 @@ class PermissionsChecker:  # pylint: disable=too-few-public-methods
     """
 
     def __init__(self, request: Request):
-        self.request = request
+        self.permission = f"{request.method}:{request['path']}"
 
     def __call__(self, user: User):
         """
         A placeholder method for verifying if a user has the required permissions
         """
-        permission = f"{self.request.method}:{self.request['path']}"
         _logger.error(
             "Checking if user %s has permission %s",
             user.username,
-            permission,
+            self.permission,
         )
 
 
