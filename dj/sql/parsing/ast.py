@@ -1436,13 +1436,11 @@ class Function(Named, Operation):
         return function_registry[self.name.name.upper()]
 
     def is_aggregation(self) -> bool:
-        return function_registry[self.name.name.upper()].is_aggregation
+        return self.function().is_aggregation
 
     @property
     def type(self) -> ColumnType:
-        name = self.name.name.upper()
-        dj_func = function_registry[name]
-        return dj_func.infer_type(*self.args)
+        return self.function().infer_type(*self.args)
 
     def compile(self, ctx: CompileContext):
         """
@@ -1888,14 +1886,6 @@ class Lambda(Expression):
         The return type of the lambda function
         """
         return self.expr.type
-
-    def compile(self, ctx):
-        return super().compile(ctx)
-
-    #     if self.is_compiled():
-    #         return
-    #     self._is_compiled = True
-    #     self.parent.args
 
 
 @dataclass(eq=False)
