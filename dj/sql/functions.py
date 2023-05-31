@@ -65,8 +65,6 @@ def compare_registers(types, register) -> bool:
                 return False  # pragma: no cover
         if type_a == -1:
             register_a = type(register_a)
-        if str(register_a.__name__) == str(register_b):
-            return True
         if not issubclass(register_a, register_b):  # type: ignore
             return False
     return True
