@@ -169,7 +169,12 @@ class Function(Dispatch):  # pylint: disable=too-few-public-methods
 
     @staticmethod
     def compile_lambda(*args):
-        pass
+        """
+        Compiles the lambda function used by a given Spark function that takes
+        a lambda function. This allows us to evaluate the lambda's expression and
+        determine the result's type.
+        """
+        ...
 
 
 class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
@@ -192,7 +197,8 @@ class Aggregate(Function):  # pylint: disable=abstract-method
     @staticmethod
     def compile_lambda(*args):
         """
-        Compiles the lambda function used by the `aggregate` Spark function.
+        Compiles the lambda function used by the `aggregate` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
         """
         from dj.sql.parsing import ast  # pylint: disable=import-outside-toplevel
 
@@ -1142,21 +1148,32 @@ class VariancePop(Function):  # pragma: no cover
         return ct.DoubleType()
 
 
-class First(Function):  # pragma: no cover
+class First(Function):  # pragma: no cover  # pylint: disable=abstract-method
     """
     Returns the first value of expr for a group of rows. If isIgnoreNull is
     true, returns only non-null values.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.ColumnType:
-        return arg.type
+
+@First.register
+def infer_type(  # noqa: F811
+    arg: "Expression",
+) -> ct.ColumnType:
+    return arg.type
+
+
+@First.register
+def infer_type(  # noqa: F811
+    arg: "Expression",
+    is_ignore_null: ct.BooleanType,
+) -> ct.ColumnType:
+    return arg.type
 
 
 class ElementAt(Function):  # pylint: disable=abstract-method
     """
-    Returns the first value of expr for a group of rows. If isIgnoreNull is
-    true, returns only non-null values.
+    element_at(array, index) - Returns element of array at given (1-based) index
+    element_at(map, key) - Returns value for given key.
     """
 
 
