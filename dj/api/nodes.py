@@ -17,6 +17,7 @@ from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from starlette.requests import Request
 
+from dj.api.auth import PermissionsChecker, get_current_user
 from dj.api.helpers import (
     get_attribute_type,
     get_catalog,
@@ -76,6 +77,7 @@ from dj.models.node import (
     UpsertCubeMaterializationConfig,
     UpsertMaterializationConfig,
 )
+from dj.models.user import User
 from dj.service_clients import QueryServiceClient
 from dj.sql.parsing import ast
 from dj.sql.parsing.backends.antlr4 import parse
@@ -264,10 +266,17 @@ def list_nodes(*, session: Session = Depends(get_session)) -> List[NodeOutput]:
 
 
 @router.get("/nodes/{name}/", response_model=NodeOutput)
-def get_a_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutput:
+def get_a_node(
+    name: str,
+    *,
+    session: Session = Depends(get_session),
+    current_user: User = Depends(get_current_user),
+    check_permissions: PermissionsChecker = Depends(PermissionsChecker),
+) -> NodeOutput:
     """
     Show the active version of the specified node.
     """
+    check_permissions(user=current_user)
     node = get_node_by_name(session, name, with_current=True)
     return node  # type: ignore
 

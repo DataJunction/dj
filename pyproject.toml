@@ -25,6 +25,7 @@ dependencies = [
     "msgpack<2.0.0,>=1.0.5",
     "opentelemetry-instrumentation-fastapi==0.38b0",
     "python-dotenv<1.0.0,>=0.19.0",
+    "python-multipart>=0.0.6",
     "redis<5.0.0,>=4.5.4",
     "requests<=2.29.0,>=2.28.2",
     "rich<14.0.0,>=13.3.3",

@@ -18,6 +18,7 @@ from starlette.middleware.cors import CORSMiddleware
 from dj import __version__
 from dj.api import (
     attributes,
+    auth,
     catalogs,
     cubes,
     data,
@@ -84,6 +85,7 @@ def get_dj_app(
     application.include_router(tags.router)
     application.include_router(attributes.router)
     application.include_router(sql.router)
+    application.include_router(auth.router)
 
     @application.exception_handler(DJException)
     async def dj_exception_handler(  # pylint: disable=unused-argument
