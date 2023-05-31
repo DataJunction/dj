@@ -21,7 +21,8 @@ import inspect
 import re
 from itertools import zip_longest
 
-# pylint: disable=unused-argument, missing-function-docstring, arguments-differ, too-many-return-statements
+# pylint: disable=unused-argument, missing-function-docstring, arguments-differ, too-many-return-statements,
+# pylint: disable=function-redefined
 from typing import (
     TYPE_CHECKING,
     Callable,
@@ -45,7 +46,7 @@ from dj.errors import (
 from dj.sql.parsing.backends.exceptions import DJParseException
 
 if TYPE_CHECKING:
-    from dj.sql.parsing.ast import Expression
+    from dj.sql.parsing.ast import Expression, Lambda
 
 
 def compare_registers(types, register) -> bool:
@@ -64,6 +65,8 @@ def compare_registers(types, register) -> bool:
                 return False  # pragma: no cover
         if type_a == -1:
             register_a = type(register_a)
+        if str(register_a.__name__) == str(register_b):
+            return True
         if not issubclass(register_a, register_b):  # type: ignore
             return False
     return True
@@ -166,6 +169,10 @@ class Function(Dispatch):  # pylint: disable=too-few-public-methods
     def infer_type(*args) -> ct.ColumnType:
         raise NotImplementedError()
 
+    @staticmethod
+    def compile_lambda(*args):
+        pass
+
 
 class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
     """
@@ -177,6 +184,46 @@ class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
         raise NotImplementedError()
 
 
+class Aggregate(Function):  # pylint: disable=abstract-method
+    """
+    Applies a binary operator to an initial state and all elements in the array,
+    and reduces this to a single state. The final state is converted into the
+    final result by applying a finish function.
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `aggregate` Spark function.
+        """
+        from dj.sql.parsing import ast  # pylint: disable=import-outside-toplevel
+
+        expr, start, merge = args
+        available_identifiers = {
+            identifier.name: idx for idx, identifier in enumerate(merge.identifiers)
+        }
+        columns = list(
+            merge.expr.filter(
+                lambda x: isinstance(x, ast.Column)
+                and x.alias_or_name.name in available_identifiers,
+            ),
+        )
+        for col in columns:
+            if available_identifiers.get(col.alias_or_name.name) == 0:
+                col.add_type(start.type)
+            if available_identifiers.get(col.alias_or_name.name) == 1:
+                col.add_type(expr.type.element.type)
+
+
+@Aggregate.register  # type: ignore
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+    expr: ct.ListType,
+    start: ct.PrimitiveType,
+    merge: ct.PrimitiveType,
+) -> ct.ColumnType:
+    return merge.expr.type
+
+
 class Avg(Function):  # pylint: disable=abstract-method
     """
     Computes the average of the input column or expression.
@@ -186,14 +233,14 @@ class Avg(Function):  # pylint: disable=abstract-method
 
 
 @Avg.register
-def infer_type(
+def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     arg: ct.DecimalType,
-) -> ct.DecimalType:  # noqa: F811  # pylint: disable=function-redefined
+) -> ct.DecimalType:
     type_ = arg.type
     return ct.DecimalType(type_.precision + 4, type_.scale + 4)
 
 
-@Avg.register  # type: ignore
+@Avg.register
 def infer_type(  # noqa: F811  # pylint: disable=function-redefined
     arg: ct.IntervalTypeBase,
 ) -> ct.IntervalTypeBase:
@@ -1095,6 +1142,55 @@ class VariancePop(Function):  # pragma: no cover
     @staticmethod
     def infer_type(arg: "Expression") -> ct.DoubleType:
         return ct.DoubleType()
+
+
+class First(Function):  # pragma: no cover
+    """
+    Returns the first value of expr for a group of rows. If isIgnoreNull is
+    true, returns only non-null values.
+    """
+
+    @staticmethod
+    def infer_type(arg: "Expression") -> ct.ColumnType:
+        return arg.type
+
+
+class ElementAt(Function):  # pylint: disable=abstract-method
+    """
+    Returns the first value of expr for a group of rows. If isIgnoreNull is
+    true, returns only non-null values.
+    """
+
+
+@ElementAt.register
+def infer_type(  # noqa: F811
+    array: ct.ListType,
+    _: ct.NumberType,
+) -> ct.ColumnType:
+    return array.type.element.type
+
+
+@ElementAt.register
+def infer_type(  # noqa: F811
+    map_arg: ct.MapType,
+    _: ct.NumberType,
+) -> ct.ColumnType:
+    return map_arg.value.type
+
+
+class Split(Function):  # pylint: disable=abstract-method
+    """
+    Returns the
+    """
+
+
+@Split.register
+def infer_type(  # noqa: F811
+    string: ct.StringType,
+    regex: ct.StringType,
+    limit: Optional[ct.IntegerType] = None,
+) -> ct.ColumnType:
+    return ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
 class Array(Function):  # pylint: disable=abstract-method

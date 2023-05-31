@@ -1432,6 +1432,9 @@ class Function(Named, Operation):
             ret = f"({ret})"
         return ret
 
+    def function(self):
+        return function_registry[self.name.name.upper()]
+
     def is_aggregation(self) -> bool:
         return function_registry[self.name.name.upper()].is_aggregation
 
@@ -1440,6 +1443,22 @@ class Function(Named, Operation):
         name = self.name.name.upper()
         dj_func = function_registry[name]
         return dj_func.infer_type(*self.args)
+
+    def compile(self, ctx: CompileContext):
+        """
+        Compile a function
+        """
+        for arg in self.args:
+            if not arg.is_compiled():
+                arg.compile(ctx)
+                arg._is_compiled = True
+
+        self.function().compile_lambda(*self.args)
+
+        for child in self.children:
+            if not child.is_compiled():
+                child.compile(ctx)
+                child._is_compiled = True
 
 
 class Value(Expression):
@@ -1862,6 +1881,21 @@ class Lambda(Expression):
         else:
             id_str = "(" + ", ".join(str(iden) for iden in self.identifiers) + ")"
         return f"{id_str} -> {self.expr}"
+
+    @property
+    def type(self) -> Union[ColumnType, List[ColumnType]]:
+        """
+        The return type of the lambda function
+        """
+        return self.expr.type
+
+    def compile(self, ctx):
+        return super().compile(ctx)
+
+    #     if self.is_compiled():
+    #         return
+    #     self._is_compiled = True
+    #     self.parent.args
 
 
 @dataclass(eq=False)
