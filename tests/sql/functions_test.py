@@ -8,8 +8,7 @@ from sqlmodel import Session
 
 import dj.sql.functions as F
 import dj.sql.parsing.types as ct
-from dj.sql.parsing.backends.antlr4 import parse
-from dj.errors import DJNotImplementedException, DJException
+from dj.errors import DJException, DJNotImplementedException
 from dj.sql.functions import (
     Avg,
     Coalesce,
@@ -22,6 +21,7 @@ from dj.sql.functions import (
     function_registry,
 )
 from dj.sql.parsing import ast
+from dj.sql.parsing.backends.antlr4 import parse
 from dj.sql.parsing.types import (
     BigIntType,
     DateType,
@@ -286,17 +286,13 @@ def test_element_at(session: Session):
     """
     Test the `element_at` Spark function
     """
-    query_with_array = parse(
-        "SELECT element_at(array(1, 2, 3, 4), 2)"
-    )
+    query_with_array = parse("SELECT element_at(array(1, 2, 3, 4), 2)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query_with_array.compile(ctx)
     assert query_with_array.select.projection[0].type == IntegerType()  # type: ignore
 
-    query_with_map = parse(
-        "SELECT element_at(map(1, 'a', 2, 'b'), 2)"
-    )
+    query_with_map = parse("SELECT element_at(map(1, 'a', 2, 'b'), 2)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query_with_map.compile(ctx)
@@ -307,9 +303,7 @@ def test_split(session: Session):
     """
     Test the `split` Spark function
     """
-    query = parse(
-        "SELECT split('oneAtwoBthreeC', '[ABC]')"
-    )
+    query = parse("SELECT split('oneAtwoBthreeC', '[ABC]')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
