@@ -290,12 +290,14 @@ def test_element_at(session: Session):
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query_with_array.compile(ctx)
+    assert not exc.errors
     assert query_with_array.select.projection[0].type == IntegerType()  # type: ignore
 
     query_with_map = parse("SELECT element_at(map(1, 'a', 2, 'b'), 2)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query_with_map.compile(ctx)
+    assert not exc.errors
     assert query_with_map.select.projection[0].type == StringType()  # type: ignore
 
 
@@ -307,6 +309,7 @@ def test_split(session: Session):
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
+    assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
@@ -318,10 +321,12 @@ def test_cardinality(session: Session):
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query_with_list.compile(ctx)
+    assert not exc.errors
     assert query_with_list.select.projection[0].type == ct.IntegerType()  # type: ignore
 
     query_with_map = parse("SELECT cardinality(map('a', 1, 'b', 2))")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query_with_map.compile(ctx)
+    assert not exc.errors
     assert query_with_map.select.projection[0].type == ct.IntegerType()  # type: ignore
