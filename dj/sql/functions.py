@@ -1158,7 +1158,7 @@ class First(Function):  # pragma: no cover  # pylint: disable=abstract-method
 def infer_type(  # noqa: F811  # pragma: no cover
     arg: "Expression",
 ) -> ct.ColumnType:
-    return arg.type
+    return arg.type  # pragma: no cover
 
 
 @First.register
@@ -1166,7 +1166,7 @@ def infer_type(  # noqa: F811  # pragma: no cover
     arg: "Expression",
     is_ignore_null: ct.BooleanType,
 ) -> ct.ColumnType:
-    return arg.type
+    return arg.type  # pragma: no cover
 
 
 class ElementAt(Function):  # pylint: disable=abstract-method
