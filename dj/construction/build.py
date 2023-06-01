@@ -445,7 +445,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 else:
                     raise DJInvalidInputException(
                         f"Column {col} found in order-by clause must"
-                        " also be specified in the dimensions.",
+                        " also be specified in the metrics or dimensions.",
                     )
             query.organization.order += temp_query.organization.order  # type:ignore
 
@@ -620,15 +620,34 @@ def build_metric_nodes(
     initial_dimension_columns = []
     all_dimension_columns = []
 
-    organization = None
+    orderby_sort_items: List[ast.SortItem] = []
+    orderby = orderby or []
+    orderby_mapping = {}
+    for order in orderby:
+        orderby_metric = None
+        for metric_node in metric_nodes:
+            if metric_node.name.lower() in order.lower():
+                orderby_metric = metric_node.name
+                break
+        orderby_mapping[order] = orderby_metric
+
     for (idx, metric_node) in enumerate(metric_nodes):
         # Build each metric node separately
+        curr_orderby = None
+
+        if (not orderby_sort_items) and orderby_mapping:
+            curr_orderby = [
+                order
+                for order, metric_name in orderby_mapping.items()
+                if metric_name is None
+            ]
+
         metric_ast = build_node(
             session=session,
             node=metric_node.current,
             filters=filters,
             dimensions=dimensions,
-            orderby=orderby if organization is None else None,
+            orderby=curr_orderby,
             build_criteria=build_criteria,
         )
 
@@ -642,11 +661,37 @@ def build_metric_nodes(
         # Add the metric and dimensions to the final query layer's SELECT
         current_table = ast.Table(metric_ast_alias)
 
-        if orderby and organization is None:
-            organization = cast(ast.Organization, metric_ast.organization)
-            metric_ast.organization = None
-            for col in organization.find_all(ast.Column):
-                col.add_table(current_table)
+        organization = cast(ast.Organization, metric_ast.organization)
+
+        # if an orderby referred to this metric node, parse and add it to the order items
+        if metric_order := (
+            [None]
+            + [
+                order_key  # type: ignore
+                for order_key, order_metric in orderby_mapping.items()
+                if metric_node.name == order_metric
+            ]
+        ).pop():
+            metric_sort_item = parse(f"select * order by {metric_order}").organization.order[0]  # type: ignore #pylint: disable=C0301
+            metric_col = ast.Column(
+                name=ast.Name(
+                    [
+                        exp.alias_or_name.identifier(False)
+                        for exp in metric_ast.select.projection
+                        if exp.is_aggregation()
+                    ][0],
+                ),
+                _table=current_table,
+            )
+            for col in metric_sort_item.find_all(ast.Column):
+                col.swap(metric_col)
+            orderby_mapping[metric_order] = metric_sort_item  # type: ignore
+
+        # bind the table for this built metric to all columns in the
+        metric_ast.organization = None
+        for col in organization.find_all(ast.Column):
+            col.add_table(current_table)
+        orderby_sort_items += organization.order  # type: ignore
 
         final_select_columns = [
             ast.Column(
@@ -708,10 +753,16 @@ def build_metric_nodes(
         else columns[0]
         for col_name, columns in dimension_grouping.items()
     ]
+
     combined_ast.select.projection.extend(dimension_columns)
 
-    if organization is not None:
-        combined_ast.organization = organization
+    # go through the orderby items and make sure we put them in the order the user requested them in
+
+    for idx, sort_item in enumerate(orderby_mapping.values()):
+        if isinstance(sort_item, ast.SortItem):
+            orderby_sort_items.insert(idx, sort_item)
+
+    combined_ast.organization = ast.Organization(orderby_sort_items)
 
     if limit is not None:
         combined_ast.limit = ast.Number(limit)
