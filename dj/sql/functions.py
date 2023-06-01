@@ -332,6 +332,26 @@ def infer_type(  # noqa: F811
     return ct.DoubleType()
 
 
+class Cardinality(Function):  # pylint: disable=abstract-method
+    """
+    Returns the size of an array or a map.
+    """
+
+
+@Cardinality.register  # type: ignore
+def infer_type(  # noqa: F811
+    args: ct.ListType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+@Cardinality.register  # type: ignore
+def infer_type(  # noqa: F811
+    args: ct.MapType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
 class Ceil(Function):  # pylint: disable=abstract-method
     """
     Computes the smallest integer greater than or equal to the input value.
@@ -1152,6 +1172,8 @@ class First(Function):  # pragma: no cover  # pylint: disable=abstract-method
     Returns the first value of expr for a group of rows. If isIgnoreNull is
     true, returns only non-null values.
     """
+
+    is_aggregation = True
 
 
 @First.register
