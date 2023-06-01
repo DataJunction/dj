@@ -757,18 +757,12 @@ def build_metric_nodes(
     combined_ast.select.projection.extend(dimension_columns)
 
     # go through the orderby items and make sure we put them in the order the user requested them in
-    orderby_sort_items_resorted = orderby_sort_items + [  # type: ignore
-        None,  # type: ignore
-    ] * len(orderby_mapping)
+
     for idx, sort_item in enumerate(orderby_mapping.values()):
         if isinstance(sort_item, ast.SortItem):
-            orderby_sort_items_resorted.insert(idx, sort_item)
-    orderby_sort_items_resorted = [
-        sort_item for sort_item in orderby_sort_items_resorted if sort_item is not None
-    ]
+            orderby_sort_items.insert(idx, sort_item)
 
-    combined_ast.organization = ast.Organization([])
-    combined_ast.organization.order = orderby_sort_items_resorted
+    combined_ast.organization = ast.Organization(orderby_sort_items)
 
     if limit is not None:
         combined_ast.limit = ast.Number(limit)
