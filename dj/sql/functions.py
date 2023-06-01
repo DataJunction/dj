@@ -21,7 +21,8 @@ import inspect
 import re
 from itertools import zip_longest
 
-# pylint: disable=unused-argument, missing-function-docstring, arguments-differ, too-many-return-statements
+# pylint: disable=unused-argument, missing-function-docstring, arguments-differ, too-many-return-statements,
+# pylint: disable=function-redefined
 from typing import (
     TYPE_CHECKING,
     Callable,
@@ -45,7 +46,7 @@ from dj.errors import (
 from dj.sql.parsing.backends.exceptions import DJParseException
 
 if TYPE_CHECKING:
-    from dj.sql.parsing.ast import Expression
+    from dj.sql.parsing.ast import Expression, Lambda
 
 
 def compare_registers(types, register) -> bool:
@@ -166,6 +167,14 @@ class Function(Dispatch):  # pylint: disable=too-few-public-methods
     def infer_type(*args) -> ct.ColumnType:
         raise NotImplementedError()
 
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by a given Spark function that takes
+        a lambda function. This allows us to evaluate the lambda's expression and
+        determine the result's type.
+        """
+
 
 class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
     """
@@ -177,6 +186,47 @@ class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
         raise NotImplementedError()
 
 
+class Aggregate(Function):  # pylint: disable=abstract-method
+    """
+    Applies a binary operator to an initial state and all elements in the array,
+    and reduces this to a single state. The final state is converted into the
+    final result by applying a finish function.
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `aggregate` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
+        """
+        from dj.sql.parsing import ast  # pylint: disable=import-outside-toplevel
+
+        expr, start, merge = args
+        available_identifiers = {
+            identifier.name: idx for idx, identifier in enumerate(merge.identifiers)
+        }
+        columns = list(
+            merge.expr.filter(
+                lambda x: isinstance(x, ast.Column)
+                and x.alias_or_name.name in available_identifiers,
+            ),
+        )
+        for col in columns:
+            if available_identifiers.get(col.alias_or_name.name) == 0:
+                col.add_type(start.type)
+            if available_identifiers.get(col.alias_or_name.name) == 1:
+                col.add_type(expr.type.element.type)
+
+
+@Aggregate.register  # type: ignore
+def infer_type(  # noqa: F811
+    expr: ct.ListType,
+    start: ct.PrimitiveType,
+    merge: ct.PrimitiveType,
+) -> ct.ColumnType:
+    return merge.expr.type
+
+
 class Avg(Function):  # pylint: disable=abstract-method
     """
     Computes the average of the input column or expression.
@@ -186,29 +236,29 @@ class Avg(Function):  # pylint: disable=abstract-method
 
 
 @Avg.register
-def infer_type(
+def infer_type(  # noqa: F811
     arg: ct.DecimalType,
-) -> ct.DecimalType:  # noqa: F811  # pylint: disable=function-redefined
+) -> ct.DecimalType:
     type_ = arg.type
     return ct.DecimalType(type_.precision + 4, type_.scale + 4)
 
 
-@Avg.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+@Avg.register
+def infer_type(  # noqa: F811
     arg: ct.IntervalTypeBase,
 ) -> ct.IntervalTypeBase:
     return type(arg.type)()
 
 
 @Avg.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.NumberType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
 
 
 @Avg.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.DateTimeBase,
 ) -> ct.DateTimeBase:
     return type(arg.type)()
@@ -223,7 +273,7 @@ class Min(Function):  # pylint: disable=abstract-method
 
 
 @Min.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.NumberType,
 ) -> ct.NumberType:
     return arg.type
@@ -238,14 +288,14 @@ class Max(Function):  # pylint: disable=abstract-method
 
 
 @Max.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.NumberType,
 ) -> ct.NumberType:
     return arg.type
 
 
 @Max.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.StringType,
 ) -> ct.StringType:
     return arg.type
@@ -260,14 +310,14 @@ class Sum(Function):  # pylint: disable=abstract-method
 
 
 @Sum.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.IntegerBase,
 ) -> ct.BigIntType:
     return ct.BigIntType()
 
 
 @Sum.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.DecimalType,
 ) -> ct.DecimalType:
     precision = arg.type.precision
@@ -276,10 +326,30 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
 
 
 @Sum.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: Union[ct.NumberType, ct.IntervalTypeBase],
 ) -> ct.DoubleType:
     return ct.DoubleType()
+
+
+class Cardinality(Function):  # pylint: disable=abstract-method
+    """
+    Returns the size of an array or a map.
+    """
+
+
+@Cardinality.register  # type: ignore
+def infer_type(  # noqa: F811
+    args: ct.ListType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+@Cardinality.register  # type: ignore
+def infer_type(  # noqa: F811
+    args: ct.MapType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
 
 
 class Ceil(Function):  # pylint: disable=abstract-method
@@ -289,7 +359,7 @@ class Ceil(Function):  # pylint: disable=abstract-method
 
 
 @Ceil.register
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.NumberType,
     _target_scale: ct.IntegerType,
 ) -> ct.DecimalType:
@@ -325,14 +395,14 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
 
 
 @Ceil.register
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.DecimalType,
 ) -> ct.DecimalType:
     return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
 
 
 @Ceil.register
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.NumberType,
 ) -> ct.BigIntType:
     return ct.BigIntType()
@@ -347,7 +417,7 @@ class Count(Function):  # pylint: disable=abstract-method
 
 
 @Count.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     *args: ct.ColumnType,
 ) -> ct.BigIntType:
     return ct.BigIntType()
@@ -362,7 +432,7 @@ class Coalesce(Function):  # pylint: disable=abstract-method
 
 
 @Coalesce.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     *args: ct.ColumnType,
 ) -> ct.ColumnType:
     if not args:  # pragma: no cover
@@ -388,7 +458,7 @@ class CurrentDate(Function):  # pylint: disable=abstract-method
 
 
 @CurrentDate.register  # type: ignore
-def infer_type() -> ct.DateType:  # noqa: F811  # pylint: disable=function-redefined
+def infer_type() -> ct.DateType:  # noqa: F811
     return ct.DateType()
 
 
@@ -399,7 +469,7 @@ class CurrentDatetime(Function):  # pylint: disable=abstract-method
 
 
 @CurrentDatetime.register  # type: ignore
-def infer_type() -> ct.TimestampType:  # noqa: F811  # pylint: disable=function-redefined
+def infer_type() -> ct.TimestampType:  # noqa: F811
     return ct.TimestampType()
 
 
@@ -410,7 +480,7 @@ class CurrentTime(Function):  # pylint: disable=abstract-method
 
 
 @CurrentTime.register  # type: ignore
-def infer_type() -> ct.TimeType:  # noqa: F811  # pylint: disable=function-redefined
+def infer_type() -> ct.TimeType:  # noqa: F811
     return ct.TimeType()
 
 
@@ -421,7 +491,7 @@ class CurrentTimestamp(Function):  # pylint: disable=abstract-method
 
 
 @CurrentTimestamp.register  # type: ignore
-def infer_type() -> ct.TimestampType:  # noqa: F811  # pylint: disable=function-redefined
+def infer_type() -> ct.TimestampType:  # noqa: F811
     return ct.TimestampType()
 
 
@@ -432,7 +502,7 @@ class Now(Function):  # pylint: disable=abstract-method
 
 
 @Now.register  # type: ignore
-def infer_type() -> ct.TimestampType:  # noqa: F811  # pylint: disable=function-redefined
+def infer_type() -> ct.TimestampType:  # noqa: F811
     return ct.TimestampType()
 
 
@@ -443,7 +513,7 @@ class DateAdd(Function):  # pylint: disable=abstract-method
 
 
 @DateAdd.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     start_date: ct.DateType,
     days: ct.IntegerBase,
 ) -> ct.DateType:
@@ -451,7 +521,7 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
 
 
 @DateAdd.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     start_date: ct.StringType,
     days: ct.IntegerBase,
 ) -> ct.DateType:
@@ -465,7 +535,7 @@ class DateSub(Function):  # pylint: disable=abstract-method
 
 
 @DateSub.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     start_date: ct.DateType,
     days: ct.IntegerBase,
 ) -> ct.DateType:
@@ -473,7 +543,7 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
 
 
 @DateSub.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     start_date: ct.StringType,
     days: ct.IntegerBase,
 ) -> ct.DateType:
@@ -490,7 +560,7 @@ class If(Function):  # pylint: disable=abstract-method
 
 
 @If.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     cond: ct.BooleanType,
     then: ct.ColumnType,
     else_: ct.ColumnType,
@@ -511,7 +581,7 @@ class DateDiff(Function):  # pylint: disable=abstract-method
 
 
 @DateDiff.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     start_date: ct.DateType,
     end_date: ct.DateType,
 ) -> ct.IntegerType:
@@ -519,7 +589,7 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
 
 
 @DateDiff.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     start_date: ct.StringType,
     end_date: ct.StringType,
 ) -> ct.IntegerType:
@@ -548,7 +618,7 @@ class ToDate(Function):  # pragma: no cover # pylint: disable=abstract-method
 
 
 @ToDate.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     expr: ct.StringType,
     fmt: Optional[ct.StringType] = None,
 ) -> ct.DateType:
@@ -562,7 +632,7 @@ class Day(Function):  # pylint: disable=abstract-method
 
 
 @Day.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: Union[ct.StringType, ct.DateType, ct.TimestampType],
 ) -> ct.IntegerType:  # type: ignore
     return ct.IntegerType()
@@ -575,7 +645,7 @@ class Exp(Function):  # pylint: disable=abstract-method
 
 
 @Exp.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.ColumnType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
@@ -588,21 +658,21 @@ class Floor(Function):  # pylint: disable=abstract-method
 
 
 @Floor.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.DecimalType,
 ) -> ct.DecimalType:
     return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
 
 
 @Floor.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.NumberType,
 ) -> ct.BigIntType:
     return ct.BigIntType()
 
 
 @Floor.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.NumberType,
     _target_scale: ct.IntegerType,
 ) -> ct.DecimalType:
@@ -656,7 +726,7 @@ class Length(Function):  # pylint: disable=abstract-method
 
 
 @Length.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.StringType,
 ) -> ct.IntegerType:
     return ct.IntegerType()
@@ -669,7 +739,7 @@ class Levenshtein(Function):  # pylint: disable=abstract-method
 
 
 @Levenshtein.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     string1: ct.StringType,
     string2: ct.StringType,
 ) -> ct.IntegerType:
@@ -683,7 +753,7 @@ class Ln(Function):  # pylint: disable=abstract-method
 
 
 @Ln.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.ColumnType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
@@ -696,7 +766,7 @@ class Log(Function):  # pylint: disable=abstract-method
 
 
 @Log.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     base: ct.ColumnType,
     expr: ct.ColumnType,
 ) -> ct.DoubleType:
@@ -710,7 +780,7 @@ class Log2(Function):  # pylint: disable=abstract-method
 
 
 @Log2.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.ColumnType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
@@ -723,7 +793,7 @@ class Log10(Function):  # pylint: disable=abstract-method
 
 
 @Log10.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     args: ct.ColumnType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
@@ -756,7 +826,7 @@ class Pow(Function):  # pylint: disable=abstract-method
 
 
 @Pow.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     base: ct.ColumnType,
     power: ct.ColumnType,
 ) -> ct.DoubleType:
@@ -825,7 +895,7 @@ class Round(Function):  # pylint: disable=abstract-method
 
 
 @Round.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     child: ct.DecimalType,
     scale: ct.IntegerBase,
 ) -> ct.NumberType:
@@ -842,7 +912,7 @@ def infer_type(  # noqa: F811  # pylint: disable=function-redefined
 
 
 @Round.register
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined  # type: ignore
+def infer_type(  # noqa: F811  # type: ignore
     child: ct.NumberType,
     scale: ct.IntegerBase,
 ) -> ct.NumberType:
@@ -880,7 +950,7 @@ class StrPosition(Function):  # pylint: disable=abstract-method
 
 
 @StrPosition.register
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined  # pragma: no cover
+def infer_type(  # noqa: F811  # pragma: no cover
     arg1: ct.StringType,
     arg2: ct.StringType,
 ) -> ct.IntegerType:
@@ -1097,6 +1167,97 @@ class VariancePop(Function):  # pragma: no cover
         return ct.DoubleType()
 
 
+class First(Function):  # pragma: no cover  # pylint: disable=abstract-method
+    """
+    Returns the first value of expr for a group of rows. If isIgnoreNull is
+    true, returns only non-null values.
+    """
+
+    is_aggregation = True
+
+
+@First.register
+def infer_type(  # noqa: F811  # pragma: no cover
+    arg: ct.ColumnType,
+) -> ct.ColumnType:
+    return arg.type  # pragma: no cover
+
+
+@First.register
+def infer_type(  # noqa: F811  # pragma: no cover
+    arg: ct.ColumnType,
+    is_ignore_null: ct.BooleanType,
+) -> ct.ColumnType:
+    return arg.type  # pragma: no cover
+
+
+class CollectList(Function):  # pragma: no cover  # pylint: disable=abstract-method
+    """
+    Collects and returns a list of non-unique elements.
+    """
+
+    is_aggregation = True
+
+
+@CollectList.register
+def infer_type(  # noqa: F811  # pragma: no cover
+    arg: ct.ColumnType,
+) -> ct.ColumnType:
+    return ct.ListType(element_type=arg.type)  # pragma: no cover
+
+
+class ArrayContains(Function):  # pragma: no cover  # pylint: disable=abstract-method
+    """
+    array_contains(array, value) - Returns true if the array contains the value.
+    """
+
+
+@ArrayContains.register
+def infer_type(  # noqa: F811  # pragma: no cover
+    arg: ct.ListType,
+) -> ct.BooleanType:
+    return ct.BooleanType()  # pragma: no cover
+
+
+class ElementAt(Function):  # pylint: disable=abstract-method
+    """
+    element_at(array, index) - Returns element of array at given (1-based) index
+    element_at(map, key) - Returns value for given key.
+    """
+
+
+@ElementAt.register
+def infer_type(  # noqa: F811
+    array: ct.ListType,
+    _: ct.NumberType,
+) -> ct.ColumnType:
+    return array.type.element.type
+
+
+@ElementAt.register
+def infer_type(  # noqa: F811
+    map_arg: ct.MapType,
+    _: ct.NumberType,
+) -> ct.ColumnType:
+    return map_arg.type.value.type
+
+
+class Split(Function):  # pylint: disable=abstract-method
+    """
+    Splits str around occurrences that match regex and returns an
+    array with a length of at most limit
+    """
+
+
+@Split.register
+def infer_type(  # noqa: F811
+    string: ct.StringType,
+    regex: ct.StringType,
+    limit: Optional[ct.IntegerType] = None,
+) -> ct.ColumnType:
+    return ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
 class Array(Function):  # pylint: disable=abstract-method
     """
     Returns an array of constants
@@ -1104,7 +1265,7 @@ class Array(Function):  # pylint: disable=abstract-method
 
 
 @Array.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     *elements: ct.ColumnType,
 ) -> ct.ListType:
     types = {element.type for element in elements}
@@ -1136,7 +1297,7 @@ def extract_consistent_type(elements):
 
 
 @Map.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     *elements: ct.ColumnType,
 ) -> ct.MapType:
     keys = elements[0::2]
@@ -1176,7 +1337,7 @@ class FromJson(Function):  # pragma: no cover  # pylint: disable=abstract-method
 
 
 @FromJson.register  # type: ignore
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined  # pragma: no cover
+def infer_type(  # noqa: F811  # pragma: no cover
     json: ct.StringType,
     schema: ct.StringType,
     options: Optional[Function] = None,
@@ -1223,14 +1384,14 @@ class Explode(TableFunction):  # pylint: disable=abstract-method
 
 
 @Explode.register
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.ListType,
 ) -> List[ct.NestedField]:
     return [arg.element]
 
 
 @Explode.register
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.MapType,
 ) -> List[ct.NestedField]:
     return [arg.key, arg.value]
@@ -1245,14 +1406,14 @@ class Unnest(TableFunction):  # pylint: disable=abstract-method
 
 
 @Unnest.register
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.ListType,
 ) -> List[ct.NestedField]:
     return [arg.element]  # pragma: no cover
 
 
 @Unnest.register
-def infer_type(  # noqa: F811  # pylint: disable=function-redefined
+def infer_type(  # noqa: F811
     arg: ct.MapType,
 ) -> List[ct.NestedField]:
     return [arg.key, arg.value]

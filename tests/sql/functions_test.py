@@ -4,10 +4,11 @@ Tests for ``dj.sql.functions``.
 # pylint: disable=line-too-long
 
 import pytest
+from sqlmodel import Session
 
 import dj.sql.functions as F
 import dj.sql.parsing.types as ct
-from dj.errors import DJNotImplementedException
+from dj.errors import DJException, DJNotImplementedException
 from dj.sql.functions import (
     Avg,
     Coalesce,
@@ -20,6 +21,7 @@ from dj.sql.functions import (
     function_registry,
 )
 from dj.sql.parsing import ast
+from dj.sql.parsing.backends.antlr4 import parse
 from dj.sql.parsing.types import (
     BigIntType,
     DateType,
@@ -256,3 +258,75 @@ def test_floor(types, expected) -> None:
             )
             == expected
         )
+
+
+def test_aggregate(session: Session):
+    """
+    Test the `aggregate` Spark function
+    """
+    query = parse(
+        """
+    select
+      aggregate(items, '', (acc, x) -> (case
+        when acc = '' then element_at(split(x, '::'), 1)
+        when acc = 'a' then acc
+        else element_at(split(x, '::'), 1) end)) as item
+    from (
+      select 1 as id, ARRAY('b', 'c', 'a', 'x', 'g', 'z') AS items
+    )
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert query.select.projection[0].type == StringType()  # type: ignore
+
+
+def test_element_at(session: Session):
+    """
+    Test the `element_at` Spark function
+    """
+    query_with_array = parse("SELECT element_at(array(1, 2, 3, 4), 2)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query_with_array.compile(ctx)
+    assert not exc.errors
+    assert query_with_array.select.projection[0].type == IntegerType()  # type: ignore
+
+    query_with_map = parse("SELECT element_at(map(1, 'a', 2, 'b'), 2)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query_with_map.compile(ctx)
+    assert not exc.errors
+    assert query_with_map.select.projection[0].type == StringType()  # type: ignore
+
+
+def test_split(session: Session):
+    """
+    Test the `split` Spark function
+    """
+    query = parse("SELECT split('oneAtwoBthreeC', '[ABC]')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
+def test_cardinality(session: Session):
+    """
+    Test the `cardinality` Spark function
+    """
+    query_with_list = parse("SELECT cardinality(array('b', 'd', 'c', 'a'))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query_with_list.compile(ctx)
+    assert not exc.errors
+    assert query_with_list.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+    query_with_map = parse("SELECT cardinality(map('a', 1, 'b', 2))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query_with_map.compile(ctx)
+    assert not exc.errors
+    assert query_with_map.select.projection[0].type == ct.IntegerType()  # type: ignore

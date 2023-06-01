@@ -545,6 +545,11 @@ def _(ctx: sbp.RealIdentContext):
 
 
 @visit.register
+def _(ctx: sbp.FirstContext):
+    return ast.Function(ast.Name("FIRST"), args=[visit(ctx.expression())])
+
+
+@visit.register
 def _(ctx: sbp.IdentifierContext):
     return visit(ctx.strictIdentifier())
 
@@ -1032,10 +1037,12 @@ def _(ctx: sbp.TrimContext) -> ast.Function:
 
 
 @visit.register
-def _(ctx: sbp.LambdaContext) -> ast.Function:
+def _(ctx: sbp.LambdaContext) -> ast.Lambda:
     identifier = visit(ctx.identifier())
     expr = visit(ctx.expression())
-    return ast.Lambda(identifiers=identifier, expr=expr)
+    lambda_expr = ast.Lambda(identifiers=identifier, expr=expr)
+    lambda_expr._type = ct.LambdaType
+    return lambda_expr
 
 
 @visit.register

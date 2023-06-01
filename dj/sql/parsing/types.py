@@ -192,6 +192,12 @@ class FixedType(PrimitiveType):
         return self._length
 
 
+class LambdaType(ColumnType):
+    """
+    Type representing a lambda function
+    """
+
+
 class DecimalType(NumberType):
     """A fixed data type.
 
