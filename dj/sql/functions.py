@@ -1178,17 +1178,45 @@ class First(Function):  # pragma: no cover  # pylint: disable=abstract-method
 
 @First.register
 def infer_type(  # noqa: F811  # pragma: no cover
-    arg: "Expression",
+    arg: ct.ColumnType,
 ) -> ct.ColumnType:
     return arg.type  # pragma: no cover
 
 
 @First.register
 def infer_type(  # noqa: F811  # pragma: no cover
-    arg: "Expression",
+    arg: ct.ColumnType,
     is_ignore_null: ct.BooleanType,
 ) -> ct.ColumnType:
     return arg.type  # pragma: no cover
+
+
+class CollectList(Function):  # pragma: no cover  # pylint: disable=abstract-method
+    """
+    Collects and returns a list of non-unique elements.
+    """
+
+    is_aggregation = True
+
+
+@CollectList.register
+def infer_type(  # noqa: F811  # pragma: no cover
+    arg: ct.ColumnType,
+) -> ct.ColumnType:
+    return ct.ListType(element_type=arg.type)  # pragma: no cover
+
+
+class ArrayContains(Function):  # pragma: no cover  # pylint: disable=abstract-method
+    """
+    array_contains(array, value) - Returns true if the array contains the value.
+    """
+
+
+@ArrayContains.register
+def infer_type(  # noqa: F811  # pragma: no cover
+    arg: ct.ListType,
+) -> ct.BooleanType:
+    return ct.BooleanType()  # pragma: no cover
 
 
 class ElementAt(Function):  # pylint: disable=abstract-method
