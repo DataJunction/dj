@@ -645,7 +645,12 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
                 "default.municipality_dim.local_region",
             ],
             "filters": [],
-            "orderby": ["default.hard_hat.country", "default.dispatcher.company_name"],
+            "orderby": [
+                "default.hard_hat.country",
+                "default.num_repair_orders",
+                "default.dispatcher.company_name",
+                "default.discounted_orders_rate",
+            ],
             "limit": 100,
         },
     )
@@ -709,7 +714,7 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
               COALESCE(m0_default_DOT_discounted_orders_rate.postal_code, m1_default_DOT_num_repair_orders.postal_code) postal_code,
               COALESCE(m0_default_DOT_discounted_orders_rate.state, m1_default_DOT_num_repair_orders.state) state
       FROM m0_default_DOT_discounted_orders_rate FULL OUTER JOIN m1_default_DOT_num_repair_orders ON m0_default_DOT_discounted_orders_rate.city = m1_default_DOT_num_repair_orders.city AND m0_default_DOT_discounted_orders_rate.company_name = m1_default_DOT_num_repair_orders.company_name AND m0_default_DOT_discounted_orders_rate.country = m1_default_DOT_num_repair_orders.country AND m0_default_DOT_discounted_orders_rate.local_region = m1_default_DOT_num_repair_orders.local_region AND m0_default_DOT_discounted_orders_rate.postal_code = m1_default_DOT_num_repair_orders.postal_code AND m0_default_DOT_discounted_orders_rate.state = m1_default_DOT_num_repair_orders.state
-      ORDER BY m0_default_DOT_discounted_orders_rate.country, m0_default_DOT_discounted_orders_rate.company_name
+      ORDER BY m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_num_repair_orders.default_DOT_num_repair_orders, m0_default_DOT_discounted_orders_rate.company_name, m0_default_DOT_discounted_orders_rate.default_DOT_discounted_orders_rate
       LIMIT 100
     """
     assert compare_query_strings(data["sql"], expected_sql)
@@ -770,5 +775,5 @@ def test_get_sql_for_metrics_orderby_not_in_dimensions(
     data = response.json()
     assert data["message"] == (
         "Column default.hard_hat.city found in order-by "
-        "clause must also be specified in the dimensions."
+        "clause must also be specified in the metrics or dimensions."
     )
