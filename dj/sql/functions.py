@@ -1419,6 +1419,22 @@ def infer_type(  # noqa: F811
     return [arg.key, arg.value]
 
 
+class Abs(Function):  # pylint: disable=abstract-method
+    """
+    Returns the absolute value of the numeric or interval value.
+    """
+
+    is_aggregation = True
+
+
+@Abs.register
+def infer_type(  # noqa: F811
+    arg: ct.NumberType,
+) -> ct.NumberType:
+    type_ = arg.type
+    return type_
+
+
 function_registry = FunctionRegistryDict()
 for cls in Function.__subclasses__():
     snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)
