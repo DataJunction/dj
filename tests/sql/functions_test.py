@@ -330,3 +330,30 @@ def test_cardinality(session: Session):
     query_with_map.compile(ctx)
     assert not exc.errors
     assert query_with_map.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_abs(session: Session):
+    """
+    Test the `abs` Spark function
+    """
+    query = parse(
+        """
+    select abs(-1)
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+    query = parse(
+        """
+    select abs(-1.1)
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
