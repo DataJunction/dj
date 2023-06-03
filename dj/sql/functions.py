@@ -860,7 +860,7 @@ class Quantile(Function):  # pragma: no cover
         return ct.DoubleType()
 
 
-class ApproxPercentile(Function):
+class ApproxPercentile(Function):  # pylint: disable=abstract-method
     """
     approx_percentile(col, percentage [, accuracy]) -
     Returns the approximate percentile of the numeric or ansi interval
@@ -871,7 +871,7 @@ class ApproxPercentile(Function):
 
 
 @ApproxPercentile.register
-def infer_type(  # type: ignore
+def infer_type(  # noqa: F811
     col: ct.NumberType,
     percentage: ct.ListType,
     accuracy: Optional[ct.NumberType],
@@ -880,7 +880,7 @@ def infer_type(  # type: ignore
 
 
 @ApproxPercentile.register
-def infer_type(  # type: ignore
+def infer_type(  # noqa: F811
     col: ct.NumberType,
     percentage: ct.FloatType,
     accuracy: Optional[ct.NumberType],
