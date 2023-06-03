@@ -1299,6 +1299,20 @@ def infer_type(  # noqa: F811
     return ct.ListType(element_type=element_type)
 
 
+class Array_Append(Function):  # pylint: disable=abstract-method,disable=invalid-name
+    """
+    Add the element at the end of the array passed as first argument
+    """
+
+
+@Array_Append.register  # type: ignore
+def infer_type(  # noqa: F811
+    array: ct.ListType,
+    item: ct.ColumnType,
+) -> ct.ListType:
+    return ct.ListType(element_type=item.type)
+
+
 class Map(Function):  # pylint: disable=abstract-method
     """
     Returns a map of constants
