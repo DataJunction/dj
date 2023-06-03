@@ -426,7 +426,7 @@ def test_array_append(session: Session):
 
 def test_approx_percentile(session: Session):
     """
-    Test the `cardinality` Spark function
+    Test the `approx_percentile` Spark function
     """
     query_with_list = parse("SELECT approx_percentile(10.0, array(0.5, 0.4, 0.1), 100)")
     exc = DJException()
