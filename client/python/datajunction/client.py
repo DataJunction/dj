@@ -192,10 +192,20 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Retrieves a dimension node with that name if one exists.
         """
         node_dict = self.verify_node_exists(node_name, "dimension")
-        return Dimension(
+        dimension = Dimension(
             **node_dict,
             dj_client=self,
         )
+        dimension.primary_key = [
+            col["name"]
+            for col in node_dict["columns"]
+            if any(
+                attr["attribute_type"]["name"] == "primary_key"
+                for attr in col["attributes"]
+                if attr
+            )
+        ]
+        return dimension
 
     def new_dimension(  # pylint: disable=too-many-arguments
         self,
