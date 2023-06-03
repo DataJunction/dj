@@ -122,10 +122,12 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Retrieves a source node with that name if one exists.
         """
         node_dict = self.verify_node_exists(node_name, "source")
-        return Source(
+        node = Source(
             **node_dict,
             dj_client=self,
         )
+        node.primary_key = self.primary_key_from_columns(node_dict["columns"])
+        return node
 
     def new_source(  # pylint: disable=too-many-arguments
         self,
@@ -160,10 +162,12 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Retrieves a transform node with that name if one exists.
         """
         node_dict = self.verify_node_exists(node_name, "transform")
-        return Transform(
+        node = Transform(
             **node_dict,
             dj_client=self,
         )
+        node.primary_key = self.primary_key_from_columns(node_dict["columns"])
+        return node
 
     def new_transform(  # pylint: disable=too-many-arguments
         self,
@@ -192,20 +196,12 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Retrieves a dimension node with that name if one exists.
         """
         node_dict = self.verify_node_exists(node_name, "dimension")
-        dimension = Dimension(
+        node = Dimension(
             **node_dict,
             dj_client=self,
         )
-        dimension.primary_key = [
-            col["name"]
-            for col in node_dict["columns"]
-            if any(
-                attr["attribute_type"]["name"] == "primary_key"
-                for attr in col["attributes"]
-                if attr
-            )
-        ]
-        return dimension
+        node.primary_key = self.primary_key_from_columns(node_dict["columns"])
+        return node
 
     def new_dimension(  # pylint: disable=too-many-arguments
         self,
@@ -234,10 +230,12 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Retrieves a metric node with that name if one exists.
         """
         node_dict = self.verify_node_exists(node_name, "metric")
-        return Metric(
+        node = Metric(
             **node_dict,
             dj_client=self,
         )
+        node.primary_key = self.primary_key_from_columns(node_dict["columns"])
+        return node
 
     def new_metric(  # pylint: disable=too-many-arguments
         self,
@@ -260,6 +258,21 @@ class DJClient:  # pylint: disable=too-many-public-methods
             primary_key=primary_key,
             query=query,
         )
+
+    @staticmethod
+    def primary_key_from_columns(columns) -> List[str]:
+        """
+        Extracts the primary key from the columns
+        """
+        return [
+            column["name"]
+            for column in columns
+            if any(
+                attr["attribute_type"]["name"] == "primary_key"
+                for attr in column["attributes"]
+                if attr
+            )
+        ]
 
     def cube(self, node_name: str) -> "Cube":  # pragma: no cover
         """
