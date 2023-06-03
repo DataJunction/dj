@@ -860,19 +860,32 @@ class Quantile(Function):  # pragma: no cover
         return ct.DoubleType()
 
 
-class ApproxQuantile(Function):  # pragma: no cover
+class ApproxPercentile(Function):
     """
-    Computes the approximate quantile of a numerical column or expression.
+    approx_percentile(col, percentage [, accuracy]) -
+    Returns the approximate percentile of the numeric or ansi interval
+    column col which is the smallest value in the ordered col values
     """
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(  # type: ignore
-        arg1: "Expression",
-        arg2: "Expression",
-    ) -> ct.DoubleType:
-        return ct.DoubleType()
+
+@ApproxPercentile.register
+def infer_type(  # type: ignore
+    col: ct.NumberType,
+    percentage: ct.ListType,
+    accuracy: Optional[ct.NumberType],
+) -> ct.DoubleType:
+    return ct.ListType(element_type=col.type)  # type: ignore
+
+
+@ApproxPercentile.register
+def infer_type(  # type: ignore
+    col: ct.NumberType,
+    percentage: ct.FloatType,
+    accuracy: Optional[ct.NumberType],
+) -> ct.NumberType:
+    return col.type  # type: ignore
 
 
 class RegexpLike(Function):  # pragma: no cover
