@@ -1280,7 +1280,7 @@ def infer_type(  # noqa: F811
     return ct.ListType(element_type=element_type)
 
 
-class ArrayAgg(Function):  # pylint: disable=abstract-method,disable=invalid-name
+class ArrayAgg(Function):  # pylint: disable=abstract-method
     """
     Collects and returns a list of non-unique elements.
     """
@@ -1299,13 +1299,13 @@ def infer_type(  # noqa: F811
     return ct.ListType(element_type=element_type)
 
 
-class Array_Append(Function):  # pylint: disable=abstract-method,disable=invalid-name
+class ArrayAppend(Function):  # pylint: disable=abstract-method
     """
     Add the element at the end of the array passed as first argument
     """
 
 
-@Array_Append.register  # type: ignore
+@ArrayAppend.register  # type: ignore
 def infer_type(  # noqa: F811
     array: ct.ListType,
     item: ct.ColumnType,
