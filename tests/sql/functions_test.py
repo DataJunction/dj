@@ -357,3 +357,15 @@ def test_abs(session: Session):
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
+
+def test_array_contains(session: Session):
+    """
+    Test the `array_contains` Spark function
+    """
+    query = parse("select array_contains(array(1, 2, 3), 2)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
