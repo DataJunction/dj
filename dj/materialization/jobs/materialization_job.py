@@ -5,7 +5,7 @@ import abc
 from typing import Optional
 
 from dj.models.engine import Dialect
-from dj.models.node import MaterializationConfig
+from dj.models.node import GenericMaterializationConfig, MaterializationConfig
 from dj.service_clients import QueryServiceClient
 
 
@@ -67,3 +67,13 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
         """
         Placeholder for the actual implementation.
         """
+        generic_config = GenericMaterializationConfig.parse_obj(materialization.config)
+        query_service_client.materialize(
+            node_name=materialization.node_revision.name,
+            node_type=materialization.node_revision.type,
+            schedule=materialization.schedule,
+            query=generic_config.query,
+            upstream_tables=generic_config.upstream_tables,
+            spark_conf=materialization.config["spark"],
+            partitions=[partition.dict() for partition in generic_config.partitions],
+        )

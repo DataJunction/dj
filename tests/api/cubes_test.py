@@ -897,7 +897,7 @@ def test_add_materialization_config_to_cube(
     }
     called_kwargs = [
         call_[1]
-        for call_ in query_service_client.materialize_cube.call_args_list  # type: ignore
+        for call_ in query_service_client.materialize.call_args_list  # type: ignore
     ][0]
     assert called_kwargs["node_name"] == "default.repairs_cube"
     assert called_kwargs["node_type"] == "cube"

@@ -114,7 +114,7 @@ class ColumnType(BaseModel):
         Returns whether the two types are compatible with each other by
         checking their ancestors.
         """
-        if self == other:
+        if self == NullType() or other == NullType() or self == other:
             return True  # quick return
 
         def has_common_ancestor(type1, type2) -> bool:

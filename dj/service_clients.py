@@ -132,30 +132,37 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         query_info = response.json()
         return QueryWithResults(**query_info)
 
-    def materialize_cube(  # pylint: disable=too-many-arguments
+    def materialize(  # pylint: disable=too-many-arguments
         self,
         node_name: str,
         node_type: "NodeType",
         schedule: str,
         query: str,
-        spark_conf: Dict,
-        druid_spec: Dict,
+        upstream_tables: List[str],
+        spark_conf: Optional[Dict] = None,
+        druid_spec: Optional[Dict] = None,
+        partitions: Optional[List[Dict]] = None,
     ):
         """
         Post a request to the query service asking it to set up a scheduled materialization
-        for the cube node. The query service is expected to manage all reruns of this job. Note
+        for the node. The query service is expected to manage all reruns of this job. Note
         that this functionality may be moved to the materialization service at a later point.
         """
+        input_spec = {
+            "node_name": node_name,
+            "node_type": node_type,
+            "schedule": schedule or "@daily",
+            "query": query,
+            "spark_conf": spark_conf,
+            "upstream_tables": upstream_tables,
+            "partitions": partitions,
+        }
+        if druid_spec:  # pragma: no cover
+            input_spec["druid_spec"] = druid_spec
+
         response = self.requests_session.post(  # pragma: no cover
             "/materialization/",
-            json={
-                "node_name": node_name,
-                "node_type": node_type,
-                "schedule": schedule or "@daily",
-                "query": query,
-                "spark_conf": spark_conf,
-                "druid_spec": druid_spec,
-            },
+            json=input_spec,
         )
         result = response.json()  # pragma: no cover
         return result  # pragma: no cover
