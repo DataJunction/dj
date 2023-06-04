@@ -441,3 +441,26 @@ def test_approx_percentile(session: Session):
     query_with_list.compile(ctx)
     assert not exc.errors
     assert query_with_list.select.projection[0].type == ct.FloatType()  # type: ignore
+
+
+def test_transform(session: Session):
+    """
+    Test the `transform` Spark function
+    """
+    query = parse(
+        """
+        SELECT transform(array(1, 2, 3), x -> x + 1)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+    query = parse(
+        """
+        SELECT transform(array(1, 2, 3), (x, i) -> x + i)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
