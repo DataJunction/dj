@@ -1280,13 +1280,13 @@ def infer_type(  # noqa: F811
     return ct.ListType(element_type=element_type)
 
 
-class Array_Agg(Function):  # pylint: disable=abstract-method,disable=invalid-name
+class ArrayAgg(Function):  # pylint: disable=abstract-method,disable=invalid-name
     """
     Collects and returns a list of non-unique elements.
     """
 
 
-@Array_Agg.register  # type: ignore
+@ArrayAgg.register  # type: ignore
 def infer_type(  # noqa: F811
     *elements: ct.ColumnType,
 ) -> ct.ListType:
