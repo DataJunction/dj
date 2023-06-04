@@ -6,7 +6,7 @@ import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional, Tuple, Union
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
@@ -343,6 +343,9 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
 
     engine_id: int = Field(foreign_key="engine.id", primary_key=True)
     engine: Engine = Relationship()
+    #
+    # # The name of the materialization job
+    # name: str = Field(foreign_key="engine.id", primary_key=True)
 
     # A cron schedule to materialize this node by
     schedule: str
@@ -439,6 +442,9 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     # is not managed as a part of this service
     materialization_configs: List[MaterializationConfig] = Relationship(
         back_populates="node_revision",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+        },
     )
 
     def __hash__(self) -> int:
@@ -722,6 +728,62 @@ class SparkConf(BaseSQLModel):
     __root__: Dict[str, str]
 
 
+class PartitionType(str, enum.Enum):
+    """
+    Partition type.
+
+    A partition can be temporal or categorical
+    """
+
+    TEMPORAL = "temporal"
+    CATEGORICAL = "categorical"
+
+
+class Partition(BaseSQLModel):
+    """
+    A partition specification tells the ongoing and backfill materialization jobs how to partition
+    the materialized dataset and which partition values (a list or range of values) to operate on.
+    Partitions may be temporal or categorical and will be handled differently depending on the type.
+
+    For temporal partition types, the ongoing materialization job will continue to operate on the
+    latest partitions and the partition values specified by `values` and `range` are only relevant
+    to the backfill job.
+
+    Examples:
+        This will tell DJ to backfill for all values of the dateint partition:
+          Partition(name=“dateint”, type="temporal", values=[], range=())
+        This will tell DJ to backfill just 20230601 and 20230605:
+          Partition(name=“dateint”, type="temporal", values=[20230601, 20230605], range=())
+        This will tell DJ to backfill 20230601 and between 20220101 and 20230101:
+          Partition(name=“dateint”, type="temporal", values=[20230601], range=(20220101, 20230101))
+
+        For categorical partition types, the ongoing materialization job will *only* operate on the
+        specified partition values in `values` and `range`:
+            Partition(name=“group_id”, type="categorical", values=["a", "b", "c"], range=())
+    """
+
+    name: str
+    values: Optional[List]
+    range: Optional[Tuple]
+    type_: PartitionType
+
+
+class GenericMaterializationConfig(BaseModel):
+    """
+    Generic node materialization config needed by any materialization choices
+    and engine combinations
+    """
+
+    node_name: Optional[str]
+    query: Optional[str]
+
+    # List of partitions that materialization jobs (ongoing and backfill) will operate on.
+    partitions: Optional[List[Partition]]
+
+    spark: Optional[SparkConf]
+    upstream_tables: Optional[List[str]]
+
+
 class DruidConf(BaseSQLModel):
     """Druid configuration"""
 
@@ -732,17 +794,14 @@ class DruidConf(BaseSQLModel):
     parse_spec_format: Optional[str]
 
 
-class GenericCubeConfig(BaseModel):
+class GenericCubeConfig(GenericMaterializationConfig):
     """
     Generic cube materialization config needed by any materialization
     choices and engine combinations
     """
 
-    node_name: Optional[str]
-    query: Optional[str]
     dimensions: Optional[List[str]]
     measures: Optional[Dict[str, List[Dict[str, str]]]]
-    partitions: Optional[List[str]]
 
 
 class DruidCubeConfig(GenericCubeConfig):
@@ -753,7 +812,6 @@ class DruidCubeConfig(GenericCubeConfig):
 
     prefix: Optional[str] = ""
     suffix: Optional[str] = ""
-    spark: Optional[SparkConf]
     druid: Optional[DruidConf]
 
 

@@ -1291,13 +1291,13 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
 
     def test_upsert_materialization_config(  # pylint: disable=too-many-arguments
         self,
-        client_with_examples: TestClient,
+        client_with_query_service: TestClient,
     ) -> None:
         """
         Test creating & updating materialization config for a node.
         """
         # Setting the materialization config for a source node should fail
-        response = client_with_examples.post(
+        response = client_with_query_service.post(
             "/nodes/basic.source.comments/materialization/",
             json={
                 "engine": {
@@ -1315,7 +1315,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
 
         # Setting the materialization config for an engine that doesn't exist should fail
-        response = client_with_examples.post(
+        response = client_with_query_service.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
                 "engine": {
@@ -1330,8 +1330,12 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
+    def test_add_materialization_success(self, client_with_query_service: TestClient):
+        """
+        Verifies success cases of adding materialization config.
+        """
         # Create the engine and check the existing transform node
-        client_with_examples.post(
+        client_with_query_service.post(
             "/engines/",
             json={
                 "name": "spark",
@@ -1340,20 +1344,28 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
 
-        response = client_with_examples.get("/nodes/basic.transform.country_agg/")
+        response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
         old_node_data = response.json()
         assert old_node_data["version"] == "v1.0"
         assert old_node_data["materialization_configs"] == []
 
         # Setting the materialization config should succeed
-        response = client_with_examples.post(
+        response = client_with_query_service.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
                 "engine": {
                     "name": "spark",
                     "version": "2.4.4",
                 },
-                "config": {},
+                "config": {
+                    "partitions": [
+                        {
+                            "name": "country",
+                            "values": ["DE", "MY"],
+                            "type_": "categorical",
+                        },
+                    ],
+                },
                 "schedule": "0 * * * *",
             },
         )
@@ -1365,44 +1377,129 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
 
         # Reading the node should yield the materialization config
-        response = client_with_examples.get("/nodes/basic.transform.country_agg/")
+        response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
         data = response.json()
         assert data["version"] == "v1.0"
         assert data["materialization_configs"] == [
             {
-                "config": {},
-                "schedule": "0 * * * *",
                 "engine": {
                     "name": "spark",
-                    "uri": None,
                     "version": "2.4.4",
+                    "uri": None,
                     "dialect": "spark",
                 },
+                "config": {
+                    "node_name": None,
+                    "query": "SELECT  basic_DOT_source_DOT_users.country,\n\tCOUNT( "
+                    "DISTINCT basic_DOT_source_DOT_users.id) AS num_users \n "
+                    "FROM basic.dim_users AS basic_DOT_source_DOT_users \n WHERE"
+                    "  basic_DOT_source_DOT_users.country IN ('DE', 'MY') \n "
+                    "GROUP BY  1\n",
+                    "partitions": [
+                        {
+                            "name": "country",
+                            "values": ["DE", "MY"],
+                            "range": None,
+                            "type_": "categorical",
+                        },
+                    ],
+                    "spark": {},
+                    "upstream_tables": ["public.basic.dim_users"],
+                },
+                "schedule": "0 * * * *",
                 "job": "SparkSqlMaterializationJob",
             },
         ]
 
-        # Setting the same config should yield a message indicating so.
-        response = client_with_examples.post(
-            "/nodes/basic.transform.country_agg/materialization/",
+        # Setting the materialization config with a temporal partition should succeed
+        response = client_with_query_service.post(
+            "/nodes/default.hard_hat/materialization/",
             json={
                 "engine": {
                     "name": "spark",
                     "version": "2.4.4",
                 },
-                "config": {},
-                "dialect": "spark",
+                "config": {
+                    "partitions": [
+                        {
+                            "name": "country",
+                            "values": ["DE", "MY"],
+                            "type_": "categorical",
+                        },
+                        {
+                            "name": "birth_date",
+                            "range": (20010101, 20020101),
+                            "type_": "temporal",
+                        },
+                        {
+                            "name": "contractor_id",
+                            "range": (1, 10),
+                            "type_": "categorical",
+                        },
+                    ],
+                },
                 "schedule": "0 * * * *",
             },
         )
-        assert response.status_code == 204
-
         data = response.json()
         assert (
             data["message"]
-            == "The same materialization config provided already exists for node "
-            "`basic.transform.country_agg` so no update was performed."
+            == "Successfully updated materialization config for node `default.hard_hat` "
+            "and engine `spark`."
         )
+
+        # Check that the temporal partition is appended onto the list of partitions in the
+        # materialization config but is not included directly in the materialization query
+        response = client_with_query_service.get("/nodes/default.hard_hat/")
+        data = response.json()
+        assert data["version"] == "v1.0"
+        assert data["materialization_configs"] == [
+            {
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                    "uri": None,
+                    "dialect": "spark",
+                },
+                "config": {
+                    "node_name": None,
+                    "query": "SELECT  default_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats."
+                    "birth_date,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats."
+                    "contractor_id,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard"
+                    "_hats.first_name,\n\tdefault_DOT_hard_hats.hard_hat_id,\n\tdefault_D"
+                    "OT_hard_hats.hire_date,\n\tdefault_DOT_hard_hats.last_name,\n\tdefau"
+                    "lt_DOT_hard_hats.manager,\n\tdefault_DOT_hard_hats.postal_code,\n\t"
+                    "default_DOT_hard_hats.state,\n\tdefault_DOT_hard_hats.title \n FROM"
+                    " roads.hard_hats AS default_DOT_hard_hats \n WHERE  default_DOT_har"
+                    "d_hats.country IN ('DE', 'MY') AND default_DOT_hard_hats.contractor"
+                    "_id BETWEEN 1 AND 10\n",
+                    "partitions": [
+                        {
+                            "name": "country",
+                            "values": ["DE", "MY"],
+                            "range": None,
+                            "type_": "categorical",
+                        },
+                        {
+                            "name": "birth_date",
+                            "values": None,
+                            "range": [20010101, 20020101],
+                            "type_": "temporal",
+                        },
+                        {
+                            "name": "contractor_id",
+                            "values": None,
+                            "range": [1, 10],
+                            "type_": "categorical",
+                        },
+                    ],
+                    "spark": {},
+                    "upstream_tables": ["default.roads.hard_hats"],
+                },
+                "schedule": "0 * * * *",
+                "job": "SparkSqlMaterializationJob",
+            },
+        ]
 
 
 class TestNodeColumnsAttributes:

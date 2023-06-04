@@ -46,6 +46,7 @@ from dj.sql.parsing.types import (
     FloatType,
     IntegerBase,
     IntegerType,
+    ListType,
     MapType,
     NestedField,
     NullType,
@@ -1860,8 +1861,10 @@ class Subscript(Expression):
 
     @property
     def type(self) -> ColumnType:
-        type_ = cast(MapType, self.expr.type)
-        return type_.value.type
+        if isinstance(self.expr.type, MapType):
+            type_ = cast(MapType, self.expr.type)
+            return type_.value.type
+        return cast(ListType, self.expr.type).element.type
 
 
 @dataclass(eq=False)

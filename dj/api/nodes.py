@@ -34,7 +34,7 @@ from dj.api.helpers import (
     validate_node_data,
 )
 from dj.api.tags import get_tag_by_name
-from dj.construction.build import build_metric_nodes
+from dj.construction.build import build_metric_nodes, build_node
 from dj.errors import DJDoesNotExistException, DJException, DJInvalidInputException
 from dj.materialization.jobs import (
     DefaultCubeMaterialization,
@@ -60,6 +60,7 @@ from dj.models.node import (
     DruidConf,
     DruidCubeConfig,
     GenericCubeConfig,
+    GenericMaterializationConfig,
     MaterializationConfig,
     MissingParent,
     Node,
@@ -71,6 +72,8 @@ from dj.models.node import (
     NodeStatus,
     NodeType,
     NodeValidation,
+    Partition,
+    PartitionType,
     SparkConf,
     UpdateNode,
     UpsertCubeMaterializationConfig,
@@ -426,6 +429,10 @@ def build_cube_config(
         dimensions=list(dimensions_set),
         measures=measures,
         partitions=[],
+        upstream_tables=[
+            f"{cube_node.catalog.name}.{tbl.identifier()}"
+            for tbl in combined_ast.find_all(ast.Table)
+        ],
     )
 
 
@@ -444,6 +451,24 @@ def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
             "must have a dialect configured.",
         )
     return engine_to_job_mapping[engine.dialect]  # type: ignore
+
+
+def filters_from_partitions(partitions: List[Partition]):
+    """
+    Derive filters needed from partitions spec.
+    """
+    filters = []
+    for partition in partitions:
+        if partition.type_ != PartitionType.TEMPORAL:
+            if partition.values:
+                quoted_values = [f"'{value}'" for value in partition.values]
+                filters.append(f"{partition.name} IN ({','.join(quoted_values)})")
+            if partition.range and len(partition.range) == 2:
+                filters.append(
+                    f"{partition.name} BETWEEN {partition.range[0]} "
+                    f"AND {partition.range[1]}",
+                )
+    return filters
 
 
 @router.post("/nodes/{name}/materialization/", status_code=201)
@@ -474,7 +499,7 @@ def upsert_a_materialization_config(
     if (
         existing_config_for_engine
         and existing_config_for_engine[0].config == data.config
-    ):
+    ):  # pragma: no cover
         return JSONResponse(
             status_code=HTTPStatus.NO_CONTENT,
             content={
@@ -493,6 +518,31 @@ def upsert_a_materialization_config(
         if config.engine.name != data.engine.name
     ]
 
+    if current_revision.type in (NodeType.DIMENSION, NodeType.TRANSFORM):
+        generic_config = GenericMaterializationConfig(
+            query="",
+            spark=data.config["spark"] if "spark" in data.config else {},
+            partitions=data.config["partitions"] if "partitions" in data.config else [],
+            upstream_tables=[],
+        )
+        materialization_ast = build_node(
+            session=session,
+            node=node.current,
+            filters=(
+                filters_from_partitions(generic_config.partitions)
+                if generic_config.partitions
+                else []
+            ),
+            dimensions=[],
+            orderby=[],
+        )
+        generic_config.query = str(materialization_ast)
+        generic_config.upstream_tables = [
+            f"{node.current.catalog.name}.{tbl.identifier()}"
+            for tbl in materialization_ast.find_all(ast.Table)
+        ]
+        data.config = generic_config.dict()
+
     if current_revision.type == NodeType.CUBE:
         # Check to see if a default materialization was already configured, so that we
         # can copy over the default cube setup and layer on specific config as needed
@@ -510,6 +560,7 @@ def upsert_a_materialization_config(
                 measures=default_job_config.measures,
                 spark=SparkConf(__root__=data.config.get("spark", {})),
                 druid=DruidConf(**data.config["druid"]),
+                upstream_tables=default_job_config.upstream_tables,
             ).dict()
         except (KeyError, ValidationError) as exception:
             return JSONResponse(

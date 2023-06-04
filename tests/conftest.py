@@ -103,7 +103,7 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
 
     mocker.patch.object(
         qs_client,
-        "materialize_cube",
+        "materialize",
         MagicMock(),
     )
 

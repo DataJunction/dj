@@ -112,11 +112,12 @@ class DruidCubeMaterializationJob(MaterializationJob):
             cube_config,
             materialization.node_revision.name,
         )
-        query_service_client.materialize_cube(
+        query_service_client.materialize(
             node_name=materialization.node_revision.name,
             node_type=materialization.node_revision.type,
             schedule=materialization.schedule,
             query=cube_config.query,
             spark_conf=cube_config.spark.__root__,
             druid_spec=druid_spec,
+            upstream_tables=cube_config.upstream_tables,
         )

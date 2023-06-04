@@ -458,7 +458,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             ident = exp.identifier(False)
             added = None
             for exist_idents, exist_cols in projection_addition.items():
-                if exist_idents.endswith(ident):
+                if exist_idents.endswith(ident) or ident.endswith(exist_idents):
                     projection_update.append(exist_cols)
                     added = exist_idents
                     break
