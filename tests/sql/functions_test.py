@@ -369,3 +369,30 @@ def test_array_contains(session: Session):
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
+def test_array_agg(session: Session):
+    """
+    Test the `array_agg` Spark function
+    """
+    query = parse(
+        """
+    SELECT array_agg(col) FROM (select 1 as col)
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+    query = parse(
+        """
+    SELECT array_agg(col) FROM (select 'foo' as col)
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
