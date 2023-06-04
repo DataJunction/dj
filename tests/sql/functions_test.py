@@ -422,3 +422,22 @@ def test_array_append(session: Session):
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.BooleanType())  # type: ignore
+
+
+def test_approx_percentile(session: Session):
+    """
+    Test the `approx_percentile` Spark function
+    """
+    query_with_list = parse("SELECT approx_percentile(10.0, array(0.5, 0.4, 0.1), 100)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query_with_list.compile(ctx)
+    assert not exc.errors
+    assert query_with_list.select.projection[0].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
+
+    query_with_list = parse("SELECT approx_percentile(10.0, 0.5, 100)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query_with_list.compile(ctx)
+    assert not exc.errors
+    assert query_with_list.select.projection[0].type == ct.FloatType()  # type: ignore
