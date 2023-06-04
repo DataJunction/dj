@@ -1206,7 +1206,9 @@ def infer_type(  # noqa: F811  # pragma: no cover
     return ct.ListType(element_type=arg.type)  # pragma: no cover
 
 
-class ArrayContains(Function):  # pragma: no cover  # pylint: disable=abstract-method
+class ArrayContains(
+    Function,
+):  # pragma: no cover  # pylint: disable=abstract-method
     """
     array_contains(array, value) - Returns true if the array contains the value.
     """
@@ -1214,7 +1216,8 @@ class ArrayContains(Function):  # pragma: no cover  # pylint: disable=abstract-m
 
 @ArrayContains.register
 def infer_type(  # noqa: F811  # pragma: no cover
-    arg: ct.ListType,
+    array: ct.ListType,
+    element: ct.ColumnType,
 ) -> ct.BooleanType:
     return ct.BooleanType()  # pragma: no cover
 
