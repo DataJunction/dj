@@ -396,3 +396,29 @@ def test_array_agg(session: Session):
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
+def test_array_append(session: Session):
+    """
+    Test the `array_append` Spark function
+    """
+    query = parse("SELECT array_append(array('b', 'd', 'c', 'a'), 'd')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+    query = parse("SELECT array_append(array(1, 2, 3, 4), 5)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+    query = parse("SELECT array_append(array(true, false, true, true), false)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.BooleanType())  # type: ignore
