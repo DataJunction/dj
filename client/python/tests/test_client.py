@@ -217,6 +217,7 @@ class TestDJClient:
         assert repair_order_dim.name == "default.repair_order"
         assert "FROM default.repair_orders" in repair_order_dim.query
         assert repair_order_dim.type == "dimension"
+        assert repair_order_dim.primary_key == ["repair_order_id"]
 
         # transforms
         result = client.namespace("default").transforms()

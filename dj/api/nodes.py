@@ -1169,7 +1169,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals
     pk_changes = (
         data is not None
         and data.primary_key
-        and {col.name for col in old_revision.primary_key()} != data.primary_key
+        and {col.name for col in old_revision.primary_key()} != set(data.primary_key)
     )
     major_changes = query_changes or column_changes or pk_changes
 
