@@ -1280,6 +1280,25 @@ def infer_type(  # noqa: F811
     return ct.ListType(element_type=element_type)
 
 
+class ArrayAgg(Function):  # pylint: disable=abstract-method,disable=invalid-name
+    """
+    Collects and returns a list of non-unique elements.
+    """
+
+
+@ArrayAgg.register  # type: ignore
+def infer_type(  # noqa: F811
+    *elements: ct.ColumnType,
+) -> ct.ListType:
+    types = {element.type for element in elements}
+    if len(types) > 1:  # pragma: no cover
+        raise DJParseException(
+            f"Multiple types {', '.join(sorted(str(typ) for typ in types))} passed to array.",
+        )
+    element_type = elements[0].type if elements else ct.NullType()
+    return ct.ListType(element_type=element_type)
+
+
 class Map(Function):  # pylint: disable=abstract-method
     """
     Returns a map of constants
