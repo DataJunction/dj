@@ -5,6 +5,7 @@ Fixtures for testing DJ client.
 
 from http.client import HTTPException
 from typing import Iterator
+from unittest.mock import MagicMock
 
 import pytest
 from cachelib import SimpleCache
@@ -90,6 +91,12 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         qs_client,
         "submit_query",
         mock_submit_query,
+    )
+
+    mocker.patch.object(
+        qs_client,
+        "materialize",
+        MagicMock(),
     )
     yield qs_client
 

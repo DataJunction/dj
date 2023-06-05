@@ -343,9 +343,6 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
 
     engine_id: int = Field(foreign_key="engine.id", primary_key=True)
     engine: Engine = Relationship()
-    #
-    # # The name of the materialization job
-    # name: str = Field(foreign_key="engine.id", primary_key=True)
 
     # A cron schedule to materialize this node by
     schedule: str
