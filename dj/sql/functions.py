@@ -1076,6 +1076,48 @@ class TimeStrToTime(Function):  # pragma: no cover
         return ct.TimestampType()
 
 
+class Transform(Function):  # pylint: disable=abstract-method
+    """
+    transform(expr, func) - Transforms elements in an array
+    using the function.
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `transform` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
+        """
+        from dj.sql.parsing import ast  # pylint: disable=import-outside-toplevel
+
+        expr, func = args
+        available_identifiers = {
+            identifier.name: idx for idx, identifier in enumerate(func.identifiers)
+        }
+        columns = list(
+            func.expr.filter(
+                lambda x: isinstance(x, ast.Column)
+                and x.alias_or_name.name in available_identifiers,
+            ),
+        )
+        for col in columns:
+            # The array element arg
+            if available_identifiers.get(col.alias_or_name.name) == 0:
+                col.add_type(expr.type.element.type)
+
+            # The index arg (optional)
+            if available_identifiers.get(col.alias_or_name.name) == 1:
+                col.add_type(ct.IntegerType())
+
+
+@Transform.register  # type: ignore
+def infer_type(  # noqa: F811
+    expr: ct.ListType,
+    func: ct.PrimitiveType,
+) -> ct.ColumnType:
+    return ct.ListType(element_type=func.expr.type)
+
+
 class Trim(Function):  # pragma: no cover
     """
     Removes leading and trailing whitespace from a string value.
