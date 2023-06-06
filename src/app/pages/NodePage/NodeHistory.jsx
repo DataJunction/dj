@@ -23,6 +23,7 @@ export default function NodeColumnTab({ node, djClient }) {
         </td>
         <td>{event.entity_type}</td>
         <td>{event.entity_name}</td>
+        <td>{event.user ? event.user : 'unknown'}</td>
         <td>{event.created_at}</td>
       </tr>
     ));
@@ -34,6 +35,7 @@ export default function NodeColumnTab({ node, djClient }) {
           <th className="text-start">Activity</th>
           <th>Type</th>
           <th>Name</th>
+          <th>User</th>
           <th>Timestamp</th>
         </thead>
         {tableData(history)}
