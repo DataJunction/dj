@@ -1389,7 +1389,6 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                     "dialect": "spark",
                 },
                 "config": {
-                    "node_name": None,
                     "query": "SELECT  basic_DOT_source_DOT_users.country,\n\tCOUNT( "
                     "DISTINCT basic_DOT_source_DOT_users.id) AS num_users \n "
                     "FROM basic.dim_users AS basic_DOT_source_DOT_users \n WHERE"
@@ -1462,7 +1461,6 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                     "dialect": "spark",
                 },
                 "config": {
-                    "node_name": None,
                     "query": "SELECT  default_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats."
                     "birth_date,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats."
                     "contractor_id,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard"

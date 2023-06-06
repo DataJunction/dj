@@ -5,6 +5,7 @@ from typing import Dict
 
 from dj.materialization.jobs.materialization_job import MaterializationJob
 from dj.models.engine import Dialect
+from dj.models.materialization import DruidMaterializationInput
 from dj.models.node import DruidCubeConfig, MaterializationConfig
 from dj.service_clients import QueryServiceClient
 
@@ -113,11 +114,13 @@ class DruidCubeMaterializationJob(MaterializationJob):
             materialization.node_revision.name,
         )
         query_service_client.materialize(
-            node_name=materialization.node_revision.name,
-            node_type=materialization.node_revision.type,
-            schedule=materialization.schedule,
-            query=cube_config.query,
-            spark_conf=cube_config.spark.__root__,
-            druid_spec=druid_spec,
-            upstream_tables=cube_config.upstream_tables,
+            DruidMaterializationInput(
+                node_name=materialization.node_revision.name,
+                node_type=materialization.node_revision.type,
+                schedule=materialization.schedule,
+                query=cube_config.query,
+                spark_conf=cube_config.spark.__root__,
+                druid_spec=druid_spec,
+                upstream_tables=cube_config.upstream_tables or [],
+            ),
         )

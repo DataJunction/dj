@@ -771,7 +771,6 @@ class GenericMaterializationConfig(BaseModel):
     and engine combinations
     """
 
-    node_name: Optional[str]
     query: Optional[str]
 
     # List of partitions that materialization jobs (ongoing and backfill) will operate on.
