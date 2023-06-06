@@ -37,6 +37,9 @@ exports[`<DJNode /> should render and match the snapshot 1`] = `
       </b>
       :
        
+      <a
+        href="/nodes/shared.dimensions.accounts"
+      />
       <Collapse
         collapsed={true}
         text="columns"
