@@ -1,5 +1,7 @@
 import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
+import DJClientContext from '../../providers/djclient';
+import { useContext, useEffect, useState } from 'react';
 
 function renderBasedOnDJNodeType(param) {
   switch (param) {
@@ -61,12 +63,31 @@ export function DJNode({ id, data }) {
         <td style={{ textAlign: 'right' }}>{col.type}</td>
       </tr>
     ));
-  // const dimensionsRenderer = data =>
-  //   data.dimensions.map(dim => (
-  //     <tr>
-  //       <td>{dim}</td>
-  //     </tr>
-  //   ));
+
+  const [dimensions, setDimensions] = useState([]);
+  const djClient = useContext(DJClientContext).DataJunctionAPI;
+  useEffect(() => {
+    if (data.type === 'metric') {
+      async function getDimensions() {
+        try {
+          const metricData = await djClient.metric(data.name);
+          setDimensions(metricData.dimensions);
+        } catch (err) {
+          console.log(err);
+        }
+      }
+      getDimensions();
+    }
+  }, [data, djClient]);
+
+  const dimensionsRenderer = dimensions =>
+    dimensions.map(dim => (
+      <tr>
+        <a href={`/nodes/${dim.substring(0, dim.lastIndexOf('.'))}`}>
+          <td>{dim}</td>
+        </a>
+      </tr>
+    ));
 
   return (
     <>
@@ -86,15 +107,17 @@ export function DJNode({ id, data }) {
         </div>
         <div className="dj-node__body">
           <b>{capitalize(data.type)}</b>:{' '}
-          {data.type === 'source' ? data.table : data.display_name}
+          <a href={`/nodes/${data.name}`}>
+            {data.type === 'source' ? data.table : data.display_name}
+          </a>
           <Collapse
             collapsed={true}
             text={data.type !== 'metric' ? 'columns' : 'dimensions'}
           >
             <div className="dj-node__metadata">
-              {
-                data.type !== 'metric' ? columnsRenderer(data) : '' // dimensionsRenderer(data)
-              }
+              {data.type !== 'metric'
+                ? columnsRenderer(data)
+                : dimensionsRenderer(dimensions)}
             </div>
           </Collapse>
         </div>
