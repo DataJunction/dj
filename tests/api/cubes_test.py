@@ -896,26 +896,27 @@ def test_add_materialization_config_to_cube(
         "`default.repairs_cube` and engine `druid`.",
     }
     called_kwargs = [
-        call_[1]
+        call_[0]
         for call_ in query_service_client.materialize.call_args_list  # type: ignore
-    ][0]
-    assert called_kwargs["node_name"] == "default.repairs_cube"
-    assert called_kwargs["node_type"] == "cube"
-    assert called_kwargs["schedule"] == "@daily"
-    assert called_kwargs["spark_conf"] == {}
+    ][0][0]
+    print(called_kwargs)
+    assert called_kwargs.node_name == "default.repairs_cube"
+    assert called_kwargs.node_type == "cube"
+    assert called_kwargs.schedule == "@daily"
+    assert called_kwargs.spark_conf == {}
     dimensions_sorted = sorted(
-        called_kwargs["druid_spec"]["dataSchema"]["parser"]["parseSpec"][
-            "dimensionsSpec"
-        ]["dimensions"],
+        called_kwargs.druid_spec["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
+            "dimensions"
+        ],
     )
-    called_kwargs["druid_spec"]["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
+    called_kwargs.druid_spec["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
         "dimensions"
     ] = dimensions_sorted
-    called_kwargs["druid_spec"]["dataSchema"]["metricsSpec"] = sorted(
-        called_kwargs["druid_spec"]["dataSchema"]["metricsSpec"],
+    called_kwargs.druid_spec["dataSchema"]["metricsSpec"] = sorted(
+        called_kwargs.druid_spec["dataSchema"]["metricsSpec"],
         key=lambda x: x["fieldName"],
     )
-    assert called_kwargs["druid_spec"] == {
+    assert called_kwargs.druid_spec == {
         "dataSchema": {
             "dataSource": "default_DOT_repairs_cube",
             "parser": {

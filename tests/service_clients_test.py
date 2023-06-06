@@ -9,6 +9,7 @@ from requests import Request
 
 from dj.errors import DJQueryServiceClientException
 from dj.models import Engine
+from dj.models.materialization import GenericMaterializationInput
 from dj.models.node import NodeType
 from dj.models.query import QueryCreate
 from dj.service_clients import QueryServiceClient, RequestsSessionWithEndpoint
@@ -225,13 +226,15 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
         query_service_client.materialize(
-            node_name="default.hard_hat",
-            node_type=NodeType.DIMENSION,
-            schedule="0 * * * *",
-            query="",
-            spark_conf={},
-            upstream_tables=["default.hard_hats"],
-            partitions=[],
+            GenericMaterializationInput(
+                node_name="default.hard_hat",
+                node_type=NodeType.DIMENSION,
+                schedule="0 * * * *",
+                query="",
+                spark_conf={},
+                upstream_tables=["default.hard_hats"],
+                partitions=[],
+            ),
         )
 
         mock_request.assert_called_with(

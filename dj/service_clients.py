@@ -1,5 +1,5 @@
 """Clients for various configurable services."""
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Union
 from urllib.parse import urljoin
 from uuid import UUID
 
@@ -9,6 +9,10 @@ from urllib3 import Retry
 
 from dj.errors import DJQueryServiceClientException
 from dj.models.column import Column
+from dj.models.materialization import (
+    DruidMaterializationInput,
+    GenericMaterializationInput,
+)
 from dj.models.query import QueryCreate, QueryWithResults
 from dj.sql.parsing.types import ColumnType
 
@@ -134,35 +138,19 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
 
     def materialize(  # pylint: disable=too-many-arguments
         self,
-        node_name: str,
-        node_type: "NodeType",
-        schedule: str,
-        query: str,
-        upstream_tables: List[str],
-        spark_conf: Optional[Dict] = None,
-        druid_spec: Optional[Dict] = None,
-        partitions: Optional[List[Dict]] = None,
+        materialization_input: Union[
+            GenericMaterializationInput,
+            DruidMaterializationInput,
+        ],
     ):
         """
         Post a request to the query service asking it to set up a scheduled materialization
         for the node. The query service is expected to manage all reruns of this job. Note
         that this functionality may be moved to the materialization service at a later point.
         """
-        input_spec = {
-            "node_name": node_name,
-            "node_type": node_type,
-            "schedule": schedule or "@daily",
-            "query": query,
-            "spark_conf": spark_conf,
-            "upstream_tables": upstream_tables,
-            "partitions": partitions,
-        }
-        if druid_spec:  # pragma: no cover
-            input_spec["druid_spec"] = druid_spec
-
         response = self.requests_session.post(  # pragma: no cover
             "/materialization/",
-            json=input_spec,
+            json=materialization_input.dict(),
         )
         result = response.json()  # pragma: no cover
         return result  # pragma: no cover

@@ -416,15 +416,17 @@ def build_cube_config(
     }
     if config.get("druid"):
         return DruidCubeConfig(
-            node_name=cube_node.name,
             query=str(combined_ast),
             dimensions=list(dimensions_set),
             measures=measures,
             spark=SparkConf(__root__=config.get("spark", {})),
             druid=DruidConf(**config["druid"]),
+            upstream_tables=[
+                f"{cube_node.catalog.name}.{tbl.identifier()}"
+                for tbl in combined_ast.find_all(ast.Table)
+            ],
         )
     return GenericCubeConfig(
-        node_name=cube_node.name,
         query=str(combined_ast),
         dimensions=list(dimensions_set),
         measures=measures,
@@ -519,28 +521,31 @@ def upsert_a_materialization_config(
     ]
 
     if current_revision.type in (NodeType.DIMENSION, NodeType.TRANSFORM):
-        generic_config = GenericMaterializationConfig(
-            query="",
-            spark=data.config["spark"] if "spark" in data.config else {},
-            partitions=data.config["partitions"] if "partitions" in data.config else [],
-            upstream_tables=[],
-        )
         materialization_ast = build_node(
             session=session,
             node=node.current,
             filters=(
-                filters_from_partitions(generic_config.partitions)
-                if generic_config.partitions
+                filters_from_partitions(
+                    [
+                        Partition.parse_obj(partition)
+                        for partition in data.config["partitions"]
+                    ],
+                )
+                if data.config["partitions"]
                 else []
             ),
             dimensions=[],
             orderby=[],
         )
-        generic_config.query = str(materialization_ast)
-        generic_config.upstream_tables = [
-            f"{node.current.catalog.name}.{tbl.identifier()}"
-            for tbl in materialization_ast.find_all(ast.Table)
-        ]
+        generic_config = GenericMaterializationConfig(
+            query=str(materialization_ast),
+            spark=data.config["spark"] if "spark" in data.config else {},
+            partitions=data.config["partitions"] if "partitions" in data.config else [],
+            upstream_tables=[
+                f"{node.current.catalog.name}.{tbl.identifier()}"
+                for tbl in materialization_ast.find_all(ast.Table)
+            ],
+        )
         data.config = generic_config.dict()
 
     if current_revision.type == NodeType.CUBE:
