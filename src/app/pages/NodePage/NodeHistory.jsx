@@ -1,5 +1,4 @@
-import { Component } from 'react';
-import { useContext, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 export default function NodeColumnTab({ node, djClient }) {
   const [history, setHistory] = useState([]);
