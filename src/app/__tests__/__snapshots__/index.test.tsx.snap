@@ -20,6 +20,7 @@ exports[`<App /> should render and match the snapshot 1`] = `
         "DataJunctionAPI": Object {
           "dag": [Function],
           "downstreams": [Function],
+          "history": [Function],
           "lineage": [Function],
           "metric": [Function],
           "namespace": [Function],
@@ -51,6 +52,7 @@ exports[`<App /> should render and match the snapshot 1`] = `
                   Object {
                     "dag": [Function],
                     "downstreams": [Function],
+                    "history": [Function],
                     "lineage": [Function],
                     "metric": [Function],
                     "namespace": [Function],

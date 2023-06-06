@@ -27,6 +27,20 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  history: async function (type, name, offset, limit) {
+    const data = await (
+      await fetch(
+        DJ_URL +
+          '/history/' +
+          type +
+          '/' +
+          name +
+          `/?offset=${offset ? offset : 0}&limit=${limit ? limit : 100}`,
+      )
+    ).json();
+    return data;
+  },
+
   namespace: async function (nmspce) {
     const data = await (
       await fetch(DJ_URL + '/namespaces/' + nmspce + '/')
