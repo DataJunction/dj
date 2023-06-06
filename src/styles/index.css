@@ -383,6 +383,41 @@ tbody th {
   color: #580076;
 }
 
+.history_type__create {
+  background-color: #ccf7e5 !important;
+  color: #00b368;
+}
+
+.history_type__deactvate {
+  background-color: #a8a8a8 !important;
+  color: #855e5e;
+}
+
+.history_type__activate {
+  background-color: #ccf7e5 !important;
+  color: #00b368;
+}
+
+.history_type__modify {
+  background-color: #ffefd0 !important;
+  color: #a96621;
+}
+
+.history_type__link {
+  background-color: #a8a8a8 !important;
+  color: #855e5e;
+}
+
+.history_type__tag {
+  background-color: #a8a8a8 !important;
+  color: #855e5e;
+}
+
+.history_type__set_attribute {
+  background-color: #a8a8a8 !important;
+  color: #855e5e;
+}
+
 .status__valid {
   color: #00b368;
 }

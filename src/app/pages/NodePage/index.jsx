@@ -6,6 +6,7 @@ import NamespaceHeader from '../../components/NamespaceHeader';
 import NodeInfoTab from './NodeInfoTab';
 import NodeColumnTab from './NodeColumnTab';
 import NodeLineage from './NodeGraphTab';
+import NodeHistory from './NodeHistory';
 import DJClientContext from '../../providers/djclient';
 
 export function NodePage() {
@@ -55,6 +56,10 @@ export function NodePage() {
       id: 2,
       name: 'Graph',
     },
+    {
+      id: 3,
+      name: 'History',
+    },
   ];
   //
   //
@@ -68,6 +73,9 @@ export function NodePage() {
       break;
     case 2:
       tabToDisplay = <NodeLineage djNode={node} djClient={djClient} />;
+      break;
+    case 3:
+      tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
       break;
     default:
       tabToDisplay = <NodeInfoTab node={node} />;
