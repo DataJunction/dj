@@ -1,18 +1,13 @@
 import { useContext, useEffect, useMemo, useState } from 'react';
 import Select from 'react-select';
 import DJClientContext from '../../providers/djclient';
-import { useParams } from 'react-router-dom';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import { format } from 'sql-formatter';
 
-const NodeDimensionsTab = djNode => {
+const NodeSQLTab = djNode => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  // const nodeTypes = useMemo(() => ({ DJNode: DJNode }), []);
   const [query, setQuery] = useState('');
-
-  // const { name } = useParams();
-  // console.log(djNode);
 
   const [selection, setSelection] = useState({
     dimensions: [],
@@ -46,8 +41,6 @@ const NodeDimensionsTab = djNode => {
     { value: '!=', label: '!=' },
     { value: 'IN', label: 'IN' },
   ];
-
-  console.log();
 
   const handleSubmit = event => {
     console.log(event);
@@ -110,4 +103,4 @@ const NodeDimensionsTab = djNode => {
   );
 };
 
-export default NodeDimensionsTab;
+export default NodeSQLTab;
