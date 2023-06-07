@@ -1,4 +1,4 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import Select from 'react-select';
 import DJClientContext from '../../providers/djclient';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
@@ -21,7 +21,7 @@ const NodeSQLTab = djNode => {
       setQuery(query.sql);
     };
     fetchData().catch(console.error);
-  }, [selection]);
+  }, [djClient, djNode.djNode.name, selection]);
 
   console.log(djNode.djNode.primary_key);
 
@@ -32,15 +32,15 @@ const NodeSQLTab = djNode => {
       }))
     : [''];
 
-  const options = [
-    { value: '>=', label: '>=' },
-    { value: '<=', label: '<=' },
-    { value: '>', label: '>' },
-    { value: '<', label: '<' },
-    { value: '=', label: '=' },
-    { value: '!=', label: '!=' },
-    { value: 'IN', label: 'IN' },
-  ];
+  // const options = [
+  //   { value: '>=', label: '>=' },
+  //   { value: '<=', label: '<=' },
+  //   { value: '>', label: '>' },
+  //   { value: '<', label: '<' },
+  //   { value: '=', label: '=' },
+  //   { value: '!=', label: '!=' },
+  //   { value: 'IN', label: 'IN' },
+  // ];
 
   const handleSubmit = event => {
     console.log(event);
