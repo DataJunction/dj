@@ -31,6 +31,7 @@ module.exports = {
   },
   resolve: {
     extensions: ['.js', '.jsx', '.json', '.ts', '.tsx'],
+    modules: ['src', 'node_modules'],
     fallback: {
       path: false,
       buffer: false,
