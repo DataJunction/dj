@@ -39,12 +39,16 @@ export default function NodeInfoTab({ node }) {
           }}
         >
           <h6 className="mb-0 w-100">Query</h6>
-          <ToggleSwitch
-            id="toggleSwitch"
-            checked={checked}
-            onChange={() => setChecked(toggle)}
-            toggleName="Show Compiled SQL"
-          />
+          {['metric', 'dimension', 'transform'].indexOf(node?.type) > -1 ? (
+            <ToggleSwitch
+              id="toggleSwitch"
+              checked={checked}
+              onChange={() => setChecked(toggle)}
+              toggleName="Show Compiled SQL"
+            />
+          ) : (
+            <></>
+          )}
           <SyntaxHighlighter language="sql" style={foundation}>
             {checked
               ? format(compiledSQL, {
