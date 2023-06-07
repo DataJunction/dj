@@ -59,7 +59,7 @@ const NodeSQLTab = djNode => {
       onSubmit={handleSubmit.bind(this)}
     >
       <div>
-        <h4>Dimensions</h4>
+        <h4>Group By</h4>
         <Select
           name="dimensions"
           options={dimensionsList}
