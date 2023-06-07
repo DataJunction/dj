@@ -9,7 +9,8 @@ const ToggleSwitch = ({ checked, onChange, toggleName }) => (
       checked={checked}
       onChange={e => onChange(e.target.checked)}
     />
-    <label for="show-compiled-sql-toggle" class="switch"></label> {toggleName}
+    <label htmlFor="show-compiled-sql-toggle" className="switch"></label>{' '}
+    {toggleName}
   </div>
 );
 
