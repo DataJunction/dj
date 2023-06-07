@@ -21,7 +21,8 @@ depends_on = None
 
 def upgrade():
     op.add_column(
-        "materializationconfig", sa.Column("name", sa.String(), nullable=True),
+        "materializationconfig",
+        sa.Column("name", sa.String(), nullable=True),
     )
 
 
