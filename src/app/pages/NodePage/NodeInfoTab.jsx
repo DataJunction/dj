@@ -1,4 +1,4 @@
-import { Component, useState, useContext, useEffect } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
@@ -26,7 +26,7 @@ export default function NodeInfoTab({ node }) {
       }
     };
     fetchData().catch(console.error);
-  }, [node]);
+  }, [node, djClient]);
   function toggle(value) {
     return !value;
   }
