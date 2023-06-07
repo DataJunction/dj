@@ -27,7 +27,7 @@ export function ListNamespacesPage() {
       <td>
         <a href={'/namespaces/' + node.namespace}>{node.namespace}</a>
       </td>
-      <td>5</td>
+      <td></td>
     </tr>
   ));
 
