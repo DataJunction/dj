@@ -11,6 +11,11 @@ import pytest
 from cachelib import SimpleCache
 from dj.api.main import app
 from dj.config import Settings
+from dj.models.materialization import (
+    DruidMaterializationInput,
+    GenericMaterializationInput,
+    MaterializationOutput,
+)
 from dj.models.query import QueryCreate, QueryWithResults
 from dj.service_clients import QueryServiceClient
 from dj.typing import QueryState
@@ -93,10 +98,19 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         mock_submit_query,
     )
 
+    # def mock_materialize(
+    #     materialization_input: Union[GenericMaterializationInput, DruidMaterializationInput],
+    # ) -> MaterializationOutput:
+    #     return MaterializationOutput(
+    #         urls=["http://fake.url/job"],
+    #     )
+
+    mock_materialize = MagicMock()
+    mock_materialize.return_value = MaterializationOutput(urls=["http://fake.url/job"])
     mocker.patch.object(
         qs_client,
         "materialize",
-        MagicMock(),
+        mock_materialize,
     )
     yield qs_client
 

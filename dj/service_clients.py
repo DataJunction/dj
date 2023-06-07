@@ -12,6 +12,7 @@ from dj.models.column import Column
 from dj.models.materialization import (
     DruidMaterializationInput,
     GenericMaterializationInput,
+    MaterializationOutput,
 )
 from dj.models.query import QueryCreate, QueryWithResults
 from dj.sql.parsing.types import ColumnType
@@ -142,7 +143,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             GenericMaterializationInput,
             DruidMaterializationInput,
         ],
-    ):
+    ) -> MaterializationOutput:
         """
         Post a request to the query service asking it to set up a scheduled materialization
         for the node. The query service is expected to manage all reruns of this job. Note
@@ -153,4 +154,5 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             json=materialization_input.dict(),
         )
         result = response.json()  # pragma: no cover
-        return result  # pragma: no cover
+        print("materialize RESULT", result)
+        return MaterializationOutput(**result)  # pragma: no cover

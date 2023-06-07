@@ -217,7 +217,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {}
+        mock_response.json.return_value = {"urls": ["http://fake.url/job"]}
 
         mock_request = mocker.patch(
             "dj.service_clients.RequestsSessionWithEndpoint.post",
@@ -227,6 +227,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client = QueryServiceClient(uri=self.endpoint)
         query_service_client.materialize(
             GenericMaterializationInput(
+                name="default",
                 node_name="default.hard_hat",
                 node_type=NodeType.DIMENSION,
                 schedule="0 * * * *",
@@ -240,6 +241,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         mock_request.assert_called_with(
             "/materialization/",
             json={
+                "name": "default",
                 "node_name": "default.hard_hat",
                 "node_type": "dimension",
                 "partitions": [],

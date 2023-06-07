@@ -50,6 +50,7 @@ from dj.models.column import Column, ColumnAttributeInput
 from dj.models.cube import Measure
 from dj.models.engine import Dialect, Engine
 from dj.models.history import ActivityType, EntityType, History
+from dj.models.materialization import MaterializationOutput
 from dj.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -474,7 +475,7 @@ def filters_from_partitions(partitions: List[Partition]):
 
 
 @router.post("/nodes/{name}/materialization/", status_code=201)
-def upsert_a_materialization_config(
+def upsert_a_materialization_config(  # pylint: disable=too-many-locals
     name: str,
     data: UpsertMaterializationConfig,
     *,
@@ -531,7 +532,7 @@ def upsert_a_materialization_config(
                         for partition in data.config["partitions"]
                     ],
                 )
-                if data.config["partitions"]
+                if "partitions" in data.config and data.config["partitions"]
                 else []
             ),
             dimensions=[],
@@ -590,6 +591,7 @@ def upsert_a_materialization_config(
             )
 
     new_config = MaterializationConfig(
+        name=GenericMaterializationConfig.parse_obj(data.config).identifier(),
         node_revision=current_revision,
         engine=engine,
         config=data.config,
@@ -605,15 +607,18 @@ def upsert_a_materialization_config(
     session.add(node)
     session.commit()
 
-    schedule_materialization_jobs([new_config], query_service_client)
-
+    materialization_response = schedule_materialization_jobs(
+        [new_config],
+        query_service_client,
+    )
     return JSONResponse(
         status_code=200,
         content={
             "message": (
-                f"Successfully updated materialization config for node `{name}`"
-                f" and engine `{engine.name}`."
+                f"Successfully updated materialization config named `{new_config.name}` "
+                f"for node `{name}`"
             ),
+            "urls": [output.urls for output in materialization_response.values()],
         },
     )
 
@@ -1092,20 +1097,22 @@ def create_a_cube(
 def schedule_materialization_jobs(
     materialization_configs: List[MaterializationConfig],
     query_service_client: QueryServiceClient,
-):
+) -> Dict[str, MaterializationOutput]:
     """
     Schedule recurring materialization jobs
     """
     materialization_jobs = {
         cls.__name__: cls for cls in MaterializationJob.__subclasses__()
     }
+    materialization_to_output = {}
     for materialization in materialization_configs:
         clazz = materialization_jobs.get(materialization.job)
-        if clazz:  # pragma: no cover
-            clazz().schedule(  # type: ignore
+        if clazz and materialization.name:  # pragma: no cover
+            materialization_to_output[materialization.name] = clazz().schedule(  # type: ignore
                 materialization,
                 query_service_client,
             )
+    return materialization_to_output
 
 
 @router.post("/nodes/{name}/columns/{column}/", status_code=201)

@@ -5,7 +5,7 @@ from typing import Dict
 
 from dj.materialization.jobs.materialization_job import MaterializationJob
 from dj.models.engine import Dialect
-from dj.models.materialization import DruidMaterializationInput
+from dj.models.materialization import DruidMaterializationInput, MaterializationOutput
 from dj.models.node import DruidCubeConfig, MaterializationConfig
 from dj.service_clients import QueryServiceClient
 
@@ -41,7 +41,7 @@ class DefaultCubeMaterialization(
         """
         Since this is a settings-only dummy job, we do nothing in this stage.
         """
-        return
+        return  # pragma: no cover
 
 
 class DruidCubeMaterializationJob(MaterializationJob):
@@ -104,7 +104,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
         self,
         materialization: MaterializationConfig,
         query_service_client: QueryServiceClient,
-    ):
+    ) -> MaterializationOutput:
         """
         Use the query service to kick off the materialization setup.
         """
@@ -113,8 +113,9 @@ class DruidCubeMaterializationJob(MaterializationJob):
             cube_config,
             materialization.node_revision.name,
         )
-        query_service_client.materialize(
+        return query_service_client.materialize(
             DruidMaterializationInput(
+                name=materialization.name,
                 node_name=materialization.node_revision.name,
                 node_type=materialization.node_revision.type,
                 schedule=materialization.schedule,

@@ -1371,9 +1371,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert (
-            data["message"]
-            == "Successfully updated materialization config for node `basic.transform.country_agg`"
-            " and engine `spark`."
+            data["message"] == "Successfully updated materialization config named "
+            "`country_3491792861` for node `basic.transform.country_agg`"
         )
 
         # Reading the node should yield the materialization config
@@ -1382,6 +1381,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert data["version"] == "v1.0"
         assert data["materialization_configs"] == [
             {
+                "name": "country_3491792861",
                 "engine": {
                     "name": "spark",
                     "version": "2.4.4",
@@ -1400,6 +1400,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                             "values": ["DE", "MY"],
                             "range": None,
                             "type_": "categorical",
+                            "expression": None,
                         },
                     ],
                     "spark": {},
@@ -1414,6 +1415,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.post(
             "/nodes/default.hard_hat/materialization/",
             json={
+                "name": "country_birth_date_contractor_id_572757895",
                 "engine": {
                     "name": "spark",
                     "version": "2.4.4",
@@ -1442,9 +1444,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert (
-            data["message"]
-            == "Successfully updated materialization config for node `default.hard_hat` "
-            "and engine `spark`."
+            data["message"] == "Successfully updated materialization config named "
+            "`country_birth_date_contractor_id_572757895` for node `default.hard_hat`"
         )
 
         # Check that the temporal partition is appended onto the list of partitions in the
@@ -1454,6 +1455,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert data["version"] == "v1.0"
         assert data["materialization_configs"] == [
             {
+                "name": "country_birth_date_contractor_id_572757895",
                 "engine": {
                     "name": "spark",
                     "version": "2.4.4",
@@ -1477,18 +1479,21 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                             "values": ["DE", "MY"],
                             "range": None,
                             "type_": "categorical",
+                            "expression": None,
                         },
                         {
                             "name": "birth_date",
                             "values": None,
                             "range": [20010101, 20020101],
                             "type_": "temporal",
+                            "expression": None,
                         },
                         {
                             "name": "contractor_id",
                             "values": None,
                             "range": [1, 10],
                             "type_": "categorical",
+                            "expression": None,
                         },
                     ],
                     "spark": {},

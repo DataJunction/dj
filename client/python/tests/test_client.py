@@ -372,8 +372,9 @@ class TestDJClient:
             ),
         )
         assert result == {
-            "message": "Successfully updated materialization config for node "
-            "`default.large_revenue_payments_only` and engine `spark`.",
+            "message": "Successfully updated materialization config named `default` for "
+            "node `default.large_revenue_payments_only`",
+            "urls": [["http://fake.url/job"]],
         }
 
         large_revenue_payments_and_business_only = client.new_transform(

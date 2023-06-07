@@ -1,15 +1,16 @@
 """Models for materialization"""
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import AnyHttpUrl, BaseModel
 
 
 class GenericMaterializationInput(BaseModel):
     """
-    The expected input when calling the query service's materialization
+    The input when calling the query service's materialization
     API endpoint for a generic node.
     """
 
+    name: str
     node_name: str
     node_type: str
     schedule: str
@@ -21,8 +22,17 @@ class GenericMaterializationInput(BaseModel):
 
 class DruidMaterializationInput(GenericMaterializationInput):
     """
-    The expected input when calling the query service's materialization
+    The input when calling the query service's materialization
     API endpoint for a cube node.
     """
 
     druid_spec: Dict
+
+
+class MaterializationOutput(BaseModel):
+    """
+    The output when calling the query service's materialization
+    API endpoint for a cube node.
+    """
+
+    urls: List[AnyHttpUrl]

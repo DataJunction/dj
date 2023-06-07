@@ -892,14 +892,15 @@ def test_add_materialization_config_to_cube(
         },
     )
     assert response.json() == {
-        "message": "Successfully updated materialization config for node "
-        "`default.repairs_cube` and engine `druid`.",
+        "message": "Successfully updated materialization config named `default` for "
+        "node `default.repairs_cube`",
+        "urls": [["http://fake.url/job"]],
     }
     called_kwargs = [
         call_[0]
         for call_ in query_service_client.materialize.call_args_list  # type: ignore
     ][0][0]
-    print(called_kwargs)
+    assert called_kwargs.name == "default"
     assert called_kwargs.node_name == "default.repairs_cube"
     assert called_kwargs.node_type == "cube"
     assert called_kwargs.schedule == "@daily"

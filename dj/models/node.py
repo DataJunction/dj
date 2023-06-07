@@ -3,6 +3,7 @@ Model for nodes.
 """
 # pylint: disable=too-many-instance-attributes
 import enum
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
@@ -343,6 +344,8 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
 
     engine_id: int = Field(foreign_key="engine.id", primary_key=True)
     engine: Engine = Relationship()
+
+    name: Optional[str] = Field(sa_column=SqlaColumn("name", String))
 
     # A cron schedule to materialize this node by
     schedule: str
@@ -762,6 +765,10 @@ class Partition(BaseSQLModel):
     name: str
     values: Optional[List]
     range: Optional[Tuple]
+
+    # This expression evaluates to the temporal partition value for scheduled runs
+    expression: Optional[str]
+
     type_: PartitionType
 
 
@@ -778,6 +785,23 @@ class GenericMaterializationConfig(BaseModel):
 
     spark: Optional[SparkConf]
     upstream_tables: Optional[List[str]]
+
+    def identifier(self) -> str:
+        """
+        Generates an identifier for this materialization config that is used by default to
+        generate the materialization config's name if one is not set.
+        """
+        entities = ["default"] if not self.partitions else []
+        partitions_values = ""
+        if self.partitions:
+            for partition in self.partitions:
+                if partition.values is not None:
+                    partitions_values += str(partition.values)
+                elif partition.range is not None:  # pragma: no cover
+                    partitions_values += str(partition.range)
+                entities.append(partition.name)
+            entities.append(str(zlib.crc32(partitions_values.encode("utf-8"))))
+        return "_".join(entities)
 
 
 class DruidConf(BaseSQLModel):
@@ -893,6 +917,7 @@ class MaterializationConfigOutput(SQLModel):
     Output for materialization config.
     """
 
+    name: Optional[str]
     engine: EngineInfo
     config: Dict
     schedule: str
