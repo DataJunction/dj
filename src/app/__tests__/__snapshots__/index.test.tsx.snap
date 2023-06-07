@@ -26,6 +26,7 @@ exports[`<App /> should render and match the snapshot 1`] = `
           "namespace": [Function],
           "namespaces": [Function],
           "node": [Function],
+          "sql": [Function],
           "upstreams": [Function],
         },
       }
@@ -58,6 +59,7 @@ exports[`<App /> should render and match the snapshot 1`] = `
                     "namespace": [Function],
                     "namespaces": [Function],
                     "node": [Function],
+                    "sql": [Function],
                     "upstreams": [Function],
                   }
                 }
