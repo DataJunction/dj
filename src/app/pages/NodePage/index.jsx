@@ -8,6 +8,7 @@ import NodeColumnTab from './NodeColumnTab';
 import NodeLineage from './NodeGraphTab';
 import NodeHistory from './NodeHistory';
 import DJClientContext from '../../providers/djclient';
+import NodeDimensionsTab from './NodeDimensionsTab';
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -39,6 +40,11 @@ export function NodePage() {
     const fetchData = async () => {
       const data = await djClient.node(name);
       setNode(data);
+      if (data.type === 'metric') {
+        const metric = await djClient.metric(name);
+        data.dimensions = metric.dimensions;
+        setNode(data);
+      }
     };
     fetchData().catch(console.error);
   }, [djClient, name]);
@@ -60,6 +66,10 @@ export function NodePage() {
       id: 3,
       name: 'History',
     },
+    {
+      id: 4,
+      name: 'SQL',
+    },
   ];
   //
   //
@@ -76,6 +86,9 @@ export function NodePage() {
       break;
     case 3:
       tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
+      break;
+    case 4:
+      tabToDisplay = <NodeDimensionsTab djNode={node} />;
       break;
     default:
       tabToDisplay = <NodeInfoTab node={node} />;

@@ -1,6 +1,7 @@
 const webpack = require('webpack');
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
+// const ReactSelectPlugin = require('react-select');
 // const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 
 var babelOptions = {
@@ -31,6 +32,7 @@ module.exports = {
   },
   resolve: {
     extensions: ['.js', '.jsx', '.json', '.ts', '.tsx'],
+    modules: ['src', 'node_modules'],
     fallback: {
       path: false,
       buffer: false,
