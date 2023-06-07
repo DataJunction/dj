@@ -8,7 +8,7 @@ import NodeColumnTab from './NodeColumnTab';
 import NodeLineage from './NodeGraphTab';
 import NodeHistory from './NodeHistory';
 import DJClientContext from '../../providers/djclient';
-import NodeDimensionsTab from './NodeDimensionsTab';
+import NodeSQLTab from './NodeSQLTab';
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -88,7 +88,8 @@ export function NodePage() {
       tabToDisplay = <NodeHistory node={node} djClient={djClient} />;
       break;
     case 4:
-      tabToDisplay = <NodeDimensionsTab djNode={node} />;
+      tabToDisplay =
+        node.type === 'metric' ? <NodeSQLTab djNode={node} /> : <br />;
       break;
     default:
       tabToDisplay = <NodeInfoTab node={node} />;
