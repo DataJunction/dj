@@ -345,7 +345,7 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
     engine_id: int = Field(foreign_key="engine.id", primary_key=True)
     engine: Engine = Relationship()
 
-    name: Optional[str] = Field(sa_column=SqlaColumn("name", String))
+    name: Optional[str] = Field(sa_column=SqlaColumn("name", String), primary_key=True)
 
     # A cron schedule to materialize this node by
     schedule: str
@@ -717,6 +717,7 @@ class UpsertMaterializationConfig(BaseSQLModel):
     An upsert object for materialization configs
     """
 
+    name: Optional[str]
     engine: EngineRef
     config: Dict
     schedule: str
