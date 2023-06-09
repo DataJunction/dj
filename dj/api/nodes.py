@@ -378,7 +378,11 @@ def build_cube_config(
         cte.select.projection = list(new_select_projection)
 
     combined_ast.select.projection = [
-        ast.Column(name=col.alias_or_name, _table=cte)  # type: ignore
+        (
+            ast.Column(name=col.alias_or_name, _table=cte).set_alias(  # type: ignore
+                ast.Name(f"{cte.alias_or_name}_{col.alias_or_name}"),  # type: ignore
+            )
+        )
         for cte in combined_ast.ctes
         for col in cte.select.projection
         if col.alias_or_name.name not in dimensions_set  # type: ignore
@@ -415,6 +419,13 @@ def build_cube_config(
         )
         for metric, measures in metrics_to_measures.items()
     }
+    upstream_tables = list(
+        {
+            f"{tbl.dj_node.catalog.name}.{tbl.identifier()}"
+            for tbl in combined_ast.find_all(ast.Table)
+            if tbl.dj_node
+        },
+    )
     if config.get("druid"):
         return DruidCubeConfig(
             query=str(combined_ast),
@@ -422,20 +433,14 @@ def build_cube_config(
             measures=measures,
             spark=SparkConf(__root__=config.get("spark", {})),
             druid=DruidConf(**config["druid"]),
-            upstream_tables=[
-                f"{cube_node.catalog.name}.{tbl.identifier()}"
-                for tbl in combined_ast.find_all(ast.Table)
-            ],
+            upstream_tables=upstream_tables,
         )
     return GenericCubeConfig(
         query=str(combined_ast),
         dimensions=list(dimensions_set),
         measures=measures,
         partitions=[],
-        upstream_tables=[
-            f"{cube_node.catalog.name}.{tbl.identifier()}"
-            for tbl in combined_ast.find_all(ast.Table)
-        ],
+        upstream_tables=upstream_tables,
     )
 
 
@@ -566,6 +571,7 @@ def upsert_a_materialization_config(  # pylint: disable=too-many-locals
                 measures=default_job_config.measures,
                 spark=SparkConf(__root__=data.config.get("spark", {})),
                 druid=DruidConf(**data.config["druid"]),
+                partitions=data.config["partitions"],
                 upstream_tables=default_job_config.upstream_tables,
             ).dict()
         except (KeyError, ValidationError) as exception:
@@ -589,6 +595,8 @@ def upsert_a_materialization_config(  # pylint: disable=too-many-locals
                     ),
                 },
             )
+
+    print("partitions", data.config["partitions"])
 
     new_config = MaterializationConfig(
         name=GenericMaterializationConfig.parse_obj(data.config).identifier(),
