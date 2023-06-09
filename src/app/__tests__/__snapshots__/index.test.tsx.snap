@@ -18,6 +18,7 @@ exports[`<App /> should render and match the snapshot 1`] = `
     value={
       Object {
         "DataJunctionAPI": Object {
+          "compiledSql": [Function],
           "dag": [Function],
           "downstreams": [Function],
           "history": [Function],
@@ -51,6 +52,7 @@ exports[`<App /> should render and match the snapshot 1`] = `
               <ListNamespacesPage
                 djClient={
                   Object {
+                    "compiledSql": [Function],
                     "dag": [Function],
                     "downstreams": [Function],
                     "history": [Function],

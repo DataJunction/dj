@@ -65,6 +65,11 @@ export const DataJunctionAPI = {
 
   lineage: async function (node) {},
 
+  compiledSql: async function (node) {
+    const data = await (await fetch(DJ_URL + `/sql/${node}/`)).json();
+    return data;
+  },
+
   dag: async function (namespace = 'default') {
     const edges = [];
     const data = await (await fetch(DJ_URL + '/nodes/')).json();
