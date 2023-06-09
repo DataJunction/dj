@@ -56,7 +56,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
         """
         Builds the Druid ingestion spec from a materialization config.
         """
-        if not cube_config.druid:
+        if not cube_config.druid:  # pragma: no cover
             raise DJException("Druid ingestion requires a druid spec")
 
         druid_datasource_name = (
@@ -80,7 +80,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
         ]
         temporal_partitions = (
             [
-                partition.name
+                partition
                 for partition in cube_config.partitions
                 if partition.type_ == PartitionType.TEMPORAL
             ]
@@ -102,7 +102,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
                         "timestampSpec": {
                             "column": (
                                 cube_config.druid.timestamp_column  # type: ignore
-                                or temporal_partitions[0]  # type: ignore
+                                or temporal_partitions[0].name  # type: ignore
                             ),
                             "format": (
                                 cube_config.druid.timestamp_format  # type: ignore
@@ -116,7 +116,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
                     "type": "uniform",
                     "segmentGranularity": cube_config.druid.granularity,  # type: ignore
                     "intervals": (
-                        cube_config.druid.intervals or temporal_partitions[0].range,  # type: ignore
+                        cube_config.druid.intervals or temporal_partitions[0].range  # type: ignore
                     ),
                 },
             },

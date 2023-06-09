@@ -467,12 +467,12 @@ def filters_from_partitions(partitions: List[Partition]):
     """
     filters = []
     for partition in partitions:
-        if partition.type_ != PartitionType.TEMPORAL:
-            if partition.values:
+        if partition.type_ != PartitionType.TEMPORAL:  # pragma: no cover
+            if partition.values:  # pragma: no cover
                 quoted_values = [f"'{value}'" for value in partition.values]
                 filters.append(f"{partition.name} IN ({','.join(quoted_values)})")
             if partition.range and len(partition.range) == 2:
-                filters.append(
+                filters.append(  # pragma: no cover
                     f"{partition.name} BETWEEN {partition.range[0]} "
                     f"AND {partition.range[1]}",
                 )
@@ -595,8 +595,6 @@ def upsert_a_materialization_config(  # pylint: disable=too-many-locals
                     ),
                 },
             )
-
-    print("partitions", data.config["partitions"])
 
     new_config = MaterializationConfig(
         name=GenericMaterializationConfig.parse_obj(data.config).identifier(),

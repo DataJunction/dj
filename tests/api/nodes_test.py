@@ -1370,9 +1370,30 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         data = response.json()
+        print("data", data)
         assert (
             data["message"] == "Successfully updated materialization config named "
             "`country_3491792861` for node `basic.transform.country_agg`"
+        )
+
+        # Setting the materialization config without partitions should succeed
+        response = client_with_query_service.post(
+            "/nodes/basic.transform.country_agg/materialization/",
+            json={
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
+                "config": {
+                    "partitions": [],
+                },
+                "schedule": "0 * * * *",
+            },
+        )
+        data = response.json()
+        assert (
+            data["message"] == "Successfully updated materialization config named "
+            "`default` for node `basic.transform.country_agg`"
         )
 
         # Reading the node should yield the materialization config
