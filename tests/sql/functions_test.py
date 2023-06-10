@@ -464,3 +464,109 @@ def test_transform(session: Session):
     ctx = ast.CompileContext(session=session, exception=DJException())
     query.compile(ctx)
     assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+
+def test_array_distinct(session: Session):
+    """
+    Test the `array_distinct` Spark function
+    """
+    query = parse(
+        """
+        SELECT array_distinct(array(1, 2, 3, 3))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+    query = parse(
+        """
+        SELECT array_distinct(array('a', 'b', 'b', 'z'))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
+def test_array_except(session: Session):
+    """
+    Test the `array_except` Spark function
+    """
+    query = parse(
+        """
+        SELECT array_except(array(1, 2, 3), array(1, 3, 5))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+    query = parse(
+        """
+        SELECT array_except(array('a', 'b', 'b', 'z'), array('a', 'b'))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
+def test_array_intersect(session: Session):
+    """
+    Test the `array_intersect` Spark function
+    """
+    query = parse(
+        """
+        SELECT array_intersect(array(1, 2, 3), array(1, 3, 5))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+    query = parse(
+        """
+        SELECT array_intersect(array('a', 'b', 'b', 'z'), array('a', 'b'))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
+def test_array_join(session: Session):
+    """
+    Test the `array_join` Spark function
+    """
+    query = parse(
+        """
+        SELECT array_join(array('hello', 'world'), ' ')
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+    query = parse(
+        """
+        SELECT array_join(array('hello', null ,'world'), ' ', ',')
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+def test_array_max(session: Session):
+    """
+    Test the `array_max` Spark function
+    """
+    query = parse(
+        """
+        SELECT array_max(array(1, 20, null, 3))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
