@@ -1370,7 +1370,6 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         data = response.json()
-        print("data", data)
         assert (
             data["message"] == "Successfully updated materialization config named "
             "`country_3491792861` for node `basic.transform.country_agg`"
@@ -1430,13 +1429,33 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "schedule": "0 * * * *",
                 "job": "SparkSqlMaterializationJob",
             },
+            {
+                "config": {
+                    "partitions": [],
+                    "query": "SELECT  basic_DOT_source_DOT_users.country,\n"
+                    "\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS "
+                    "num_users \n"
+                    " FROM basic.dim_users AS basic_DOT_source_DOT_users \n"
+                    " GROUP BY  1\n",
+                    "spark": {},
+                    "upstream_tables": ["public.basic.dim_users"],
+                },
+                "engine": {
+                    "dialect": "spark",
+                    "name": "spark",
+                    "uri": None,
+                    "version": "2.4.4",
+                },
+                "job": "SparkSqlMaterializationJob",
+                "name": "default",
+                "schedule": "0 * * * *",
+            },
         ]
 
         # Setting the materialization config with a temporal partition should succeed
         response = client_with_query_service.post(
             "/nodes/default.hard_hat/materialization/",
             json={
-                "name": "country_birth_date_contractor_id_572757895",
                 "engine": {
                     "name": "spark",
                     "version": "2.4.4",
@@ -1466,7 +1485,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert (
             data["message"] == "Successfully updated materialization config named "
-            "`country_birth_date_contractor_id_572757895` for node `default.hard_hat`"
+            "`country_birth_date_contractor_id_379232101` for node `default.hard_hat`"
         )
 
         # Check that the temporal partition is appended onto the list of partitions in the
@@ -1476,7 +1495,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert data["version"] == "v1.0"
         assert data["materialization_configs"] == [
             {
-                "name": "country_birth_date_contractor_id_572757895",
+                "name": "country_birth_date_contractor_id_379232101",
                 "engine": {
                     "name": "spark",
                     "version": "2.4.4",

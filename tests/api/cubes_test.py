@@ -225,6 +225,7 @@ def test_create_cube_with_materialization(client_with_query_service: TestClient)
                 "default.hard_hat.state",
                 "default.dispatcher.company_name",
                 "default.municipality_dim.local_region",
+                "default.hard_hat.hire_date",
             ],
             "filters": ["default.hard_hat.state='AZ'"],
             "description": "Cube of various metrics related to repairs",
@@ -240,9 +241,17 @@ def test_create_cube_with_materialization(client_with_query_service: TestClient)
                         "druid": {
                             "granularity": "DAY",
                             "intervals": [],
-                            "timestamp_column": "date_int",
+                            "timestamp_column": "hire_date",
                             "parse_spec_format": "parquet",
                         },
+                        "partitions": [
+                            {
+                                "name": "hire_date",
+                                "type_": "temporal",
+                                "values": [],
+                                "range": (20210101, 20220101),
+                            },
+                        ],
                         "spark": {},
                     },
                     "schedule": "0 * * * *",
@@ -250,6 +259,7 @@ def test_create_cube_with_materialization(client_with_query_service: TestClient)
             ],
         },
     )
+    print("response.json()", response.json())
     default_materialization = response.json()["materialization_configs"][0]
     assert default_materialization["job"] == "DruidCubeMaterializationJob"
     assert default_materialization["schedule"] == "0 * * * *"
@@ -928,7 +938,7 @@ def test_add_materialization_config_to_cube(
         },
     )
     assert response.json() == {
-        "message": "Successfully updated materialization config named `date_int_223132457` "
+        "message": "Successfully updated materialization config named `date_int_0` "
         "for node `default.repairs_cube`",
         "urls": [["http://fake.url/job"]],
     }
@@ -936,7 +946,7 @@ def test_add_materialization_config_to_cube(
         call_[0]
         for call_ in query_service_client.materialize.call_args_list  # type: ignore
     ][0][0]
-    assert called_kwargs.name == "date_int_223132457"
+    assert called_kwargs.name == "date_int_0"
     assert called_kwargs.node_name == "default.repairs_cube"
     assert called_kwargs.node_type == "cube"
     assert called_kwargs.schedule == "@daily"
