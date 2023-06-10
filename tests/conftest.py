@@ -18,6 +18,11 @@ from sqlmodel.pool import StaticPool
 from dj.api.main import app
 from dj.config import Settings
 from dj.models import Column, Engine
+from dj.models.materialization import (
+    DruidMaterializationInput,
+    GenericMaterializationInput,
+    MaterializationOutput,
+)
 from dj.models.query import QueryCreate
 from dj.service_clients import QueryServiceClient
 from dj.utils import get_query_service_client, get_session, get_settings
@@ -100,13 +105,21 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         "submit_query",
         mock_submit_query,
     )
+    #
+    # def mock_materialize(
+    #     materialization_input: Union[GenericMaterializationInput, DruidMaterializationInput],
+    # ) -> MaterializationOutput:
+    #     return MaterializationOutput(
+    #         urls=["http://fake.url/job"],
+    #     )
 
+    mock_materialize = MagicMock()
+    mock_materialize.return_value = MaterializationOutput(urls=["http://fake.url/job"])
     mocker.patch.object(
         qs_client,
-        "materialize_cube",
-        MagicMock(),
+        "materialize",
+        mock_materialize,
     )
-
     yield qs_client
 
 

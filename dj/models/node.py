@@ -3,6 +3,7 @@ Model for nodes.
 """
 # pylint: disable=too-many-instance-attributes
 import enum
+import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
@@ -344,6 +345,8 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
     engine_id: int = Field(foreign_key="engine.id", primary_key=True)
     engine: Engine = Relationship()
 
+    name: Optional[str] = Field(primary_key=True)
+
     # A cron schedule to materialize this node by
     schedule: str
 
@@ -439,6 +442,9 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     # is not managed as a part of this service
     materialization_configs: List[MaterializationConfig] = Relationship(
         back_populates="node_revision",
+        sa_relationship_kwargs={
+            "cascade": "all, delete-orphan",
+        },
     )
 
     def __hash__(self) -> int:
@@ -711,6 +717,7 @@ class UpsertMaterializationConfig(BaseSQLModel):
     An upsert object for materialization configs
     """
 
+    name: Optional[str]
     engine: EngineRef
     config: Dict
     schedule: str
@@ -720,6 +727,85 @@ class SparkConf(BaseSQLModel):
     """Spark configuration"""
 
     __root__: Dict[str, str]
+
+
+class PartitionType(str, enum.Enum):
+    """
+    Partition type.
+
+    A partition can be temporal or categorical
+    """
+
+    TEMPORAL = "temporal"
+    CATEGORICAL = "categorical"
+
+
+class Partition(BaseSQLModel):
+    """
+    A partition specification tells the ongoing and backfill materialization jobs how to partition
+    the materialized dataset and which partition values (a list or range of values) to operate on.
+    Partitions may be temporal or categorical and will be handled differently depending on the type.
+
+    For temporal partition types, the ongoing materialization job will continue to operate on the
+    latest partitions and the partition values specified by `values` and `range` are only relevant
+    to the backfill job.
+
+    Examples:
+        This will tell DJ to backfill for all values of the dateint partition:
+          Partition(name=“dateint”, type="temporal", values=[], range=())
+        This will tell DJ to backfill just 20230601 and 20230605:
+          Partition(name=“dateint”, type="temporal", values=[20230601, 20230605], range=())
+        This will tell DJ to backfill 20230601 and between 20220101 and 20230101:
+          Partition(name=“dateint”, type="temporal", values=[20230601], range=(20220101, 20230101))
+
+        For categorical partition types, the ongoing materialization job will *only* operate on the
+        specified partition values in `values` and `range`:
+            Partition(name=“group_id”, type="categorical", values=["a", "b", "c"], range=())
+    """
+
+    name: str
+    values: Optional[List]
+    range: Optional[List]
+
+    # This expression evaluates to the temporal partition value for scheduled runs
+    expression: Optional[str]
+
+    type_: PartitionType
+
+
+class GenericMaterializationConfig(BaseModel):
+    """
+    Generic node materialization config needed by any materialization choices
+    and engine combinations
+    """
+
+    query: Optional[str]
+
+    # List of partitions that materialization jobs (ongoing and backfill) will operate on.
+    partitions: Optional[List[Partition]]
+
+    spark: Optional[SparkConf]
+    upstream_tables: Optional[List[str]]
+
+    def identifier(self) -> str:
+        """
+        Generates an identifier for this materialization config that is used by default
+        for the materialization config's name if one is not set. Note that this name is
+        based on partition names (both temporal and categorical) and partition values
+        (only categorical).
+        """
+        entities = ["default"] if not self.partitions else []
+        partitions_values = ""
+        if self.partitions:
+            for partition in self.partitions:
+                if partition.type_ != PartitionType.TEMPORAL:
+                    if partition.values:
+                        partitions_values += str(partition.values)
+                    if partition.range is not None:  # pragma: no cover
+                        partitions_values += str(partition.range)
+                entities.append(partition.name)
+            entities.append(str(zlib.crc32(partitions_values.encode("utf-8"))))
+        return "_".join(entities)
 
 
 class DruidConf(BaseSQLModel):
@@ -732,17 +818,14 @@ class DruidConf(BaseSQLModel):
     parse_spec_format: Optional[str]
 
 
-class GenericCubeConfig(BaseModel):
+class GenericCubeConfig(GenericMaterializationConfig):
     """
     Generic cube materialization config needed by any materialization
     choices and engine combinations
     """
 
-    node_name: Optional[str]
-    query: Optional[str]
     dimensions: Optional[List[str]]
     measures: Optional[Dict[str, List[Dict[str, str]]]]
-    partitions: Optional[List[str]]
 
 
 class DruidCubeConfig(GenericCubeConfig):
@@ -753,7 +836,6 @@ class DruidCubeConfig(GenericCubeConfig):
 
     prefix: Optional[str] = ""
     suffix: Optional[str] = ""
-    spark: Optional[SparkConf]
     druid: Optional[DruidConf]
 
 
@@ -762,6 +844,7 @@ class UpsertCubeMaterializationConfig(BaseSQLModel):
     An upsert object for cube materialization configs
     """
 
+    name: Optional[str]
     engine: EngineRef
     config: Union[DruidCubeConfig, GenericCubeConfig]
     schedule: str
@@ -839,6 +922,7 @@ class MaterializationConfigOutput(SQLModel):
     Output for materialization config.
     """
 
+    name: Optional[str]
     engine: EngineInfo
     config: Dict
     schedule: str

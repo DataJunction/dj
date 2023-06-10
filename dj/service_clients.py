@@ -1,5 +1,5 @@
 """Clients for various configurable services."""
-from typing import TYPE_CHECKING, Dict, List, Optional
+from typing import TYPE_CHECKING, List, Optional, Union
 from urllib.parse import urljoin
 from uuid import UUID
 
@@ -9,6 +9,11 @@ from urllib3 import Retry
 
 from dj.errors import DJQueryServiceClientException
 from dj.models.column import Column
+from dj.models.materialization import (
+    DruidMaterializationInput,
+    GenericMaterializationInput,
+    MaterializationOutput,
+)
 from dj.models.query import QueryCreate, QueryWithResults
 from dj.sql.parsing.types import ColumnType
 
@@ -59,7 +64,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
     Client for the query service.
     """
 
-    def __init__(self, uri: str, retries: int = 2):
+    def __init__(self, uri: str, retries: int = 0):
         self.uri = uri
         retry_strategy = Retry(
             total=retries,
@@ -132,30 +137,30 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         query_info = response.json()
         return QueryWithResults(**query_info)
 
-    def materialize_cube(  # pylint: disable=too-many-arguments
+    def materialize(  # pylint: disable=too-many-arguments
         self,
-        node_name: str,
-        node_type: "NodeType",
-        schedule: str,
-        query: str,
-        spark_conf: Dict,
-        druid_spec: Dict,
-    ):
+        materialization_input: Union[
+            GenericMaterializationInput,
+            DruidMaterializationInput,
+        ],
+    ) -> MaterializationOutput:
         """
         Post a request to the query service asking it to set up a scheduled materialization
-        for the cube node. The query service is expected to manage all reruns of this job. Note
+        for the node. The query service is expected to manage all reruns of this job. Note
         that this functionality may be moved to the materialization service at a later point.
         """
         response = self.requests_session.post(  # pragma: no cover
             "/materialization/",
-            json={
-                "node_name": node_name,
-                "node_type": node_type,
-                "schedule": schedule or "@daily",
-                "query": query,
-                "spark_conf": spark_conf,
-                "druid_spec": druid_spec,
-            },
+            json=materialization_input.dict(),
         )
         result = response.json()  # pragma: no cover
-        return result  # pragma: no cover
+        return MaterializationOutput(**result)  # pragma: no cover
+
+    def get_materializations(self, node_name, materialization_name):
+        """
+        Gets a list of materializations for the node and materialization config name.
+        """
+        response = self.requests_session.get(
+            f"/materialization/{node_name}/{materialization_name}/",
+        )
+        return response.json()

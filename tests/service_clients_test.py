@@ -9,6 +9,8 @@ from requests import Request
 
 from dj.errors import DJQueryServiceClientException
 from dj.models import Engine
+from dj.models.materialization import GenericMaterializationInput
+from dj.models.node import NodeType
 from dj.models.query import QueryCreate
 from dj.service_clients import QueryServiceClient, RequestsSessionWithEndpoint
 
@@ -209,6 +211,47 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             "/queries/ef209eef-c31a-4089-aae6-833259a08e22/",
         )
 
+    def test_query_service_client_materialize(self, mocker: MockerFixture) -> None:
+        """
+        Test materialize from a query service client.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"urls": ["http://fake.url/job"]}
+
+        mock_request = mocker.patch(
+            "dj.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        query_service_client.materialize(
+            GenericMaterializationInput(
+                name="default",
+                node_name="default.hard_hat",
+                node_type=NodeType.DIMENSION,
+                schedule="0 * * * *",
+                query="",
+                spark_conf={},
+                upstream_tables=["default.hard_hats"],
+                partitions=[],
+            ),
+        )
+
+        mock_request.assert_called_with(
+            "/materialization/",
+            json={
+                "name": "default",
+                "node_name": "default.hard_hat",
+                "node_type": "dimension",
+                "partitions": [],
+                "query": "",
+                "schedule": "0 * * * *",
+                "spark_conf": {},
+                "upstream_tables": ["default.hard_hats"],
+            },
+        )
+
     def test_query_service_client_raising_error(self, mocker: MockerFixture) -> None:
         """
         Test handling an error response from the query service client
@@ -241,3 +284,26 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.submit_query(query_create)
         assert "Error response from query service" in str(exc_info.value)
+
+    def test_get_materializations(self, mocker: MockerFixture) -> None:
+        """
+        Test materialize from a query service client.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"urls": ["http://fake.url/job"]}
+
+        mock_request = mocker.patch(
+            "dj.service_clients.RequestsSessionWithEndpoint.get",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.get_materializations(
+            node_name="default.hard_hat",
+            materialization_name="default",
+        )
+        mock_request.assert_called_with(
+            "/materialization/default.hard_hat/default/",
+        )
+        assert response == {"urls": ["http://fake.url/job"]}
