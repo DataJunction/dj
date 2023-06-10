@@ -7,7 +7,7 @@ import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Union
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
@@ -345,7 +345,7 @@ class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
     engine_id: int = Field(foreign_key="engine.id", primary_key=True)
     engine: Engine = Relationship()
 
-    name: Optional[str] = Field(sa_column=SqlaColumn("name", String), primary_key=True)
+    name: Optional[str] = Field(primary_key=True)
 
     # A cron schedule to materialize this node by
     schedule: str
@@ -765,7 +765,7 @@ class Partition(BaseSQLModel):
 
     name: str
     values: Optional[List]
-    range: Optional[Tuple]
+    range: Optional[List]
 
     # This expression evaluates to the temporal partition value for scheduled runs
     expression: Optional[str]
@@ -789,17 +789,20 @@ class GenericMaterializationConfig(BaseModel):
 
     def identifier(self) -> str:
         """
-        Generates an identifier for this materialization config that is used by default to
-        generate the materialization config's name if one is not set.
+        Generates an identifier for this materialization config that is used by default
+        for the materialization config's name if one is not set. Note that this name is
+        based on partition names (both temporal and categorical) and partition values
+        (only categorical).
         """
         entities = ["default"] if not self.partitions else []
         partitions_values = ""
         if self.partitions:
             for partition in self.partitions:
-                if partition.values is not None:
-                    partitions_values += str(partition.values)
-                elif partition.range is not None:  # pragma: no cover
-                    partitions_values += str(partition.range)
+                if partition.type_ != PartitionType.TEMPORAL:
+                    if partition.values:
+                        partitions_values += str(partition.values)
+                    if partition.range is not None:  # pragma: no cover
+                        partitions_values += str(partition.range)
                 entities.append(partition.name)
             entities.append(str(zlib.crc32(partitions_values.encode("utf-8"))))
         return "_".join(entities)
@@ -841,6 +844,7 @@ class UpsertCubeMaterializationConfig(BaseSQLModel):
     An upsert object for cube materialization configs
     """
 
+    name: Optional[str]
     engine: EngineRef
     config: Union[DruidCubeConfig, GenericCubeConfig]
     schedule: str

@@ -64,7 +64,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
     Client for the query service.
     """
 
-    def __init__(self, uri: str, retries: int = 2):
+    def __init__(self, uri: str, retries: int = 0):
         self.uri = uri
         retry_strategy = Retry(
             total=retries,
@@ -154,5 +154,13 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             json=materialization_input.dict(),
         )
         result = response.json()  # pragma: no cover
-        print("materialize RESULT", result)
         return MaterializationOutput(**result)  # pragma: no cover
+
+    def get_materializations(self, node_name, materialization_name):
+        """
+        Gets a list of materializations for the node and materialization config name.
+        """
+        response = self.requests_session.get(
+            f"/materialization/{node_name}/{materialization_name}/",
+        )
+        return response.json()
