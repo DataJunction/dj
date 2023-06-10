@@ -284,3 +284,26 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         with pytest.raises(DJQueryServiceClientException) as exc_info:
             query_service_client.submit_query(query_create)
         assert "Error response from query service" in str(exc_info.value)
+
+    def test_get_materializations(self, mocker: MockerFixture) -> None:
+        """
+        Test materialize from a query service client.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"urls": ["http://fake.url/job"]}
+
+        mock_request = mocker.patch(
+            "dj.service_clients.RequestsSessionWithEndpoint.get",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.get_materializations(
+            node_name="default.hard_hat",
+            materialization_name="default",
+        )
+        mock_request.assert_called_with(
+            "/materialization/default.hard_hat/default/",
+        )
+        assert response == {"urls": ["http://fake.url/job"]}
