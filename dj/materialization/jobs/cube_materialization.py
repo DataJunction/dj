@@ -3,9 +3,11 @@ Cube materialization jobs
 """
 from typing import Dict
 
+from dj.errors import DJException
 from dj.materialization.jobs.materialization_job import MaterializationJob
 from dj.models.engine import Dialect
-from dj.models.node import DruidCubeConfig, MaterializationConfig
+from dj.models.materialization import DruidMaterializationInput, MaterializationOutput
+from dj.models.node import DruidCubeConfig, MaterializationConfig, PartitionType
 from dj.service_clients import QueryServiceClient
 
 DRUID_AGG_MAPPING = {
@@ -40,7 +42,7 @@ class DefaultCubeMaterialization(
         """
         Since this is a settings-only dummy job, we do nothing in this stage.
         """
-        return
+        return  # pragma: no cover
 
 
 class DruidCubeMaterializationJob(MaterializationJob):
@@ -54,6 +56,9 @@ class DruidCubeMaterializationJob(MaterializationJob):
         """
         Builds the Druid ingestion spec from a materialization config.
         """
+        if not cube_config.druid:  # pragma: no cover
+            raise DJException("Druid ingestion requires a druid spec")
+
         druid_datasource_name = (
             cube_config.prefix  # type: ignore
             + node_name.replace(".", "_DOT_")  # type: ignore
@@ -73,6 +78,21 @@ class DruidCubeMaterializationJob(MaterializationJob):
         metrics_spec = [
             dict(tup) for tup in {tuple(spec.items()) for spec in _metrics_spec}
         ]
+        temporal_partitions = (
+            [
+                partition
+                for partition in cube_config.partitions
+                if partition.type_ == PartitionType.TEMPORAL
+            ]
+            if cube_config.partitions
+            else []
+        )
+        print("cube_config.partitions", cube_config.partitions)
+        if not temporal_partitions:
+            raise DJException(
+                "Druid ingestion requires a temporal partition to be specified",
+            )
+
         druid_spec = {
             "dataSchema": {
                 "dataSource": druid_datasource_name,
@@ -81,7 +101,10 @@ class DruidCubeMaterializationJob(MaterializationJob):
                         "format": cube_config.druid.parse_spec_format or "parquet",  # type: ignore
                         "dimensionsSpec": {"dimensions": cube_config.dimensions},
                         "timestampSpec": {
-                            "column": cube_config.druid.timestamp_column,  # type: ignore
+                            "column": (
+                                cube_config.druid.timestamp_column  # type: ignore
+                                or temporal_partitions[0].name  # type: ignore
+                            ),
                             "format": (
                                 cube_config.druid.timestamp_format  # type: ignore
                                 or "yyyyMMdd"
@@ -93,7 +116,9 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 "granularitySpec": {
                     "type": "uniform",
                     "segmentGranularity": cube_config.druid.granularity,  # type: ignore
-                    "intervals": cube_config.druid.intervals,  # type: ignore
+                    "intervals": (
+                        cube_config.druid.intervals or temporal_partitions[0].range  # type: ignore
+                    ),
                 },
             },
         }
@@ -103,7 +128,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
         self,
         materialization: MaterializationConfig,
         query_service_client: QueryServiceClient,
-    ):
+    ) -> MaterializationOutput:
         """
         Use the query service to kick off the materialization setup.
         """
@@ -112,11 +137,16 @@ class DruidCubeMaterializationJob(MaterializationJob):
             cube_config,
             materialization.node_revision.name,
         )
-        query_service_client.materialize_cube(
-            node_name=materialization.node_revision.name,
-            node_type=materialization.node_revision.type,
-            schedule=materialization.schedule,
-            query=cube_config.query,
-            spark_conf=cube_config.spark.__root__,
-            druid_spec=druid_spec,
+        return query_service_client.materialize(
+            DruidMaterializationInput(
+                name=materialization.name,
+                node_name=materialization.node_revision.name,
+                node_type=materialization.node_revision.type,
+                schedule=materialization.schedule,
+                query=cube_config.query,
+                spark_conf=cube_config.spark.__root__,
+                druid_spec=druid_spec,
+                partitions=cube_config.partitions,
+                upstream_tables=cube_config.upstream_tables or [],
+            ),
         )

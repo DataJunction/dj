@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """
 Tests for the cubes API.
 """
@@ -224,6 +225,7 @@ def test_create_cube_with_materialization(client_with_query_service: TestClient)
                 "default.hard_hat.state",
                 "default.dispatcher.company_name",
                 "default.municipality_dim.local_region",
+                "default.hard_hat.hire_date",
             ],
             "filters": ["default.hard_hat.state='AZ'"],
             "description": "Cube of various metrics related to repairs",
@@ -239,9 +241,17 @@ def test_create_cube_with_materialization(client_with_query_service: TestClient)
                         "druid": {
                             "granularity": "DAY",
                             "intervals": [],
-                            "timestamp_column": "something",
+                            "timestamp_column": "hire_date",
                             "parse_spec_format": "parquet",
                         },
+                        "partitions": [
+                            {
+                                "name": "hire_date",
+                                "type_": "temporal",
+                                "values": [],
+                                "range": (20210101, 20220101),
+                            },
+                        ],
                         "spark": {},
                     },
                     "schedule": "0 * * * *",
@@ -249,6 +259,7 @@ def test_create_cube_with_materialization(client_with_query_service: TestClient)
             ],
         },
     )
+    print("response.json()", response.json())
     default_materialization = response.json()["materialization_configs"][0]
     assert default_materialization["job"] == "DruidCubeMaterializationJob"
     assert default_materialization["schedule"] == "0 * * * *"
@@ -752,14 +763,14 @@ LEFT OUTER JOIN (SELECT  default_DOT_municipality.local_region,
 LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc) AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
  WHERE  default_DOT_hard_hat.state = 'AZ'
  GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
-)SELECT  m0_default_DOT_discounted_orders_rate.placeholder_count,
-    m0_default_DOT_discounted_orders_rate.discount_sum,
-    m1_default_DOT_num_repair_orders.repair_order_id_count,
-    m2_default_DOT_avg_repair_price.price_count,
-    m2_default_DOT_avg_repair_price.price_sum,
-    m3_default_DOT_total_repair_cost.price_sum,
-    m4_default_DOT_total_repair_order_discounts.price_discount_sum,
-    m5_default_DOT_double_total_repair_cost.price_sum,
+)SELECT  m0_default_DOT_discounted_orders_rate.placeholder_count m0_default_DOT_discounted_orders_rate_placeholder_count,
+    m0_default_DOT_discounted_orders_rate.discount_sum m0_default_DOT_discounted_orders_rate_discount_sum,
+    m1_default_DOT_num_repair_orders.repair_order_id_count m1_default_DOT_num_repair_orders_repair_order_id_count,
+    m2_default_DOT_avg_repair_price.price_count m2_default_DOT_avg_repair_price_price_count,
+    m2_default_DOT_avg_repair_price.price_sum m2_default_DOT_avg_repair_price_price_sum,
+    m3_default_DOT_total_repair_cost.price_sum m3_default_DOT_total_repair_cost_price_sum,
+    m4_default_DOT_total_repair_order_discounts.price_discount_sum m4_default_DOT_total_repair_order_discounts_price_discount_sum,
+    m5_default_DOT_double_total_repair_cost.price_sum m5_default_DOT_double_total_repair_cost_price_sum,
     COALESCE(m0_default_DOT_discounted_orders_rate.company_name, m1_default_DOT_num_repair_orders.company_name, m2_default_DOT_avg_repair_price.company_name, m3_default_DOT_total_repair_cost.company_name, m4_default_DOT_total_repair_order_discounts.company_name, m5_default_DOT_double_total_repair_cost.company_name) company_name,
     COALESCE(m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_num_repair_orders.country, m2_default_DOT_avg_repair_price.country, m3_default_DOT_total_repair_cost.country, m4_default_DOT_total_repair_order_discounts.country, m5_default_DOT_double_total_repair_cost.country) country,
     COALESCE(m0_default_DOT_discounted_orders_rate.city, m1_default_DOT_num_repair_orders.city, m2_default_DOT_avg_repair_price.city, m3_default_DOT_total_repair_cost.city, m4_default_DOT_total_repair_order_discounts.city, m5_default_DOT_double_total_repair_cost.city) city,
@@ -855,6 +866,32 @@ def test_add_materialization_cube_failures(
         json={
             "engine": {"name": "druid", "version": ""},
             "config": {
+                "druid": {
+                    "granularity": "DAY",
+                    "timestamp_column": "something",
+                },
+                "partitions": [
+                    {
+                        "name": "something",
+                        "type_": "categorical",
+                        "values": ["1"],
+                    },
+                ],
+                "spark": {},
+            },
+            "schedule": "",
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "Druid ingestion requires a temporal partition to be specified"
+    )
+
+    response = client_with_repairs_cube.post(
+        "/nodes/default.repairs_cube/materialization/",
+        json={
+            "engine": {"name": "druid", "version": ""},
+            "config": {
                 "druid": {"a": "b"},
                 "spark": {},
             },
@@ -884,38 +921,49 @@ def test_add_materialization_config_to_cube(
             "config": {
                 "druid": {
                     "granularity": "DAY",
-                    "timestamp_column": "something",
+                    "timestamp_column": "date_int",
+                    "intervals": ["2021-01-01/2022-01-01"],
                 },
                 "spark": {},
+                "partitions": [
+                    {
+                        "name": "date_int",
+                        "type_": "temporal",
+                        "values": [],
+                        "range": [20210101, 20220101],
+                    },
+                ],
             },
             "schedule": "",
         },
     )
     assert response.json() == {
-        "message": "Successfully updated materialization config for node "
-        "`default.repairs_cube` and engine `druid`.",
+        "message": "Successfully updated materialization config named `date_int_0` "
+        "for node `default.repairs_cube`",
+        "urls": [["http://fake.url/job"]],
     }
     called_kwargs = [
-        call_[1]
-        for call_ in query_service_client.materialize_cube.call_args_list  # type: ignore
-    ][0]
-    assert called_kwargs["node_name"] == "default.repairs_cube"
-    assert called_kwargs["node_type"] == "cube"
-    assert called_kwargs["schedule"] == "@daily"
-    assert called_kwargs["spark_conf"] == {}
+        call_[0]
+        for call_ in query_service_client.materialize.call_args_list  # type: ignore
+    ][0][0]
+    assert called_kwargs.name == "date_int_0"
+    assert called_kwargs.node_name == "default.repairs_cube"
+    assert called_kwargs.node_type == "cube"
+    assert called_kwargs.schedule == "@daily"
+    assert called_kwargs.spark_conf == {}
     dimensions_sorted = sorted(
-        called_kwargs["druid_spec"]["dataSchema"]["parser"]["parseSpec"][
-            "dimensionsSpec"
-        ]["dimensions"],
+        called_kwargs.druid_spec["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
+            "dimensions"
+        ],
     )
-    called_kwargs["druid_spec"]["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
+    called_kwargs.druid_spec["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
         "dimensions"
     ] = dimensions_sorted
-    called_kwargs["druid_spec"]["dataSchema"]["metricsSpec"] = sorted(
-        called_kwargs["druid_spec"]["dataSchema"]["metricsSpec"],
+    called_kwargs.druid_spec["dataSchema"]["metricsSpec"] = sorted(
+        called_kwargs.druid_spec["dataSchema"]["metricsSpec"],
         key=lambda x: x["fieldName"],
     )
-    assert called_kwargs["druid_spec"] == {
+    assert called_kwargs.druid_spec == {
         "dataSchema": {
             "dataSource": "default_DOT_repairs_cube",
             "parser": {
@@ -931,7 +979,7 @@ def test_add_materialization_config_to_cube(
                             "state",
                         ],
                     },
-                    "timestampSpec": {"column": "something", "format": "yyyyMMdd"},
+                    "timestampSpec": {"column": "date_int", "format": "yyyyMMdd"},
                 },
             },
             "metricsSpec": [
@@ -961,7 +1009,7 @@ def test_add_materialization_config_to_cube(
             "granularitySpec": {
                 "type": "uniform",
                 "segmentGranularity": "DAY",
-                "intervals": None,
+                "intervals": ["2021-01-01/2022-01-01"],
             },
         },
     }
@@ -987,5 +1035,13 @@ def test_add_materialization_config_to_cube(
         "state",
         "company_name",
     }
-    assert druid_materialization["config"]["partitions"] is None
+    assert druid_materialization["config"]["partitions"] == [
+        {
+            "name": "date_int",
+            "values": [],
+            "range": [20210101, 20220101],
+            "expression": None,
+            "type_": "temporal",
+        },
+    ]
     assert druid_materialization["schedule"] == "@daily"
