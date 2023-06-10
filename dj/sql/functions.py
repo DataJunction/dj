@@ -1314,9 +1314,10 @@ class ArrayIntersect(Function):  # pylint: disable=abstract-method
 
 @ArrayIntersect.register
 def infer_type(  # noqa: F811
-    array: ct.ListType,
+    array1: ct.ListType,
+    array2: ct.ListType,
 ) -> ct.ListType:
-    return array.type
+    return array1.type
 
 
 class ArrayJoin(Function):  # pylint: disable=abstract-method
