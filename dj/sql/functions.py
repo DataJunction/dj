@@ -1277,6 +1277,88 @@ def infer_type(  # noqa: F811  # pragma: no cover
     return ct.BooleanType()  # pragma: no cover
 
 
+class ArrayDistinct(Function):  # pylint: disable=abstract-method
+    """
+    array_distinct(array) - Removes duplicate values from the array.
+    """
+
+
+@ArrayDistinct.register
+def infer_type(  # noqa: F811
+    array: ct.ListType,
+) -> ct.ListType:
+    return array.type
+
+
+class ArrayExcept(Function):  # pylint: disable=abstract-method
+    """
+    array_except(array1, array2) - Returns an array of the elements in
+    array1 but not in array2, without duplicates.
+    """
+
+
+@ArrayExcept.register
+def infer_type(  # noqa: F811
+    array1: ct.ListType,
+    array2: ct.ListType,
+) -> ct.ListType:
+    return array1.type
+
+
+class ArrayIntersect(Function):  # pylint: disable=abstract-method
+    """
+    array_intersect(array1, array2) - Returns an array of the
+    elements in the intersection of array1 and array2, without duplicates.
+    """
+
+
+@ArrayIntersect.register
+def infer_type(  # noqa: F811
+    array: ct.ListType,
+) -> ct.ListType:
+    return array.type
+
+
+class ArrayJoin(Function):  # pylint: disable=abstract-method
+    """
+    array_join(array, delimiter[, nullReplacement]) - Concatenates
+    the elements of the given array using the delimiter and an
+    optional string to replace nulls.
+    """
+
+
+@ArrayJoin.register
+def infer_type(  # noqa: F811
+    array: ct.ListType,
+    delimiter: ct.StringType,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+@ArrayJoin.register
+def infer_type(  # noqa: F811
+    array: ct.ListType,
+    delimiter: ct.StringType,
+    null_replacement: ct.StringType,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+class ArrayMax(Function):  # pylint: disable=abstract-method
+    """
+    array_max(array) - Returns the maximum value in the array. NaN is
+    greater than any non-NaN elements for double/float type. NULL
+    elements are skipped.
+    """
+
+
+@ArrayMax.register
+def infer_type(  # noqa: F811
+    array: ct.ListType,
+) -> ct.NumberType:
+    return array.type.element.type
+
+
 class ElementAt(Function):  # pylint: disable=abstract-method
     """
     element_at(array, index) - Returns element of array at given (1-based) index
@@ -1326,7 +1408,7 @@ class Array(Function):  # pylint: disable=abstract-method
 def infer_type(  # noqa: F811
     *elements: ct.ColumnType,
 ) -> ct.ListType:
-    types = {element.type for element in elements}
+    types = {element.type for element in elements if element.type != ct.NullType()}
     if len(types) > 1:
         raise DJParseException(
             f"Multiple types {', '.join(sorted(str(typ) for typ in types))} passed to array.",
