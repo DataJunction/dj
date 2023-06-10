@@ -1,6 +1,4 @@
 """Tests materialization-related models."""
-from sqlmodel import Session
-
 from dj.models.node import GenericMaterializationConfig, Partition
 
 
