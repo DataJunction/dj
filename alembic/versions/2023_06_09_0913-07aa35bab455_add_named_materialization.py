@@ -24,11 +24,11 @@ def upgrade():
     with batch_alter_table("materializationconfig") as batch_op:
         batch_op.drop_constraint("pk_materializationconfig")
         batch_op.add_column(
-            sa.Column("name", sa.String(), nullable=True, primary_key=True),
+            sa.Column("name", sa.String(), nullable=False, default="default"),
         )
         batch_op.create_primary_key(
             "pk_materializationconfig",
-            ["node_revision_id", "name"],
+            ["node_revision_id", "name", "engine_id"],
         )
 
 
@@ -38,5 +38,5 @@ def downgrade():
         batch_op.drop_constraint("pk_materializationconfig")
         batch_op.create_primary_key(
             "pk_materializationconfig",
-            ["node_revision_id", "engine"],
+            ["node_revision_id", "engine_id"],
         )
