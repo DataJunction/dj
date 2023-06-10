@@ -434,12 +434,13 @@ def build_cube_config(
             spark=SparkConf(__root__=config.get("spark", {})),
             druid=DruidConf(**config["druid"]),
             upstream_tables=upstream_tables,
+            partitions=config.get("partitions"),
         )
     return GenericCubeConfig(
         query=str(combined_ast),
         dimensions=list(dimensions_set),
         measures=measures,
-        partitions=[],
+        partitions=config.get("partitions"),
         upstream_tables=upstream_tables,
     )
 
@@ -488,7 +489,8 @@ def upsert_a_materialization_config(  # pylint: disable=too-many-locals
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> JSONResponse:
     """
-    Update materialization config of the specified node.
+    Update materialization config of the specified node. If a name is specified
+    for the materialization config, it will always update that named config.
     """
     node = get_node_by_name(session, name, with_current=True)
     if node.type == NodeType.SOURCE:
@@ -498,34 +500,8 @@ def upsert_a_materialization_config(  # pylint: disable=too-many-locals
         )
     current_revision = node.current
 
-    # Check to see if a config for this engine already exists with the exact same config
-    existing_config_for_engine = [
-        config
-        for config in current_revision.materialization_configs
-        if config.engine.name == data.engine.name
-    ]
-    if (
-        existing_config_for_engine
-        and existing_config_for_engine[0].config == data.config
-    ):  # pragma: no cover
-        return JSONResponse(
-            status_code=HTTPStatus.NO_CONTENT,
-            content={
-                "message": (
-                    f"The same materialization config provided already exists for "
-                    f"node `{name}` so no update was performed."
-                ),
-            },
-        )
-
-    # Materialization config changed, so create a new materialization config
+    # Create a new materialization config
     engine = get_engine(session, data.engine.name, data.engine.version)
-    unchanged_existing_configs = [
-        config
-        for config in current_revision.materialization_configs
-        if config.engine.name != data.engine.name
-    ]
-
     if current_revision.type in (NodeType.DIMENSION, NodeType.TRANSFORM):
         materialization_ast = build_node(
             session=session,
@@ -596,6 +572,41 @@ def upsert_a_materialization_config(  # pylint: disable=too-many-locals
                 },
             )
 
+    materialization_config_name = GenericMaterializationConfig.parse_obj(
+        data.config,
+    ).identifier()
+
+    # Check to see if a config for this engine already exists with the exact same config
+    existing_config_for_engine = [
+        config
+        for config in current_revision.materialization_configs
+        if config.name == materialization_config_name
+    ]
+    if (
+        existing_config_for_engine
+        and existing_config_for_engine[0].config == data.config
+    ):  # pragma: no cover
+        existing_materialization_links = query_service_client.get_materializations(
+            name,
+            materialization_config_name,
+        )
+        return JSONResponse(
+            status_code=HTTPStatus.CREATED,
+            content={
+                "message": (
+                    f"The same materialization config with name `{materialization_config_name}`"
+                    f"already exists for node `{name}` so no update was performed."
+                ),
+                "links": existing_materialization_links,
+            },
+        )
+
+    # If changes are detected, save the new materialization config
+    unchanged_existing_configs = [
+        config
+        for config in current_revision.materialization_configs
+        if config.name != materialization_config_name
+    ]
     new_config = MaterializationConfig(
         name=GenericMaterializationConfig.parse_obj(data.config).identifier(),
         node_revision=current_revision,
@@ -841,6 +852,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     # If a materialization was configured, set it up for the cube
     node_revision.materialization_configs = []
     default_materialization_config = UpsertCubeMaterializationConfig(
+        name="placeholder",
         engine=node_revision.catalog.engines[0],  # pylint: disable=no-member
         schedule="@daily",
         config={},
@@ -860,6 +872,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
             combined_ast,
         )
         new_config = MaterializationConfig(
+            name=materialization_config.name or cube_custom_config.identifier(),
             node_revision=node_revision,
             engine=engine,
             config=cube_custom_config.dict(),

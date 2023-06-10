@@ -2,7 +2,6 @@
 Available materialization jobs.
 """
 import abc
-import zlib
 from typing import Optional
 
 from dj.models.engine import Dialect
@@ -72,7 +71,7 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
         generic_config = GenericMaterializationConfig.parse_obj(materialization.config)
         return query_service_client.materialize(
             GenericMaterializationInput(
-                name=str(zlib.crc32(materialization.name.encode("utf-8"))),  # type: ignore
+                name=materialization.name,  # type: ignore
                 node_name=materialization.node_revision.name,
                 node_type=materialization.node_revision.type.value,
                 schedule=materialization.schedule,
