@@ -1,0 +1,18 @@
+description: User dimension
+type: dimension
+query: SELECT * FROM core.users
+columns:
+  id:
+    type: INT
+  full_name:
+    type: STR
+  age:
+    type: INT
+  country:
+    type: STR
+  gender:
+    type: STR
+  preferred_language:
+    type: STR
+  secret_number:
+    type: FLOAT

@@ -1,0 +1,4 @@
+description: An Apache Druid database
+URI: druid://druid_broker:8082/druid/v2/sql/
+read_only: true
+cost: 1
