@@ -1,0 +1,219 @@
+version: "3"
+volumes:
+  postgres_roads_example: {}
+  redis_data: {}
+
+networks:
+  core:
+    driver: bridge
+  djqs-network:
+    driver: bridge
+  djrs-network:
+    driver: bridge
+
+services:
+  dj:
+    container_name: dj
+    stdin_open: true
+    tty: true
+    networks:
+      - core
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=datajunction.server
+    build:
+      context: "${CORE_SERVICE}"
+      args:
+        RELOAD: "--reload"
+    volumes:
+      - "${CORE_SERVICE}:/code"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db_migration
+      - postgres-roads
+      - djqs
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  db_migration:
+    container_name: db_migration
+    networks:
+      - core
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: "${CORE_SERVICE}"
+    volumes:
+      - "${CORE_SERVICE}:/code"
+    command: alembic upgrade head
+    restart: on-failure
+
+  jaeger:
+    container_name: jaeger
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=debug
+    networks:
+      - core
+
+  postgres-roads:
+    container_name: postgres-roads
+    networks:
+      - core
+    image: postgres:latest
+    volumes:
+      - "${CORE_SERVICE}/examples/docker/postgres_init.roads.sql:/docker-entrypoint-initdb.d/init.sql"
+      - "${CORE_SERVICE}/postgres_roads_example:/var/lib/postgresql/data"
+    environment:
+      - POSTGRES_PASSWORD=dj
+      - POSTGRES_USER=dj
+      - POSTGRES_DB=roads
+    ports:
+      - "5435:5432"
+
+  djqs:
+    container_name: djqs
+    stdin_open: true
+    tty: true
+    networks:
+      - core
+      - djqs-network
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: "${QUERY_SERVICE}"
+    volumes:
+      - "${QUERY_SERVICE}:/code"
+    ports:
+      - "8001:8001"
+    depends_on:
+      - djqs-db-migration
+      - postgres-roads
+
+  djqs-db-migration:
+    container_name: djqs-db-migration
+    networks:
+      - djqs-network
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: "${QUERY_SERVICE}"
+    volumes:
+      - "${QUERY_SERVICE}:/code"
+    command: alembic upgrade head
+    restart: on-failure
+
+  # Reflection service
+  djrs-redis:
+    container_name: djrs-redis
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - djrs-network
+
+  djrs-worker:
+    container_name: djrs-worker
+    build: "${REFLECTION_SERVICE}"
+    command: ["celery", "-A", "djrs.worker.app", "worker", "--loglevel", "INFO"]
+    networks:
+      - core
+      - djrs-network
+    volumes:
+      - "${REFLECTION_SERVICE}:/code"
+    depends_on:
+      - djrs-redis
+      - dj
+
+  djrs-beat:
+    container_name: djrs-beat
+    build: "${REFLECTION_SERVICE}"
+    command:
+      ["celery", "--app", "djrs.worker.app", "beat", "--loglevel", "INFO"]
+    networks:
+      - djrs-network
+    depends_on:
+      - djrs-redis
+      - dj
+    restart: "no"
+    volumes:
+      - "${REFLECTION_SERVICE}:/code"
+
+  jupyter-notebook:
+    image: jupyter/scipy-notebook
+    container_name: jupyter
+    networks:
+      - core
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/notebooks
+      - ../dj/client/python:/home/jovyan/notebooks/datajunction
+    environment:
+      JUPYTER_ENABLE_LAB: "yes"
+    command: /bin/bash -c "pip install -e /home/jovyan/notebooks/datajunction/ && start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''"
+
+  dj-ui:
+    build:
+      context: ../dj-ui
+    ports:
+      - "3000:3000"
+    container_name: dj-ui
+    stdin_open: true
+    volumes:
+      - ../dj-ui:/usr/src/app/
+      - /usr/src/app/node_modules
+    command: ["yarn", "webpack-start", "--host", "0.0.0.0", "--port", "3000"]
+
+  chat-backend:
+    container_name: chat-backend
+    build:
+      context: ./chat-demo/chat-backend
+      dockerfile: Dockerfile
+    networks:
+      - core
+    ports:
+      - 8500:8500
+    restart: on-failure
+    environment:
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - DJ_URL=http://dj:8000
+    volumes:
+      - ./chat-demo/chat-backend:/workspace
+    command: "python3 /workspace/app.py"
+    depends_on:
+      - dj
+
+  chat-ui:
+    container_name: chat-ui
+    build:
+      context: ./chat-demo/chat-frontend
+      dockerfile: Dockerfile
+    networks:
+      - core
+    ports:
+      - 8501:8501
+    restart: on-failure
+    volumes:
+      - ./chat-demo/chat-frontend:/app
+    working_dir: /app
+    environment:
+      - API_ENDPOINT=http://chat-backend:8500
+    depends_on:
+      - chat-backend
+    entrypoint: ["streamlit", "run"]
+    command:
+      [
+        "app.py",
+        "--server.port",
+        "8501",
+        "--server.headless",
+        "true",
+        "--server.fileWatcherType",
+        "none",
+        "--browser.gatherUsageStats",
+        "false",
+      ]
