@@ -328,20 +328,18 @@ def infer_type(
     return ct.ListType(element_type=item.type)
 
 
-class ArrayContains(
-    Function,
-):  # pragma: no cover
+class ArrayContains(Function):
     """
     array_contains(array, value) - Returns true if the array contains the value.
     """
 
 
 @ArrayContains.register
-def infer_type(  # pragma: no cover
+def infer_type(
     array: ct.ListType,
     element: ct.ColumnType,
 ) -> ct.BooleanType:
-    return ct.BooleanType()  # pragma: no cover
+    return ct.BooleanType()
 
 
 class ArrayDistinct(Function):
@@ -568,7 +566,7 @@ def infer_type(
     return ct.NullType()
 
 
-class CollectList(Function):  # pragma: no cover
+class CollectList(Function):
     """
     Collects and returns a list of non-unique elements.
     """
@@ -577,10 +575,10 @@ class CollectList(Function):  # pragma: no cover
 
 
 @CollectList.register
-def infer_type(  # pragma: no cover
+def infer_type(
     arg: ct.ColumnType,
 ) -> ct.ColumnType:
-    return ct.ListType(element_type=arg.type)  # pragma: no cover
+    return ct.ListType(element_type=arg.type)
 
 
 class Count(Function):
@@ -761,7 +759,7 @@ class Extract(Function):
         return ct.IntegerType()
 
 
-class First(Function):  # pragma: no cover
+class First(Function):
     """
     Returns the first value of expr for a group of rows. If isIgnoreNull is
     true, returns only non-null values.
@@ -771,18 +769,18 @@ class First(Function):  # pragma: no cover
 
 
 @First.register
-def infer_type(  # pragma: no cover
+def infer_type(
     arg: ct.ColumnType,
 ) -> ct.ColumnType:
-    return arg.type  # pragma: no cover
+    return arg.type
 
 
 @First.register
-def infer_type(  # pragma: no cover
+def infer_type(
     arg: ct.ColumnType,
     is_ignore_null: ct.BooleanType,
 ) -> ct.ColumnType:
-    return arg.type  # pragma: no cover
+    return arg.type
 
 
 class Floor(Function):
@@ -1088,13 +1086,8 @@ class PercentRank(Function):
 
 
 @PercentRank.register
-def infer_type() -> ct.DoubleType:
-    return ct.DoubleType()
-
-
-@PercentRank.register
 def infer_type(arg: ct.NumberType) -> ct.DoubleType:
-    return ct.DoubleType()  # pragma: no cover
+    return ct.DoubleType()
 
 
 class Pow(Function):
@@ -1125,7 +1118,7 @@ def infer_type(
     return ct.DoubleType()
 
 
-class RegexpLike(Function):  # pragma: no cover
+class RegexpLike(Function):
     """
     regexp_like(str, regexp) - Returns true if str matches regexp, or false otherwise
     """
@@ -1210,7 +1203,7 @@ def infer_type(arg: ct.NumberType) -> ct.DoubleType:
     return ct.DoubleType()
 
 
-class StddevPop(Function):  # pragma: no cover
+class StddevPop(Function):
     """
     Computes the population standard deviation of the input column or expression.
     """
@@ -1218,7 +1211,12 @@ class StddevPop(Function):  # pragma: no cover
     is_aggregation = True
 
 
-class StddevSamp(Function):  # pragma: no cover
+@StddevPop.register
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class StddevSamp(Function):
     """
     Computes the sample standard deviation of the input column or expression.
     """
@@ -1245,20 +1243,20 @@ class Strpos(Function):
 
 
 @Strpos.register
-def infer_type(  # pragma: no cover
+def infer_type(
     string: ct.StringType,
     substring: ct.StringType,
 ) -> ct.IntegerType:
-    return ct.IntegerType()  # pragma: no cover
+    return ct.IntegerType()
 
 
 @Strpos.register
-def infer_type(  # pragma: no cover
+def infer_type(
     string: ct.StringType,
     substring: ct.StringType,
     instance: ct.IntegerType,
 ) -> ct.IntegerType:
-    return ct.IntegerType()  # pragma: no cover
+    return ct.IntegerType()
 
 
 class Substring(Function):
@@ -1371,17 +1369,18 @@ def infer_type(
     return ct.ListType(element_type=func.expr.type)
 
 
-class Trim(Function):  # pragma: no cover
+class Trim(Function):
     """
     Removes leading and trailing whitespace from a string value.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.StringType:
-        return ct.StringType()
+
+@Trim.register
+def infer_type(arg: ct.StringType) -> ct.StringType:
+    return ct.StringType()
 
 
-class Upper(Function):  # pragma: no cover
+class Upper(Function):
     """
     Converts a string value to uppercase.
     """
@@ -1392,7 +1391,7 @@ def infer_type(arg: ct.StringType) -> ct.StringType:
     return ct.StringType()
 
 
-class Variance(Function):  # pragma: no cover
+class Variance(Function):
     """
     Computes the sample variance of the input column or expression.
     """
@@ -1405,7 +1404,7 @@ def infer_type(arg: ct.NumberType) -> ct.DoubleType:
     return ct.DoubleType()
 
 
-class VarPop(Function):  # pragma: no cover
+class VarPop(Function):
     """
     Computes the population variance of the input column or expression.
     """
