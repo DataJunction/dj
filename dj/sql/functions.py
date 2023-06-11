@@ -56,6 +56,7 @@ def compare_registers(types, register) -> bool:
         register,
         fillvalue=(-1, None),
     ):
+        print(type_a, register_a, type_b, register_b)
         if type_b == -1 and register_b is None:
             if register[-1][0] == -1:  # args
                 register_b = register[-1][1]
@@ -145,6 +146,7 @@ class Dispatch(metaclass=DispatchMeta):
 
         for register, func in type_registry.items():  # type: ignore
             if compare_registers(types, register):
+                print("FOUND", types, func)
                 return func
 
         raise TypeError(
@@ -494,27 +496,27 @@ def infer_type(
     _target_scale: ct.IntegerType,
 ) -> ct.DecimalType:
     target_scale = _target_scale.value
-    if isinstance(args.type, ct.DecimalType):
+    if isinstance(args.type, ct.DecimalType):  # pragma: no cover
         precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
         scale = min(args.type.scale, max(0, target_scale))
         return ct.DecimalType(precision, scale)
-    if args.type == ct.TinyIntType():
+    if args.type == ct.TinyIntType():  # pragma: no cover
         precision = max(3, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    if args.type == ct.SmallIntType():
+    if args.type == ct.SmallIntType():  # pragma: no cover
         precision = max(5, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    if args.type == ct.IntegerType():
+    if args.type == ct.IntegerType():  # pragma: no cover
         precision = max(10, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    if args.type == ct.BigIntType():
+    if args.type == ct.BigIntType():  # pragma: no cover
         precision = max(20, -target_scale + 1)
         return ct.DecimalType(precision, 0)
     if args.type == ct.FloatType():
         precision = max(14, -target_scale + 1)
         scale = min(7, max(0, target_scale))
         return ct.DecimalType(precision, scale)
-    if args.type == ct.DoubleType():
+    if args.type == ct.DoubleType():  # pragma: no cover
         precision = max(30, -target_scale + 1)
         scale = min(15, max(0, target_scale))
         return ct.DecimalType(precision, scale)
@@ -594,136 +596,6 @@ def infer_type(
     *args: ct.ColumnType,
 ) -> ct.BigIntType:
     return ct.BigIntType()
-
-
-class CurrentDate(Function):
-    """
-    Returns the current date.
-    """
-
-
-@CurrentDate.register  # type: ignore
-def infer_type() -> ct.DateType:
-    return ct.DateType()
-
-
-class Cardinality(Function):
-    """
-    Returns the size of an array or a map.
-    """
-
-
-@Cardinality.register  # type: ignore
-def infer_type(
-    args: ct.ListType,
-) -> ct.IntegerType:
-    return ct.IntegerType()
-
-
-@Cardinality.register  # type: ignore
-def infer_type(
-    args: ct.MapType,
-) -> ct.IntegerType:
-    return ct.IntegerType()
-
-
-class Ceil(Function):
-    """
-    Computes the smallest integer greater than or equal to the input value.
-    """
-
-
-@Ceil.register
-def infer_type(
-    args: ct.NumberType,
-    _target_scale: ct.IntegerType,
-) -> ct.DecimalType:
-    target_scale = _target_scale.value
-    if isinstance(args.type, ct.DecimalType):
-        precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
-        scale = min(args.type.scale, max(0, target_scale))
-        return ct.DecimalType(precision, scale)
-    if args.type == ct.TinyIntType():
-        precision = max(3, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    if args.type == ct.SmallIntType():
-        precision = max(5, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    if args.type == ct.IntegerType():
-        precision = max(10, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    if args.type == ct.BigIntType():
-        precision = max(20, -target_scale + 1)
-        return ct.DecimalType(precision, 0)
-    if args.type == ct.FloatType():
-        precision = max(14, -target_scale + 1)
-        scale = min(7, max(0, target_scale))
-        return ct.DecimalType(precision, scale)
-    if args.type == ct.DoubleType():
-        precision = max(30, -target_scale + 1)
-        scale = min(15, max(0, target_scale))
-        return ct.DecimalType(precision, scale)
-
-    raise DJParseException(
-        f"Unhandled numeric type in Ceil `{args.type}`",
-    )  # pragma: no cover
-
-
-@Ceil.register
-def infer_type(
-    args: ct.DecimalType,
-) -> ct.DecimalType:
-    return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
-
-
-@Ceil.register
-def infer_type(
-    args: ct.NumberType,
-) -> ct.BigIntType:
-    return ct.BigIntType()
-
-
-class Count(Function):
-    """
-    Counts the number of non-null values in the input column or expression.
-    """
-
-    is_aggregation = True
-
-
-@Count.register  # type: ignore
-def infer_type(
-    *args: ct.ColumnType,
-) -> ct.BigIntType:
-    return ct.BigIntType()
-
-
-class Coalesce(Function):
-    """
-    Computes the average of the input column or expression.
-    """
-
-    is_aggregation = False
-
-
-@Coalesce.register  # type: ignore
-def infer_type(
-    *args: ct.ColumnType,
-) -> ct.ColumnType:
-    if not args:  # pragma: no cover
-        raise DJInvalidInputException(
-            message="Wrong number of arguments to function",
-            errors=[
-                DJError(
-                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
-                    message="You need to pass at least one argument to `COALESCE`.",
-                ),
-            ],
-        )
-    for arg in args:
-        if arg.type != ct.NullType():
-            return arg.type
-    return ct.NullType()
 
 
 class CurrentDate(Function):
@@ -1222,7 +1094,7 @@ def infer_type() -> ct.DoubleType:
 
 @PercentRank.register
 def infer_type(arg: ct.NumberType) -> ct.DoubleType:
-    return ct.DoubleType()
+    return ct.DoubleType()  # pragma: no cover
 
 
 class Pow(Function):
@@ -1346,11 +1218,6 @@ class StddevPop(Function):  # pragma: no cover
     is_aggregation = True
 
 
-@Stddev.register
-def infer_type(arg: "Expression") -> ct.DoubleType:
-    return ct.DoubleType()
-
-
 class StddevSamp(Function):  # pragma: no cover
     """
     Computes the sample standard deviation of the input column or expression.
@@ -1360,7 +1227,7 @@ class StddevSamp(Function):  # pragma: no cover
 
 
 @StddevSamp.register
-def infer_type(arg: "Expression") -> ct.DoubleType:
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
     return ct.DoubleType()
 
 

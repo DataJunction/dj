@@ -282,6 +282,21 @@ def test_aggregate(session: Session):
     assert query.select.projection[0].type == StringType()  # type: ignore
 
 
+def test_ceil_func(session: Session):
+    """
+    Test the `ceil` function
+    """
+    query = parse("SELECT ceil(-0.1), ceil(5), ceil(3.1411, 3), ceil(3.1411, -3)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == BigIntType()  # type: ignore
+    assert query.select.projection[1].type == BigIntType()  # type: ignore
+    assert query.select.projection[2].type == DecimalType(precision=14, scale=3)  # type: ignore
+    assert query.select.projection[3].type == DecimalType(precision=14, scale=0)  # type: ignore
+
+
 def test_element_at(session: Session):
     """
     Test the `element_at` Spark function
@@ -359,16 +374,23 @@ def test_abs(session: Session):
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
 
 
-def test_array_contains(session: Session):
+def test_approx_percentile(session: Session):
     """
-    Test the `array_contains` Spark function
+    Test the `approx_percentile` Spark function
     """
-    query = parse("select array_contains(array(1, 2, 3), 2)")
+    query_with_list = parse("SELECT approx_percentile(10.0, array(0.5, 0.4, 0.1), 100)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
+    query_with_list.compile(ctx)
     assert not exc.errors
-    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query_with_list.select.projection[0].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
+
+    query_with_list = parse("SELECT approx_percentile(10.0, 0.5, 100)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query_with_list.compile(ctx)
+    assert not exc.errors
+    assert query_with_list.select.projection[0].type == ct.FloatType()  # type: ignore
 
 
 def test_array_agg(session: Session):
@@ -424,46 +446,16 @@ def test_array_append(session: Session):
     assert query.select.projection[0].type == ct.ListType(element_type=ct.BooleanType())  # type: ignore
 
 
-def test_approx_percentile(session: Session):
+def test_array_contains(session: Session):
     """
-    Test the `approx_percentile` Spark function
+    Test the `array_contains` Spark function
     """
-    query_with_list = parse("SELECT approx_percentile(10.0, array(0.5, 0.4, 0.1), 100)")
+    query = parse("select array_contains(array(1, 2, 3), 2)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_list.compile(ctx)
-    assert not exc.errors
-    assert query_with_list.select.projection[0].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
-
-    query_with_list = parse("SELECT approx_percentile(10.0, 0.5, 100)")
-    exc = DJException()
-    ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_list.compile(ctx)
-    assert not exc.errors
-    assert query_with_list.select.projection[0].type == ct.FloatType()  # type: ignore
-
-
-def test_transform(session: Session):
-    """
-    Test the `transform` Spark function
-    """
-    query = parse(
-        """
-        SELECT transform(array(1, 2, 3), x -> x + 1)
-        """,
-    )
-    ctx = ast.CompileContext(session=session, exception=DJException())
     query.compile(ctx)
-    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
-
-    query = parse(
-        """
-        SELECT transform(array(1, 2, 3), (x, i) -> x + i)
-        """,
-    )
-    ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
-    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
 def test_array_distinct(session: Session):
@@ -535,6 +527,20 @@ def test_array_intersect(session: Session):
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
+def test_array_max(session: Session):
+    """
+    Test the `array_max` Spark function
+    """
+    query = parse(
+        """
+        SELECT array_max(array(1, 20, null, 3))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
 def test_array_join(session: Session):
     """
     Test the `array_join` Spark function
@@ -558,15 +564,76 @@ def test_array_join(session: Session):
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
-def test_array_max(session: Session):
+def test_regexp_like(session: Session):
     """
-    Test the `array_max` Spark function
+    Test `regexp_like`
+    """
+    query = parse(
+        "SELECT regexp_like('%SystemDrive%\\Users\\John', '%SystemDrive%\\Users.*')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
+def test_strpos(session: Session):
+    """
+    Test `strpos`
+    """
+    query = parse("SELECT strpos('abcde', 'cde'), strpos('abcde', 'cde', 4)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_substring(session: Session):
+    """
+    Test `substring`
+    """
+    query = parse("SELECT substring('Spark SQL', 5), substring('Spark SQL', 5, 1)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_transform(session: Session):
+    """
+    Test the `transform` Spark function
     """
     query = parse(
         """
-        SELECT array_max(array(1, 20, null, 3))
+        SELECT transform(array(1, 2, 3), x -> x + 1)
         """,
     )
     ctx = ast.CompileContext(session=session, exception=DJException())
     query.compile(ctx)
-    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+    query = parse(
+        """
+        SELECT transform(array(1, 2, 3), (x, i) -> x + i)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+
+def test_upper(session: Session):
+    """
+    Test `upper`
+    """
+    query = parse("SELECT upper('abcde')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore

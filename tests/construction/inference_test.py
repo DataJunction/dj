@@ -342,7 +342,10 @@ def test_infer_types_avg(construction_session: Session):
            (PARTITION BY first_name ORDER BY last_name),
           AVG(CAST(id AS DECIMAL(8, 6))),
           AVG(CAST(id AS INTERVAL DAY TO SECOND)),
-          STDDEV(id)
+          STDDEV(id),
+          stddev_samp(id),
+          variance(id),
+          var_pop(id)
         FROM dbt.source.jaffle_shop.customers
     """,
     )
@@ -353,6 +356,9 @@ def test_infer_types_avg(construction_session: Session):
         DoubleType(),
         DecimalType(12, 10),
         DayTimeIntervalType(),
+        DoubleType(),
+        DoubleType(),
+        DoubleType(),
         DoubleType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
@@ -528,6 +534,7 @@ def test_infer_types_exp(construction_session: Session):
           LOG2(2),
           LOG10(100),
           POW(1, 2),
+          POWER(1, 2),
           ROUND(1.2, 0),
           ROUND(1.2, -1),
           ROUND(CAST(1.233 AS DOUBLE), 1),
@@ -545,6 +552,7 @@ def test_infer_types_exp(construction_session: Session):
         BigIntType(),
         IntegerType(),
         IntegerType(),
+        DoubleType(),
         DoubleType(),
         DoubleType(),
         DoubleType(),
