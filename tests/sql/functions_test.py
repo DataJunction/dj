@@ -181,6 +181,21 @@ def test_array_append(session: Session):
     assert query.select.projection[0].type == ct.ListType(element_type=ct.BooleanType())  # type: ignore
 
 
+def test_array_compact(session: Session):
+    """
+    Test the `array_compact` Spark function
+    """
+    query = parse(
+        'SELECT array_compact(array(1, 2, 3, null)), array_compact(array("a", "b", "c"))',
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+    assert query.select.projection[1].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
 def test_array_contains(session: Session):
     """
     Test the `array_contains` Spark function
