@@ -2,15 +2,15 @@
 DAG related functions.
 """
 import collections
-from typing import List, Set
+from typing import List
 
-from dj.models.node import Node, NodeType
+from dj.models.node import DimensionAttributeOutput, Node, NodeType
 from dj.utils import get_settings
 
 settings = get_settings()
 
 
-def get_dimensions(node: Node) -> List[str]:
+def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
     """
     Return all available dimensions for a given node.
     """
@@ -41,17 +41,26 @@ def get_dimensions(node: Node) -> List[str]:
                 )
                 or column.dimension
             ):
-                dimensions.append(f"{current_node.name}.{column.name}")
+                dimensions.append(
+                    DimensionAttributeOutput(
+                        name=f"{current_node.name}.{column.name}",
+                        type=column.type,
+                    ),
+                )
             if column.dimension and column.dimension not in processed:
                 to_process.append(column.dimension)
-    return sorted(dimensions)
+    return sorted(dimensions, key=lambda x: x.name)
 
 
-def get_shared_dimensions(metric_nodes: List[Node]) -> Set[str]:
+def get_shared_dimensions(
+    metric_nodes: List[Node],
+) -> List[DimensionAttributeOutput]:
     """
     Return a list of dimensions that are common between the nodes.
     """
-    common = set(get_dimensions(metric_nodes[0]))
+    common = {dim.name: dim for dim in get_dimensions(metric_nodes[0])}
     for node in set(metric_nodes[1:]):
-        common.intersection_update(get_dimensions(node))
-    return common
+        node_dimensions = {dim.name: dim for dim in get_dimensions(node)}
+        common_dim_keys = common.keys() & node_dimensions.keys()
+        common = {dim: node_dimensions[dim] for dim in common_dim_keys}
+    return sorted(common.values(), key=lambda x: x.name)
