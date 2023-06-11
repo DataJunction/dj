@@ -494,34 +494,34 @@ def infer_type(
     _target_scale: ct.IntegerType,
 ) -> ct.DecimalType:
     target_scale = _target_scale.value
-    if isinstance(args.type, ct.DecimalType):  # pragma: no cover
+    if isinstance(args.type, ct.DecimalType):
         precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
         scale = min(args.type.scale, max(0, target_scale))
         return ct.DecimalType(precision, scale)
-    if args.type == ct.TinyIntType():  # pragma: no cover
+    if args.type == ct.TinyIntType():
         precision = max(3, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    if args.type == ct.SmallIntType():  # pragma: no cover
+    if args.type == ct.SmallIntType():
         precision = max(5, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    if args.type == ct.IntegerType():  # pragma: no cover
+    if args.type == ct.IntegerType():
         precision = max(10, -target_scale + 1)
         return ct.DecimalType(precision, 0)
-    if args.type == ct.BigIntType():  # pragma: no cover
+    if args.type == ct.BigIntType():
         precision = max(20, -target_scale + 1)
         return ct.DecimalType(precision, 0)
     if args.type == ct.FloatType():
         precision = max(14, -target_scale + 1)
         scale = min(7, max(0, target_scale))
         return ct.DecimalType(precision, scale)
-    if args.type == ct.DoubleType():  # pragma: no cover
+    if args.type == ct.DoubleType():
         precision = max(30, -target_scale + 1)
         scale = min(15, max(0, target_scale))
         return ct.DecimalType(precision, scale)
 
-    raise DJParseException(
+    raise DJParseException(  # pragma: no cover
         f"Unhandled numeric type in Ceil `{args.type}`",
-    )  # pragma: no cover
+    )
 
 
 @Ceil.register
