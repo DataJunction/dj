@@ -56,7 +56,6 @@ def compare_registers(types, register) -> bool:
         register,
         fillvalue=(-1, None),
     ):
-        print(type_a, register_a, type_b, register_b)
         if type_b == -1 and register_b is None:
             if register[-1][0] == -1:  # args
                 register_b = register[-1][1]
@@ -146,7 +145,6 @@ class Dispatch(metaclass=DispatchMeta):
 
         for register, func in type_registry.items():  # type: ignore
             if compare_registers(types, register):
-                print("FOUND", types, func)
                 return func
 
         raise TypeError(
@@ -328,6 +326,19 @@ def infer_type(
     return ct.ListType(element_type=item.type)
 
 
+class ArrayCompact(Function):
+    """
+    array_compact(array) - Removes null values from the array.
+    """
+
+
+@ArrayCompact.register
+def infer_type(
+    array: ct.ListType,
+) -> ct.ListType:
+    return array.type
+
+
 class ArrayContains(Function):
     """
     array_contains(array, value) - Returns true if the array contains the value.
@@ -423,6 +434,127 @@ def infer_type(
     array: ct.ListType,
 ) -> ct.NumberType:
     return array.type.element.type
+
+
+class ArrayMin(Function):
+    """
+    array_min(array) - Returns the minimum value in the array. NaN is greater than
+    any non-NaN elements for double/float type. NULL elements are skipped.
+    """
+
+
+@ArrayMin.register
+def infer_type(
+    array: ct.ListType,
+) -> ct.NumberType:
+    return array.type.element.type
+
+
+class ArrayPosition(Function):
+    """
+    array_position(array, element) - Returns the (1-based) index of the first
+    element of the array as long.
+    """
+
+
+@ArrayPosition.register
+def infer_type(
+    array: ct.ListType,
+    element: ct.ColumnType,
+) -> ct.LongType:
+    return ct.LongType()
+
+
+class ArrayRemove(Function):
+    """
+    array_remove(array, element) - Remove all elements that equal to element from array.
+    """
+
+
+@ArrayRemove.register
+def infer_type(
+    array: ct.ListType,
+    element: ct.ColumnType,
+) -> ct.ListType:
+    return array.type
+
+
+class ArrayRepeat(Function):
+    """
+    array_repeat(element, count) - Returns the array containing element count times.
+    """
+
+
+@ArrayRepeat.register
+def infer_type(
+    element: ct.ColumnType,
+    count: ct.IntegerType,
+) -> ct.ListType:
+    return ct.ListType(element_type=element.type)
+
+
+class ArraySize(Function):
+    """
+    array_size(expr) - Returns the size of an array. The function returns null for null input.
+    """
+
+
+@ArraySize.register
+def infer_type(
+    array: ct.ListType,
+) -> ct.LongType:
+    return ct.LongType()
+
+
+class ArraySort(Function):
+    """
+    array_sort(expr, func) - Sorts the input array
+    """
+
+
+@ArraySort.register
+def infer_type(
+    array: ct.ListType,
+) -> ct.ListType:
+    return array.type
+
+
+@ArraySort.register
+def infer_type(
+    array: ct.ListType,
+    sort_func: ct.LambdaType,
+) -> ct.ListType:  # pragma: no cover
+    return array.type
+
+
+class ArrayUnion(Function):
+    """
+    array_union(array1, array2) - Returns an array of the elements
+    in the union of array1 and array2, without duplicates.
+    """
+
+
+@ArrayUnion.register
+def infer_type(
+    array1: ct.ListType,
+    array2: ct.ListType,
+) -> ct.ListType:
+    return array1.type
+
+
+class ArraysOverlap(Function):
+    """
+    arrays_overlap(a1, a2) - Returns true if a1 contains at least a
+    non-null element present also in a2.
+    """
+
+
+@ArraysOverlap.register
+def infer_type(
+    array1: ct.ListType,
+    array2: ct.ListType,
+) -> ct.ListType:
+    return ct.BooleanType()
 
 
 class Avg(Function):
