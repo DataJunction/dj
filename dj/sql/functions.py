@@ -1401,7 +1401,7 @@ class Variance(Function):  # pragma: no cover
 
 
 @Variance.register
-def infer_type(arg: "Expression") -> ct.DoubleType:
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
     return ct.DoubleType()
 
 
@@ -1414,7 +1414,7 @@ class VarPop(Function):  # pragma: no cover
 
 
 @VarPop.register
-def infer_type(arg: "Expression") -> ct.DoubleType:
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
     return ct.DoubleType()
 
 
