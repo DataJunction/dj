@@ -548,18 +548,18 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # The dimension's attributes should now be available to the metric
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
-        assert [
-            "default.messages.user_id",
-            "default.us_users.age",
-            "default.us_users.country",
-            "default.us_users.created_at",
-            "default.us_users.full_name",
-            "default.us_users.gender",
-            "default.us_users.id",
-            "default.us_users.post_processing_timestamp",
-            "default.us_users.preferred_language",
-            "default.us_users.secret_number",
-        ] == response.json()["dimensions"]
+        assert response.json()["dimensions"] == [
+            {"name": "default.messages.user_id", "type": "int"},
+            {"name": "default.us_users.age", "type": "int"},
+            {"name": "default.us_users.country", "type": "string"},
+            {"name": "default.us_users.created_at", "type": "timestamp"},
+            {"name": "default.us_users.full_name", "type": "string"},
+            {"name": "default.us_users.gender", "type": "string"},
+            {"name": "default.us_users.id", "type": "int"},
+            {"name": "default.us_users.post_processing_timestamp", "type": "timestamp"},
+            {"name": "default.us_users.preferred_language", "type": "string"},
+            {"name": "default.us_users.secret_number", "type": "float"},
+        ]
         # Deactivate the dimension node
         response = client.post("/nodes/default.us_users/deactivate/")
         assert response.ok

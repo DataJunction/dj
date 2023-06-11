@@ -588,7 +588,7 @@ def build_metric_nodes(
             "of them aren't metric nodes.",
         )
 
-    shared_dimensions = get_shared_dimensions(metric_nodes)
+    shared_dimensions = [dim.name for dim in get_shared_dimensions(metric_nodes)]
     for dimension_attribute in dimensions:
         if dimension_attribute not in shared_dimensions:
             raise DJInvalidInputException(

@@ -13,7 +13,7 @@ from sqlmodel import Session, select
 from dj.api.helpers import get_node_by_name
 from dj.errors import DJError, DJException, ErrorCode
 from dj.models.metric import Metric
-from dj.models.node import Node, NodeType
+from dj.models.node import DimensionAttributeOutput, Node, NodeType
 from dj.sql.dag import get_shared_dimensions
 from dj.utils import get_session
 
@@ -54,14 +54,17 @@ def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metri
     return Metric.parse_node(node)
 
 
-@router.get("/metrics/common/dimensions/", response_model=List[str])
+@router.get(
+    "/metrics/common/dimensions/",
+    response_model=List[DimensionAttributeOutput],
+)
 async def get_common_dimensions(
     metric: List[str] = Query(
         title="List of metrics to find common dimensions for",
         default=[],
     ),
     session: Session = Depends(get_session),
-) -> List[str]:
+) -> List[DimensionAttributeOutput]:
     """
     Return common dimensions for a set of metrics.
     """
@@ -93,4 +96,4 @@ async def get_common_dimensions(
 
     if errors:
         raise DJException(errors=errors)
-    return list(get_shared_dimensions(metric_nodes))
+    return get_shared_dimensions(metric_nodes)
