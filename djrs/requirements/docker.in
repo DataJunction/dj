@@ -1,0 +1,2 @@
+# include test dependencies so we can run tests inside Docker
+-r test.in
