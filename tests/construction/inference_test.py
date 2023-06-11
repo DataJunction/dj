@@ -26,7 +26,6 @@ from dj.sql.parsing.types import (
     StringType,
     TimestampType,
     TimeType,
-    TinyIntType,
 )
 
 
@@ -611,7 +610,6 @@ def test_infer_types_datetime(construction_session: Session):
         """
         SELECT
           CURRENT_DATE(),
-          CURRENT_DATETIME(),
           CURRENT_TIME(),
           CURRENT_TIMESTAMP(),
 
@@ -641,7 +639,6 @@ def test_infer_types_datetime(construction_session: Session):
     query.compile(ctx)
     types = [
         DateType(),
-        TimestampType(),
         TimeType(),
         TimestampType(),
         TimestampType(),
@@ -654,8 +651,8 @@ def test_infer_types_datetime(construction_session: Session):
         IntegerType(),
         DecimalType(precision=8, scale=6),
         IntegerType(),
-        TinyIntType(),
-        TinyIntType(),
-        TinyIntType(),
+        BigIntType(),
+        BigIntType(),
+        BigIntType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore

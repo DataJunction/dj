@@ -1,4 +1,5 @@
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines, abstract-method, unused-argument, missing-function-docstring,
+# pylint: disable=arguments-differ, too-many-return-statements, function-redefined
 # mypy: ignore-errors
 
 """
@@ -20,9 +21,6 @@ https://docs.databricks.com/sql/language-manual/sql-ref-functions-builtin-alpha.
 import inspect
 import re
 from itertools import zip_longest
-
-# pylint: disable=unused-argument, missing-function-docstring, arguments-differ, too-many-return-statements,
-# pylint: disable=function-redefined
 from typing import (
     TYPE_CHECKING,
     Callable,
@@ -186,7 +184,28 @@ class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
         raise NotImplementedError()
 
 
-class Aggregate(Function):  # pylint: disable=abstract-method
+#####################
+# Regular Functions #
+#####################
+
+
+class Abs(Function):
+    """
+    Returns the absolute value of the numeric or interval value.
+    """
+
+    is_aggregation = True
+
+
+@Abs.register
+def infer_type(
+    arg: ct.NumberType,
+) -> ct.NumberType:
+    type_ = arg.type
+    return type_
+
+
+class Aggregate(Function):
     """
     Applies a binary operator to an initial state and all elements in the array,
     and reduces this to a single state. The final state is converted into the
@@ -219,7 +238,7 @@ class Aggregate(Function):  # pylint: disable=abstract-method
 
 
 @Aggregate.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     expr: ct.ListType,
     start: ct.PrimitiveType,
     merge: ct.PrimitiveType,
@@ -227,7 +246,7 @@ def infer_type(  # noqa: F811
     return merge.expr.type
 
 
-class ApproxPercentile(Function):  # pylint: disable=abstract-method
+class ApproxPercentile(Function):
     """
     approx_percentile(col, percentage [, accuracy]) -
     Returns the approximate percentile of the numeric or ansi interval
@@ -238,7 +257,7 @@ class ApproxPercentile(Function):  # pylint: disable=abstract-method
 
 
 @ApproxPercentile.register
-def infer_type(  # noqa: F811
+def infer_type(
     col: ct.NumberType,
     percentage: ct.ListType,
     accuracy: Optional[ct.NumberType],
@@ -247,7 +266,7 @@ def infer_type(  # noqa: F811
 
 
 @ApproxPercentile.register
-def infer_type(  # noqa: F811
+def infer_type(
     col: ct.NumberType,
     percentage: ct.FloatType,
     accuracy: Optional[ct.NumberType],
@@ -255,7 +274,158 @@ def infer_type(  # noqa: F811
     return col.type  # type: ignore
 
 
-class Avg(Function):  # pylint: disable=abstract-method
+class Array(Function):
+    """
+    Returns an array of constants
+    """
+
+
+@Array.register  # type: ignore
+def infer_type(
+    *elements: ct.ColumnType,
+) -> ct.ListType:
+    types = {element.type for element in elements if element.type != ct.NullType()}
+    if len(types) > 1:
+        raise DJParseException(
+            f"Multiple types {', '.join(sorted(str(typ) for typ in types))} passed to array.",
+        )
+    element_type = elements[0].type if elements else ct.NullType()
+    return ct.ListType(element_type=element_type)
+
+
+class ArrayAgg(Function):
+    """
+    Collects and returns a list of non-unique elements.
+    """
+
+
+@ArrayAgg.register  # type: ignore
+def infer_type(
+    *elements: ct.ColumnType,
+) -> ct.ListType:
+    types = {element.type for element in elements}
+    if len(types) > 1:  # pragma: no cover
+        raise DJParseException(
+            f"Multiple types {', '.join(sorted(str(typ) for typ in types))} passed to array.",
+        )
+    element_type = elements[0].type if elements else ct.NullType()
+    return ct.ListType(element_type=element_type)
+
+
+class ArrayAppend(Function):
+    """
+    Add the element at the end of the array passed as first argument
+    """
+
+
+@ArrayAppend.register  # type: ignore
+def infer_type(
+    array: ct.ListType,
+    item: ct.ColumnType,
+) -> ct.ListType:
+    return ct.ListType(element_type=item.type)
+
+
+class ArrayContains(
+    Function,
+):  # pragma: no cover
+    """
+    array_contains(array, value) - Returns true if the array contains the value.
+    """
+
+
+@ArrayContains.register
+def infer_type(  # pragma: no cover
+    array: ct.ListType,
+    element: ct.ColumnType,
+) -> ct.BooleanType:
+    return ct.BooleanType()  # pragma: no cover
+
+
+class ArrayDistinct(Function):
+    """
+    array_distinct(array) - Removes duplicate values from the array.
+    """
+
+
+@ArrayDistinct.register
+def infer_type(
+    array: ct.ListType,
+) -> ct.ListType:
+    return array.type
+
+
+class ArrayExcept(Function):
+    """
+    array_except(array1, array2) - Returns an array of the elements in
+    array1 but not in array2, without duplicates.
+    """
+
+
+@ArrayExcept.register
+def infer_type(
+    array1: ct.ListType,
+    array2: ct.ListType,
+) -> ct.ListType:
+    return array1.type
+
+
+class ArrayIntersect(Function):
+    """
+    array_intersect(array1, array2) - Returns an array of the
+    elements in the intersection of array1 and array2, without duplicates.
+    """
+
+
+@ArrayIntersect.register
+def infer_type(
+    array1: ct.ListType,
+    array2: ct.ListType,
+) -> ct.ListType:
+    return array1.type
+
+
+class ArrayJoin(Function):
+    """
+    array_join(array, delimiter[, nullReplacement]) - Concatenates
+    the elements of the given array using the delimiter and an
+    optional string to replace nulls.
+    """
+
+
+@ArrayJoin.register
+def infer_type(
+    array: ct.ListType,
+    delimiter: ct.StringType,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+@ArrayJoin.register
+def infer_type(
+    array: ct.ListType,
+    delimiter: ct.StringType,
+    null_replacement: ct.StringType,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+class ArrayMax(Function):
+    """
+    array_max(array) - Returns the maximum value in the array. NaN is
+    greater than any non-NaN elements for double/float type. NULL
+    elements are skipped.
+    """
+
+
+@ArrayMax.register
+def infer_type(
+    array: ct.ListType,
+) -> ct.NumberType:
+    return array.type.element.type
+
+
+class Avg(Function):
     """
     Computes the average of the input column or expression.
     """
@@ -264,7 +434,7 @@ class Avg(Function):  # pylint: disable=abstract-method
 
 
 @Avg.register
-def infer_type(  # noqa: F811
+def infer_type(
     arg: ct.DecimalType,
 ) -> ct.DecimalType:
     type_ = arg.type
@@ -272,122 +442,54 @@ def infer_type(  # noqa: F811
 
 
 @Avg.register
-def infer_type(  # noqa: F811
+def infer_type(
     arg: ct.IntervalTypeBase,
 ) -> ct.IntervalTypeBase:
     return type(arg.type)()
 
 
 @Avg.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     arg: ct.NumberType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
 
 
 @Avg.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     arg: ct.DateTimeBase,
 ) -> ct.DateTimeBase:
     return type(arg.type)()
 
 
-class Min(Function):  # pylint: disable=abstract-method
-    """
-    Computes the minimum value of the input column or expression.
-    """
-
-    is_aggregation = True
-
-
-@Min.register  # type: ignore
-def infer_type(  # noqa: F811
-    arg: ct.NumberType,
-) -> ct.NumberType:
-    return arg.type
-
-
-class Max(Function):  # pylint: disable=abstract-method
-    """
-    Computes the maximum value of the input column or expression.
-    """
-
-    is_aggregation = True
-
-
-@Max.register  # type: ignore
-def infer_type(  # noqa: F811
-    arg: ct.NumberType,
-) -> ct.NumberType:
-    return arg.type
-
-
-@Max.register  # type: ignore
-def infer_type(  # noqa: F811
-    arg: ct.StringType,
-) -> ct.StringType:
-    return arg.type
-
-
-class Sum(Function):  # pylint: disable=abstract-method
-    """
-    Computes the sum of the input column or expression.
-    """
-
-    is_aggregation = True
-
-
-@Sum.register  # type: ignore
-def infer_type(  # noqa: F811
-    arg: ct.IntegerBase,
-) -> ct.BigIntType:
-    return ct.BigIntType()
-
-
-@Sum.register  # type: ignore
-def infer_type(  # noqa: F811
-    arg: ct.DecimalType,
-) -> ct.DecimalType:
-    precision = arg.type.precision
-    scale = arg.type.scale
-    return ct.DecimalType(precision + min(10, 31 - precision), scale)
-
-
-@Sum.register  # type: ignore
-def infer_type(  # noqa: F811
-    arg: Union[ct.NumberType, ct.IntervalTypeBase],
-) -> ct.DoubleType:
-    return ct.DoubleType()
-
-
-class Cardinality(Function):  # pylint: disable=abstract-method
+class Cardinality(Function):
     """
     Returns the size of an array or a map.
     """
 
 
 @Cardinality.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     args: ct.ListType,
 ) -> ct.IntegerType:
     return ct.IntegerType()
 
 
 @Cardinality.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     args: ct.MapType,
 ) -> ct.IntegerType:
     return ct.IntegerType()
 
 
-class Ceil(Function):  # pylint: disable=abstract-method
+class Ceil(Function):
     """
     Computes the smallest integer greater than or equal to the input value.
     """
 
 
 @Ceil.register
-def infer_type(  # noqa: F811
+def infer_type(
     args: ct.NumberType,
     _target_scale: ct.IntegerType,
 ) -> ct.DecimalType:
@@ -423,35 +525,20 @@ def infer_type(  # noqa: F811
 
 
 @Ceil.register
-def infer_type(  # noqa: F811
+def infer_type(
     args: ct.DecimalType,
 ) -> ct.DecimalType:
     return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
 
 
 @Ceil.register
-def infer_type(  # noqa: F811
+def infer_type(
     args: ct.NumberType,
 ) -> ct.BigIntType:
     return ct.BigIntType()
 
 
-class Count(Function):  # pylint: disable=abstract-method
-    """
-    Counts the number of non-null values in the input column or expression.
-    """
-
-    is_aggregation = True
-
-
-@Count.register  # type: ignore
-def infer_type(  # noqa: F811
-    *args: ct.ColumnType,
-) -> ct.BigIntType:
-    return ct.BigIntType()
-
-
-class Coalesce(Function):  # pylint: disable=abstract-method
+class Coalesce(Function):
     """
     Computes the average of the input column or expression.
     """
@@ -460,7 +547,7 @@ class Coalesce(Function):  # pylint: disable=abstract-method
 
 
 @Coalesce.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     *args: ct.ColumnType,
 ) -> ct.ColumnType:
     if not args:  # pragma: no cover
@@ -479,69 +566,207 @@ def infer_type(  # noqa: F811
     return ct.NullType()
 
 
-class CurrentDate(Function):  # pylint: disable=abstract-method
+class CollectList(Function):  # pragma: no cover
+    """
+    Collects and returns a list of non-unique elements.
+    """
+
+    is_aggregation = True
+
+
+@CollectList.register
+def infer_type(  # pragma: no cover
+    arg: ct.ColumnType,
+) -> ct.ColumnType:
+    return ct.ListType(element_type=arg.type)  # pragma: no cover
+
+
+class Count(Function):
+    """
+    Counts the number of non-null values in the input column or expression.
+    """
+
+    is_aggregation = True
+
+
+@Count.register  # type: ignore
+def infer_type(
+    *args: ct.ColumnType,
+) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
+class CurrentDate(Function):
     """
     Returns the current date.
     """
 
 
 @CurrentDate.register  # type: ignore
-def infer_type() -> ct.DateType:  # noqa: F811
+def infer_type() -> ct.DateType:
     return ct.DateType()
 
 
-class CurrentDatetime(Function):  # pylint: disable=abstract-method
+class Cardinality(Function):
     """
-    Returns the current date and time.
+    Returns the size of an array or a map.
     """
 
 
-@CurrentDatetime.register  # type: ignore
-def infer_type() -> ct.TimestampType:  # noqa: F811
-    return ct.TimestampType()
+@Cardinality.register  # type: ignore
+def infer_type(
+    args: ct.ListType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
 
 
-class CurrentTime(Function):  # pylint: disable=abstract-method
+@Cardinality.register  # type: ignore
+def infer_type(
+    args: ct.MapType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+class Ceil(Function):
+    """
+    Computes the smallest integer greater than or equal to the input value.
+    """
+
+
+@Ceil.register
+def infer_type(
+    args: ct.NumberType,
+    _target_scale: ct.IntegerType,
+) -> ct.DecimalType:
+    target_scale = _target_scale.value
+    if isinstance(args.type, ct.DecimalType):
+        precision = max(args.type.precision - args.type.scale + 1, -target_scale + 1)
+        scale = min(args.type.scale, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    if args.type == ct.TinyIntType():
+        precision = max(3, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    if args.type == ct.SmallIntType():
+        precision = max(5, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    if args.type == ct.IntegerType():
+        precision = max(10, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    if args.type == ct.BigIntType():
+        precision = max(20, -target_scale + 1)
+        return ct.DecimalType(precision, 0)
+    if args.type == ct.FloatType():
+        precision = max(14, -target_scale + 1)
+        scale = min(7, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+    if args.type == ct.DoubleType():
+        precision = max(30, -target_scale + 1)
+        scale = min(15, max(0, target_scale))
+        return ct.DecimalType(precision, scale)
+
+    raise DJParseException(
+        f"Unhandled numeric type in Ceil `{args.type}`",
+    )  # pragma: no cover
+
+
+@Ceil.register
+def infer_type(
+    args: ct.DecimalType,
+) -> ct.DecimalType:
+    return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
+
+
+@Ceil.register
+def infer_type(
+    args: ct.NumberType,
+) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
+class Count(Function):
+    """
+    Counts the number of non-null values in the input column or expression.
+    """
+
+    is_aggregation = True
+
+
+@Count.register  # type: ignore
+def infer_type(
+    *args: ct.ColumnType,
+) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
+class Coalesce(Function):
+    """
+    Computes the average of the input column or expression.
+    """
+
+    is_aggregation = False
+
+
+@Coalesce.register  # type: ignore
+def infer_type(
+    *args: ct.ColumnType,
+) -> ct.ColumnType:
+    if not args:  # pragma: no cover
+        raise DJInvalidInputException(
+            message="Wrong number of arguments to function",
+            errors=[
+                DJError(
+                    code=ErrorCode.INVALID_ARGUMENTS_TO_FUNCTION,
+                    message="You need to pass at least one argument to `COALESCE`.",
+                ),
+            ],
+        )
+    for arg in args:
+        if arg.type != ct.NullType():
+            return arg.type
+    return ct.NullType()
+
+
+class CurrentDate(Function):
+    """
+    Returns the current date.
+    """
+
+
+@CurrentDate.register  # type: ignore
+def infer_type() -> ct.DateType:
+    return ct.DateType()
+
+
+class CurrentTime(Function):
     """
     Returns the current time.
     """
 
 
 @CurrentTime.register  # type: ignore
-def infer_type() -> ct.TimeType:  # noqa: F811
+def infer_type() -> ct.TimeType:
     return ct.TimeType()
 
 
-class CurrentTimestamp(Function):  # pylint: disable=abstract-method
+class CurrentTimestamp(Function):
     """
     Returns the current timestamp.
     """
 
 
 @CurrentTimestamp.register  # type: ignore
-def infer_type() -> ct.TimestampType:  # noqa: F811
+def infer_type() -> ct.TimestampType:
     return ct.TimestampType()
 
 
-class Now(Function):  # pylint: disable=abstract-method
-    """
-    Returns the current timestamp.
-    """
-
-
-@Now.register  # type: ignore
-def infer_type() -> ct.TimestampType:  # noqa: F811
-    return ct.TimestampType()
-
-
-class DateAdd(Function):  # pylint: disable=abstract-method
+class DateAdd(Function):
     """
     Adds a specified number of days to a date.
     """
 
 
 @DateAdd.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     start_date: ct.DateType,
     days: ct.IntegerBase,
 ) -> ct.DateType:
@@ -549,67 +774,21 @@ def infer_type(  # noqa: F811
 
 
 @DateAdd.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     start_date: ct.StringType,
     days: ct.IntegerBase,
 ) -> ct.DateType:
     return ct.DateType()
 
 
-class DateSub(Function):  # pylint: disable=abstract-method
-    """
-    Subtracts a specified number of days from a date.
-    """
-
-
-@DateSub.register  # type: ignore
-def infer_type(  # noqa: F811
-    start_date: ct.DateType,
-    days: ct.IntegerBase,
-) -> ct.DateType:
-    return ct.DateType()
-
-
-@DateSub.register  # type: ignore
-def infer_type(  # noqa: F811
-    start_date: ct.StringType,
-    days: ct.IntegerBase,
-) -> ct.DateType:
-    return ct.DateType()
-
-
-class If(Function):  # pylint: disable=abstract-method
-    """
-    If statement
-
-    if(condition, result, else_result): if condition evaluates to true,
-    then returns result; otherwise returns else_result.
-    """
-
-
-@If.register  # type: ignore
-def infer_type(  # noqa: F811
-    cond: ct.BooleanType,
-    then: ct.ColumnType,
-    else_: ct.ColumnType,
-) -> ct.ColumnType:
-    if not then.type.is_compatible(else_.type):
-        raise DJInvalidInputException(
-            message="The then result and else result must match in type! "
-            f"Got {then.type} and {else_.type}",
-        )
-
-    return then.type
-
-
-class DateDiff(Function):  # pylint: disable=abstract-method
+class DateDiff(Function):
     """
     Computes the difference in days between two dates.
     """
 
 
 @DateDiff.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     start_date: ct.DateType,
     end_date: ct.DateType,
 ) -> ct.IntegerType:
@@ -617,11 +796,82 @@ def infer_type(  # noqa: F811
 
 
 @DateDiff.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     start_date: ct.StringType,
     end_date: ct.StringType,
 ) -> ct.IntegerType:
     return ct.IntegerType()
+
+
+class DateSub(Function):
+    """
+    Subtracts a specified number of days from a date.
+    """
+
+
+@DateSub.register  # type: ignore
+def infer_type(
+    start_date: ct.DateType,
+    days: ct.IntegerBase,
+) -> ct.DateType:
+    return ct.DateType()
+
+
+@DateSub.register  # type: ignore
+def infer_type(
+    start_date: ct.StringType,
+    days: ct.IntegerBase,
+) -> ct.DateType:
+    return ct.DateType()
+
+
+class Day(Function):
+    """
+    Returns the day of the month for a specified date.
+    """
+
+
+@Day.register  # type: ignore
+def infer_type(
+    arg: Union[ct.StringType, ct.DateType, ct.TimestampType],
+) -> ct.IntegerType:  # type: ignore
+    return ct.IntegerType()
+
+
+class ElementAt(Function):
+    """
+    element_at(array, index) - Returns element of array at given (1-based) index
+    element_at(map, key) - Returns value for given key.
+    """
+
+
+@ElementAt.register
+def infer_type(
+    array: ct.ListType,
+    _: ct.NumberType,
+) -> ct.ColumnType:
+    return array.type.element.type
+
+
+@ElementAt.register
+def infer_type(
+    map_arg: ct.MapType,
+    _: ct.NumberType,
+) -> ct.ColumnType:
+    return map_arg.type.value.type
+
+
+class Exp(Function):
+    """
+    Returns e to the power of expr.
+    """
+
+
+@Exp.register  # type: ignore
+def infer_type(
+    args: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
 
 
 class Extract(Function):
@@ -639,68 +889,52 @@ class Extract(Function):
         return ct.IntegerType()
 
 
-class ToDate(Function):  # pragma: no cover # pylint: disable=abstract-method
+class First(Function):  # pragma: no cover
     """
-    Converts a date string to a date value.
-    """
-
-
-@ToDate.register  # type: ignore
-def infer_type(  # noqa: F811
-    expr: ct.StringType,
-    fmt: Optional[ct.StringType] = None,
-) -> ct.DateType:
-    return ct.DateType()
-
-
-class Day(Function):  # pylint: disable=abstract-method
-    """
-    Returns the day of the month for a specified date.
+    Returns the first value of expr for a group of rows. If isIgnoreNull is
+    true, returns only non-null values.
     """
 
-
-@Day.register  # type: ignore
-def infer_type(  # noqa: F811
-    arg: Union[ct.StringType, ct.DateType, ct.TimestampType],
-) -> ct.IntegerType:  # type: ignore
-    return ct.IntegerType()
+    is_aggregation = True
 
 
-class Exp(Function):  # pylint: disable=abstract-method
-    """
-    Returns e to the power of expr.
-    """
+@First.register
+def infer_type(  # pragma: no cover
+    arg: ct.ColumnType,
+) -> ct.ColumnType:
+    return arg.type  # pragma: no cover
 
 
-@Exp.register  # type: ignore
-def infer_type(  # noqa: F811
-    args: ct.ColumnType,
-) -> ct.DoubleType:
-    return ct.DoubleType()
+@First.register
+def infer_type(  # pragma: no cover
+    arg: ct.ColumnType,
+    is_ignore_null: ct.BooleanType,
+) -> ct.ColumnType:
+    return arg.type  # pragma: no cover
 
 
-class Floor(Function):  # pylint: disable=abstract-method
+class Floor(Function):
     """
     Returns the largest integer less than or equal to a specified number.
     """
 
 
 @Floor.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     args: ct.DecimalType,
 ) -> ct.DecimalType:
     return ct.DecimalType(args.type.precision - args.type.scale + 1, 0)
 
 
 @Floor.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     args: ct.NumberType,
 ) -> ct.BigIntType:
     return ct.BigIntType()
 
 
 @Floor.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     args: ct.NumberType,
     _target_scale: ct.IntegerType,
 ) -> ct.DecimalType:
@@ -735,93 +969,137 @@ def infer_type(  # noqa: F811
     )  # pragma: no cover
 
 
+class FromJson(Function):  # pragma: no cover
+    """
+    Converts a JSON string to a struct or map.
+    """
+
+
+@FromJson.register  # type: ignore
+def infer_type(  # pragma: no cover
+    json: ct.StringType,
+    schema: ct.StringType,
+    options: Optional[Function] = None,
+) -> ct.StructType:
+    # TODO: Handle options?  # pylint: disable=fixme
+    # pylint: disable=import-outside-toplevel
+    from dj.sql.parsing.backends.antlr4 import parse_rule  # pragma: no cover
+
+    return ct.StructType(
+        *parse_rule(schema.value, "complexColTypeList")
+    )  # pragma: no cover
+
+
+class If(Function):
+    """
+    If statement
+
+    if(condition, result, else_result): if condition evaluates to true,
+    then returns result; otherwise returns else_result.
+    """
+
+
+@If.register  # type: ignore
+def infer_type(
+    cond: ct.BooleanType,
+    then: ct.ColumnType,
+    else_: ct.ColumnType,
+) -> ct.ColumnType:
+    if not then.type.is_compatible(else_.type):
+        raise DJInvalidInputException(
+            message="The then result and else result must match in type! "
+            f"Got {then.type} and {else_.type}",
+        )
+
+    return then.type
+
+
 class IfNull(Function):
     """
     Returns the second expression if the first is null, else returns the first expression.
     """
 
-    @staticmethod
-    def infer_type(*args: "Expression") -> ct.ColumnType:  # type: ignore
-        return (  # type: ignore
-            args[0].type if args[1].type == ct.NullType() else args[1].type
-        )
+
+@IfNull.register
+def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
+    return args[0].type if args[1].type == ct.NullType() else args[1].type
 
 
-class Length(Function):  # pylint: disable=abstract-method
+class Length(Function):
     """
     Returns the length of a string.
     """
 
 
 @Length.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     arg: ct.StringType,
 ) -> ct.IntegerType:
     return ct.IntegerType()
 
 
-class Levenshtein(Function):  # pylint: disable=abstract-method
+class Levenshtein(Function):
     """
     Returns the Levenshtein distance between two strings.
     """
 
 
 @Levenshtein.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     string1: ct.StringType,
     string2: ct.StringType,
 ) -> ct.IntegerType:
     return ct.IntegerType()
 
 
-class Ln(Function):  # pylint: disable=abstract-method
+class Ln(Function):
     """
     Returns the natural logarithm of a number.
     """
 
 
 @Ln.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     args: ct.ColumnType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
 
 
-class Log(Function):  # pylint: disable=abstract-method
+class Log(Function):
     """
     Returns the logarithm of a number with the specified base.
     """
 
 
 @Log.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     base: ct.ColumnType,
     expr: ct.ColumnType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
 
 
-class Log2(Function):  # pylint: disable=abstract-method
-    """
-    Returns the base-2 logarithm of a number.
-    """
-
-
-@Log2.register  # type: ignore
-def infer_type(  # noqa: F811
-    args: ct.ColumnType,
-) -> ct.DoubleType:
-    return ct.DoubleType()
-
-
-class Log10(Function):  # pylint: disable=abstract-method
+class Log10(Function):
     """
     Returns the base-10 logarithm of a number.
     """
 
 
 @Log10.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
+    args: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Log2(Function):
+    """
+    Returns the base-2 logarithm of a number.
+    """
+
+
+@Log2.register  # type: ignore
+def infer_type(
     args: ct.ColumnType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
@@ -837,78 +1115,166 @@ class Lower(Function):
         return ct.StringType()
 
 
+class Map(Function):
+    """
+    Returns a map of constants
+    """
+
+
+def extract_consistent_type(elements):
+    """
+    Check if all elements are the same type and return that type.
+    """
+    if all(isinstance(element.type, ct.IntegerType) for element in elements):
+        return ct.IntegerType()
+    if all(isinstance(element.type, ct.DoubleType) for element in elements):
+        return ct.DoubleType()
+    if all(isinstance(element.type, ct.FloatType) for element in elements):
+        return ct.FloatType()
+    return ct.StringType()
+
+
+@Map.register  # type: ignore
+def infer_type(
+    *elements: ct.ColumnType,
+) -> ct.MapType:
+    keys = elements[0::2]
+    values = elements[1::2]
+    if len(keys) != len(values):
+        raise DJParseException("Different number of keys and values for MAP.")
+
+    key_type = extract_consistent_type(keys)
+    value_type = extract_consistent_type(values)
+    return ct.MapType(key_type=key_type, value_type=value_type)
+
+
+class Max(Function):
+    """
+    Computes the maximum value of the input column or expression.
+    """
+
+    is_aggregation = True
+
+
+@Max.register  # type: ignore
+def infer_type(
+    arg: ct.NumberType,
+) -> ct.NumberType:
+    return arg.type
+
+
+@Max.register  # type: ignore
+def infer_type(
+    arg: ct.StringType,
+) -> ct.StringType:
+    return arg.type
+
+
+class Min(Function):
+    """
+    Computes the minimum value of the input column or expression.
+    """
+
+    is_aggregation = True
+
+
+@Min.register  # type: ignore
+def infer_type(
+    arg: ct.NumberType,
+) -> ct.NumberType:
+    return arg.type
+
+
 class Month(Function):
     """
     Extracts the month of a date or timestamp.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.TinyIntType:  # type: ignore
-        return ct.TinyIntType()
+
+@Month.register
+def infer_type(arg: Union[ct.StringType, ct.DateTimeBase]) -> ct.BigIntType:
+    return ct.BigIntType()
 
 
-class Pow(Function):  # pylint: disable=abstract-method
+class Now(Function):
+    """
+    Returns the current timestamp.
+    """
+
+
+@Now.register  # type: ignore
+def infer_type() -> ct.TimestampType:
+    return ct.TimestampType()
+
+
+class PercentRank(Function):
+    """
+    percent_rank() - Computes the percentage ranking of a value in a group of values.
+    """
+
+    is_aggregation = True
+
+
+@PercentRank.register
+def infer_type() -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+@PercentRank.register
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Pow(Function):
     """
     Raises a base expression to the power of an exponent expression.
     """
 
 
 @Pow.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     base: ct.ColumnType,
     power: ct.ColumnType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
 
 
-class PercentRank(Function):
+class Power(Function):
     """
-    Window function: returns the relative rank (i.e. percentile) of rows within a window partition
-    """
-
-    is_aggregation = True
-
-    @staticmethod
-    def infer_type() -> ct.DoubleType:
-        return ct.DoubleType()
-
-
-class Quantile(Function):  # pragma: no cover
-    """
-    Computes the quantile of a numerical column or expression.
+    Raises a base expression to the power of an exponent expression.
     """
 
-    is_aggregation = True
 
-    @staticmethod
-    def infer_type(  # type: ignore
-        arg1: "Expression",
-        arg2: "Expression",
-    ) -> ct.DoubleType:
-        return ct.DoubleType()
+@Power.register  # type: ignore
+def infer_type(
+    base: ct.ColumnType,
+    power: ct.ColumnType,
+) -> ct.DoubleType:
+    return ct.DoubleType()
 
 
 class RegexpLike(Function):  # pragma: no cover
     """
-    Matches a string column or expression against a regular expression pattern.
+    regexp_like(str, regexp) - Returns true if str matches regexp, or false otherwise
     """
 
-    @staticmethod
-    def infer_type(  # type: ignore
-        arg1: "Expression",
-        arg2: "Expression",
-    ) -> ct.BooleanType:
-        return ct.BooleanType()
+
+@RegexpLike.register
+def infer_type(  # type: ignore
+    arg1: ct.StringType,
+    arg2: ct.StringType,
+) -> ct.BooleanType:
+    return ct.BooleanType()
 
 
-class Round(Function):  # pylint: disable=abstract-method
+class Round(Function):
     """
     Rounds a numeric column or expression to the specified number of decimal places.
     """
 
 
 @Round.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     child: ct.DecimalType,
     scale: ct.IntegerBase,
 ) -> ct.NumberType:
@@ -925,69 +1291,27 @@ def infer_type(  # noqa: F811
 
 
 @Round.register
-def infer_type(  # noqa: F811  # type: ignore
+def infer_type(  # type: ignore
     child: ct.NumberType,
     scale: ct.IntegerBase,
 ) -> ct.NumberType:
     return child.type
 
 
-class SafeDivide(Function):  # pragma: no cover
+class Split(Function):
     """
-    Divides two numeric columns or expressions and returns NULL if the denominator is 0.
-    """
-
-    @staticmethod
-    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.DoubleType:  # type: ignore
-        return ct.DoubleType()
-
-
-class Substring(Function):
-    """
-    Extracts a substring from a string column or expression.
-    """
-
-    @staticmethod
-    def infer_type(  # type: ignore
-        arg1: "Expression",
-        arg2: "Expression",
-        arg3: "Expression",
-    ) -> ct.StringType:
-        return ct.StringType()
-
-
-class StrPosition(Function):  # pylint: disable=abstract-method
-    """
-    Returns the position of the first occurrence of a substring in a string column or expression.
+    Splits str around occurrences that match regex and returns an
+    array with a length of at most limit
     """
 
 
-@StrPosition.register
-def infer_type(  # noqa: F811  # pragma: no cover
-    arg1: ct.StringType,
-    arg2: ct.StringType,
-) -> ct.IntegerType:
-    return ct.IntegerType()  # pragma: no cover
-
-
-class StrToDate(Function):  # pragma: no cover
-    """
-    Converts a string in a specified format to a date.
-    """
-
-    @staticmethod
-    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.DateType:
-        return ct.DateType()
-
-
-class StrToTime(Function):  # pragma: no cover
-    """
-    Converts a string in a specified format to a timestamp.
-    """
-
-    @staticmethod
-    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.TimestampType:
-        return ct.TimestampType()
+@Split.register
+def infer_type(
+    string: ct.StringType,
+    regex: ct.StringType,
+    limit: Optional[ct.IntegerType] = None,
+) -> ct.ColumnType:
+    return ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
 class Sqrt(Function):
@@ -995,9 +1319,10 @@ class Sqrt(Function):
     Computes the square root of a numeric column or expression.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DoubleType:
-        return ct.DoubleType()
+
+@Sqrt.register
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
+    return ct.DoubleType()
 
 
 class Stddev(Function):
@@ -1007,9 +1332,10 @@ class Stddev(Function):
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DoubleType:
-        return ct.DoubleType()
+
+@Stddev.register
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
+    return ct.DoubleType()
 
 
 class StddevPop(Function):  # pragma: no cover
@@ -1019,9 +1345,10 @@ class StddevPop(Function):  # pragma: no cover
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DoubleType:
-        return ct.DoubleType()
+
+@Stddev.register
+def infer_type(arg: "Expression") -> ct.DoubleType:
+    return ct.DoubleType()
 
 
 class StddevSamp(Function):  # pragma: no cover
@@ -1031,52 +1358,111 @@ class StddevSamp(Function):  # pragma: no cover
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DoubleType:
-        return ct.DoubleType()
+
+@StddevSamp.register
+def infer_type(arg: "Expression") -> ct.DoubleType:
+    return ct.DoubleType()
 
 
-class TimeToStr(Function):  # pragma: no cover
+class Strpos(Function):
     """
-    Converts a time value to a string using the specified format.
-    """
-
-    @staticmethod
-    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
-        return ct.StringType()
-
-
-class TimeToTimeStr(Function):  # pragma: no cover
-    """
-    Converts a time value to a string using the specified format.
+    strpos(string, substring) -> bigint
+        Returns the starting position of the first instance of substring in string. Positions
+        start with 1. If not found, 0 is returned.
+    strpos(string, substring, instance) -> bigint
+        Returns the position of the N-th instance of substring in string. When instance is a
+        negative number the search will start from the end of string. Positions start with 1.
+        If not found, 0 is returned.
+    Note: Trino-only
     """
 
-    @staticmethod
-    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
-        return ct.StringType()
+
+@Strpos.register
+def infer_type(  # pragma: no cover
+    string: ct.StringType,
+    substring: ct.StringType,
+) -> ct.IntegerType:
+    return ct.IntegerType()  # pragma: no cover
 
 
-class TimeStrToDate(Function):  # pragma: no cover
+@Strpos.register
+def infer_type(  # pragma: no cover
+    string: ct.StringType,
+    substring: ct.StringType,
+    instance: ct.IntegerType,
+) -> ct.IntegerType:
+    return ct.IntegerType()  # pragma: no cover
+
+
+class Substring(Function):
     """
-    Converts a string value to a date.
+    Extracts a substring from a string column or expression.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DateType:
-        return ct.DateType()
+
+@Substring.register
+def infer_type(  # type: ignore
+    string: ct.StringType,
+    pos: ct.IntegerType,
+) -> ct.StringType:
+    return ct.StringType()
 
 
-class TimeStrToTime(Function):  # pragma: no cover
+@Substring.register
+def infer_type(  # type: ignore
+    string: ct.StringType,
+    pos: ct.IntegerType,
+    length: ct.IntegerType,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+class Sum(Function):
     """
-    Converts a string value to a time.
+    Computes the sum of the input column or expression.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.TimestampType:
-        return ct.TimestampType()
+    is_aggregation = True
 
 
-class Transform(Function):  # pylint: disable=abstract-method
+@Sum.register  # type: ignore
+def infer_type(
+    arg: ct.IntegerBase,
+) -> ct.BigIntType:
+    return ct.BigIntType()
+
+
+@Sum.register  # type: ignore
+def infer_type(
+    arg: ct.DecimalType,
+) -> ct.DecimalType:
+    precision = arg.type.precision
+    scale = arg.type.scale
+    return ct.DecimalType(precision + min(10, 31 - precision), scale)
+
+
+@Sum.register  # type: ignore
+def infer_type(
+    arg: Union[ct.NumberType, ct.IntervalTypeBase],
+) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class ToDate(Function):  # pragma: no cover # pylint: disable=abstract-method
+    """
+    Converts a date string to a date value.
+    """
+
+
+@ToDate.register  # type: ignore
+def infer_type(
+    expr: ct.StringType,
+    fmt: Optional[ct.StringType] = None,
+) -> ct.DateType:
+    return ct.DateType()
+
+
+class Transform(Function):
     """
     transform(expr, func) - Transforms elements in an array
     using the function.
@@ -1111,7 +1497,7 @@ class Transform(Function):  # pylint: disable=abstract-method
 
 
 @Transform.register  # type: ignore
-def infer_type(  # noqa: F811
+def infer_type(
     expr: ct.ListType,
     func: ct.PrimitiveType,
 ) -> ct.ColumnType:
@@ -1128,74 +1514,15 @@ class Trim(Function):  # pragma: no cover
         return ct.StringType()
 
 
-class TsOrDsToDateStr(Function):  # pragma: no cover
-    """
-    Converts a timestamp or date value to a string using the specified format.
-    """
-
-    @staticmethod
-    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
-        return ct.StringType()
-
-
-class TsOrDsToDate(Function):  # pragma: no cover
-    """
-    Converts a timestamp or date value to a date.
-    """
-
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DateType:
-        return ct.DateType()
-
-
-class TsOrDiToDi(Function):  # pragma: no cover
-    """
-    Converts a timestamp or date value to a date.
-    """
-
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.IntegerType:
-        return ct.IntegerType()
-
-
-class UnixToStr(Function):  # pragma: no cover
-    """
-    Converts a Unix timestamp to a string using the specified format.
-    """
-
-    @staticmethod
-    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
-        return ct.StringType()
-
-
-class UnixToTime(Function):  # pragma: no cover
-    """
-    Converts a Unix timestamp to a time.
-    """
-
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.TimestampType:
-        return ct.TimestampType()
-
-
-class UnixToTimeStr(Function):  # pragma: no cover
-    """
-    Converts a Unix timestamp to a string using the specified format.
-    """
-
-    @staticmethod
-    def infer_type(arg1: "Expression", arg2: "Expression") -> ct.StringType:
-        return ct.StringType()
-
-
 class Upper(Function):  # pragma: no cover
     """
     Converts a string value to uppercase.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.StringType:
-        return ct.StringType()
+
+@Upper.register
+def infer_type(arg: ct.StringType) -> ct.StringType:
+    return ct.StringType()
 
 
 class Variance(Function):  # pragma: no cover
@@ -1205,293 +1532,35 @@ class Variance(Function):  # pragma: no cover
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DoubleType:
-        return ct.DoubleType()
+
+@Variance.register
+def infer_type(arg: "Expression") -> ct.DoubleType:
+    return ct.DoubleType()
 
 
-class VariancePop(Function):  # pragma: no cover
+class VarPop(Function):  # pragma: no cover
     """
     Computes the population variance of the input column or expression.
     """
 
     is_aggregation = True
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.DoubleType:
-        return ct.DoubleType()
 
-
-class First(Function):  # pragma: no cover  # pylint: disable=abstract-method
-    """
-    Returns the first value of expr for a group of rows. If isIgnoreNull is
-    true, returns only non-null values.
-    """
-
-    is_aggregation = True
-
-
-@First.register
-def infer_type(  # noqa: F811  # pragma: no cover
-    arg: ct.ColumnType,
-) -> ct.ColumnType:
-    return arg.type  # pragma: no cover
-
-
-@First.register
-def infer_type(  # noqa: F811  # pragma: no cover
-    arg: ct.ColumnType,
-    is_ignore_null: ct.BooleanType,
-) -> ct.ColumnType:
-    return arg.type  # pragma: no cover
-
-
-class CollectList(Function):  # pragma: no cover  # pylint: disable=abstract-method
-    """
-    Collects and returns a list of non-unique elements.
-    """
-
-    is_aggregation = True
-
-
-@CollectList.register
-def infer_type(  # noqa: F811  # pragma: no cover
-    arg: ct.ColumnType,
-) -> ct.ColumnType:
-    return ct.ListType(element_type=arg.type)  # pragma: no cover
-
-
-class ArrayContains(
-    Function,
-):  # pragma: no cover  # pylint: disable=abstract-method
-    """
-    array_contains(array, value) - Returns true if the array contains the value.
-    """
-
-
-@ArrayContains.register
-def infer_type(  # noqa: F811  # pragma: no cover
-    array: ct.ListType,
-    element: ct.ColumnType,
-) -> ct.BooleanType:
-    return ct.BooleanType()  # pragma: no cover
-
-
-class ArrayDistinct(Function):  # pylint: disable=abstract-method
-    """
-    array_distinct(array) - Removes duplicate values from the array.
-    """
-
-
-@ArrayDistinct.register
-def infer_type(  # noqa: F811
-    array: ct.ListType,
-) -> ct.ListType:
-    return array.type
-
-
-class ArrayExcept(Function):  # pylint: disable=abstract-method
-    """
-    array_except(array1, array2) - Returns an array of the elements in
-    array1 but not in array2, without duplicates.
-    """
-
-
-@ArrayExcept.register
-def infer_type(  # noqa: F811
-    array1: ct.ListType,
-    array2: ct.ListType,
-) -> ct.ListType:
-    return array1.type
-
-
-class ArrayIntersect(Function):  # pylint: disable=abstract-method
-    """
-    array_intersect(array1, array2) - Returns an array of the
-    elements in the intersection of array1 and array2, without duplicates.
-    """
-
-
-@ArrayIntersect.register
-def infer_type(  # noqa: F811
-    array1: ct.ListType,
-    array2: ct.ListType,
-) -> ct.ListType:
-    return array1.type
-
-
-class ArrayJoin(Function):  # pylint: disable=abstract-method
-    """
-    array_join(array, delimiter[, nullReplacement]) - Concatenates
-    the elements of the given array using the delimiter and an
-    optional string to replace nulls.
-    """
-
-
-@ArrayJoin.register
-def infer_type(  # noqa: F811
-    array: ct.ListType,
-    delimiter: ct.StringType,
-) -> ct.StringType:
-    return ct.StringType()
-
-
-@ArrayJoin.register
-def infer_type(  # noqa: F811
-    array: ct.ListType,
-    delimiter: ct.StringType,
-    null_replacement: ct.StringType,
-) -> ct.StringType:
-    return ct.StringType()
-
-
-class ArrayMax(Function):  # pylint: disable=abstract-method
-    """
-    array_max(array) - Returns the maximum value in the array. NaN is
-    greater than any non-NaN elements for double/float type. NULL
-    elements are skipped.
-    """
-
-
-@ArrayMax.register
-def infer_type(  # noqa: F811
-    array: ct.ListType,
-) -> ct.NumberType:
-    return array.type.element.type
-
-
-class ElementAt(Function):  # pylint: disable=abstract-method
-    """
-    element_at(array, index) - Returns element of array at given (1-based) index
-    element_at(map, key) - Returns value for given key.
-    """
-
-
-@ElementAt.register
-def infer_type(  # noqa: F811
-    array: ct.ListType,
-    _: ct.NumberType,
-) -> ct.ColumnType:
-    return array.type.element.type
-
-
-@ElementAt.register
-def infer_type(  # noqa: F811
-    map_arg: ct.MapType,
-    _: ct.NumberType,
-) -> ct.ColumnType:
-    return map_arg.type.value.type
-
-
-class Split(Function):  # pylint: disable=abstract-method
-    """
-    Splits str around occurrences that match regex and returns an
-    array with a length of at most limit
-    """
-
-
-@Split.register
-def infer_type(  # noqa: F811
-    string: ct.StringType,
-    regex: ct.StringType,
-    limit: Optional[ct.IntegerType] = None,
-) -> ct.ColumnType:
-    return ct.ListType(element_type=ct.StringType())  # type: ignore
-
-
-class Array(Function):  # pylint: disable=abstract-method
-    """
-    Returns an array of constants
-    """
-
-
-@Array.register  # type: ignore
-def infer_type(  # noqa: F811
-    *elements: ct.ColumnType,
-) -> ct.ListType:
-    types = {element.type for element in elements if element.type != ct.NullType()}
-    if len(types) > 1:
-        raise DJParseException(
-            f"Multiple types {', '.join(sorted(str(typ) for typ in types))} passed to array.",
-        )
-    element_type = elements[0].type if elements else ct.NullType()
-    return ct.ListType(element_type=element_type)
-
-
-class ArrayAgg(Function):  # pylint: disable=abstract-method
-    """
-    Collects and returns a list of non-unique elements.
-    """
-
-
-@ArrayAgg.register  # type: ignore
-def infer_type(  # noqa: F811
-    *elements: ct.ColumnType,
-) -> ct.ListType:
-    types = {element.type for element in elements}
-    if len(types) > 1:  # pragma: no cover
-        raise DJParseException(
-            f"Multiple types {', '.join(sorted(str(typ) for typ in types))} passed to array.",
-        )
-    element_type = elements[0].type if elements else ct.NullType()
-    return ct.ListType(element_type=element_type)
-
-
-class ArrayAppend(Function):  # pylint: disable=abstract-method
-    """
-    Add the element at the end of the array passed as first argument
-    """
-
-
-@ArrayAppend.register  # type: ignore
-def infer_type(  # noqa: F811
-    array: ct.ListType,
-    item: ct.ColumnType,
-) -> ct.ListType:
-    return ct.ListType(element_type=item.type)
-
-
-class Map(Function):  # pylint: disable=abstract-method
-    """
-    Returns a map of constants
-    """
-
-
-def extract_consistent_type(elements):
-    """
-    Check if all elements are the same type and return that type.
-    """
-    if all(isinstance(element.type, ct.IntegerType) for element in elements):
-        return ct.IntegerType()
-    if all(isinstance(element.type, ct.DoubleType) for element in elements):
-        return ct.DoubleType()
-    if all(isinstance(element.type, ct.FloatType) for element in elements):
-        return ct.FloatType()
-    return ct.StringType()
-
-
-@Map.register  # type: ignore
-def infer_type(  # noqa: F811
-    *elements: ct.ColumnType,
-) -> ct.MapType:
-    keys = elements[0::2]
-    values = elements[1::2]
-    if len(keys) != len(values):
-        raise DJParseException("Different number of keys and values for MAP.")
-
-    key_type = extract_consistent_type(keys)
-    value_type = extract_consistent_type(values)
-    return ct.MapType(key_type=key_type, value_type=value_type)
+@VarPop.register
+def infer_type(arg: "Expression") -> ct.DoubleType:
+    return ct.DoubleType()
 
 
 class Week(Function):
     """
     Returns the week number of the year of the input date value.
+    Note: Trino-only
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.TinyIntType:
-        return ct.TinyIntType()
+
+@Week.register
+def infer_type(arg: Union[ct.StringType, ct.DateTimeBase]) -> ct.BigIntType:
+    return ct.BigIntType()
 
 
 class Year(Function):
@@ -1499,30 +1568,61 @@ class Year(Function):
     Returns the year of the input date value.
     """
 
-    @staticmethod
-    def infer_type(arg: "Expression") -> ct.TinyIntType:
-        return ct.TinyIntType()
+
+@Year.register
+def infer_type(arg: Union[ct.StringType, ct.DateTimeBase]) -> ct.BigIntType:
+    return ct.BigIntType()
 
 
-class FromJson(Function):  # pragma: no cover  # pylint: disable=abstract-method
+##################################################################################
+# Table Functions                                                                #
+# https://spark.apache.org/docs/3.3.2/sql-ref-syntax-qry-select-tvf.html#content #
+##################################################################################
+
+
+class Explode(TableFunction):
     """
-    Converts a JSON string to a struct or map.
+    The Explode function is used to explode the specified array,
+    nested array, or map column into multiple rows.
+    The explode function will generate a new row for each
+    element in the specified column.
     """
 
 
-@FromJson.register  # type: ignore
-def infer_type(  # noqa: F811  # pragma: no cover
-    json: ct.StringType,
-    schema: ct.StringType,
-    options: Optional[Function] = None,
-) -> ct.StructType:
-    # TODO: Handle options?  # pylint: disable=fixme
-    # pylint: disable=import-outside-toplevel
-    from dj.sql.parsing.backends.antlr4 import parse_rule  # pragma: no cover
+@Explode.register
+def infer_type(
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    return [arg.element]
 
-    return ct.StructType(
-        *parse_rule(schema.value, "complexColTypeList")
-    )  # pragma: no cover
+
+@Explode.register
+def infer_type(
+    arg: ct.MapType,
+) -> List[ct.NestedField]:
+    return [arg.key, arg.value]
+
+
+class Unnest(TableFunction):
+    """
+    The unnest function is used to explode the specified array,
+    nested array, or map column into multiple rows.
+    It will generate a new row for each element in the specified column.
+    """
+
+
+@Unnest.register
+def infer_type(
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    return [arg.element]  # pragma: no cover
+
+
+@Unnest.register
+def infer_type(
+    arg: ct.MapType,
+) -> List[ct.NestedField]:
+    return [arg.key, arg.value]
 
 
 class FunctionRegistryDict(dict):
@@ -1545,68 +1645,6 @@ class FunctionRegistryDict(dict):
                 "the documentation at https://github.com/DataJunct"
                 "ion/dj/blob/main/docs/functions.rst to implement it.",
             ) from exc
-
-
-# https://spark.apache.org/docs/3.3.2/sql-ref-syntax-qry-select-tvf.html#content
-class Explode(TableFunction):  # pylint: disable=abstract-method
-    """
-    The Explode function is used to explode the specified array,
-    nested array, or map column into multiple rows.
-    The explode function will generate a new row for each
-    element in the specified column.
-    """
-
-
-@Explode.register
-def infer_type(  # noqa: F811
-    arg: ct.ListType,
-) -> List[ct.NestedField]:
-    return [arg.element]
-
-
-@Explode.register
-def infer_type(  # noqa: F811
-    arg: ct.MapType,
-) -> List[ct.NestedField]:
-    return [arg.key, arg.value]
-
-
-class Unnest(TableFunction):  # pylint: disable=abstract-method
-    """
-    The unnest function is used to explode the specified array,
-    nested array, or map column into multiple rows.
-    It will generate a new row for each element in the specified column.
-    """
-
-
-@Unnest.register
-def infer_type(  # noqa: F811
-    arg: ct.ListType,
-) -> List[ct.NestedField]:
-    return [arg.element]  # pragma: no cover
-
-
-@Unnest.register
-def infer_type(  # noqa: F811
-    arg: ct.MapType,
-) -> List[ct.NestedField]:
-    return [arg.key, arg.value]
-
-
-class Abs(Function):  # pylint: disable=abstract-method
-    """
-    Returns the absolute value of the numeric or interval value.
-    """
-
-    is_aggregation = True
-
-
-@Abs.register
-def infer_type(  # noqa: F811
-    arg: ct.NumberType,
-) -> ct.NumberType:
-    type_ = arg.type
-    return type_
 
 
 function_registry = FunctionRegistryDict()
