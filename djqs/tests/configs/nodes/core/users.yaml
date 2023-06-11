@@ -1,0 +1,28 @@
+description: A user table
+type: source
+columns:
+  id:
+    type: INT
+  full_name:
+    type: STR
+  age:
+    type: INT
+  country:
+    type: STR
+  gender:
+    type: STR
+  preferred_language:
+    type: STR
+  secret_number:
+    type: FLOAT
+tables:
+  gsheets:
+  - catalog: null
+    schema: null
+    table: users
+    cost: 100.0
+  postgres:
+  - catalog: null
+    schema: public
+    table: dim_users
+    cost: 10.0

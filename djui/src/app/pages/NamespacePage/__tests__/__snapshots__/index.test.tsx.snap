@@ -1,0 +1,48 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`<NamespacePage /> should render and match the snapshot 1`] = `
+<div
+  className="mid"
+>
+  <NamespaceHeader />
+  <div
+    className="card"
+  >
+    <div
+      className="card-header"
+    >
+      <h2>
+        Nodes
+      </h2>
+      <div
+        className="table-responsive"
+      >
+        <table
+          className="card-table table"
+        >
+          <thead>
+            <tr>
+              <th>
+                Namespace
+              </th>
+              <th>
+                Name
+              </th>
+              <th>
+                Type
+              </th>
+              <th>
+                Status
+              </th>
+              <th>
+                Mode
+              </th>
+            </tr>
+          </thead>
+          <tbody />
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+`;

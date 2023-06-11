@@ -1,0 +1,76 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`<DJNode /> should render and match the snapshot 1`] = `
+<React.Fragment>
+  <Memo(Handle)
+    position="left"
+    style={
+      Object {
+        "backgroundColor": "#ccc",
+      }
+    }
+    type="target"
+  />
+  <div
+    className="dj-node__full"
+    style={
+      Object {
+        "backgroundColor": "#7EB46150",
+        "color": "#7EB461",
+      }
+    }
+  >
+    <div
+      className="dj-node__header"
+    >
+      <div
+        className="serif"
+      >
+        shared ▶ dimensions
+      </div>
+    </div>
+    <div
+      className="dj-node__body"
+    >
+      <b>
+        Source
+      </b>
+      :
+       
+      <a
+        href="/nodes/shared.dimensions.accounts"
+      />
+      <Collapse
+        collapsed={true}
+        text="columns"
+      >
+        <div
+          className="dj-node__metadata"
+        >
+          <tr>
+            <td>
+              <React.Fragment />
+            </td>
+            <td
+              style={
+                Object {
+                  "textAlign": "right",
+                }
+              }
+            />
+          </tr>
+        </div>
+      </Collapse>
+    </div>
+  </div>
+  <Memo(Handle)
+    position="right"
+    style={
+      Object {
+        "backgroundColor": "#ccc",
+      }
+    }
+    type="source"
+  />
+</React.Fragment>
+`;
