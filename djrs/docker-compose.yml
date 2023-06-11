@@ -1,0 +1,54 @@
+version: "2.2"
+
+volumes:
+  postgres_roads_example: {}
+  redis_data: {}
+
+networks:
+  djrs-network:
+    driver: bridge
+  dj_core:
+    external: true
+
+services:
+  djrs:
+    container_name: djrs
+    stdin_open: true
+    tty: true
+    networks:
+      - dj_core
+      - djrs-network
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: .
+    volumes:
+      - .:/code
+    ports:
+      - "8002:8002"
+    depends_on:
+      - redis
+
+  redis:
+    image: redis
+    ports:
+    - "6379:6379"
+
+  worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ['celery', 'worker', '-A', 'worker.app', '-l', 'info']
+    volumes:
+      - ./:/app/
+    depends_on:
+      - rabbitmq
+      - redis
+
+  beat:
+    build: .
+    command: [celery, beat, --app=worker.app, --loglevel=INFO]
+    depends_on:
+      - redis
+    restart: 'no'
+    volumes:
+      - ./app:/app
