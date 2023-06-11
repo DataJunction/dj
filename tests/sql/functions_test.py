@@ -297,6 +297,20 @@ def test_ceil_func(session: Session):
     assert query.select.projection[3].type == DecimalType(precision=14, scale=0)  # type: ignore
 
 
+def test_collect_list(session: Session):
+    """
+    Test the `collect_list` function
+    """
+    query = parse("SELECT collect_list(col) FROM (SELECT (1), (2) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.IntegerType(),
+    )
+
+
 def test_element_at(session: Session):
     """
     Test the `element_at` Spark function
@@ -316,6 +330,19 @@ def test_element_at(session: Session):
     assert query_with_map.select.projection[0].type == StringType()  # type: ignore
 
 
+def test_first(session: Session):
+    """
+    Test `first`
+    """
+    query = parse("SELECT first(col), first(col, true) FROM (SELECT (1), (2) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
 def test_split(session: Session):
     """
     Test the `split` Spark function
@@ -326,6 +353,18 @@ def test_split(session: Session):
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
+def test_trim(session: Session):
+    """
+    Test `trim`
+    """
+    query = parse("SELECT trim('    lmgi   ')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
 def test_cardinality(session: Session):

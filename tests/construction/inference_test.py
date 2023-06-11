@@ -344,6 +344,7 @@ def test_infer_types_avg(construction_session: Session):
           AVG(CAST(id AS INTERVAL DAY TO SECOND)),
           STDDEV(id),
           stddev_samp(id),
+          stddev_pop(id),
           variance(id),
           var_pop(id)
         FROM dbt.source.jaffle_shop.customers
@@ -356,6 +357,7 @@ def test_infer_types_avg(construction_session: Session):
         DoubleType(),
         DecimalType(12, 10),
         DayTimeIntervalType(),
+        DoubleType(),
         DoubleType(),
         DoubleType(),
         DoubleType(),
@@ -379,7 +381,7 @@ def test_infer_types_min_max_sum_ceil(construction_session: Session):
           SUM(id) OVER
             (PARTITION BY first_name ORDER BY last_name),
           CEIL(id),
-          PERCENT_RANK() OVER (PARTITION BY id ORDER BY id)
+          PERCENT_RANK(id) OVER (PARTITION BY id ORDER BY id)
         FROM dbt.source.jaffle_shop.customers
     """,
     )
