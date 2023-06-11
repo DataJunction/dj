@@ -26,7 +26,6 @@ from dj.sql.parsing.types import (
     StringType,
     TimestampType,
     TimeType,
-    TinyIntType,
 )
 
 
@@ -343,7 +342,11 @@ def test_infer_types_avg(construction_session: Session):
            (PARTITION BY first_name ORDER BY last_name),
           AVG(CAST(id AS DECIMAL(8, 6))),
           AVG(CAST(id AS INTERVAL DAY TO SECOND)),
-          STDDEV(id)
+          STDDEV(id),
+          stddev_samp(id),
+          stddev_pop(id),
+          variance(id),
+          var_pop(id)
         FROM dbt.source.jaffle_shop.customers
     """,
     )
@@ -354,6 +357,10 @@ def test_infer_types_avg(construction_session: Session):
         DoubleType(),
         DecimalType(12, 10),
         DayTimeIntervalType(),
+        DoubleType(),
+        DoubleType(),
+        DoubleType(),
+        DoubleType(),
         DoubleType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
@@ -374,7 +381,7 @@ def test_infer_types_min_max_sum_ceil(construction_session: Session):
           SUM(id) OVER
             (PARTITION BY first_name ORDER BY last_name),
           CEIL(id),
-          PERCENT_RANK() OVER (PARTITION BY id ORDER BY id)
+          PERCENT_RANK(id) OVER (PARTITION BY id ORDER BY id)
         FROM dbt.source.jaffle_shop.customers
     """,
     )
@@ -529,6 +536,7 @@ def test_infer_types_exp(construction_session: Session):
           LOG2(2),
           LOG10(100),
           POW(1, 2),
+          POWER(1, 2),
           ROUND(1.2, 0),
           ROUND(1.2, -1),
           ROUND(CAST(1.233 AS DOUBLE), 1),
@@ -546,6 +554,7 @@ def test_infer_types_exp(construction_session: Session):
         BigIntType(),
         IntegerType(),
         IntegerType(),
+        DoubleType(),
         DoubleType(),
         DoubleType(),
         DoubleType(),
@@ -611,7 +620,6 @@ def test_infer_types_datetime(construction_session: Session):
         """
         SELECT
           CURRENT_DATE(),
-          CURRENT_DATETIME(),
           CURRENT_TIME(),
           CURRENT_TIMESTAMP(),
 
@@ -641,7 +649,6 @@ def test_infer_types_datetime(construction_session: Session):
     query.compile(ctx)
     types = [
         DateType(),
-        TimestampType(),
         TimeType(),
         TimestampType(),
         TimestampType(),
@@ -654,8 +661,8 @@ def test_infer_types_datetime(construction_session: Session):
         IntegerType(),
         DecimalType(precision=8, scale=6),
         IntegerType(),
-        TinyIntType(),
-        TinyIntType(),
-        TinyIntType(),
+        BigIntType(),
+        BigIntType(),
+        BigIntType(),
     ]
     assert types == [exp.type for exp in query.select.projection]  # type: ignore
