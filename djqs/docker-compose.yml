@@ -1,0 +1,54 @@
+version: "2.2"
+
+volumes:
+  postgres_roads_example: {}
+  redis_data: {}
+
+networks:
+  djqs-network:
+    driver: bridge
+  dj_core:
+    external: true
+
+services:
+  djqs:
+    container_name: djqs
+    stdin_open: true
+    tty: true
+    networks:
+      - dj_core
+      - djqs-network
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+      - PYSPARK_PYTHON=/opt/conda/bin/python
+      - PYSPARK_DRIVER_PYTHON=/opt/conda/bin/python
+    build: .
+    volumes:
+      - .:/code
+    ports:
+      - "8001:8001"
+    depends_on:
+      - db-migration-djqs
+      - duckdb-roads
+
+  db-migration-djqs:
+    container_name: db-migration
+    networks:
+      - djqs-network
+    environment:
+      - DOTENV_FILE=.docker-env/.env
+    build: .
+    volumes:
+      - .:/code
+    command: alembic upgrade head
+    restart: on-failure
+
+  duckdb-roads:
+    container_name: duckdb-roads
+    networks:
+      - djqs-network
+    build: .
+    volumes:
+      - .:/code
+    command: /bin/bash -c "python /code/docker/duckdb_load_roads.py"
+    restart: on-failure
