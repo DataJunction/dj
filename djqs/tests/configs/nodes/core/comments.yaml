@@ -1,0 +1,28 @@
+description: A fact table with comments
+type: source
+columns:
+  id:
+    type: INT
+  user_id:
+    type: INT
+    dimension: core.dim_users
+  timestamp:
+    type: DATETIME
+  text:
+    type: STR
+tables:
+  gsheets:
+  - catalog: null
+    schema: null
+    table: comments
+    cost: 100.0
+  postgres:
+  - catalog: null
+    schema: public
+    table: comments
+    cost: 10.0
+  druid:
+  - catalog: null
+    schema: druid
+    table: comments
+    cost: 1.0

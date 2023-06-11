@@ -1,0 +1,8 @@
+description: A Google Sheets connector
+URI: gsheets://
+extra_params:
+  catalog:
+    comments: https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=1811447072
+    users: https://docs.google.com/spreadsheets/d/1SkEZOipqjXQnxHLMr2kZ7Tbn7OiHSgO99gOCS5jTQJs/edit#gid=0
+read_only: true
+cost: 100
