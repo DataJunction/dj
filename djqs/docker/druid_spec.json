@@ -1,0 +1,48 @@
+{
+  "type": "index_parallel",
+  "spec": {
+    "ioConfig": {
+      "type": "index_parallel",
+      "inputSource": {
+        "type": "inline",
+        "data": "id,user_id,timestamp,text\n1,1,2021-01-01 01:00:00,Hola!\n2,2,2021-01-01 02:00:00,\"Oi, tudo bom?\"\n3,3,2021-01-01 03:00:00,Que pasa?\n4,4,2021-01-01 04:00:00,Også mig\n5,5,2021-01-01 05:00:00,Bueno\n6,6,2021-01-01 06:00:00,Bonjour!\n7,2,2021-01-01 07:00:00,Prazer em conhecer\n8,3,2021-01-01 08:00:00,\"Si, si\"\n9,4,2021-01-01 09:00:00,Hej\n10,5,2021-01-01 10:00:00,Por supuesto\n11,6,2021-01-01 11:00:00,\"Oui, oui\"\n12,3,2021-01-01 12:00:00,Como no?\n13,4,2021-01-01 13:00:00,Farvel\n14,5,2021-01-01 14:00:00,\"Hola, amigo!\"\n15,6,2021-01-01 15:00:00,Très bien\n16,4,2021-01-01 16:00:00,Dejligt at møde dig\n17,5,2021-01-01 17:00:00,Dale!\n18,6,2021-01-01 18:00:00,Bien sûr!\n19,5,2021-01-01 19:00:00,Hasta luego!\n20,6,2021-01-01 20:00:00,À toute à l'heure!\n21,6,2021-01-01 21:00:00,Peut être"
+      },
+      "inputFormat": {
+        "type": "csv",
+        "findColumnsFromHeader": true
+      }
+    },
+    "tuningConfig": {
+      "type": "index_parallel",
+      "partitionsSpec": {
+        "type": "dynamic"
+      }
+    },
+    "dataSchema": {
+      "dataSource": "comments",
+      "granularitySpec": {
+        "type": "uniform",
+        "queryGranularity": "HOUR",
+        "rollup": true,
+        "segmentGranularity": "DAY"
+      },
+      "timestampSpec": {
+        "column": "timestamp",
+        "format": "auto"
+      },
+      "dimensionsSpec": {
+        "dimensions": [
+	  "id",
+	  "user_id",
+          "text"
+        ]
+      },
+      "metricsSpec": [
+        {
+          "name": "count",
+          "type": "count"
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,912 @@
+{
+    "openapi": "3.0.2",
+    "info": {
+        "title": "DJ server",
+        "description": "A DataJunction metrics repository",
+        "license": {
+            "name": "MIT License",
+            "url": "https://mit-license.org/"
+        },
+        "version": "0.0.post1.dev1+g2c5d4fa"
+    },
+    "paths": {
+        "/databases/": {
+            "get": {
+                "summary": "Read Databases",
+                "description": "List the available databases.",
+                "operationId": "read_databases_databases__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response Read Databases Databases  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Database"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/queries/": {
+            "post": {
+                "summary": "Submit Query",
+                "description": "Run or schedule a query.\n\nThis endpoint is different from others in that it accepts both JSON and msgpack, and\ncan also return JSON or msgpack, depending on HTTP headers.",
+                "operationId": "submit_query_queries__post",
+                "parameters": [
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Accept",
+                            "type": "string"
+                        },
+                        "name": "accept",
+                        "in": "header"
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "title": "QueryCreate",
+                                "required": [
+                                    "database_id",
+                                    "submitted_query"
+                                ],
+                                "type": "object",
+                                "properties": {
+                                    "database_id": {
+                                        "title": "Database Id",
+                                        "type": "integer"
+                                    },
+                                    "catalog": {
+                                        "title": "Catalog",
+                                        "type": "string"
+                                    },
+                                    "schema": {
+                                        "title": "Schema",
+                                        "type": "string"
+                                    },
+                                    "submitted_query": {
+                                        "title": "Submitted Query",
+                                        "type": "string"
+                                    }
+                                },
+                                "description": "Model for submitted queries."
+                            }
+                        },
+                        "application/msgpack": {
+                            "schema": {
+                                "title": "QueryCreate",
+                                "required": [
+                                    "database_id",
+                                    "submitted_query"
+                                ],
+                                "type": "object",
+                                "properties": {
+                                    "database_id": {
+                                        "title": "Database Id",
+                                        "type": "integer"
+                                    },
+                                    "catalog": {
+                                        "title": "Catalog",
+                                        "type": "string"
+                                    },
+                                    "schema": {
+                                        "title": "Schema",
+                                        "type": "string"
+                                    },
+                                    "submitted_query": {
+                                        "title": "Submitted Query",
+                                        "type": "string"
+                                    }
+                                },
+                                "description": "Model for submitted queries."
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Return results as JSON or msgpack",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/QueryWithResults"
+                                }
+                            },
+                            "application/msgpack": {}
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/queries/{query_id}/": {
+            "get": {
+                "summary": "Read Query",
+                "description": "Fetch information about a query.\n\nFor paginated queries we move the data from the results backend to the cache for a\nshort period, anticipating additional requests.",
+                "operationId": "read_query_queries__query_id___get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Query Id",
+                            "type": "string",
+                            "format": "uuid"
+                        },
+                        "name": "query_id",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Limit",
+                            "type": "integer",
+                            "default": 0
+                        },
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Offset",
+                            "type": "integer",
+                            "default": 0
+                        },
+                        "name": "offset",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/QueryWithResults"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics/": {
+            "get": {
+                "summary": "Read Metrics",
+                "description": "List all available metrics.",
+                "operationId": "read_metrics_metrics__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response Read Metrics Metrics  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Metric"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics/{node_id}/": {
+            "get": {
+                "summary": "Read Metric",
+                "description": "Return a metric by ID.",
+                "operationId": "read_metric_metrics__node_id___get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node Id",
+                            "type": "integer"
+                        },
+                        "name": "node_id",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Metric"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics/{node_id}/data/": {
+            "get": {
+                "summary": "Read Metrics Data",
+                "description": "Return data for a metric.",
+                "operationId": "read_metrics_data_metrics__node_id__data__get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node Id",
+                            "type": "integer"
+                        },
+                        "name": "node_id",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Database Id",
+                            "type": "integer"
+                        },
+                        "name": "database_id",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "D",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "d",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "F",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "f",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/QueryWithResults"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/metrics/{node_id}/sql/": {
+            "get": {
+                "summary": "Read Metrics Sql",
+                "description": "Return SQL for a metric.\n\nA database can be optionally specified. If no database is specified the optimal one\nwill be used.",
+                "operationId": "read_metrics_sql_metrics__node_id__sql__get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node Id",
+                            "type": "integer"
+                        },
+                        "name": "node_id",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Database Id",
+                            "type": "integer"
+                        },
+                        "name": "database_id",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "D",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "d",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "F",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "f",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/TranslatedSQL"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/": {
+            "get": {
+                "summary": "Read Nodes",
+                "description": "List the available nodes.",
+                "operationId": "read_nodes_nodes__get",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response Read Nodes Nodes  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/NodeMetadata"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/graphql": {
+            "get": {
+                "summary": "Handle Http Get",
+                "operationId": "handle_http_get_graphql_get",
+                "responses": {
+                    "200": {
+                        "description": "The GraphiQL integrated development environment.",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Not found if GraphiQL is not enabled."
+                    }
+                }
+            },
+            "post": {
+                "summary": "Handle Http Post",
+                "operationId": "handle_http_post_graphql_post",
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "ColumnMetadata": {
+                "title": "ColumnMetadata",
+                "required": [
+                    "name",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/ColumnType"
+                    }
+                },
+                "description": "A simple model for column metadata."
+            },
+            "ColumnType": {
+                "title": "ColumnType",
+                "enum": [
+                    "BYTES",
+                    "STR",
+                    "FLOAT",
+                    "INT",
+                    "DECIMAL",
+                    "BOOL",
+                    "DATETIME",
+                    "DATE",
+                    "TIME",
+                    "TIMEDELTA",
+                    "LIST",
+                    "DICT"
+                ],
+                "type": "string",
+                "description": "\n    Types for columns.\n\n    These represent the values from the ``python_type`` attribute in SQLAlchemy columns.\n    "
+            },
+            "Database": {
+                "title": "Database",
+                "required": [
+                    "name",
+                    "URI"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    },
+                    "uuid": {
+                        "title": "Uuid",
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string",
+                        "default": ""
+                    },
+                    "URI": {
+                        "title": "Uri",
+                        "type": "string"
+                    },
+                    "extra_params": {
+                        "title": "Extra Params",
+                        "type": "object",
+                        "default": {}
+                    },
+                    "read_only": {
+                        "title": "Read Only",
+                        "type": "boolean",
+                        "default": true
+                    },
+                    "async_": {
+                        "title": "Async ",
+                        "type": "boolean",
+                        "default": false
+                    },
+                    "cost": {
+                        "title": "Cost",
+                        "type": "number",
+                        "default": 1.0
+                    },
+                    "created_at": {
+                        "title": "Created At",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "title": "Updated At",
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                },
+                "description": "A database.\n\nA simple example:\n\n    name: druid\n    description: An Apache Druid database\n    URI: druid://localhost:8082/druid/v2/sql/\n    read-only: true\n    async_: false\n    cost: 1.0"
+            },
+            "HTTPValidationError": {
+                "title": "HTTPValidationError",
+                "type": "object",
+                "properties": {
+                    "detail": {
+                        "title": "Detail",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ValidationError"
+                        }
+                    }
+                }
+            },
+            "Metric": {
+                "title": "Metric",
+                "required": [
+                    "id",
+                    "name",
+                    "created_at",
+                    "updated_at",
+                    "query",
+                    "dimensions"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string",
+                        "default": ""
+                    },
+                    "created_at": {
+                        "title": "Created At",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "title": "Updated At",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "dimensions": {
+                        "title": "Dimensions",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "description": "Class for a metric."
+            },
+            "NodeMetadata": {
+                "title": "NodeMetadata",
+                "required": [
+                    "id",
+                    "name",
+                    "created_at",
+                    "updated_at",
+                    "type",
+                    "columns"
+                ],
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "title": "Id",
+                        "type": "integer"
+                    },
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "description": {
+                        "title": "Description",
+                        "type": "string",
+                        "default": ""
+                    },
+                    "created_at": {
+                        "title": "Created At",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "title": "Updated At",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/NodeType"
+                    },
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "columns": {
+                        "title": "Columns",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/SimpleColumn"
+                        }
+                    }
+                },
+                "description": "A node with information about columns and if it is a metric."
+            },
+            "NodeType": {
+                "title": "NodeType",
+                "enum": [
+                    "source",
+                    "transform",
+                    "metric",
+                    "dimension"
+                ],
+                "type": "string",
+                "description": "\n    Node type.\n\n    A node can have 4 types, currently:\n\n    1. SOURCE nodes are root nodes in the DAG, and point to tables or views in a DB.\n    2. TRANSFORM nodes are SQL transformations, reading from SOURCE/TRANSFORM nodes.\n    3. METRIC nodes are leaves in the DAG, and have a single aggregation query.\n    4. DIMENSION nodes are special SOURCE nodes that can be auto-joined with METRICS.\n    "
+            },
+            "QueryResults": {
+                "title": "QueryResults",
+                "type": "array",
+                "items": {
+                    "$ref": "#/components/schemas/StatementResults"
+                },
+                "description": "Results for a given query."
+            },
+            "QueryState": {
+                "title": "QueryState",
+                "enum": [
+                    "UNKNOWN",
+                    "ACCEPTED",
+                    "SCHEDULED",
+                    "RUNNING",
+                    "FINISHED",
+                    "CANCELED",
+                    "FAILED"
+                ],
+                "type": "string",
+                "description": "\n    Different states of a query.\n    "
+            },
+            "QueryWithResults": {
+                "title": "QueryWithResults",
+                "required": [
+                    "database_id",
+                    "id",
+                    "submitted_query",
+                    "results",
+                    "errors"
+                ],
+                "type": "object",
+                "properties": {
+                    "database_id": {
+                        "title": "Database Id",
+                        "type": "integer"
+                    },
+                    "catalog": {
+                        "title": "Catalog",
+                        "type": "string"
+                    },
+                    "schema": {
+                        "title": "Schema",
+                        "type": "string"
+                    },
+                    "id": {
+                        "title": "Id",
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "submitted_query": {
+                        "title": "Submitted Query",
+                        "type": "string"
+                    },
+                    "executed_query": {
+                        "title": "Executed Query",
+                        "type": "string"
+                    },
+                    "scheduled": {
+                        "title": "Scheduled",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "started": {
+                        "title": "Started",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "finished": {
+                        "title": "Finished",
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "state": {
+                        "allOf": [
+                            {
+                                "$ref": "#/components/schemas/QueryState"
+                            }
+                        ],
+                        "default": "UNKNOWN"
+                    },
+                    "progress": {
+                        "title": "Progress",
+                        "type": "number",
+                        "default": 0.0
+                    },
+                    "results": {
+                        "$ref": "#/components/schemas/QueryResults"
+                    },
+                    "next": {
+                        "title": "Next",
+                        "maxLength": 65536,
+                        "minLength": 1,
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "previous": {
+                        "title": "Previous",
+                        "maxLength": 65536,
+                        "minLength": 1,
+                        "type": "string",
+                        "format": "uri"
+                    },
+                    "errors": {
+                        "title": "Errors",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                },
+                "description": "Model for query with results."
+            },
+            "SimpleColumn": {
+                "title": "SimpleColumn",
+                "required": [
+                    "name",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/ColumnType"
+                    }
+                },
+                "description": "A simplified column schema, without ID or dimensions."
+            },
+            "StatementResults": {
+                "title": "StatementResults",
+                "required": [
+                    "sql",
+                    "columns",
+                    "rows"
+                ],
+                "type": "object",
+                "properties": {
+                    "sql": {
+                        "title": "Sql",
+                        "type": "string"
+                    },
+                    "columns": {
+                        "title": "Columns",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/ColumnMetadata"
+                        }
+                    },
+                    "rows": {
+                        "title": "Rows",
+                        "type": "array",
+                        "items": {
+                            "type": "array",
+                            "items": {}
+                        }
+                    },
+                    "row_count": {
+                        "title": "Row Count",
+                        "type": "integer",
+                        "default": 0
+                    }
+                },
+                "description": "Results for a given statement.\n\nThis contains the SQL, column names and types, and rows"
+            },
+            "TranslatedSQL": {
+                "title": "TranslatedSQL",
+                "required": [
+                    "database_id",
+                    "sql"
+                ],
+                "type": "object",
+                "properties": {
+                    "database_id": {
+                        "title": "Database Id",
+                        "type": "integer"
+                    },
+                    "sql": {
+                        "title": "Sql",
+                        "type": "string"
+                    }
+                },
+                "description": "Class for SQL generated from a given metric."
+            },
+            "ValidationError": {
+                "title": "ValidationError",
+                "required": [
+                    "loc",
+                    "msg",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
+                    "loc": {
+                        "title": "Location",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "msg": {
+                        "title": "Message",
+                        "type": "string"
+                    },
+                    "type": {
+                        "title": "Error Type",
+                        "type": "string"
+                    }
+                }
+            }
+        }
+    }
+}
