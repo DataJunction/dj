@@ -70,6 +70,7 @@ test = [
     "pip-tools>=6.4.0",
     "pydruid>=0.6.4",
     "typing-extensions>=4.3.0",
+    "httpx>=0.24.1",
 ]
 
 [tool.hatch.metadata]
