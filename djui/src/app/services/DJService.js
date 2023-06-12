@@ -27,6 +27,17 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  metrics: async function (name) {
+    const data = await (await fetch(DJ_URL + '/metrics/')).json();
+    return data;
+  },
+
+  commonDimensions: async function (metrics) {
+    const metricsQuery = '?' + metrics.map(m => `metric=${m}`).join('&')
+    const data = await (await fetch(DJ_URL + '/metrics/common/dimensions/' + metricsQuery)).json();
+    return data;
+  },
+
   history: async function (type, name, offset, limit) {
     const data = await (
       await fetch(

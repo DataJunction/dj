@@ -385,6 +385,11 @@ tbody th {
   color: #580076;
 }
 
+.column_type {
+  background-color: #e4e4e4 !important;
+  color: #525252;
+}
+
 .history_type__create {
   background-color: #ccf7e5 !important;
   color: #00b368;
