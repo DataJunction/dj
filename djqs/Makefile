@@ -7,7 +7,7 @@ pyenv: .python-version
 	if [ ! -f .python-version ]; then\
 	    pyenv local djqs;\
 	fi
-	pip install -r requirements/test.txt
+	pdm install
 	touch .python-version
 
 docker-build:
@@ -27,10 +27,10 @@ docker-run-with-cockroachdb:
 	docker compose -f docker-compose.yml -f docker-compose.cockroachdb.yml up
 
 test: pyenv
-	pytest --cov=djqs -vv tests/ --doctest-modules djqs --without-integration --without-slow-integration ${PYTEST_ARGS}
+	pdm run pytest --cov=djqs -vv tests/ --doctest-modules djqs --without-integration --without-slow-integration ${PYTEST_ARGS}
 
 integration: pyenv
-	pytest --cov=djqs -vv tests/ --doctest-modules djqs --with-integration --with-slow-integration
+	pdm run pytest --cov=djqs -vv tests/ --doctest-modules djqs --with-integration --with-slow-integration
 
 clean:
 	pyenv virtualenv-delete djqs
@@ -39,4 +39,4 @@ spellcheck:
 	codespell -L froms -S "*.json" djqs docs/*rst tests templates
 
 check:
-	pre-commit run --all-files
+	pdm run pre-commit run --all-files
