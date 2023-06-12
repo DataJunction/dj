@@ -181,6 +181,21 @@ def test_array_append(session: Session):
     assert query.select.projection[0].type == ct.ListType(element_type=ct.BooleanType())  # type: ignore
 
 
+def test_array_compact(session: Session):
+    """
+    Test the `array_compact` Spark function
+    """
+    query = parse(
+        'SELECT array_compact(array(1, 2, 3, null)), array_compact(array("a", "b", "c"))',
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+    assert query.select.projection[1].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
 def test_array_contains(session: Session):
     """
     Test the `array_contains` Spark function
@@ -262,20 +277,6 @@ def test_array_intersect(session: Session):
     assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
 
 
-def test_array_max(session: Session):
-    """
-    Test the `array_max` Spark function
-    """
-    query = parse(
-        """
-        SELECT array_max(array(1, 20, null, 3))
-        """,
-    )
-    ctx = ast.CompileContext(session=session, exception=DJException())
-    query.compile(ctx)
-    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
-
-
 def test_array_join(session: Session):
     """
     Test the `array_join` Spark function
@@ -297,6 +298,139 @@ def test_array_join(session: Session):
     ctx = ast.CompileContext(session=session, exception=DJException())
     query.compile(ctx)
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+def test_array_max(session: Session):
+    """
+    Test the `array_max` Spark function
+    """
+    query = parse(
+        """
+        SELECT array_max(array(1, 20, null, 3))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_array_min(session: Session):
+    """
+    Test the `array_min` Spark function
+    """
+    query = parse(
+        """
+        SELECT array_min(array(1.0, 202.2, null, 3.333))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
+
+def test_array_position(session: Session):
+    """
+    Test the `array_position` function
+    """
+    query = parse(
+        """
+        SELECT array_position(array(1.0, 202.2, null, 3.333), 1.0)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.LongType()  # type: ignore
+
+
+def test_array_remove(session: Session):
+    """
+    Test the `array_remove` function
+    """
+    query = parse(
+        """
+        SELECT array_remove(array(1.0, 202.2, null, 3.333), 1.0)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
+
+
+def test_array_repeat(session: Session):
+    """
+    Test the `array_repeat` function
+    """
+    query = parse(
+        """
+        SELECT array_repeat('abc', 10), array_repeat(100, 10), array_repeat(1.23, 10)
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+    assert query.select.projection[1].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+    assert query.select.projection[2].type == ct.ListType(element_type=ct.FloatType())  # type: ignore
+
+
+def test_array_size(session: Session):
+    """
+    Test the `array_size` function
+    """
+    query = parse(
+        """
+        SELECT array_size(array('abc', 'd', 'e', 'f'))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.LongType()  # type: ignore
+
+
+def test_array_sort(session: Session):
+    """
+    Test the `array_sort` function
+    """
+    query = parse(
+        """
+        SELECT
+          array_sort(array('b', 'd', null, 'c', 'a'))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.StringType(),
+    )
+
+
+def test_array_union(session: Session):
+    """
+    Test the `array_union` function
+    """
+    query = parse(
+        """
+        SELECT array_union(array('b', 'd', null), array('c', 'a'))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.StringType(),
+    )
+
+
+def test_array_overlap(session: Session):
+    """
+    Test the `array_overlap` function
+    """
+    query = parse(
+        """
+        SELECT arrays_overlap(array(1, 2, 3), array(3, 4, 5))
+        """,
+    )
+    ctx = ast.CompileContext(session=session, exception=DJException())
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
 def test_avg() -> None:
