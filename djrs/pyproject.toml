@@ -1,8 +1,75 @@
 [build-system]
-# AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
-requires = ["setuptools>=46.1.0,<50", "setuptools_scm[toml]>=5", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.setuptools_scm]
-# See configuration details in https://github.com/pypa/setuptools_scm
-version_scheme = "no-guess-dev"
+[tool.pdm.build]
+includes = ["djrs"]
+
+[project]
+name = "djrs"
+dynamic = ["version"]
+description = "OSS Implementation of a DataJunction Reflection Service"
+authors = [
+    {name = "DataJunction Authors", email = "roberto@dealmeida.net"},
+]
+dependencies = [
+    "importlib-metadata",
+    "celery[redis]>=5.2.3",
+    "djopenapi",
+    "python-dotenv==0.19.2",
+    "requests>=2.26.0",
+    "pydantic",
+]
+requires-python = ">=3.8,<4.0"
+readme = "README.md"
+license = {text = "MIT"}
+classifiers = [
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+[project.optional-dependencies]
+uvicorn = [
+    "uvicorn[standard]>=0.21.1",
+]
+
+[tool.hatch.version]
+path = "djrs/__about__.py"
+
+[project.urls]
+repository = "https://github.com/DataJunction/dj"
+
+[tool.pdm.dev-dependencies]
+test = [
+    "celery[pytest]",
+    "codespell>=2.1.0",
+    "freezegun>=1.1.0",
+    "pre-commit>=2.15.0",
+    "pyfakefs>=4.5.1",
+    "pylint>=2.15.3",
+    "pytest-asyncio==0.15.1",
+    "pytest-cov>=2.12.1",
+    "pytest-freezegun",
+    "pytest-integration==0.2.2",
+    "pytest-mock>=3.6.1",
+    "pytest>=6.2.5",
+    "requests-mock>=1.9.3",
+    "setuptools>=49.6.0",
+    "pip-tools>=6.4.0",
+    "typing-extensions>=4.3.0",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.coverage.run]
+source = ['djrs/']
+
+[tool.isort]
+src_paths = ["djrs/", "tests/"]
+profile = 'black'
