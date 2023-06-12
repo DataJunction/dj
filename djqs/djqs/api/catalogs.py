@@ -17,7 +17,7 @@ from djqs.models.engine import BaseEngineInfo
 from djqs.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["Catalogs & Engines"])
 
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
