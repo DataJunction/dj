@@ -617,6 +617,23 @@ class AttributeOutput(BaseSQLModel):
     attribute_type: AttributeTypeName
 
 
+class DimensionAttributeOutput(SQLModel):
+    """
+    Dimension attribute output should include the name and type
+    """
+
+    name: str
+    type: ColumnType
+
+    @root_validator
+    def type_string(cls, values):  # pylint: disable=no-self-argument
+        """
+        Extracts the type as a string
+        """
+        values["type"] = str(values.get("type"))
+        return values
+
+
 class ColumnOutput(SQLModel):
     """
     A simplified column schema, without ID or dimensions.

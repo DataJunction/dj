@@ -6,7 +6,7 @@ from typing import List, Optional
 from sqlmodel import SQLModel
 
 from dj.models.engine import Dialect
-from dj.models.node import Node
+from dj.models.node import DimensionAttributeOutput, Node
 from dj.models.query import ColumnMetadata
 from dj.sql.dag import get_dimensions
 from dj.typing import UTCDatetime
@@ -28,7 +28,7 @@ class Metric(SQLModel):
 
     query: str
 
-    dimensions: List[str]
+    dimensions: List[DimensionAttributeOutput]
 
     @classmethod
     def parse_node(cls, node: Node) -> "Metric":
