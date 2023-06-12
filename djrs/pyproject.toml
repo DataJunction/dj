@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 includes = ["djrs"]
 
 [project]
-name = "djrs"
+name = "datajunction-reflection"
 dynamic = ["version"]
 description = "OSS Implementation of a DataJunction Reflection Service"
 authors = [

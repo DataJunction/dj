@@ -15,7 +15,7 @@ jobs:
     runs-on: 'ubuntu-latest'
     defaults:
       run:
-        working-directory: ${{ github.event.inputs.library == 'server' && '.' || './client/python' }}
+        working-directory: .
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python
@@ -41,17 +41,23 @@ jobs:
                 - 'dj/__about__.py'
               client:
                 - 'client/python/datajunction/__about__.py'
+              djrs:
+                - 'djrs/djrs/__about__.py'
+              djqs:
+                - 'djqs/djqs/__about__.py'
 
       - name: Tag release
+        working-directory: ${{ steps.changes.outputs.server == 'true' && '.' || steps.changes.outputs.client == 'true' && './client/python' || steps.changes.outputs.djrs == 'true' && './djrs' || steps.changes.outputs.djqs == 'true' && './djqs' }}
         run: |
           export NEW_VERSION=v$(hatch version)
-          export LIBRARY=${{ steps.changes.outputs.server == 'true' && 'server' || 'client'  }}
+          export LIBRARY=${{ steps.changes.outputs.server == 'true' && 'server' || steps.changes.outputs.client == 'true' && 'client' || steps.changes.outputs.djrs == 'true' && 'djrs' || steps.changes.outputs.djqs == 'true' && 'djqs' }}
           git tag -a $NEW_VERSION-$LIBRARY -m $NEW_VERSION-$LIBRARY
           git push origin $NEW_VERSION-$LIBRARY
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
 
       - name: Publish to pypi
+        working-directory: ${{ steps.changes.outputs.server == 'true' && '.' || steps.changes.outputs.client == 'true' && './client/python' || steps.changes.outputs.djrs == 'true' && './djrs' || steps.changes.outputs.djqs == 'true' && './djqs' }}
         env:
           HATCH_INDEX_USER: __token__
           HATCH_INDEX_AUTH: ${{ secrets.PYPI_TOKEN }}
@@ -60,8 +66,9 @@ jobs:
           hatch publish
 
       - name: Create Github release
+        working-directory: ${{ steps.changes.outputs.server == 'true' && '.' || steps.changes.outputs.client == 'true' && './client/python' || steps.changes.outputs.djrs == 'true' && './djrs' || steps.changes.outputs.djqs == 'true' && './djqs' }}
         run: |
-          export LIBRARY=${{ steps.changes.outputs.server == 'true' && 'server' || 'client' }}
-          gh release create $(hatch version)-$LIBRARY --generate-notes
+          export LIBRARY=${{ steps.changes.outputs.server == 'true' && 'server' || steps.changes.outputs.client == 'true' && 'client' || steps.changes.outputs.djrs == 'true' && 'djrs' || steps.changes.outputs.djqs == 'true' && 'djqs' }}
+          gh release create $(hatch version)-$LIBRARY
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
