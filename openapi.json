@@ -365,7 +365,7 @@
                                     "title": "Response Get Common Dimensions Metrics Common Dimensions  Get",
                                     "type": "array",
                                     "items": {
-                                        "type": "string"
+                                        "$ref": "#/components/schemas/DimensionAttributeOutput"
                                     }
                                 }
                             }
@@ -591,37 +591,6 @@
                     }
                 }
             },
-            "delete": {
-                "summary": "Delete A Node",
-                "description": "Delete the specified node.",
-                "operationId": "delete_a_node_nodes__name___delete",
-                "parameters": [
-                    {
-                        "required": true,
-                        "schema": {
-                            "title": "Name",
-                            "type": "string"
-                        },
-                        "name": "name",
-                        "in": "path"
-                    }
-                ],
-                "responses": {
-                    "204": {
-                        "description": "Successful Response"
-                    },
-                    "422": {
-                        "description": "Validation Error",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/HTTPValidationError"
-                                }
-                            }
-                        }
-                    }
-                }
-            },
             "patch": {
                 "summary": "Update A Node",
                 "description": "Update a node.",
@@ -671,10 +640,86 @@
                 }
             }
         },
+        "/nodes/{name}/deactivate/": {
+            "post": {
+                "summary": "Deactivate A Node",
+                "description": "Deactivate the specified node.",
+                "operationId": "deactivate_a_node_nodes__name__deactivate__post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/{name}/activate/": {
+            "post": {
+                "summary": "Activate A Node",
+                "description": "Activate the specified node.",
+                "operationId": "activate_a_node_nodes__name__activate__post",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Name",
+                            "type": "string"
+                        },
+                        "name": "name",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
         "/nodes/{name}/materialization/": {
             "post": {
                 "summary": "Upsert A Materialization Config",
-                "description": "Update materialization config of the specified node.",
+                "description": "Update materialization config of the specified node. If a name is specified\nfor the materialization config, it will always update that named config.",
                 "operationId": "upsert_a_materialization_config_nodes__name__materialization__post",
                 "parameters": [
                     {
@@ -983,7 +1028,7 @@
                         "in": "path"
                     },
                     {
-                        "required": false,
+                        "required": true,
                         "schema": {
                             "title": "Dimension",
                             "type": "string"
@@ -1420,6 +1465,28 @@
                     {
                         "required": false,
                         "schema": {
+                            "title": "Orderby",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "orderby",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Limit",
+                            "type": "integer"
+                        },
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
                             "title": "Async ",
                             "type": "boolean",
                             "default": false
@@ -1516,6 +1583,28 @@
                     {
                         "required": false,
                         "schema": {
+                            "title": "Orderby",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "orderby",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Limit",
+                            "type": "integer"
+                        },
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
                             "title": "Async ",
                             "type": "boolean",
                             "default": false
@@ -1582,6 +1671,79 @@
                                     "items": {
                                         "$ref": "#/components/schemas/HealthCheck"
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/history/{entity_type}/{entity_name}/": {
+            "get": {
+                "summary": "List History",
+                "description": "List history for an entity type (i.e. Node) and entity name",
+                "operationId": "list_history_history__entity_type___entity_name___get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/components/schemas/EntityType"
+                        },
+                        "name": "entity_type",
+                        "in": "path"
+                    },
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Entity Name",
+                            "type": "string"
+                        },
+                        "name": "entity_name",
+                        "in": "path"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Offset",
+                            "type": "integer",
+                            "default": 0
+                        },
+                        "name": "offset",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Limit",
+                            "type": "integer",
+                            "default": 100,
+                            "lte": 100
+                        },
+                        "name": "limit",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response List History History  Entity Type   Entity Name   Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/History"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
                                 }
                             }
                         }
@@ -1954,6 +2116,28 @@
                     {
                         "required": false,
                         "schema": {
+                            "title": "Orderby",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "orderby",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Limit",
+                            "type": "integer"
+                        },
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
                             "title": "Engine Name",
                             "type": "string"
                         },
@@ -2042,6 +2226,28 @@
                     {
                         "required": false,
                         "schema": {
+                            "title": "Orderby",
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            },
+                            "default": []
+                        },
+                        "name": "orderby",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
+                            "title": "Limit",
+                            "type": "integer"
+                        },
+                        "name": "limit",
+                        "in": "query"
+                    },
+                    {
+                        "required": false,
+                        "schema": {
                             "title": "Engine Name",
                             "type": "string"
                         },
@@ -2085,6 +2291,20 @@
     },
     "components": {
         "schemas": {
+            "ActivityType": {
+                "title": "ActivityType",
+                "enum": [
+                    "create",
+                    "deactivate",
+                    "activate",
+                    "modify",
+                    "link",
+                    "tag",
+                    "set_attribute"
+                ],
+                "type": "string",
+                "description": "An activity type"
+            },
             "AttributeOutput": {
                 "title": "AttributeOutput",
                 "required": [
@@ -2459,6 +2679,17 @@
                             "type": "string"
                         }
                     },
+                    "orderby": {
+                        "title": "Orderby",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "limit": {
+                        "title": "Limit",
+                        "type": "integer"
+                    },
                     "description": {
                         "title": "Description",
                         "type": "string"
@@ -2474,6 +2705,14 @@
                         "title": "Namespace",
                         "type": "string",
                         "default": "default"
+                    },
+                    "materialization_configs": {
+                        "title": "Materialization Configs",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/UpsertCubeMaterializationConfig"
+                        },
+                        "default": []
                     }
                 },
                 "description": "A create object for cube nodes"
@@ -2716,7 +2955,7 @@
                         "title": "Materialization Configs",
                         "type": "array",
                         "items": {
-                            "$ref": "#/components/schemas/MaterializationConfig"
+                            "$ref": "#/components/schemas/MaterializationConfigOutput"
                         }
                     }
                 },
@@ -2731,6 +2970,119 @@
                 ],
                 "type": "string",
                 "description": "SQL dialect"
+            },
+            "DimensionAttributeOutput": {
+                "title": "DimensionAttributeOutput",
+                "required": [
+                    "name",
+                    "type"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "type": {
+                        "$ref": "#/components/schemas/ColumnType"
+                    }
+                },
+                "description": "Dimension attribute output should include the name and type"
+            },
+            "DruidConf": {
+                "title": "DruidConf",
+                "required": [
+                    "granularity",
+                    "timestamp_column"
+                ],
+                "type": "object",
+                "properties": {
+                    "granularity": {
+                        "title": "Granularity",
+                        "type": "string"
+                    },
+                    "intervals": {
+                        "title": "Intervals",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "timestamp_column": {
+                        "title": "Timestamp Column",
+                        "type": "string"
+                    },
+                    "timestamp_format": {
+                        "title": "Timestamp Format",
+                        "type": "string"
+                    },
+                    "parse_spec_format": {
+                        "title": "Parse Spec Format",
+                        "type": "string"
+                    }
+                },
+                "description": "Druid configuration"
+            },
+            "DruidCubeConfig": {
+                "title": "DruidCubeConfig",
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "partitions": {
+                        "title": "Partitions",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Partition"
+                        }
+                    },
+                    "spark": {
+                        "$ref": "#/components/schemas/SparkConf"
+                    },
+                    "upstream_tables": {
+                        "title": "Upstream Tables",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "dimensions": {
+                        "title": "Dimensions",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "measures": {
+                        "title": "Measures",
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "prefix": {
+                        "title": "Prefix",
+                        "type": "string",
+                        "default": ""
+                    },
+                    "suffix": {
+                        "title": "Suffix",
+                        "type": "string",
+                        "default": ""
+                    },
+                    "druid": {
+                        "$ref": "#/components/schemas/DruidConf"
+                    }
+                },
+                "description": "Specific cube materialization implementation with Spark and Druid ingestion and\noptional prefix and/or suffix to include with the materialized entity's name."
             },
             "EngineInfo": {
                 "title": "EngineInfo",
@@ -2757,6 +3109,87 @@
                     }
                 },
                 "description": "Class for engine creation"
+            },
+            "EngineRef": {
+                "title": "EngineRef",
+                "required": [
+                    "name",
+                    "version"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "version": {
+                        "title": "Version",
+                        "type": "string"
+                    }
+                },
+                "description": "Basic reference to an engine"
+            },
+            "EntityType": {
+                "title": "EntityType",
+                "enum": [
+                    "attribute",
+                    "catalog",
+                    "engine",
+                    "namespace",
+                    "node",
+                    "query",
+                    "tag"
+                ],
+                "type": "string",
+                "description": "An entity type for which activity can occur"
+            },
+            "GenericCubeConfig": {
+                "title": "GenericCubeConfig",
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "title": "Query",
+                        "type": "string"
+                    },
+                    "partitions": {
+                        "title": "Partitions",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Partition"
+                        }
+                    },
+                    "spark": {
+                        "$ref": "#/components/schemas/SparkConf"
+                    },
+                    "upstream_tables": {
+                        "title": "Upstream Tables",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "dimensions": {
+                        "title": "Dimensions",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "measures": {
+                        "title": "Measures",
+                        "type": "object",
+                        "additionalProperties": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "additionalProperties": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "description": "Generic cube materialization config needed by any materialization\nchoices and engine combinations"
             },
             "HTTPValidationError": {
                 "title": "HTTPValidationError",
@@ -2798,44 +3231,65 @@
                 "type": "string",
                 "description": "Possible health statuses."
             },
-            "MaterializationConfig": {
-                "title": "MaterializationConfig",
-                "required": [
-                    "node_revision_id",
-                    "engine_id",
-                    "schedule"
-                ],
+            "History": {
+                "title": "History",
                 "type": "object",
                 "properties": {
-                    "node_revision_id": {
-                        "title": "Node Revision Id",
+                    "id": {
+                        "title": "Id",
                         "type": "integer"
                     },
-                    "engine_id": {
-                        "title": "Engine Id",
-                        "type": "integer"
+                    "entity_type": {
+                        "$ref": "#/components/schemas/EntityType"
                     },
-                    "schedule": {
-                        "title": "Schedule",
+                    "entity_name": {
+                        "title": "Entity Name",
                         "type": "string"
                     },
-                    "config": {
-                        "title": "Config",
+                    "activity_type": {
+                        "$ref": "#/components/schemas/ActivityType"
+                    },
+                    "user": {
+                        "title": "User",
+                        "type": "string"
+                    },
+                    "pre": {
+                        "title": "Pre",
                         "type": "object",
                         "default": {}
+                    },
+                    "post": {
+                        "title": "Post",
+                        "type": "object",
+                        "default": {}
+                    },
+                    "details": {
+                        "title": "Details",
+                        "type": "object",
+                        "default": {}
+                    },
+                    "created_at": {
+                        "title": "Created At",
+                        "type": "string",
+                        "format": "date-time"
                     }
                 },
-                "description": "Materialization configuration for a node and specific engines."
+                "description": "An event to store as part of the server's activity history"
             },
             "MaterializationConfigOutput": {
                 "title": "MaterializationConfigOutput",
                 "required": [
                     "engine",
                     "config",
-                    "schedule"
+                    "schedule",
+                    "job"
                 ],
                 "type": "object",
                 "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
                     "engine": {
                         "$ref": "#/components/schemas/EngineInfo"
                     },
@@ -2845,6 +3299,10 @@
                     },
                     "schedule": {
                         "title": "Schedule",
+                        "type": "string"
+                    },
+                    "job": {
+                        "title": "Job",
                         "type": "string"
                     }
                 },
@@ -2903,7 +3361,7 @@
                         "title": "Dimensions",
                         "type": "array",
                         "items": {
-                            "type": "string"
+                            "$ref": "#/components/schemas/DimensionAttributeOutput"
                         }
                     }
                 },
@@ -3297,6 +3755,47 @@
                 },
                 "description": "A validation of a provided node definition"
             },
+            "Partition": {
+                "title": "Partition",
+                "required": [
+                    "name",
+                    "type_"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "values": {
+                        "title": "Values",
+                        "type": "array",
+                        "items": {}
+                    },
+                    "range": {
+                        "title": "Range",
+                        "type": "array",
+                        "items": {}
+                    },
+                    "expression": {
+                        "title": "Expression",
+                        "type": "string"
+                    },
+                    "type_": {
+                        "$ref": "#/components/schemas/PartitionType"
+                    }
+                },
+                "description": "A partition specification tells the ongoing and backfill materialization jobs how to partition\nthe materialized dataset and which partition values (a list or range of values) to operate on.\nPartitions may be temporal or categorical and will be handled differently depending on the type.\n\nFor temporal partition types, the ongoing materialization job will continue to operate on the\nlatest partitions and the partition values specified by `values` and `range` are only relevant\nto the backfill job.\n\nExamples:\n    This will tell DJ to backfill for all values of the dateint partition:\n      Partition(name=\u201cdateint\u201d, type=\"temporal\", values=[], range=())\n    This will tell DJ to backfill just 20230601 and 20230605:\n      Partition(name=\u201cdateint\u201d, type=\"temporal\", values=[20230601, 20230605], range=())\n    This will tell DJ to backfill 20230601 and between 20220101 and 20230101:\n      Partition(name=\u201cdateint\u201d, type=\"temporal\", values=[20230601], range=(20220101, 20230101))\n\n    For categorical partition types, the ongoing materialization job will *only* operate on the\n    specified partition values in `values` and `range`:\n        Partition(name=\u201cgroup_id\u201d, type=\"categorical\", values=[\"a\", \"b\", \"c\"], range=())"
+            },
+            "PartitionType": {
+                "title": "PartitionType",
+                "enum": [
+                    "temporal",
+                    "categorical"
+                ],
+                "type": "string",
+                "description": "Partition type.\n\nA partition can be temporal or categorical"
+            },
             "QueryResults": {
                 "title": "QueryResults",
                 "type": "array",
@@ -3404,6 +3903,16 @@
                         "items": {
                             "type": "string"
                         }
+                    },
+                    "links": {
+                        "title": "Links",
+                        "type": "array",
+                        "items": {
+                            "maxLength": 65536,
+                            "minLength": 1,
+                            "type": "string",
+                            "format": "uri"
+                        }
                     }
                 },
                 "description": "Model for query with results."
@@ -3436,6 +3945,14 @@
                     }
                 },
                 "description": "A column used in creation of a source node"
+            },
+            "SparkConf": {
+                "title": "SparkConf",
+                "type": "object",
+                "additionalProperties": {
+                    "type": "string"
+                },
+                "description": "Spark configuration"
             },
             "StatementResults": {
                 "title": "StatementResults",
@@ -3665,23 +4182,55 @@
                 "additionalProperties": false,
                 "description": "Update tag model. Only works on mutable fields."
             },
-            "UpsertMaterializationConfig": {
-                "title": "UpsertMaterializationConfig",
+            "UpsertCubeMaterializationConfig": {
+                "title": "UpsertCubeMaterializationConfig",
                 "required": [
-                    "engine_name",
-                    "engine_version",
+                    "engine",
                     "config",
                     "schedule"
                 ],
                 "type": "object",
                 "properties": {
-                    "engine_name": {
-                        "title": "Engine Name",
+                    "name": {
+                        "title": "Name",
                         "type": "string"
                     },
-                    "engine_version": {
-                        "title": "Engine Version",
+                    "engine": {
+                        "$ref": "#/components/schemas/EngineRef"
+                    },
+                    "config": {
+                        "title": "Config",
+                        "anyOf": [
+                            {
+                                "$ref": "#/components/schemas/DruidCubeConfig"
+                            },
+                            {
+                                "$ref": "#/components/schemas/GenericCubeConfig"
+                            }
+                        ]
+                    },
+                    "schedule": {
+                        "title": "Schedule",
                         "type": "string"
+                    }
+                },
+                "description": "An upsert object for cube materialization configs"
+            },
+            "UpsertMaterializationConfig": {
+                "title": "UpsertMaterializationConfig",
+                "required": [
+                    "engine",
+                    "config",
+                    "schedule"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "engine": {
+                        "$ref": "#/components/schemas/EngineRef"
                     },
                     "config": {
                         "title": "Config",
