@@ -12,7 +12,7 @@ from djqs.api.helpers import get_engine
 from djqs.models.engine import BaseEngineInfo, Engine, EngineInfo
 from djqs.utils import get_session
 
-router = APIRouter()
+router = APIRouter(tags=["Catalogs & Engines"])
 
 
 @router.get("/engines/", response_model=List[EngineInfo])
