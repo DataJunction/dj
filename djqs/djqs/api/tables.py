@@ -11,7 +11,7 @@ from djqs.exceptions import DJInvalidTableRef
 from djqs.models.table import TableInfo
 from djqs.utils import get_session, get_settings
 
-router = APIRouter()
+router = APIRouter(tags=["Table Reflection"])
 
 
 @router.get("/table/{table}/columns/", response_model=TableInfo)

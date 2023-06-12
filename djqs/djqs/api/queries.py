@@ -36,7 +36,7 @@ from djqs.models.query import (
 from djqs.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["SQL Queries"])
 
 
 @router.post(

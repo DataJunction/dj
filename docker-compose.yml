@@ -3,6 +3,10 @@ version: "3"
 networks:
   core:
     driver: bridge
+  djqs-network:
+    driver: bridge
+  djrs-network:
+    driver: bridge
 
 services:
   dj:
@@ -13,7 +17,12 @@ services:
       - core
     environment:
       - DOTENV_FILE=.docker-env/.env
-    build: .
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
+      - OTEL_RESOURCE_ATTRIBUTES=service.name=datajunction.server
+    build:
+      context: .
+      args:
+        RELOAD: "--reload"
     volumes:
       - .:/code
     ports:
@@ -34,3 +43,112 @@ services:
       - .:/code
     command: alembic upgrade head
     restart: on-failure
+
+  djui:
+    container_name: djui
+    build:
+      context: ./djui
+    ports:
+      - "3000:3000"
+    stdin_open: true
+    volumes:
+      - ./djui:/usr/src/app/
+      - /usr/src/app/node_modules
+    command: ["yarn", "webpack-start", "--host", "0.0.0.0", "--port", "3000"]
+
+  djqs:
+    container_name: djqs
+    profiles: ["demo"]
+    stdin_open: true
+    tty: true
+    networks:
+      - core
+      - djqs-network
+    build:
+      context: ./djqs
+    volumes:
+      - ./djqs:/code
+    ports:
+      - "8001:8001"
+    depends_on:
+      - djqs-db-migration
+
+  djqs-db-migration:
+    container_name: djqs-db-migration
+    profiles: ["demo"]
+    networks:
+      - djqs-network
+    build:
+      context: ./djqs
+    volumes:
+      - ./djqs:/code
+    command: alembic upgrade head
+    restart: on-failure
+
+  djrs-redis:
+    container_name: djrs-redis
+    profiles: ["demo"]
+    image: redis:6-alpine
+    ports:
+      - "6379:6379"
+    networks:
+      - djrs-network
+
+  djrs-worker:
+    container_name: djrs-worker
+    profiles: ["demo"]
+    build:
+      context: ./djrs
+    command: ["celery", "-A", "djrs.worker.app", "worker", "--loglevel", "INFO"]
+    networks:
+      - core
+      - djrs-network
+    volumes:
+      - ./djrs:/code
+    depends_on:
+      - djrs-redis
+      - dj
+
+  djrs-beat:
+    container_name: djrs-beat
+    profiles: ["demo"]
+    build:
+      context: ./djrs
+    command:
+      ["celery", "--app", "djrs.worker.app", "beat", "--loglevel", "INFO"]
+    networks:
+      - djrs-network
+    depends_on:
+      - djrs-redis
+      - dj
+    restart: "no"
+    volumes:
+      - ./djrs:/code
+
+  jupyter-notebook:
+    image: jupyter/scipy-notebook
+    container_name: jupyter
+    profiles: ["demo"]
+    networks:
+      - core
+    ports:
+      - "8888:8888"
+    volumes:
+      - ./notebooks:/home/jovyan/notebooks
+      - ./client/python:/home/jovyan/notebooks/datajunction
+    environment:
+      JUPYTER_ENABLE_LAB: "yes"
+    command: /bin/bash -c "pip install -e /home/jovyan/notebooks/datajunction/ && start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''"
+
+  jaeger:
+    container_name: jaeger
+    profiles: ["demo"]
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - LOG_LEVEL=debug
+    networks:
+      - core
