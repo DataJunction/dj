@@ -729,4 +729,5 @@ pre {
   height: 50vh;
   width: 70vw;
   overflow: auto;
+  flex-direction: column;
 }
