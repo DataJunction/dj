@@ -33,8 +33,10 @@ export const DataJunctionAPI = {
   },
 
   commonDimensions: async function (metrics) {
-    const metricsQuery = '?' + metrics.map(m => `metric=${m}`).join('&')
-    const data = await (await fetch(DJ_URL + '/metrics/common/dimensions/' + metricsQuery)).json();
+    const metricsQuery = '?' + metrics.map(m => `metric=${m}`).join('&');
+    const data = await (
+      await fetch(DJ_URL + '/metrics/common/dimensions/' + metricsQuery)
+    ).json();
     return data;
   },
 
@@ -82,25 +84,17 @@ export const DataJunctionAPI = {
   },
   sqls: async function (metricSelection, dimensionSelection) {
     const params = new URLSearchParams();
-    metricSelection.map(metric => params.append("metrics", metric))
-    dimensionSelection.map(dimension => params.append("dimensions", dimension))
-    const data = await (
-      await fetch(
-        DJ_URL + '/sql/' + '?' + params,
-      )
-    ).json();
+    metricSelection.map(metric => params.append('metrics', metric));
+    dimensionSelection.map(dimension => params.append('dimensions', dimension));
+    const data = await (await fetch(DJ_URL + '/sql/' + '?' + params)).json();
     return data;
   },
 
   data: async function (metricSelection, dimensionSelection) {
     const params = new URLSearchParams();
-    metricSelection.map(metric => params.append("metrics", metric))
-    dimensionSelection.map(dimension => params.append("dimensions", dimension))
-    const data = await (
-      await fetch(
-        DJ_URL + '/data/' + '?' + params,
-      )
-    ).json();
+    metricSelection.map(metric => params.append('metrics', metric));
+    dimensionSelection.map(dimension => params.append('dimensions', dimension));
+    const data = await (await fetch(DJ_URL + '/data/' + '?' + params)).json();
     return data;
   },
 

@@ -47,7 +47,11 @@ export function App() {
                     key="namespaces"
                   />
                 </Route>
-                <Route path="cubebuilder" key="cubebuilder" element={<CubeBuilderPage />} />
+                <Route
+                  path="cubebuilder"
+                  key="cubebuilder"
+                  element={<CubeBuilderPage />}
+                />
               </>
             }
           />
