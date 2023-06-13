@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 includes = ["djqs"]
 
 [project]
-name = "djqs"
+name = "datajunction-query"
 dynamic = ["version"]
 description = "OSS Implementation of a DataJunction Query Service"
 authors = [

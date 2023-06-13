@@ -198,9 +198,9 @@ dependencies = [
 
 [[package]]
 name = "datajunction-server"
-version = "0.0.1a14"
+version = "0.0.1a15"
 requires_python = "<4.0,>=3.8"
-path = "../.."
+path = "../../datajunction-server"
 summary = "DataJunction server library for running to a DataJunction server"
 dependencies = [
     "accept-types<1.0.0,>=0.4.1",
@@ -817,7 +817,7 @@ summary = "Backport of pathlib-compatible object wrapper for zip files"
 lock_version = "4.2"
 cross_platform = true
 groups = ["default", "test"]
-content_hash = "sha256:1aaac80ea0f51357d6483ff64214259c7b707fb1e71923a2287fe5c7354043a8"
+content_hash = "sha256:6f77111ab3e4db074628aea1cd3201dd5ad4b35e8ed8fefc4ab5bedc0bd8bedb"
 
 [metadata.files]
 "about-time 4.2.1" = [
