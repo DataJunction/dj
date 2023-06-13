@@ -24,7 +24,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: ${{ matrix.library == 'server' && '.' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './djqs' || matrix.library == 'djrs' && './djrs'}}
+        working-directory: ${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
 
     steps:
       - uses: actions/checkout@v2

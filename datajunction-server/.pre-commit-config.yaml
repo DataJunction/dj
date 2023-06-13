@@ -1,4 +1,5 @@
-exclude: (^docs/|^openapi/|^client/python/|^client/javascript/|^dj/sql/parsing/backends/grammar/generated|^djqs|^djui|^djrs|^README.md)
+files: ^dj/
+exclude: (^docs/|^openapi/|^client/python/|^client/javascript/|^dj/sql/parsing/backends/grammar/generated|^README.md)
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
