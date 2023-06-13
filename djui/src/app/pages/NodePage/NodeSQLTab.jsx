@@ -28,7 +28,7 @@ const NodeSQLTab = djNode => {
   const dimensionsList = djNode.djNode.dimensions
     ? djNode.djNode.dimensions.map(dim => ({
         value: dim.name,
-        label: dim.name + `, (${dim.type})`,
+        label: dim.name + ` (${dim.type})`,
       }))
     : [''];
 
