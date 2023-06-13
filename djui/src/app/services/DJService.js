@@ -80,6 +80,19 @@ export const DataJunctionAPI = {
     ).json();
     return data;
   },
+  sqls: async function (metricSelection, dimensionSelection) {
+    const params = new URLSearchParams();
+    metricSelection.map(metric => params.append("metrics", metric))
+    dimensionSelection.map(dimension => params.append("dimensions", dimension))
+    const data = await (
+      await fetch(
+        DJ_URL + '/sql/' + '?' + params,
+      )
+    ).json();
+    return data;
+  },
+
+  lineage: async function (node) {},
 
   compiledSql: async function (node) {
     const data = await (await fetch(DJ_URL + `/sql/${node}/`)).json();

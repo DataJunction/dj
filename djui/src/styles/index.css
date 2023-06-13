@@ -132,6 +132,12 @@ ul {
   border-top-left-radius: inherit;
   border-top-right-radius: inherit;
 }
+.li {
+  cursor: pointer;
+}
+.raw-node-list {
+  flex: 0 0 50px;
+}
 .d-flex {
   display: flex !important;
 }
@@ -351,7 +357,6 @@ tbody th {
   vertical-align: middle;
   padding: 0.44rem;
   border-radius: 0.375rem;
-  cursor: crosshair;
   word-wrap: break-word;
   white-space: break-spaces;
 }
@@ -691,4 +696,37 @@ pre {
 
 .checkbox {
   display: none;
+}
+
+.flex-container {
+  align-items: flex-start;
+  display: flex;
+  flex: 0.4 0.6;
+  margin: 2rem;
+}
+
+.builder-list {
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 1rem;
+}
+
+.pointer {
+  cursor: pointer;
+}
+
+.flex-child {
+  border: 2px;
+}  
+
+.bottom-border {
+  border-bottom: 1px solid;
+  border-color:rgba(18, 38, 63, 0.247)
+} 
+
+.sql-query-view {
+  height: 50vh;
+  width: 70vw;
+  overflow: auto;
 }
