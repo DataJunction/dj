@@ -1349,7 +1349,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
         old_node_data = response.json()
         assert old_node_data["version"] == "v1.0"
-        assert old_node_data["materialization_configs"] == []
+        assert old_node_data["materializations"] == []
 
         # Setting the materialization config should succeed
         response = client_with_query_service.post(
@@ -1431,7 +1431,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
         data = response.json()
         assert data["version"] == "v1.0"
-        assert data["materialization_configs"] == [
+        assert data["materializations"] == [
             {
                 "name": "country_3491792861",
                 "engine": {
@@ -1525,7 +1525,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get("/nodes/default.hard_hat/")
         data = response.json()
         assert data["version"] == "v1.0"
-        assert data["materialization_configs"] == [
+        assert data["materializations"] == [
             {
                 "name": "country_birth_date_contractor_id_379232101",
                 "engine": {
