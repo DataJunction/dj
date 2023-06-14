@@ -7,12 +7,8 @@ from typing import List, Optional
 from pydantic import Field, root_validator
 from sqlmodel import SQLModel
 
-from dj.models.node import (
-    AvailabilityState,
-    ColumnOutput,
-    MaterializationConfigOutput,
-    NodeType,
-)
+from dj.models.materialization import MaterializationConfigOutput
+from dj.models.node import AvailabilityState, ColumnOutput, NodeType
 from dj.typing import UTCDatetime
 
 

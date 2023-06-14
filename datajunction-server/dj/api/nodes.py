@@ -50,7 +50,10 @@ from dj.models.column import Column, ColumnAttributeInput
 from dj.models.cube import Measure
 from dj.models.engine import Dialect, Engine
 from dj.models.history import ActivityType, EntityType, History
-from dj.models.materialization import MaterializationOutput
+from dj.models.materialization import (
+    MaterializationConfigInfoUnified,
+    MaterializationInfo,
+)
 from dj.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
@@ -453,6 +456,7 @@ def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
         Dialect.SPARK: SparkSqlMaterializationJob,
         Dialect.TRINO: TrinoMaterializationJob,
         Dialect.DRUID: DruidCubeMaterializationJob,
+        None: SparkSqlMaterializationJob,
     }
     if engine.dialect not in engine_to_job_mapping:
         raise DJInvalidInputException(  # pragma: no cover
@@ -585,8 +589,8 @@ def upsert_a_materialization_config(  # pylint: disable=too-many-locals
     if (
         existing_config_for_engine
         and existing_config_for_engine[0].config == data.config
-    ):  # pragma: no cover
-        existing_materialization_links = query_service_client.get_materializations(
+    ):
+        existing_materialization_info = query_service_client.get_materialization_info(
             name,
             materialization_config_name,
         )
@@ -597,7 +601,7 @@ def upsert_a_materialization_config(  # pylint: disable=too-many-locals
                     f"The same materialization config with name `{materialization_config_name}`"
                     f"already exists for node `{name}` so no update was performed."
                 ),
-                "links": existing_materialization_links,
+                "info": existing_materialization_info.dict(),
             },
         )
 
@@ -638,6 +642,36 @@ def upsert_a_materialization_config(  # pylint: disable=too-many-locals
             "urls": [output.urls for output in materialization_response.values()],
         },
     )
+
+
+@router.get(
+    "/nodes/{node_name}/materializations/",
+    response_model=List[MaterializationConfigInfoUnified],
+)
+def list_node_materializations(
+    node_name: str,
+    *,
+    session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> List[MaterializationConfigInfoUnified]:
+    """
+    Show all materializations configured for the node, with any associated metadata
+    like urls from the materialization service, if available.
+    """
+    node = get_node_by_name(session, node_name, with_current=True)
+    materializations = []
+    for materialization in node.current.materialization_configs:
+        info = query_service_client.get_materialization_info(
+            node_name,
+            materialization.name,
+        )
+        materialization = MaterializationConfigInfoUnified(
+            **materialization.dict(),
+            **{"engine": materialization.engine.dict()},
+            **info.dict(),
+        )
+        materializations.append(materialization)
+    return materializations
 
 
 @router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
@@ -1116,7 +1150,7 @@ def create_a_cube(
 def schedule_materialization_jobs(
     materialization_configs: List[MaterializationConfig],
     query_service_client: QueryServiceClient,
-) -> Dict[str, MaterializationOutput]:
+) -> Dict[str, MaterializationInfo]:
     """
     Schedule recurring materialization jobs
     """
