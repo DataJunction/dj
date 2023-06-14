@@ -6,7 +6,7 @@ from typing import Dict
 from dj.errors import DJException
 from dj.materialization.jobs.materialization_job import MaterializationJob
 from dj.models.engine import Dialect
-from dj.models.materialization import DruidMaterializationInput, MaterializationOutput
+from dj.models.materialization import DruidMaterializationInput, MaterializationInfo
 from dj.models.node import DruidCubeConfig, MaterializationConfig, PartitionType
 from dj.service_clients import QueryServiceClient
 
@@ -128,7 +128,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
         self,
         materialization: MaterializationConfig,
         query_service_client: QueryServiceClient,
-    ) -> MaterializationOutput:
+    ) -> MaterializationInfo:
         """
         Use the query service to kick off the materialization setup.
         """

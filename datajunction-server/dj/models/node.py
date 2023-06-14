@@ -24,7 +24,8 @@ from dj.models.base import BaseSQLModel, NodeColumns, generate_display_name
 from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
-from dj.models.engine import Dialect, Engine, EngineInfo, EngineRef
+from dj.models.engine import Dialect, Engine, EngineRef
+from dj.models.materialization import MaterializationConfigOutput
 from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parsing.types import ColumnType
 from dj.typing import UTCDatetime
@@ -932,18 +933,6 @@ class TableOutput(SQLModel):
     schema_: Optional[str]
     table: Optional[str]
     database: Optional[Database]
-
-
-class MaterializationConfigOutput(SQLModel):
-    """
-    Output for materialization config.
-    """
-
-    name: Optional[str]
-    engine: EngineInfo
-    config: Dict
-    schedule: str
-    job: str
 
 
 class NodeRevisionOutput(SQLModel):

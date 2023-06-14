@@ -2,6 +2,9 @@
 from typing import Dict, List, Optional
 
 from pydantic import AnyHttpUrl, BaseModel
+from sqlmodel import SQLModel
+
+from dj.models.engine import EngineInfo
 
 
 class GenericMaterializationInput(BaseModel):
@@ -29,10 +32,32 @@ class DruidMaterializationInput(GenericMaterializationInput):
     druid_spec: Dict
 
 
-class MaterializationOutput(BaseModel):
+class MaterializationInfo(BaseModel):
     """
     The output when calling the query service's materialization
     API endpoint for a cube node.
     """
 
+    output_tables: List[str]
     urls: List[AnyHttpUrl]
+
+
+class MaterializationConfigOutput(SQLModel):
+    """
+    Output for materialization config.
+    """
+
+    name: Optional[str]
+    engine: EngineInfo
+    config: Dict
+    schedule: str
+    job: str
+
+
+class MaterializationConfigInfoUnified(
+    MaterializationInfo,
+    MaterializationConfigOutput,
+):
+    """
+    Materialization config + info
+    """
