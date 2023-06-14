@@ -420,6 +420,57 @@ tbody th {
   color: #855e5e;
 }
 
+.partition_value {
+  border: solid #00b368 0.025em;
+  background-color: #ccf7e525;
+  margin: 0.25rem;
+}
+
+.upstreams {
+  width: 260px;
+  display: flex;
+}
+.upstream_tables {
+  width: 260px;
+  font-size: 14px;
+  word-wrap: break-word;
+  padding: 12px;
+}
+
+.bi-table {
+}
+
+.name {
+  display: block;
+  flex-grow: 1;
+  line-height: 18px;
+}
+
+.entity-info {
+  color: #757575;
+  font-size: 12px;
+  padding: 0.25rem;
+  flex-grow: 1;
+  line-height: 24px;
+  letter-spacing: normal;
+}
+
+.node_name {
+  word-wrap: break-word;
+  max-width: 200px;
+}
+
+.cron {
+  /*border: solid #b34b00 0.025em;*/
+  background-color: rgb(255 215 215) !important;
+  color: #b34b00;
+  font-size: 1rem;
+}
+.cron-description {
+  text-transform: lowercase;
+  color: #777777;
+}
+
 .status__valid {
   color: #00b368;
 }
@@ -604,11 +655,11 @@ pre {
   /*max-width: fit-content;*/
 }
 
-.switch { 
-  position : relative ;
-  display : inline-block;
-  width : 40px;
-  height : 20px;
+.switch {
+  position: relative;
+  display: inline-block;
+  width: 40px;
+  height: 20px;
   background-color: #eee;
   border-radius: 20px;
   vertical-align: middle;
@@ -627,12 +678,12 @@ pre {
 }
 
 .checkbox:checked + .switch::after {
-  left : 20px; 
+  left: 20px;
 }
 .checkbox:checked + .switch {
   background-color: #7983ff;
 }
 
-.checkbox { 
-  display : none;
+.checkbox {
+  display: none;
 }

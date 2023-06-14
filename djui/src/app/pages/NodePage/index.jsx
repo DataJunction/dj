@@ -9,6 +9,7 @@ import NodeLineage from './NodeGraphTab';
 import NodeHistory from './NodeHistory';
 import DJClientContext from '../../providers/djclient';
 import NodeSQLTab from './NodeSQLTab';
+import NodeMaterializationTab from './NodeMaterializationTab';
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -70,6 +71,10 @@ export function NodePage() {
       id: 4,
       name: 'SQL',
     },
+    {
+      id: 5,
+      name: 'Materializations',
+    },
   ];
   //
   //
@@ -90,6 +95,9 @@ export function NodePage() {
     case 4:
       tabToDisplay =
         node.type === 'metric' ? <NodeSQLTab djNode={node} /> : <br />;
+      break;
+    case 5:
+      tabToDisplay = <NodeMaterializationTab node={node} djClient={djClient} />;
       break;
     default:
       tabToDisplay = <NodeInfoTab node={node} />;

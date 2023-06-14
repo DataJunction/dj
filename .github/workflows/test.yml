@@ -94,4 +94,4 @@ jobs:
       - name: Run Unit Tests
         run: yarn test
       - name: Build Project
-        run: yarn build
+        run: yarn webpack-build
