@@ -70,8 +70,6 @@ services:
       - ./djqs:/code
     ports:
       - "8001:8001"
-    depends_on:
-      - djqs-db-migration
 
   djqs-db-migration:
     container_name: djqs-db-migration
@@ -82,8 +80,10 @@ services:
       context: ./djqs
     volumes:
       - ./djqs:/code
-    command: alembic upgrade head
+    command: /bin/bash -c "cp -n /code/djqs.demo.db /code/djqs.demo.db | true && sleep 2 && alembic upgrade head"
     restart: on-failure
+    depends_on:
+      - djqs
 
   djrs-redis:
     container_name: djrs-redis
