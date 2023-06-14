@@ -65,7 +65,7 @@ class CubeRevisionMetadata(SQLModel):
     query: str
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
-    materialization_configs: List[MaterializationConfigOutput]
+    materializations: List[MaterializationConfigOutput]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True

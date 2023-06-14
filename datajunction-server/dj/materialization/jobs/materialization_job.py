@@ -5,8 +5,12 @@ import abc
 from typing import Optional
 
 from dj.models.engine import Dialect
-from dj.models.materialization import GenericMaterializationInput, MaterializationInfo
-from dj.models.node import GenericMaterializationConfig, MaterializationConfig
+from dj.models.materialization import (
+    GenericMaterializationConfig,
+    GenericMaterializationInput,
+    Materialization,
+    MaterializationInfo,
+)
 from dj.service_clients import QueryServiceClient
 
 
@@ -23,7 +27,7 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
     @abc.abstractmethod
     def schedule(
         self,
-        materialization: MaterializationConfig,
+        materialization: Materialization,
         query_service_client: QueryServiceClient,
     ) -> MaterializationInfo:
         """
@@ -43,7 +47,7 @@ class TrinoMaterializationJob(  # pylint: disable=too-few-public-methods # pragm
 
     def schedule(
         self,
-        materialization: MaterializationConfig,
+        materialization: Materialization,
         query_service_client: QueryServiceClient,
     ) -> MaterializationInfo:
         """
@@ -62,7 +66,7 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
 
     def schedule(
         self,
-        materialization: MaterializationConfig,
+        materialization: Materialization,
         query_service_client: QueryServiceClient,
     ) -> MaterializationInfo:
         """

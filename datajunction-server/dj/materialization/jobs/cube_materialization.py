@@ -6,8 +6,13 @@ from typing import Dict
 from dj.errors import DJException
 from dj.materialization.jobs.materialization_job import MaterializationJob
 from dj.models.engine import Dialect
-from dj.models.materialization import DruidMaterializationInput, MaterializationInfo
-from dj.models.node import DruidCubeConfig, MaterializationConfig, PartitionType
+from dj.models.materialization import (
+    DruidCubeConfig,
+    DruidMaterializationInput,
+    Materialization,
+    MaterializationInfo,
+    PartitionType,
+)
 from dj.service_clients import QueryServiceClient
 
 DRUID_AGG_MAPPING = {
@@ -36,7 +41,7 @@ class DefaultCubeMaterialization(
 
     def schedule(
         self,
-        materialization: MaterializationConfig,
+        materialization: Materialization,
         query_service_client: QueryServiceClient,
     ):
         """
@@ -126,7 +131,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
 
     def schedule(
         self,
-        materialization: MaterializationConfig,
+        materialization: Materialization,
         query_service_client: QueryServiceClient,
     ) -> MaterializationInfo:
         """

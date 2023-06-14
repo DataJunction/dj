@@ -630,7 +630,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
                 f"Error retrieving data: {response.text}",
             )
 
-    def upsert_materialization_config(
+    def upsert_materialization(
         self,
         node_name: str,
         config: models.MaterializationConfig,
@@ -675,7 +675,7 @@ class Node(ClientEntity):
     availability: Optional[Dict]
     tags: Optional[List[models.Tag]]
     primary_key: Optional[List[str]]
-    materialization_configs: Optional[List[Dict[str, Any]]]
+    materializations: Optional[List[Dict[str, Any]]]
     version: Optional[str]
 
     def save(self, mode: models.NodeMode = models.NodeMode.PUBLISHED):
@@ -726,12 +726,12 @@ class Node(ClientEntity):
         self.sync()
         return link_response
 
-    def add_materialization_config(self, config: models.MaterializationConfig):
+    def add_materialization(self, config: models.MaterializationConfig):
         """
-        Adds a materialization config for the node. This will not work for source nodes
+        Adds a materialization for the node. This will not work for source nodes
         as they don't need to be materialized.
         """
-        upsert_response = self.dj_client.upsert_materialization_config(
+        upsert_response = self.dj_client.upsert_materialization(
             self.name,
             config,
         )
