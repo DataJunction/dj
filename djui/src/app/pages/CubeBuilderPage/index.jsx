@@ -66,7 +66,7 @@ export function CubeBuilderPage() {
       }
     };
     fetchData().catch(console.error);
-  }, [selectedMetrics]);
+  }, [selectedMetrics, djClient]);
 
   // Get SQL
   useEffect(() => {
@@ -77,7 +77,7 @@ export function CubeBuilderPage() {
       }
     };
     fetchData().catch(console.error);
-  }, [selectedMetrics, selectedDimensions]);
+  }, [selectedMetrics, selectedDimensions, djClient]);
 
   // @ts-ignore
   return (
@@ -123,11 +123,12 @@ export function CubeBuilderPage() {
                     {metrics.map(metric => (
                       <tr className="builder-list" key={metric}>
                         <td className="builder-list">
-                          <a onClick={() => handleMetricAdd(metric)}>
-                            <span className="node_type__metric badge rounded-pill node_type">
-                              {metric}
-                            </span>
-                          </a>
+                          <span
+                            onClick={() => handleMetricAdd(metric)}
+                            className="node_type__metric badge rounded-pill node_type"
+                          >
+                            {metric}
+                          </span>
                         </td>
                       </tr>
                     ))}
@@ -135,14 +136,11 @@ export function CubeBuilderPage() {
                       commonDimensionsList.map(dimension => (
                         <tr className="builder-list" key={dimension.name}>
                           <td className="builder-list">
-                            <span className="node_type__dimension badge node_type">
-                              <a
-                                onClick={() =>
-                                  handleDimensionAdd(dimension.name)
-                                }
-                              >
-                                {dimension.name}
-                              </a>
+                            <span
+                              onClick={() => handleDimensionAdd(dimension.name)}
+                              className="node_type__dimension badge node_type"
+                            >
+                              {dimension.name}
                             </span>
                           </td>
                           <td></td>
@@ -161,9 +159,9 @@ export function CubeBuilderPage() {
                   {loadingData ? (
                     <span>{'Running Query'}</span>
                   ) : (
-                    <a className="pointer" onClick={getData}>
+                    <span className="pointer" onClick={getData}>
                       {'Run Query'}
-                    </a>
+                    </span>
                   )}
                   {query ? (
                     <>

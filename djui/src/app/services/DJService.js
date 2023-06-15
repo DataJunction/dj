@@ -86,7 +86,7 @@ export const DataJunctionAPI = {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
-    const data = await (await fetch(DJ_URL + '/sql/' + '?' + params)).json();
+    const data = await (await fetch(DJ_URL + '/sql/?' + params)).json();
     return data;
   },
 
@@ -94,7 +94,7 @@ export const DataJunctionAPI = {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
-    const data = await (await fetch(DJ_URL + '/data/' + '?' + params)).json();
+    const data = await (await fetch(DJ_URL + '/data/?' + params)).json();
     return data;
   },
 
