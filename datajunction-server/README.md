@@ -24,11 +24,11 @@ DataJunction reflection service specifications, use the `demo` profile.
 docker compose --profile demo up
 ```
 
-DJUI: [http://localhost:3000/](http://localhost:3000/)  
-DJ Swagger Docs: [http://localhost:8000/docs](http://localhost:8000/docs)  
-DJQS Swagger Docs: [http://localhost:8001/docs](http://localhost:8001/docs)  
-Jaeger UI: [http://localhost:16686/search](http://localhost:16686/search)  
-Jupyter Lab: [http://localhost:8888](http://localhost:8888)  
+DJUI: [http://localhost:3000/](http://localhost:3000/)
+DJ Swagger Docs: [http://localhost:8000/docs](http://localhost:8000/docs)
+DJQS Swagger Docs: [http://localhost:8001/docs](http://localhost:8001/docs)
+Jaeger UI: [http://localhost:16686/search](http://localhost:16686/search)
+Jupyter Lab: [http://localhost:8888](http://localhost:8888)
 
 ## How does this work?
 

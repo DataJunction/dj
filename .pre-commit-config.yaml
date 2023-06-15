@@ -1,5 +1,5 @@
-files: ^datajunction-server/
-exclude: (^datajunction-server/dj/sql/parsing/backends/grammar/generated|^README.md)
+files: (^datajunction-server/)
+exclude: (^docs/|^openapi/|^client/python/|^client/javascript/|^datajunction-server/dj/sql/parsing/backends/grammar/generated|^README.md)
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -90,7 +90,7 @@ repos:
   hooks:
   - id: pylint
     name: pylint
-    entry: pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison,wrong-import-order
+    entry: pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison
     language: system
     types: [python]
     exclude: ^templates/

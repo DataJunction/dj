@@ -1,4 +1,4 @@
-files: ^djrs/
+files: ^datajunction-reflection/
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
