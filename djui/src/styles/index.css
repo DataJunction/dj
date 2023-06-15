@@ -248,7 +248,7 @@ tr {
   background-clip: border-box;
   /*border: 1px solid #edf2f9;*/
   border-radius: 1rem;
-  margin: 4rem;
+  margin: 2rem;
 }
 
 .table-responsive {
@@ -706,14 +706,10 @@ pre {
 }
 
 .builder-list {
-  padding: 0;
+  padding-top: 2px;
   text-align: left;
   cursor: pointer;
   border-radius: 1rem;
-}
-
-.pointer {
-  cursor: pointer;
 }
 
 .flex-child {
@@ -725,9 +721,46 @@ pre {
   border-color:rgba(18, 38, 63, 0.247)
 } 
 
-.sql-query-view {
-  height: 50vh;
+.builder-view-box {
+  height: 70vh;
   width: 70vw;
   overflow: auto;
   flex-direction: column;
+}
+
+/* CSS */
+.button-3 {
+  appearance: none;
+  border: 1px solid rgba(27, 31, 35, .15);
+  border-radius: 6px;
+  box-shadow: rgba(27, 31, 35, .1) 0 1px 0;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-block;
+  font-weight: 600;
+  line-height: 20px;
+  padding: 6px 16px;
+  position: relative;
+  text-align: center;
+  text-decoration: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.button-3:focus:not(:focus-visible):not(.focus-visible) {
+  box-shadow: none;
+  outline: none;
+}
+
+.execute-button {
+  background-color: #00b368;
+  color: #fff
+}
+
+.executing-button {
+  background-color: #bbbbbb;
+  color: #fff
 }

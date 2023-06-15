@@ -19,27 +19,32 @@ export function CubeBuilderPage() {
   const [expandQuery, setExpandQuery] = useState(false);
 
   const toggleExpandQuery = () => setExpandQuery(current => !current);
+
   const handleMetricAdd = metricName => {
     if (selectedMetrics.indexOf(metricName) === -1) {
       setSelectedMetrics([...selectedMetrics, metricName]);
     }
     setMetrics(metrics.filter(m => m !== metricName));
+    setSelectedDimensions([]);
   };
+
+  const handleDimensionAdd = dimensionName => {
+    setCommonDimensionsList(
+      commonDimensionsList.filter(d => d !== dimensionName),
+    );
+    setSelectedDimensions([...selectedDimensions, dimensionName]);
+  };
+
   const handleMetricRemove = metricName => {
     setSelectedMetrics(selectedMetrics.filter(m => m !== metricName));
+    setSelectedDimensions([]);
+    setQuery('');
     setMetrics([...metrics, metricName]);
   };
-  const handleDimensionAdd = dimensionName => {
-    if (selectedDimensions.indexOf(dimensionName) === -1) {
-      setSelectedDimensions([...selectedDimensions, dimensionName]);
-    }
-    setCommonDimensionsList(
-      commonDimensionsList.filter(d => d.name !== dimensionName),
-    );
-  };
+
   const handleDimensionRemove = dimensionName => {
     setSelectedDimensions(selectedDimensions.filter(d => d !== dimensionName));
-    setCommonDimensionsList(...commonDimensionsList, dimensionName);
+    setCommonDimensionsList([...commonDimensionsList, dimensionName]);
   };
 
   const getData = () => {
@@ -68,8 +73,7 @@ export function CubeBuilderPage() {
         const commonDimensions = await djClient.commonDimensions(
           selectedMetrics,
         );
-        console.log(commonDimensions);
-        setCommonDimensionsList(commonDimensions);
+        setCommonDimensionsList(commonDimensions.map(d => d.name));
       }
     };
     fetchData().catch(console.error);
@@ -95,16 +99,16 @@ export function CubeBuilderPage() {
           <div className="card-header flex-container">
             <div className="flex-child raw-node-list">
               <div className="cube-builder">
-                <h6 className="mb-0 w-100">Metrics & Dimensions</h6>
-                <h4 className="mb-0 w-100">Selected</h4>
+                <h2>Metrics & Dimensions</h2>
+                <h4>Selected</h4>
                 <table>
                   <tbody className="table-responsive builder-list">
-                    {selectedMetrics.map(metric => (
+                    {selectedMetrics.sort().map(metric => (
                       <tr className="builder-list" key={`${metric}:selected`}>
                         <td className="builder-list">
                           <span
                             onClick={() => handleMetricRemove(metric)}
-                            className="node_type__metric badge node_type"
+                            className="button-3 node_type__metric"
                           >
                             {metric}
                           </span>
@@ -112,7 +116,7 @@ export function CubeBuilderPage() {
                         <td></td>
                       </tr>
                     ))}
-                    {selectedDimensions.map(dimension => (
+                    {selectedDimensions.sort().map(dimension => (
                       <tr
                         className="builder-list"
                         key={`${dimension}:selected`}
@@ -120,7 +124,7 @@ export function CubeBuilderPage() {
                         <td className="builder-list">
                           <span
                             onClick={() => handleDimensionRemove(dimension)}
-                            className="node_type__dimension badge node_type"
+                            className="button-3 node_type__dimension"
                           >
                             {dimension}
                           </span>
@@ -130,63 +134,73 @@ export function CubeBuilderPage() {
                     ))}
                   </tbody>
                 </table>
-                <h4 className="mb-0 w-100">Available</h4>
+                <h4>Available Metrics</h4>
                 <table>
                   <tbody className="table-responsive">
-                    {metrics.map(metric => (
+                    {metrics.sort().map(metric => (
                       <tr className="builder-list" key={metric}>
                         <td className="builder-list">
                           <span
                             onClick={() => handleMetricAdd(metric)}
-                            className="node_type__metric badge rounded-pill node_type"
+                            className="button-3 node_type__metric"
                           >
                             {metric}
                           </span>
                         </td>
                       </tr>
                     ))}
-                    {commonDimensionsList.length ? (
-                      commonDimensionsList.map(dimension => (
-                        <tr className="builder-list" key={dimension.name}>
-                          <td className="builder-list">
-                            <span
-                              onClick={() => handleDimensionAdd(dimension.name)}
-                              className="node_type__dimension badge node_type"
-                            >
-                              {dimension.name}
-                            </span>
-                          </td>
-                          <td></td>
-                        </tr>
-                      ))
-                    ) : (
-                      <></>
-                    )}
                   </tbody>
                 </table>
+                {commonDimensionsList.length ? (
+                  <>
+                    <h4>Available Dimensions</h4>
+                    <table>
+                      <tbody className="table-responsive">
+                        {commonDimensionsList.sort().map(dimension => (
+                          <tr className="builder-list" key={dimension}>
+                            <td className="builder-list">
+                              <span
+                                onClick={() => handleDimensionAdd(dimension)}
+                                className="button-3 node_type__dimension"
+                              >
+                                {dimension}
+                              </span>
+                            </td>
+                            <td></td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </>
+                ) : (
+                  <></>
+                )}
               </div>
             </div>
             <div className="flex-child">
               <div className="cube-builder">
-                <h6 className="mb-0 w-100">
-                  {loadingData ? (
-                    <span>{'Running Query'}</span>
-                  ) : (
-                    <span className="pointer" onClick={getData}>
-                      {'Run Query'}
+                {query ? (
+                  <h6>
+                    {loadingData ? (
+                      <span className="button-3 executing-button">
+                        {'Running Query'}
+                      </span>
+                    ) : (
+                      <span
+                        className="button-3 execute-button"
+                        onClick={getData}
+                      >
+                        {'Run Query'}
+                      </span>
+                    )}
+                    <span onClick={toggleExpandQuery}>
+                      {expandQuery ? ' (Collapse)' : ' (Expand)'}
                     </span>
-                  )}
-                  {query ? (
-                    <>
-                      <div className="pointer" onClick={toggleExpandQuery}>
-                        {expandQuery ? '(Collapse)' : '(Expand)'}
-                      </div>
-                    </>
-                  ) : (
-                    <></>
-                  )}
-                </h6>
-                <div className={expandQuery ? '' : 'sql-query-view'}>
+                  </h6>
+                ) : (
+                  <></>
+                )}
+                <div className={expandQuery ? '' : 'builder-view-box'}>
                   <SyntaxHighlighter language="sql" style={foundation}>
                     {format(
                       query
@@ -205,35 +219,38 @@ export function CubeBuilderPage() {
                 </div>
                 {data ? (
                   data.state === 'FINISHED' ? (
-                    <div className="table-responsive">
-                      <table className="card-inner-table table">
-                        <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-                          <tr>
-                            {data.results[0].columns.map(columnName => (
-                              <th key={columnName.name}>{columnName.name}</th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.results[0].rows.map((rowData, index) => (
-                            <tr key={`data-row:${index}`}>
-                              {rowData.map(rowValue => (
-                                <td key={rowValue}>{rowValue}</td>
+                    <>
+                      <h4>Results</h4>
+                      <div className="table-responsive builder-view-box">
+                        <table className="card-inner-table table">
+                          <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+                            <tr>
+                              {data.results[0].columns.map(columnName => (
+                                <th key={columnName.name}>{columnName.name}</th>
                               ))}
                             </tr>
-                          ))}
-                        </tbody>
-                      </table>
+                          </thead>
+                          <tbody>
+                            {data.results[0].rows.map((rowData, index) => (
+                              <tr key={`data-row:${index}`}>
+                                {rowData.map(rowValue => (
+                                  <td key={rowValue}>{rowValue}</td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </>
+                  ) : data.state ? (
+                    <div>
+                      {`Ran into an issue while running the query. (Query State: ${data.state}, Errors: ${data.errors})`}
                     </div>
                   ) : (
-                    ''
+                    <></>
                   )
                 ) : (
-                  <div>
-                    {`Ran into an issue while running the query. (Query State: ${
-                      data.state
-                    }, Errors: ${console.log(data)})`}
-                  </div>
+                  <></>
                 )}
               </div>
             </div>
