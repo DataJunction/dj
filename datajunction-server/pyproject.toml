@@ -85,3 +85,10 @@ without-hashes = true
 filename = "requirements/test.txt"
 groups = ["default", "test"]
 without-hashes = true
+
+[tool.coverage.run]
+source = ['dj/']
+
+[tool.isort]
+src_paths = ["dj/", "tests/"]
+profile = 'black'
