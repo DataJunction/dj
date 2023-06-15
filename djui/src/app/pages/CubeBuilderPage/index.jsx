@@ -25,7 +25,10 @@ export function CubeBuilderPage() {
     }
     setMetrics(metrics.filter(m => m !== metricName));
   };
-
+  const handleMetricRemove = metricName => {
+    setSelectedMetrics(selectedMetrics.filter(m => m !== metricName));
+    setMetrics([...metrics, metricName]);
+  };
   const handleDimensionAdd = dimensionName => {
     if (selectedDimensions.indexOf(dimensionName) === -1) {
       setSelectedDimensions([...selectedDimensions, dimensionName]);
@@ -33,6 +36,10 @@ export function CubeBuilderPage() {
     setCommonDimensionsList(
       commonDimensionsList.filter(d => d.name !== dimensionName),
     );
+  };
+  const handleDimensionRemove = dimensionName => {
+    setSelectedDimensions(selectedDimensions.filter(d => d !== dimensionName));
+    setCommonDimensionsList(...commonDimensionsList, dimensionName);
   };
 
   const getData = () => {
@@ -95,7 +102,10 @@ export function CubeBuilderPage() {
                     {selectedMetrics.map(metric => (
                       <tr className="builder-list" key={`${metric}:selected`}>
                         <td className="builder-list">
-                          <span className="node_type__metric badge node_type">
+                          <span
+                            onClick={() => handleMetricRemove(metric)}
+                            className="node_type__metric badge node_type"
+                          >
                             {metric}
                           </span>
                         </td>
@@ -108,7 +118,10 @@ export function CubeBuilderPage() {
                         key={`${dimension}:selected`}
                       >
                         <td className="builder-list">
-                          <span className="node_type__dimension badge node_type">
+                          <span
+                            onClick={() => handleDimensionRemove(dimension)}
+                            className="node_type__dimension badge node_type"
+                          >
                             {dimension}
                           </span>
                         </td>
