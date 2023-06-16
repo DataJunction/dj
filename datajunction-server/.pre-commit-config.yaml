@@ -1,11 +1,11 @@
-files: ^djqs/
+files: ^datajunction-server/
+exclude: (^datajunction-server/dj/sql/parsing/backends/grammar/generated|^README.md)
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks
   rev: v4.1.0
   hooks:
   - id: trailing-whitespace
-  - id: check-added-large-files
   - id: check-ast
     exclude: ^templates/
   - id: check-json
@@ -90,7 +90,20 @@ repos:
   hooks:
   - id: pylint
     name: pylint
-    entry: pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison
+    entry: pylint --disable=duplicate-code,use-implicit-booleaness-not-comparison,wrong-import-order
     language: system
     types: [python]
     exclude: ^templates/
+- repo: https://github.com/kynan/nbstripout
+  rev: 0.6.1
+  hooks:
+    - id: nbstripout
+- repo: https://github.com/tomcatling/black-nb
+  rev: "0.7"
+  hooks:
+    - id: black-nb
+      files: '\.ipynb$'
+- repo: https://github.com/pdm-project/pdm
+  rev: 2.6.1
+  hooks:
+    - id: pdm-lock-check

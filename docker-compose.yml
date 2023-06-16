@@ -20,11 +20,11 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - OTEL_RESOURCE_ATTRIBUTES=service.name=datajunction.server
     build:
-      context: .
+      context: ./datajunction-server
       args:
         RELOAD: "--reload"
     volumes:
-      - .:/code
+      - ./datajunction-server:/code
     ports:
       - "8000:8000"
     depends_on:
@@ -38,9 +38,10 @@ services:
       - core
     environment:
       - DOTENV_FILE=.docker-env/.env
-    build: .
+    build:
+      context: ./datajunction-server
     volumes:
-      - .:/code
+      - ./datajunction-server:/code
     command: alembic upgrade head
     restart: on-failure
 
@@ -65,9 +66,9 @@ services:
       - core
       - djqs-network
     build:
-      context: ./djqs
+      context: ./datajunction-query
     volumes:
-      - ./djqs:/code
+      - ./datajunction-query:/code
     ports:
       - "8001:8001"
 
@@ -77,9 +78,9 @@ services:
     networks:
       - djqs-network
     build:
-      context: ./djqs
+      context: ./datajunction-query
     volumes:
-      - ./djqs:/code
+      - ./datajunction-query:/code
     command: /bin/bash -c "cp -n /code/djqs.demo.db /code/djqs.demo.db | true && sleep 2 && alembic upgrade head"
     restart: on-failure
     depends_on:
@@ -98,13 +99,13 @@ services:
     container_name: djrs-worker
     profiles: ["demo"]
     build:
-      context: ./djrs
+      context: ./datajunction-reflection
     command: ["celery", "-A", "djrs.worker.app", "worker", "--loglevel", "INFO"]
     networks:
       - core
       - djrs-network
     volumes:
-      - ./djrs:/code
+      - ./datajunction-reflection:/code
     depends_on:
       - djrs-redis
       - dj
@@ -113,7 +114,7 @@ services:
     container_name: djrs-beat
     profiles: ["demo"]
     build:
-      context: ./djrs
+      context: ./datajunction-reflection
     command:
       ["celery", "--app", "djrs.worker.app", "beat", "--loglevel", "INFO"]
     networks:
@@ -123,7 +124,7 @@ services:
       - dj
     restart: "no"
     volumes:
-      - ./djrs:/code
+      - ./datajunction-reflection:/code
 
   jupyter-notebook:
     image: jupyter/scipy-notebook
