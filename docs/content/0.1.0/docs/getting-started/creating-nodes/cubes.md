@@ -147,7 +147,7 @@ config = MaterializationConfig(
         },
     },
 )
-cube.add_materialization_config(config)
+cube.add_materialization(config)
 ```
 {{< /tab >}}
 {{< /tabs >}}

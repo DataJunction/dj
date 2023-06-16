@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-export default function NodeColumnTab({ node, djClient }) {
+export default function NodeHistory({ node, djClient }) {
   const [history, setHistory] = useState([]);
   useEffect(() => {
     const fetchData = async () => {
