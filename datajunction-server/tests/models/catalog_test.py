@@ -1,8 +1,8 @@
 """
-Tests for ``dj.models.catalog``.
+Tests for ``datajunction_server.models.catalog``.
 """
 
-from dj.models.catalog import Catalog
+from datajunction_server.models.catalog import Catalog
 
 
 def test_catalog_str_and_hash():

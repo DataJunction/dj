@@ -8,10 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from dj.models import Database, Table
-from dj.models.column import Column
-from dj.models.node import Node, NodeRevision, NodeStatus, NodeType
-from dj.sql.parsing.types import IntegerType, StringType, TimestampType
+from datajunction_server.models import Database, Table
+from datajunction_server.models.column import Column
+from datajunction_server.models.node import Node, NodeRevision, NodeStatus, NodeType
+from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 
 
 def test_read_node(client_with_examples: TestClient) -> None:

@@ -1,15 +1,15 @@
 """
-Tests for ``dj.sql.functions``.
+Tests for ``datajunction_server.sql.functions``.
 """
 # pylint: disable=line-too-long
 
 import pytest
 from sqlmodel import Session
 
-import dj.sql.functions as F
-import dj.sql.parsing.types as ct
-from dj.errors import DJException, DJNotImplementedException
-from dj.sql.functions import (
+import datajunction_server.sql.functions as F
+import datajunction_server.sql.parsing.types as ct
+from datajunction_server.errors import DJException, DJNotImplementedException
+from datajunction_server.sql.functions import (
     Avg,
     Coalesce,
     Count,
@@ -20,9 +20,9 @@ from dj.sql.functions import (
     ToDate,
     function_registry,
 )
-from dj.sql.parsing import ast
-from dj.sql.parsing.backends.antlr4 import parse
-from dj.sql.parsing.types import (
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.types import (
     BigIntType,
     DateType,
     DecimalType,

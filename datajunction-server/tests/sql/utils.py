@@ -5,8 +5,8 @@ import os
 
 from sqlalchemy.sql import Select
 
-from dj.sql.parsing import ast
-from dj.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 TPCDS_QUERY_SET = ["tpcds_q01", "tpcds_q99"]
 

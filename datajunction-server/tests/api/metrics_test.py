@@ -4,12 +4,12 @@ Tests for the metrics API.
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from dj.models import AttributeType, ColumnAttribute
-from dj.models.column import Column
-from dj.models.database import Database
-from dj.models.node import Node, NodeRevision, NodeType
-from dj.models.table import Table
-from dj.sql.parsing.types import FloatType, IntegerType, StringType
+from datajunction_server.models import AttributeType, ColumnAttribute
+from datajunction_server.models.column import Column
+from datajunction_server.models.database import Database
+from datajunction_server.models.node import Node, NodeRevision, NodeType
+from datajunction_server.models.table import Table
+from datajunction_server.sql.parsing.types import FloatType, IntegerType, StringType
 
 
 def test_read_metrics(client_with_examples: TestClient) -> None:

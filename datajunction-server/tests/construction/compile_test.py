@@ -6,12 +6,12 @@ Tests for compiling nodes
 import pytest
 from sqlmodel import Session
 
-from dj.errors import DJException
-from dj.models import NodeRevision
-from dj.models.node import Node
-from dj.sql.parsing.ast import CompileContext
-from dj.sql.parsing.backends.antlr4 import parse
-from dj.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.errors import DJException
+from datajunction_server.models import NodeRevision
+from datajunction_server.models.node import Node
+from datajunction_server.sql.parsing.ast import CompileContext
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 
 def test_get_table_node_is_none(construction_session: Session):

@@ -1,8 +1,8 @@
 """
 Tests for types
 """
-import dj.sql.parsing.types as ct
-from dj.sql.parsing import ast
+import datajunction_server.sql.parsing.types as ct
+from datajunction_server.sql.parsing import ast
 
 
 def test_types_compatible():

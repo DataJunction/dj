@@ -1,11 +1,11 @@
 """
-Tests for ``dj.models.database``.
+Tests for ``datajunction_server.models.database``.
 """
 
-import dj.sql.parsing.types as ct
-from dj.models.column import Column
-from dj.models.database import Database
-from dj.models.table import Table
+import datajunction_server.sql.parsing.types as ct
+from datajunction_server.models.column import Column
+from datajunction_server.models.database import Database
+from datajunction_server.models.table import Table
 
 
 def test_hash() -> None:

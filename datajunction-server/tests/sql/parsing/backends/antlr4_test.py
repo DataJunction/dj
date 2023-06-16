@@ -5,7 +5,7 @@ Tests for custom antlr4 parser
 
 import pytest
 
-from dj.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
 @pytest.mark.parametrize(

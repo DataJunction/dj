@@ -4,12 +4,12 @@
 import pytest
 from sqlmodel import Session
 
-from dj.errors import DJException
-from dj.sql.parsing import ast
-from dj.sql.parsing.ast import CompileContext
-from dj.sql.parsing.backends.antlr4 import parse
-from dj.sql.parsing.backends.exceptions import DJParseException
-from dj.sql.parsing.types import (
+from datajunction_server.errors import DJException
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import CompileContext
+from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.sql.parsing.types import (
     BigIntType,
     BooleanType,
     ColumnType,

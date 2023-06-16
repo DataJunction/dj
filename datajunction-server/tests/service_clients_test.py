@@ -1,5 +1,5 @@
 """
-Tests for ``dj.service_clients``.
+Tests for ``datajunction_server.service_clients``.
 """
 from unittest.mock import MagicMock
 
@@ -7,12 +7,15 @@ import pytest
 from pytest_mock import MockerFixture
 from requests import Request
 
-from dj.errors import DJQueryServiceClientException
-from dj.models import Engine
-from dj.models.materialization import GenericMaterializationInput
-from dj.models.node import NodeType
-from dj.models.query import QueryCreate
-from dj.service_clients import QueryServiceClient, RequestsSessionWithEndpoint
+from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.models import Engine
+from datajunction_server.models.materialization import GenericMaterializationInput
+from datajunction_server.models.node import NodeType
+from datajunction_server.models.query import QueryCreate
+from datajunction_server.service_clients import (
+    QueryServiceClient,
+    RequestsSessionWithEndpoint,
+)
 
 
 class TestRequestsSessionWithEndpoint:
@@ -142,7 +145,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         }
 
         mock_request = mocker.patch(
-            "dj.service_clients.RequestsSessionWithEndpoint.post",
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
             return_value=mock_response,
         )
 
@@ -200,7 +203,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         }
 
         mock_request = mocker.patch(
-            "dj.service_clients.RequestsSessionWithEndpoint.get",
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
             return_value=mock_response,
         )
 
@@ -223,7 +226,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         }
 
         mock_request = mocker.patch(
-            "dj.service_clients.RequestsSessionWithEndpoint.post",
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
             return_value=mock_response,
         )
 
@@ -263,11 +266,11 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         mock_response.ok = False
 
         mocker.patch(
-            "dj.service_clients.RequestsSessionWithEndpoint.get",
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
             return_value=mock_response,
         )
         mocker.patch(
-            "dj.service_clients.RequestsSessionWithEndpoint.post",
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
             return_value=mock_response,
         )
 
@@ -300,7 +303,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         }
 
         mock_request = mocker.patch(
-            "dj.service_clients.RequestsSessionWithEndpoint.post",
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
             return_value=mock_response,
         )
 
@@ -347,7 +350,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         }
 
         mock_request = mocker.patch(
-            "dj.service_clients.RequestsSessionWithEndpoint.get",
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
             return_value=mock_response,
         )
 
@@ -375,7 +378,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         mock_response.json.return_value = {"message": "An error has occurred"}
 
         mocker.patch(
-            "dj.service_clients.RequestsSessionWithEndpoint.get",
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
             return_value=mock_response,
         )
 

@@ -6,7 +6,7 @@ from pytest_mock import MockerFixture
 from requests_mock.mocker import Mocker
 from yarl import URL
 
-from dj.superset import DJEngineSpec
+from datajunction_server.superset import DJEngineSpec
 
 
 def test_select_star() -> None:
@@ -64,7 +64,7 @@ def test_execute(mocker: MockerFixture) -> None:
     quotes identifiers starting with an underscore.
     """
     cursor = mocker.MagicMock()
-    super_ = mocker.patch("dj.superset.super")
+    super_ = mocker.patch("datajunction_server.superset.super")
     DJEngineSpec.execute(cursor, "SELECT time AS __timestamp FROM table")
     super_().execute.assert_called_with(
         cursor,

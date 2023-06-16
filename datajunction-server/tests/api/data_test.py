@@ -5,7 +5,7 @@ Tests for the data API.
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from dj.models.node import Node
+from datajunction_server.models.node import Node
 
 
 class TestDataForNode:

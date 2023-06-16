@@ -7,7 +7,7 @@ from uuid import UUID
 
 import msgpack
 
-from dj.models.query import (
+from datajunction_server.models.query import (
     ColumnMetadata,
     QueryResults,
     QueryWithResults,
@@ -15,7 +15,7 @@ from dj.models.query import (
     decode_results,
     encode_results,
 )
-from dj.typing import QueryState
+from datajunction_server.typing import QueryState
 
 
 def test_msgpack() -> None:

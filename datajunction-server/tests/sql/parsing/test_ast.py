@@ -5,9 +5,9 @@ testing ast Nodes and their methods
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from dj.errors import DJException
-from dj.sql.parsing import ast, types
-from dj.sql.parsing.backends.antlr4 import parse
+from datajunction_server.errors import DJException
+from datajunction_server.sql.parsing import ast, types
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
 def test_ast_compile_table(

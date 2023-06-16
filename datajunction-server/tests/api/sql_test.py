@@ -4,9 +4,9 @@ import pytest
 from sqlmodel import Session
 from starlette.testclient import TestClient
 
-from dj.models import Column, Database, Node
-from dj.models.node import NodeRevision, NodeType
-from dj.sql.parsing.types import StringType
+from datajunction_server.models import Column, Database, Node
+from datajunction_server.models.node import NodeRevision, NodeType
+from datajunction_server.sql.parsing.types import StringType
 from tests.sql.utils import compare_query_strings
 
 
