@@ -100,7 +100,8 @@ ENV/
 .mypy_cache/
 
 *.sqlite
-*.db
+dj.db
+djqs.db
 *.swp
 
 # https://pypi.org/project/python-dotenv/

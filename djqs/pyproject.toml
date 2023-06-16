@@ -18,6 +18,7 @@ dependencies = [
     "accept-types==0.4.1",
     "cachelib>=0.4.0",
     "duckdb==0.7.1",
+    "duckdb-engine",
     "fastapi>=0.79.0",
     "msgpack>=1.0.3",
     "python-dotenv==0.19.2",
