@@ -15,17 +15,21 @@ from pytest_mock import MockerFixture
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
-from dj.api.main import app
-from dj.config import Settings
-from dj.models import Column, Engine
-from dj.models.materialization import (
+from datajunction_server.api.main import app
+from datajunction_server.config import Settings
+from datajunction_server.models import Column, Engine
+from datajunction_server.models.materialization import (
     DruidMaterializationInput,
     GenericMaterializationInput,
     MaterializationInfo,
 )
-from dj.models.query import QueryCreate
-from dj.service_clients import QueryServiceClient
-from dj.utils import get_query_service_client, get_session, get_settings
+from datajunction_server.models.query import QueryCreate
+from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.utils import (
+    get_query_service_client,
+    get_session,
+    get_settings,
+)
 
 from .construction.fixtures import build_expectation, construction_session
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS
@@ -46,7 +50,7 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
     )
 
     mocker.patch(
-        "dj.utils.get_settings",
+        "datajunction_server.utils.get_settings",
         return_value=settings,
     )
 

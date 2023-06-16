@@ -6,9 +6,9 @@ Tests for building nodes and extracting dependencies
 import pytest
 from sqlmodel import Session
 
-from dj.construction.utils import get_dj_node
-from dj.errors import DJErrorException
-from dj.models.node import NodeType
+from datajunction_server.construction.utils import get_dj_node
+from datajunction_server.errors import DJErrorException
+from datajunction_server.models.node import NodeType
 
 
 def test_get_dj_node_raise_unknown_node_exception(session: Session):

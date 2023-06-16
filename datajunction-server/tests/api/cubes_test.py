@@ -7,7 +7,7 @@ from typing import Iterator
 import pytest
 from fastapi.testclient import TestClient
 
-from dj.service_clients import QueryServiceClient
+from datajunction_server.service_clients import QueryServiceClient
 from tests.sql.utils import compare_query_strings
 
 

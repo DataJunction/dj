@@ -1,15 +1,15 @@
 # .coveragerc to control coverage.py
 [run]
 branch = True
-source = dj
+source = datajunction_server
 omit =
-    */dj/sql/parsing/backends/grammar/generated/*
-    */dj/sql/parsing/backends/antlr4.py
-    */dj/sql/parsing/ast.py
+    */datajunction_server/sql/parsing/backends/grammar/generated/*
+    */datajunction_server/sql/parsing/backends/antlr4.py
+    */datajunction_server/sql/parsing/ast.py
 
 [paths]
 source =
-    dj/
+    datajunction_server/
     */site-packages/
 
 [report]

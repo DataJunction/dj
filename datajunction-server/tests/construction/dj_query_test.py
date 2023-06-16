@@ -6,7 +6,7 @@ Tests for building dj metric queries
 import pytest
 from sqlmodel import Session
 
-from dj.construction.dj_query import build_dj_metric_query
+from datajunction_server.construction.dj_query import build_dj_metric_query
 
 from ..sql.utils import compare_query_strings
 

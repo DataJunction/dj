@@ -9,7 +9,7 @@ from difflib import SequenceMatcher
 import pytest
 import sqlparse
 
-from dj.sql.parsing.backends.antlr4 import parse, parse_statement
+from datajunction_server.sql.parsing.backends.antlr4 import parse, parse_statement
 
 ansi_tpcds_files = [
     ("./ansi/query1.sql"),
