@@ -217,7 +217,10 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"urls": ["http://fake.url/job"]}
+        mock_response.json.return_value = {
+            "urls": ["http://fake.url/job"],
+            "output_tables": ["common.a", "common.b"],
+        }
 
         mock_request = mocker.patch(
             "dj.service_clients.RequestsSessionWithEndpoint.post",
@@ -285,13 +288,63 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             query_service_client.submit_query(query_create)
         assert "Error response from query service" in str(exc_info.value)
 
-    def test_get_materializations(self, mocker: MockerFixture) -> None:
+    def test_materialize(self, mocker: MockerFixture) -> None:
         """
-        Test materialize from a query service client.
+        Test get materialization urls for a given node materialization
         """
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {"urls": ["http://fake.url/job"]}
+        mock_response.json.return_value = {
+            "urls": ["http://fake.url/job"],
+            "output_tables": ["common.a", "common.b"],
+        }
+
+        mock_request = mocker.patch(
+            "dj.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.materialize(
+            GenericMaterializationInput(
+                name="default",
+                node_name="default.hard_hat",
+                node_type=NodeType.DIMENSION,
+                schedule="0 * * * *",
+                query="",
+                spark_conf={},
+                upstream_tables=["default.hard_hats"],
+                partitions=[],
+            ),
+        )
+        mock_request.assert_called_with(
+            "/materialization/",
+            json={
+                "name": "default",
+                "node_name": "default.hard_hat",
+                "node_type": "dimension",
+                "schedule": "0 * * * *",
+                "query": "",
+                "upstream_tables": ["default.hard_hats"],
+                "spark_conf": {},
+                "partitions": [],
+            },
+        )
+        assert response == {
+            "urls": ["http://fake.url/job"],
+            "output_tables": ["common.a", "common.b"],
+        }
+
+    def test_get_materialization_info(self, mocker: MockerFixture) -> None:
+        """
+        Test get materialization urls for a given node materialization
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "urls": ["http://fake.url/job"],
+            "output_tables": ["common.a", "common.b"],
+        }
 
         mock_request = mocker.patch(
             "dj.service_clients.RequestsSessionWithEndpoint.get",
@@ -299,11 +352,39 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        response = query_service_client.get_materializations(
+        response = query_service_client.get_materialization_info(
             node_name="default.hard_hat",
             materialization_name="default",
         )
         mock_request.assert_called_with(
             "/materialization/default.hard_hat/default/",
+            timeout=3,
         )
-        assert response == {"urls": ["http://fake.url/job"]}
+        assert response == {
+            "urls": ["http://fake.url/job"],
+            "output_tables": ["common.a", "common.b"],
+        }
+
+    def test_get_materialization_info_error(self, mocker: MockerFixture) -> None:
+        """
+        Test get materialization info with errors
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 500
+        mock_response.ok = False
+        mock_response.json.return_value = {"message": "An error has occurred"}
+
+        mocker.patch(
+            "dj.service_clients.RequestsSessionWithEndpoint.get",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.get_materialization_info(
+            node_name="default.hard_hat",
+            materialization_name="default",
+        )
+        assert response == {
+            "urls": [],
+            "output_tables": [],
+        }

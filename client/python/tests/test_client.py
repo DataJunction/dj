@@ -364,7 +364,7 @@ class TestDJClient:
             in client.namespace("default").transforms()
         )
 
-        result = large_revenue_payments_only.add_materialization_config(
+        result = large_revenue_payments_only.add_materialization(
             MaterializationConfig(
                 engine=Engine(name="spark", version="3.1.1"),
                 schedule="0 * * * *",
