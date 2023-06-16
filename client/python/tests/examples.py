@@ -4,9 +4,9 @@ Roads database examples loaded into DJ test session
 import uuid
 from typing import Dict, Union
 
-from dj.errors import DJException, DJQueryServiceClientException
-from dj.models.query import QueryWithResults
-from dj.typing import QueryState
+from datajunction_server.errors import DJException, DJQueryServiceClientException
+from datajunction_server.models.query import QueryWithResults
+from datajunction_server.typing import QueryState
 
 # pylint: disable=too-many-lines
 

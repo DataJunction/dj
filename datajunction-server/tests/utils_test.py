@@ -1,5 +1,5 @@
 """
-Tests for ``dj.utils``.
+Tests for ``datajunction_server.utils``.
 """
 
 import logging
@@ -9,9 +9,9 @@ from pytest_mock import MockerFixture
 from sqlalchemy.engine.url import make_url
 from yarl import URL
 
-from dj.config import Settings
-from dj.errors import DJException
-from dj.utils import (
+from datajunction_server.config import Settings
+from datajunction_server.errors import DJException
+from datajunction_server.utils import (
     Version,
     get_engine,
     get_issue_url,
@@ -38,8 +38,10 @@ def test_get_session(mocker: MockerFixture) -> None:
     """
     Test ``get_session``.
     """
-    mocker.patch("dj.utils.get_engine")
-    Session = mocker.patch("dj.utils.Session")  # pylint: disable=invalid-name
+    mocker.patch("datajunction_server.utils.get_engine")
+    Session = mocker.patch(  # pylint: disable=invalid-name
+        "datajunction_server.utils.Session",
+    )
 
     session = next(get_session())
 
@@ -50,9 +52,9 @@ def test_get_settings(mocker: MockerFixture) -> None:
     """
     Test ``get_settings``.
     """
-    mocker.patch("dj.utils.load_dotenv")
+    mocker.patch("datajunction_server.utils.load_dotenv")
     Settings = mocker.patch(  # pylint: disable=invalid-name, redefined-outer-name
-        "dj.utils.Settings",
+        "datajunction_server.utils.Settings",
     )
 
     # should be already cached, since it's called by the Celery app
@@ -82,7 +84,7 @@ def test_get_engine(mocker: MockerFixture, settings: Settings) -> None:
     """
     Test ``get_engine``.
     """
-    mocker.patch("dj.utils.get_settings", return_value=settings)
+    mocker.patch("datajunction_server.utils.get_settings", return_value=settings)
     engine = get_engine()
     assert engine.url == make_url("sqlite://")
 
@@ -92,7 +94,7 @@ def test_get_query_service_client(mocker: MockerFixture, settings: Settings) -> 
     Test ``get_query_service_client``.
     """
     settings.query_service = "http://query_service:8001"
-    mocker.patch("dj.utils.get_settings", return_value=settings)
+    mocker.patch("datajunction_server.utils.get_settings", return_value=settings)
     query_service_client = get_query_service_client()
     assert query_service_client.uri == "http://query_service:8001"  # type: ignore
 

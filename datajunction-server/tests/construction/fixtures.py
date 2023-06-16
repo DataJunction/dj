@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, Tuple
 import pytest
 from sqlmodel import Session
 
-from dj.models import (
+from datajunction_server.models import (
     AttributeType,
     Column,
     ColumnAttribute,
@@ -15,8 +15,8 @@ from dj.models import (
     NodeRevision,
     Table,
 )
-from dj.models.node import Node, NodeType
-from dj.sql.parsing.types import (
+from datajunction_server.models.node import Node, NodeType
+from datajunction_server.sql.parsing.types import (
     DateType,
     FloatType,
     IntegerType,

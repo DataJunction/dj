@@ -5,10 +5,10 @@ Post requests for all example entities
 """
 import uuid
 
-from dj.models import Column
-from dj.models.query import QueryWithResults
-from dj.sql.parsing.types import IntegerType, StringType, TimestampType
-from dj.typing import QueryState
+from datajunction_server.models import Column
+from datajunction_server.models.query import QueryWithResults
+from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
+from datajunction_server.typing import QueryState
 
 EXAMPLES = (  # type: ignore
     (
