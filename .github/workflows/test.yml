@@ -24,7 +24,7 @@ jobs:
 
     defaults:
       run:
-        working-directory: ${{ matrix.library == 'server' && '.' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './djqs' || matrix.library == 'djrs' && './djrs'}}
+        working-directory: ./
 
     steps:
       - uses: actions/checkout@v2
@@ -42,16 +42,21 @@ jobs:
           enable-pep582: true
 
       - name: Install dependencies
-        run: pdm sync -d
+        run: |
+          pdm sync -d
+          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
+          cd $tests_dir; pdm install -d
 
       - name: Python Linters
         run: |
-          pdm run pre-commit run --all-files
+          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
+          cd $tests_dir; pdm run pre-commit run --all-files
 
       - name: Test DJ ${{ matrix.library }} with pytest
         run: |
           export module=${{ matrix.library == 'server' && 'dj' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'djrs'}}
-          pdm run pytest ${{ matrix.library == 'server' && '-n auto' || '' }} --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
+          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
+          cd $tests_dir; pdm run pytest ${{ matrix.library == 'server' && '-n auto' || '' }} --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
 
   build-javascript:
     runs-on: ubuntu-latest
