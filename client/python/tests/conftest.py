@@ -9,17 +9,17 @@ from unittest.mock import MagicMock
 
 import pytest
 from cachelib import SimpleCache
-from dj.api.main import app
-from dj.config import Settings
-from dj.models.materialization import (
-    DruidMaterializationInput,
-    GenericMaterializationInput,
-    MaterializationInfo,
+from datajunction_server.api.main import app
+from datajunction_server.config import Settings
+from datajunction_server.models.materialization import MaterializationInfo
+from datajunction_server.models.query import QueryCreate, QueryWithResults
+from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.typing import QueryState
+from datajunction_server.utils import (
+    get_query_service_client,
+    get_session,
+    get_settings,
 )
-from dj.models.query import QueryCreate, QueryWithResults
-from dj.service_clients import QueryServiceClient
-from dj.typing import QueryState
-from dj.utils import get_query_service_client, get_session, get_settings
 from pytest_mock import MockerFixture
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
@@ -44,7 +44,7 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
     )
 
     mocker.patch(
-        "dj.utils.get_settings",
+        "datajunction_server.utils.get_settings",
         return_value=settings,
     )
 

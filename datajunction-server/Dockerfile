@@ -8,5 +8,5 @@ COPY . /code
 RUN pip install --no-cache-dir --upgrade -r /code/requirements/docker.txt
 RUN pip install -e .
 
-CMD ["sh", "-c", "opentelemetry-instrument uvicorn dj.api.main:app --host 0.0.0.0 --port 8000 $RELOAD"]
+CMD ["sh", "-c", "opentelemetry-instrument uvicorn datajunction_server.api.main:app --host 0.0.0.0 --port 8000 $RELOAD"]
 EXPOSE 8000

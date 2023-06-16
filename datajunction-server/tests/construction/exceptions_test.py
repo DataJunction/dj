@@ -5,8 +5,8 @@ Tests for building nodes and extracting dependencies
 
 import pytest
 
-from dj.construction.exceptions import CompoundBuildException
-from dj.errors import DJError, DJException, ErrorCode
+from datajunction_server.construction.exceptions import CompoundBuildException
+from datajunction_server.errors import DJError, DJException, ErrorCode
 
 
 def test_compound_build_exception():

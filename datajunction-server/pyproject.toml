@@ -52,10 +52,10 @@ uvicorn = [
 ]
 
 [project.entry-points.'superset.db_engine_specs']
-dj = 'dj.superset:DJEngineSpec'
+dj = 'datajunction_server.superset:DJEngineSpec'
 
 [tool.hatch.version]
-path = "dj/__about__.py"
+path = "datajunction_server/__about__.py"
 
 [project.urls]
 repository = "https://github.com/DataJunction/dj"
@@ -87,8 +87,8 @@ groups = ["default", "test"]
 without-hashes = true
 
 [tool.coverage.run]
-source = ['dj/']
+source = ['datajunction_server/']
 
 [tool.isort]
-src_paths = ["dj/", "tests/"]
+src_paths = ["datajunction_server/", "tests/"]
 profile = 'black'

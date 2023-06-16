@@ -6,10 +6,10 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from dj.api import helpers
-from dj.errors import DJException
-from dj.models import NodeRevision
-from dj.models.node import NodeStatus
+from datajunction_server.api import helpers
+from datajunction_server.errors import DJException
+from datajunction_server.models import NodeRevision
+from datajunction_server.models.node import NodeStatus
 
 
 def test_get_dj_query(
