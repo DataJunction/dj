@@ -14,7 +14,7 @@ from dj.config import Settings
 from dj.models.materialization import (
     DruidMaterializationInput,
     GenericMaterializationInput,
-    MaterializationOutput,
+    MaterializationInfo,
 )
 from dj.models.query import QueryCreate, QueryWithResults
 from dj.service_clients import QueryServiceClient
@@ -98,19 +98,26 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         mock_submit_query,
     )
 
-    # def mock_materialize(
-    #     materialization_input: Union[GenericMaterializationInput, DruidMaterializationInput],
-    # ) -> MaterializationOutput:
-    #     return MaterializationOutput(
-    #         urls=["http://fake.url/job"],
-    #     )
-
     mock_materialize = MagicMock()
-    mock_materialize.return_value = MaterializationOutput(urls=["http://fake.url/job"])
+    mock_materialize.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=["common.a", "common.b"],
+    )
     mocker.patch.object(
         qs_client,
         "materialize",
         mock_materialize,
+    )
+
+    mock_get_materialization_info = MagicMock()
+    mock_get_materialization_info.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=["common.a", "common.b"],
+    )
+    mocker.patch.object(
+        qs_client,
+        "get_materialization_info",
+        mock_get_materialization_info,
     )
     yield qs_client
 

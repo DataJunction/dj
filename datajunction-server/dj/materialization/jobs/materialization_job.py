@@ -5,8 +5,12 @@ import abc
 from typing import Optional
 
 from dj.models.engine import Dialect
-from dj.models.materialization import GenericMaterializationInput, MaterializationOutput
-from dj.models.node import GenericMaterializationConfig, MaterializationConfig
+from dj.models.materialization import (
+    GenericMaterializationConfig,
+    GenericMaterializationInput,
+    Materialization,
+    MaterializationInfo,
+)
 from dj.service_clients import QueryServiceClient
 
 
@@ -23,9 +27,9 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
     @abc.abstractmethod
     def schedule(
         self,
-        materialization: MaterializationConfig,
+        materialization: Materialization,
         query_service_client: QueryServiceClient,
-    ) -> MaterializationOutput:
+    ) -> MaterializationInfo:
         """
         Schedules the materialization job, typically done by calling a separate service
         with the configured materialization parameters.
@@ -43,9 +47,9 @@ class TrinoMaterializationJob(  # pylint: disable=too-few-public-methods # pragm
 
     def schedule(
         self,
-        materialization: MaterializationConfig,
+        materialization: Materialization,
         query_service_client: QueryServiceClient,
-    ) -> MaterializationOutput:
+    ) -> MaterializationInfo:
         """
         Placeholder for the actual implementation.
         """
@@ -62,14 +66,14 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
 
     def schedule(
         self,
-        materialization: MaterializationConfig,
+        materialization: Materialization,
         query_service_client: QueryServiceClient,
-    ) -> MaterializationOutput:
+    ) -> MaterializationInfo:
         """
         Placeholder for the actual implementation.
         """
         generic_config = GenericMaterializationConfig.parse_obj(materialization.config)
-        return query_service_client.materialize(
+        result = query_service_client.materialize(
             GenericMaterializationInput(
                 name=materialization.name,  # type: ignore
                 node_name=materialization.node_revision.name,
@@ -83,3 +87,4 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                 ],
             ),
         )
+        return result

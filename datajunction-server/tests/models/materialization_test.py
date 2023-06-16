@@ -1,5 +1,5 @@
 """Tests materialization-related models."""
-from dj.models.node import GenericMaterializationConfig, Partition
+from dj.models.materialization import GenericMaterializationConfig, Partition
 
 
 def test_generic_materialization_config():

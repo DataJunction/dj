@@ -231,7 +231,7 @@ def test_create_cube_with_materialization(client_with_query_service: TestClient)
             "description": "Cube of various metrics related to repairs",
             "mode": "published",
             "name": "default.repairs_cube_with_materialization",
-            "materialization_configs": [
+            "materializations": [
                 {
                     "engine": {
                         "name": "druid",
@@ -259,8 +259,7 @@ def test_create_cube_with_materialization(client_with_query_service: TestClient)
             ],
         },
     )
-    print("response.json()", response.json())
-    default_materialization = response.json()["materialization_configs"][0]
+    default_materialization = response.json()["materializations"][0]
     assert default_materialization["job"] == "DruidCubeMaterializationJob"
     assert default_materialization["schedule"] == "0 * * * *"
 
@@ -785,11 +784,11 @@ FULL OUTER JOIN m5_default_DOT_double_total_repair_cost ON m0_default_DOT_discou
 
     """
     assert compare_query_strings(
-        data["materialization_configs"][0]["config"]["query"],
+        data["materializations"][0]["config"]["query"],
         expected_materialization_query,
     )
-    assert data["materialization_configs"][0]["job"] == "DefaultCubeMaterialization"
-    assert data["materialization_configs"][0]["config"]["measures"] == {
+    assert data["materializations"][0]["job"] == "DefaultCubeMaterialization"
+    assert data["materializations"][0]["config"]["measures"] == {
         "default_DOT_avg_repair_price": [
             {
                 "name": "price_count",
@@ -1014,11 +1013,11 @@ def test_add_materialization_config_to_cube(
         },
     }
     response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
-    materialization_configs = response.json()["materialization_configs"]
-    assert len(materialization_configs) == 2
+    materializations = response.json()["materializations"]
+    assert len(materializations) == 2
     druid_materialization = [
         materialization
-        for materialization in materialization_configs
+        for materialization in materializations
         if materialization["engine"]["name"] == "druid"
     ][0]
     assert druid_materialization["engine"] == {

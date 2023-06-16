@@ -7,12 +7,8 @@ from typing import List, Optional
 from pydantic import Field, root_validator
 from sqlmodel import SQLModel
 
-from dj.models.node import (
-    AvailabilityState,
-    ColumnOutput,
-    MaterializationConfigOutput,
-    NodeType,
-)
+from dj.models.materialization import MaterializationConfigOutput
+from dj.models.node import AvailabilityState, ColumnOutput, NodeType
 from dj.typing import UTCDatetime
 
 
@@ -69,7 +65,7 @@ class CubeRevisionMetadata(SQLModel):
     query: str
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
-    materialization_configs: List[MaterializationConfigOutput]
+    materializations: List[MaterializationConfigOutput]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True

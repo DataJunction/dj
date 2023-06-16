@@ -3,11 +3,10 @@ Model for nodes.
 """
 # pylint: disable=too-many-instance-attributes
 import enum
-import zlib
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Dict, List, Optional, Union
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
@@ -24,7 +23,12 @@ from dj.models.base import BaseSQLModel, NodeColumns, generate_display_name
 from dj.models.catalog import Catalog
 from dj.models.column import Column, ColumnYAML
 from dj.models.database import Database
-from dj.models.engine import Dialect, Engine, EngineInfo, EngineRef
+from dj.models.engine import Dialect
+from dj.models.materialization import (
+    Materialization,
+    MaterializationConfigOutput,
+    UpsertCubeMaterializationConfig,
+)
 from dj.models.tag import Tag, TagNodeRelationship
 from dj.sql.parsing.types import ColumnType
 from dj.typing import UTCDatetime
@@ -332,34 +336,6 @@ class Node(NodeBase, table=True):  # type: ignore
         return hash(self.id)
 
 
-class MaterializationConfig(BaseSQLModel, table=True):  # type: ignore
-    """
-    Materialization configuration for a node and specific engines.
-    """
-
-    node_revision_id: int = Field(foreign_key="noderevision.id", primary_key=True)
-    node_revision: "NodeRevision" = Relationship(
-        back_populates="materialization_configs",
-    )
-
-    engine_id: int = Field(foreign_key="engine.id", primary_key=True)
-    engine: Engine = Relationship()
-
-    name: Optional[str] = Field(primary_key=True)
-
-    # A cron schedule to materialize this node by
-    schedule: str
-
-    # Arbitrary config relevant to the materialization engine
-    config: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
-
-    # The name of the plugin that handles materialization, if any
-    job: str = Field(
-        default="MaterializationJob",
-        sa_column=SqlaColumn("job", String),
-    )
-
-
 class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     """
     A node revision.
@@ -440,7 +416,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
 
     # Nodes of type SOURCE will not have this property as their materialization
     # is not managed as a part of this service
-    materialization_configs: List[MaterializationConfig] = Relationship(
+    materializations: List[Materialization] = Relationship(
         back_populates="node_revision",
         sa_relationship_kwargs={
             "cascade": "all, delete-orphan",
@@ -729,150 +705,12 @@ class CreateSourceNode(ImmutableNodeFields, MutableNodeFields, SourceNodeFields)
     """
 
 
-class UpsertMaterializationConfig(BaseSQLModel):
-    """
-    An upsert object for materialization configs
-    """
-
-    name: Optional[str]
-    engine: EngineRef
-    config: Dict
-    schedule: str
-
-
-class SparkConf(BaseSQLModel):
-    """Spark configuration"""
-
-    __root__: Dict[str, str]
-
-
-class PartitionType(str, enum.Enum):
-    """
-    Partition type.
-
-    A partition can be temporal or categorical
-    """
-
-    TEMPORAL = "temporal"
-    CATEGORICAL = "categorical"
-
-
-class Partition(BaseSQLModel):
-    """
-    A partition specification tells the ongoing and backfill materialization jobs how to partition
-    the materialized dataset and which partition values (a list or range of values) to operate on.
-    Partitions may be temporal or categorical and will be handled differently depending on the type.
-
-    For temporal partition types, the ongoing materialization job will continue to operate on the
-    latest partitions and the partition values specified by `values` and `range` are only relevant
-    to the backfill job.
-
-    Examples:
-        This will tell DJ to backfill for all values of the dateint partition:
-          Partition(name=“dateint”, type="temporal", values=[], range=())
-        This will tell DJ to backfill just 20230601 and 20230605:
-          Partition(name=“dateint”, type="temporal", values=[20230601, 20230605], range=())
-        This will tell DJ to backfill 20230601 and between 20220101 and 20230101:
-          Partition(name=“dateint”, type="temporal", values=[20230601], range=(20220101, 20230101))
-
-        For categorical partition types, the ongoing materialization job will *only* operate on the
-        specified partition values in `values` and `range`:
-            Partition(name=“group_id”, type="categorical", values=["a", "b", "c"], range=())
-    """
-
-    name: str
-    values: Optional[List]
-    range: Optional[List]
-
-    # This expression evaluates to the temporal partition value for scheduled runs
-    expression: Optional[str]
-
-    type_: PartitionType
-
-
-class GenericMaterializationConfig(BaseModel):
-    """
-    Generic node materialization config needed by any materialization choices
-    and engine combinations
-    """
-
-    query: Optional[str]
-
-    # List of partitions that materialization jobs (ongoing and backfill) will operate on.
-    partitions: Optional[List[Partition]]
-
-    spark: Optional[SparkConf]
-    upstream_tables: Optional[List[str]]
-
-    def identifier(self) -> str:
-        """
-        Generates an identifier for this materialization config that is used by default
-        for the materialization config's name if one is not set. Note that this name is
-        based on partition names (both temporal and categorical) and partition values
-        (only categorical).
-        """
-        entities = ["default"] if not self.partitions else []
-        partitions_values = ""
-        if self.partitions:
-            for partition in self.partitions:
-                if partition.type_ != PartitionType.TEMPORAL:
-                    if partition.values:
-                        partitions_values += str(partition.values)
-                    if partition.range is not None:  # pragma: no cover
-                        partitions_values += str(partition.range)
-                entities.append(partition.name)
-            entities.append(str(zlib.crc32(partitions_values.encode("utf-8"))))
-        return "_".join(entities)
-
-
-class DruidConf(BaseSQLModel):
-    """Druid configuration"""
-
-    granularity: str
-    intervals: Optional[List[str]]
-    timestamp_column: str
-    timestamp_format: Optional[str]
-    parse_spec_format: Optional[str]
-
-
-class GenericCubeConfig(GenericMaterializationConfig):
-    """
-    Generic cube materialization config needed by any materialization
-    choices and engine combinations
-    """
-
-    dimensions: Optional[List[str]]
-    measures: Optional[Dict[str, List[Dict[str, str]]]]
-
-
-class DruidCubeConfig(GenericCubeConfig):
-    """
-    Specific cube materialization implementation with Spark and Druid ingestion and
-    optional prefix and/or suffix to include with the materialized entity's name.
-    """
-
-    prefix: Optional[str] = ""
-    suffix: Optional[str] = ""
-    druid: Optional[DruidConf]
-
-
-class UpsertCubeMaterializationConfig(BaseSQLModel):
-    """
-    An upsert object for cube materialization configs
-    """
-
-    name: Optional[str]
-    engine: EngineRef
-    config: Union[DruidCubeConfig, GenericCubeConfig]
-    schedule: str
-
-
 class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
     """
     A create object for cube nodes
     """
 
-    materialization_configs: Optional[List[UpsertCubeMaterializationConfig]] = []
+    materializations: Optional[List[UpsertCubeMaterializationConfig]] = []
 
 
 class UpdateNode(MutableNodeFields, SourceNodeFields):
@@ -934,18 +772,6 @@ class TableOutput(SQLModel):
     database: Optional[Database]
 
 
-class MaterializationConfigOutput(SQLModel):
-    """
-    Output for materialization config.
-    """
-
-    name: Optional[str]
-    engine: EngineInfo
-    config: Dict
-    schedule: str
-    job: str
-
-
 class NodeRevisionOutput(SQLModel):
     """
     Output for a node revision with information about columns and if it is a metric.
@@ -967,7 +793,7 @@ class NodeRevisionOutput(SQLModel):
     availability: Optional[AvailabilityState] = None
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
-    materialization_configs: List[MaterializationConfigOutput]
+    materializations: List[MaterializationConfigOutput]
     parents: List[NodeNameOutput]
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods

@@ -12,14 +12,13 @@ from dj.models.column import Column
 from dj.models.materialization import (
     DruidMaterializationInput,
     GenericMaterializationInput,
-    MaterializationOutput,
+    MaterializationInfo,
 )
 from dj.models.query import QueryCreate, QueryWithResults
 from dj.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
     from dj.models.engine import Engine
-    from dj.models.node import MaterializationConfig, NodeType
 
 
 class RequestsSessionWithEndpoint(requests.Session):
@@ -143,24 +142,33 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             GenericMaterializationInput,
             DruidMaterializationInput,
         ],
-    ) -> MaterializationOutput:
+    ) -> MaterializationInfo:
         """
         Post a request to the query service asking it to set up a scheduled materialization
         for the node. The query service is expected to manage all reruns of this job. Note
         that this functionality may be moved to the materialization service at a later point.
         """
-        response = self.requests_session.post(  # pragma: no cover
+        response = self.requests_session.post(
             "/materialization/",
             json=materialization_input.dict(),
         )
-        result = response.json()  # pragma: no cover
-        return MaterializationOutput(**result)  # pragma: no cover
+        if not response.ok:  # pragma: no cover
+            return MaterializationInfo(urls=[])
+        result = response.json()
+        return MaterializationInfo(**result)
 
-    def get_materializations(self, node_name, materialization_name):
+    def get_materialization_info(
+        self,
+        node_name,
+        materialization_name,
+    ) -> MaterializationInfo:
         """
-        Gets a list of materializations for the node and materialization config name.
+        Gets materialization info for the node and materialization config name.
         """
         response = self.requests_session.get(
             f"/materialization/{node_name}/{materialization_name}/",
+            timeout=3,
         )
-        return response.json()
+        if not response.ok:
+            return MaterializationInfo(output_tables=[], urls=[])
+        return MaterializationInfo(**response.json())
