@@ -63,7 +63,12 @@ export const DataJunctionAPI = {
     return data;
   },
 
-  lineage: async function (node) {},
+  materializations: async function (node) {
+    const data = await (
+      await fetch(DJ_URL + `/nodes/${node}/materializations/`)
+    ).json();
+    return data;
+  },
 
   compiledSql: async function (node) {
     const data = await (await fetch(DJ_URL + `/sql/${node}/`)).json();
