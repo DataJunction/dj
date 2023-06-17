@@ -133,10 +133,9 @@ export function CubeBuilderPage() {
                   <li>
                     <b>Select Dimensions:</b> Next, select the dimension
                     attributes you would like to include. As you select
-                    additional metrics, the list of available dimensions in the
-                    dimensions dropdown will filter to dimensions that are
-                    shared across the set of selected metrics. If the dimensions
-                    list is empty, no shared dimensions were discovered.
+                    additional metrics, the list of available dimensions will be
+                    filtered to those shared by the selected metrics. If the
+                    dimensions list is empty, no shared dimensions were discovered.
                   </li>
                   <li>
                     <b>View the generated SQL Query:</b> As you make your
