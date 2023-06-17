@@ -1,6 +1,7 @@
 """
 Tests for the metrics API.
 """
+from tests.sql.utils import compare_query_strings
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -343,7 +344,7 @@ def test_metric_expression_auto_aliased(client_with_examples: TestClient):
         },
     )
     assert response.status_code == 201
-    assert response.json()["query"] == (
+    assert compare_query_strings(response.json()["query"],
         "SELECT  SUM(counts.b) + SUM(counts.b) basic_DOT_dream_count \n FROM basic.dreams\n"
     )
 

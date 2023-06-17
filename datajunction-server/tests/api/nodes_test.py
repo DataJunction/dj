@@ -13,7 +13,13 @@ from datajunction_server.models.column import Column
 from datajunction_server.models.node import Node, NodeRevision, NodeStatus, NodeType
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 
-
+from tests.sql.utils import compare_query_strings
+def materialization_compare(response, expected):
+    for (materialization_response, materialization_expected) in (zip(response, expected)):
+        assert compare_query_strings(materialization_response['config']['query'], materialization_expected['config']['query'])
+        del materialization_response['config']['query']
+        del materialization_expected['config']['query']
+        assert materialization_response==materialization_expected
 def test_read_node(client_with_examples: TestClient) -> None:
     """
     Test ``GET /nodes/{node_id}``.
@@ -1332,6 +1338,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
+
+            
     def test_add_materialization_success(self, client_with_query_service: TestClient):
         """
         Verifies success cases of adding materialization config.
@@ -1431,7 +1439,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
         data = response.json()
         assert data["version"] == "v1.0"
-        assert data["materializations"] == [
+        assert materialization_compare(data["materializations"], [
             {
                 "name": "country_3491792861",
                 "engine": {
@@ -1482,7 +1490,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "name": "default",
                 "schedule": "0 * * * *",
             },
-        ]
+        ])
 
         # Setting the materialization config with a temporal partition should succeed
         response = client_with_query_service.post(
@@ -1525,7 +1533,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get("/nodes/default.hard_hat/")
         data = response.json()
         assert data["version"] == "v1.0"
-        assert data["materializations"] == [
+        assert materialization_compare(data["materializations"], [
             {
                 "name": "country_birth_date_contractor_id_379232101",
                 "engine": {
@@ -1574,13 +1582,13 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "schedule": "0 * * * *",
                 "job": "SparkSqlMaterializationJob",
             },
-        ]
+        ])
 
         # Check listing materializations of the node
         response = client_with_query_service.get(
             "/nodes/default.hard_hat/materializations/",
         )
-        assert response.json() == [
+        assert materialization_compare(response.json(), [
             {
                 "config": {
                     "partitions": [
@@ -1638,7 +1646,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "schedule": "0 * * * *",
                 "urls": ["http://fake.url/job"],
             },
-        ]
+        ])
+
 
 
 class TestNodeColumnsAttributes:

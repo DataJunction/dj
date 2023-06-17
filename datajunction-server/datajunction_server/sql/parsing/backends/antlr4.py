@@ -272,8 +272,11 @@ def _(ctx: sbp.QueryContext):
         ctes = visit(ctes_ctx)
     limit, organization = visit(ctx.queryOrganization())
     select = visit(ctx.queryTerm())
-
-    return ast.Query(ctes=ctes, select=select, limit=limit, organization=organization)
+    
+    if limit: import pdb; pdb.set_trace()
+    select.limit = limit
+    select.organization = organization
+    return ast.Query(ctes=ctes, select=select)
 
 
 @visit.register

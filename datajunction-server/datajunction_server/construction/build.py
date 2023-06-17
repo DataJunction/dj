@@ -1,6 +1,7 @@
 """Functions to add to an ast DJ node queries"""
 import collections
 from itertools import chain
+
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
@@ -26,16 +27,7 @@ def _get_tables_from_select(
     """
     tables: DefaultDict[NodeRevision, List[ast.Table]] = collections.defaultdict(list)
 
-    main_tables = select.find_all(ast.Table)
-    # in case the select belongs to a Query that has some 
-    # tables in non-cte/select attributes, pull them in
-    add_tables = []
-    if isinstance(select.parent, ast.Query) and (select.get_nearest_parent_of_type(ast.Query) is select.parent) and (select.parent_key=='select'):
-        for child in select.parent.children:
-            if child.parent_key not in ('ctes', 'select'):
-                add_tables.append(child.find_all(ast.Table))
-
-    for table in chain(main_tables, *add_tables):
+    for table in select.find_all(ast.Table):
         if node := table.dj_node:  # pragma: no cover
             tables[node].append(table)
     return tables
@@ -352,7 +344,6 @@ def _build_select_ast(
     _build_tables_on_select(session, select, tables, build_criteria)
 
 
-
 # pylint: disable=R0915
 def add_filters_dimensions_orderby_limit_to_query_ast(
     query: ast.Query,
@@ -393,15 +384,15 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
 
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
-    if not query.organization:
-        query.organization = ast.Organization([])
+    if not query.select.organization:
+        query.select.organization = ast.Organization([])
 
     if orderby:
         for order in orderby:
             temp_query = parse(
                 f"select * order by {order}",
             )
-            query.organization.order += temp_query.organization.order  # type:ignore
+            query.select.organization.order += temp_query.select.organization.order  # type:ignore
 
     # add all used dimension columns to the projection without duplicates
     projection_update = []
@@ -614,7 +605,7 @@ def build_metric_nodes(
         # Add the metric and dimensions to the final query layer's SELECT
         current_table = ast.Table(metric_ast_alias)
 
-        organization = cast(ast.Organization, metric_ast.organization)
+        organization = cast(ast.Organization, metric_ast.select.organization)
 
         # if an orderby referred to this metric node, parse and add it to the order items
         if metric_order := (

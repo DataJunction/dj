@@ -43,12 +43,10 @@ def test_sql(
     session.add(source_node_rev)
     session.commit()
 
-    response = client.get("/sql/a-metric/")
-    assert response.json() == {
-        "sql": "SELECT  COUNT(*) col0 \n FROM rev.my_table AS my_table\n",
-        "columns": [{"name": "col0", "type": "bigint"}],
-        "dialect": None,
-    }
+    response = client.get("/sql/a-metric/").json()
+    assert compare_query_strings(response['sql'], "SELECT  COUNT(*) col0 \n FROM rev.my_table AS my_table\n")
+    assert response["columns"]==[{"name": "col0", "type": "bigint"}]
+    assert response["dialect"] is None
 
 
 @pytest.mark.parametrize(
