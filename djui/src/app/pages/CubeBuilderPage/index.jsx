@@ -121,17 +121,33 @@ export function CubeBuilderPage() {
               <div className="card-light-shadow">
                 <h6>Using the Cube Builder</h6>
                 <p>
-                  The cube builder allows you to group multiple metrics along with their shared dimensions. Using your selections,
+                  The cube builder allows you to group multiple metrics along
+                  with their shared dimensions. Using your selections,
                   DataJunction will generate the corresponding SQL.
                 </p>
                 <ol>
-                  <li><b>Select Metrics:</b> Start by selecting one or more metrics from the metrics dropdown.</li>
-                  <li><b>Select Dimensions:</b> Next, select the dimension attributes you would like to include. As you select additional metrics, the
-                  list of available dimensions in the dimensions dropdown will filter to dimensions that are shared across the set of selected metrics.
-                  If the dimensions list is empty, no shared dimensions were discovered.</li>
-                  <li><b>View the generated SQL Query:</b> As you make your selections, the SQL required to retrieve the set of metrics and dimensions will be
-                  generated below.</li>
-                  <li><b>Run the Query:</b> If query running is enabled by your server, you can also run the generated SQL query to view a sample of 100 records.</li>
+                  <li>
+                    <b>Select Metrics:</b> Start by selecting one or more
+                    metrics from the metrics dropdown.
+                  </li>
+                  <li>
+                    <b>Select Dimensions:</b> Next, select the dimension
+                    attributes you would like to include. As you select
+                    additional metrics, the list of available dimensions in the
+                    dimensions dropdown will filter to dimensions that are
+                    shared across the set of selected metrics. If the dimensions
+                    list is empty, no shared dimensions were discovered.
+                  </li>
+                  <li>
+                    <b>View the generated SQL Query:</b> As you make your
+                    selections, the SQL required to retrieve the set of metrics
+                    and dimensions will be generated below.
+                  </li>
+                  <li>
+                    <b>Run the Query:</b> If query running is enabled by your
+                    server, you can also run the generated SQL query to view a
+                    sample of 100 records.
+                  </li>
                 </ol>
               </div>
             ) : (
