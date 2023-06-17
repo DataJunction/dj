@@ -1,6 +1,6 @@
 """Functions to add to an ast DJ node queries"""
 import collections
-
+from itertools import chain
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
@@ -26,7 +26,16 @@ def _get_tables_from_select(
     """
     tables: DefaultDict[NodeRevision, List[ast.Table]] = collections.defaultdict(list)
 
-    for table in select.find_all(ast.Table):
+    main_tables = select.find_all(ast.Table)
+    # in case the select belongs to a Query that has some 
+    # tables in non-cte/select attributes, pull them in
+    add_tables = []
+    if isinstance(select.parent, ast.Query) and (select.get_nearest_parent_of_type(ast.Query) is select.parent) and (select.parent_key=='select'):
+        for child in select.parent.children:
+            if child.parent_key not in ('ctes', 'select'):
+                add_tables.append(child.find_all(ast.Table))
+
+    for table in chain(main_tables, *add_tables):
         if node := table.dj_node:  # pragma: no cover
             tables[node].append(table)
     return tables
@@ -343,41 +352,6 @@ def _build_select_ast(
     _build_tables_on_select(session, select, tables, build_criteria)
 
 
-def _consolidate_tables(query: ast.Query):
-    """
-    Checks all the tables whose nearest query is
-    the one given, matching identifiers, and makes them
-    all the same `Table` in memory
-    """
-    foundation_tables_map = {}
-    column_tables_map = {}
-    for tbl in query.find_all(ast.Table):
-        if tbl.get_nearest_parent_of_type(ast.Query) is not query:
-            continue  # pragma: no cover
-        ident = tbl.identifier(False)
-        if isinstance(tbl.parent, ast.Column):
-            if ident not in column_tables_map:
-                column_tables_map[ident] = [tbl]
-            else:
-                column_tables_map[ident].append(tbl)
-        else:
-            if ident not in foundation_tables_map:
-                foundation_tables_map[ident] = [tbl]
-            else:
-                foundation_tables_map[ident].append(tbl)  # pragma: no cover
-
-    for ident, tbls in foundation_tables_map.items():
-        for tbl in tbls[1:]:
-            tbl.swap(tbls[0])  # pragma: no cover
-        if ident in column_tables_map:
-            for col_tbl in column_tables_map[ident]:
-                col_tbl.swap(tbls[0])
-            del column_tables_map[ident]
-
-    for tbls in column_tables_map.values():
-        for tbl in tbls[1:]:
-            tbl.swap(tbls[0])
-
 
 # pylint: disable=R0915
 def add_filters_dimensions_orderby_limit_to_query_ast(
@@ -401,7 +375,6 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             query.select.group_by += temp_select.group_by  # type:ignore
             for col in temp_select.find_all(ast.Column):
                 projection_addition[col.identifier(False)] = col
-                col.namespace_table()
 
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
@@ -417,36 +390,17 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 if not dimensions:
                     projection_addition[col.identifier(False)] = col
-                col.namespace_table()
 
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
     if not query.organization:
         query.organization = ast.Organization([])
 
-    # for order bys, we must be using dimensions
-    # that are already used in dimensions, filters
-    # so for the sake of building rn, we will dupe cols
-    # if used already, otherwise, the orderby col will
-    # be put in the projection as with the dimensions, filters
-    # columns
-
     if orderby:
         for order in orderby:
             temp_query = parse(
                 f"select * order by {order}",
             )
-
-            for col in temp_query.find_all(ast.Column):
-                ident = col.identifier(False)
-                col.namespace_table()
-                if ident in projection_addition:
-                    col.swap(projection_addition[ident])
-                else:
-                    raise DJInvalidInputException(
-                        f"Column {col} found in order-by clause must"
-                        " also be specified in the metrics or dimensions.",
-                    )
             query.organization.order += temp_query.organization.order  # type:ignore
 
     # add all used dimension columns to the projection without duplicates
@@ -561,7 +515,6 @@ def build_node(  # pylint: disable=too-many-arguments
         orderby,
         limit,
     )
-    _consolidate_tables(query)
     return build_ast(session, query, build_criteria)
 
 
