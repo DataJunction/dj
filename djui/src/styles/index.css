@@ -396,11 +396,6 @@ tbody th {
   color: #580076;
 }
 
-.column_type {
-  background-color: #e4e4e4 !important;
-  color: #525252;
-}
-
 .history_type__create {
   background-color: #ccf7e5 !important;
   color: #00b368;
@@ -705,37 +700,6 @@ pre {
   display: none;
 }
 
-.flex-container {
-  align-items: flex-start;
-  display: flex;
-  flex: 0.4 0.6;
-  margin: 2rem;
-}
-
-.builder-list {
-  padding-top: 2px;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 1rem;
-}
-
-.flex-child {
-  border: 2px;
-}  
-
-.bottom-border {
-  border-bottom: 1px solid;
-  border-color:rgba(18, 38, 63, 0.247)
-} 
-
-.builder-view-box {
-  height: 70vh;
-  width: 70vw;
-  overflow: auto;
-  flex-direction: column;
-}
-
-/* CSS */
 .button-3 {
   appearance: none;
   border: 1px solid rgba(27, 31, 35, .15);
