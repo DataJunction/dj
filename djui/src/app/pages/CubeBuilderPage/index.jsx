@@ -120,21 +120,19 @@ export function CubeBuilderPage() {
             {showHelp ? (
               <div className="card-light-shadow">
                 <h6>Using the Cube Builder</h6>
-                <span>
-                  Welcome to the DataJunction cube builder! To build a cube,
-                  first select a set of one or more metrics you are interested
-                  in. As you select metrics, the shared dimensions list will
-                  updated to only include dimensions that are shared by the
-                  currently selected metrics. If you've selected metrics but do
-                  not see any dimensions, that means those metrics do not share
-                  any dimensions.
-
-                  To read more about how DJ discovers dimensions, see the
-                  <a href="https://main--super-gumption-22192f.netlify.app/docs/dj-concepts/dimension-discovery/">
-                    Dimension Discovery
-                  </a>
-                   concept page.
-                </span>
+                <p>
+                  The cube builder allows you to group multiple metrics along with their shared dimensions. Using your selections,
+                  DataJunction will generate the corresponding SQL.
+                </p>
+                <ol>
+                  <li><b>Select Metrics:</b> Start by selecting one or more metrics from the metrics dropdown.</li>
+                  <li><b>Select Dimensions:</b> Next, select the dimension attributes you would like to include. As you select additional metrics, the
+                  list of available dimensions in the dimensions dropdown will filter to dimensions that are shared across the set of selected metrics.
+                  If the dimensions list is empty, no shared dimensions were discovered.</li>
+                  <li><b>View the generated SQL Query:</b> As you make your selections, the SQL required to retrieve the set of metrics and dimensions will be
+                  generated below.</li>
+                  <li><b>Run the Query:</b> If query running is enabled by your server, you can also run the generated SQL query to view a sample of 100 records.</li>
+                </ol>
               </div>
             ) : (
               <></>
