@@ -18,7 +18,6 @@ export function CubeBuilderPage() {
   const [loadingData, setLoadingData] = useState(false);
   const [viewData, setViewData] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
-
   const toggleViewData = () => setViewData(current => !current);
 
   const getData = () => {
@@ -101,21 +100,27 @@ export function CubeBuilderPage() {
             <Select
               name="metrics"
               options={metrics}
+              noOptionsMessage={() => 'No metrics found.'}
+              placeholder={`${metrics.length} Available Metrics`}
               isMulti
               isClearable
+              closeMenuOnSelect={false}
               onChange={handleMetricSelect}
             />
             <h4>Shared Dimensions</h4>
-
             <Select
               name="dimensions"
               options={commonDimensionsList}
+              noOptionsMessage={() =>
+                'No shared dimensions found. Try selecting different metrics.'
+              }
+              placeholder={`${commonDimensionsList.length} Shared Dimensions`}
               isMulti
               isClearable
+              closeMenuOnSelect={false}
               onChange={handleDimensionSelect}
             />
           </div>
-
           <div className="card-header">
             {showHelp ? (
               <div className="card-light-shadow">
@@ -135,7 +140,8 @@ export function CubeBuilderPage() {
                     attributes you would like to include. As you select
                     additional metrics, the list of available dimensions will be
                     filtered to those shared by the selected metrics. If the
-                    dimensions list is empty, no shared dimensions were discovered.
+                    dimensions list is empty, no shared dimensions were
+                    discovered.
                   </li>
                   <li>
                     <b>View the generated SQL Query:</b> As you make your
