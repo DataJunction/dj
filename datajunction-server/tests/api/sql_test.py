@@ -44,8 +44,11 @@ def test_sql(
     session.commit()
 
     response = client.get("/sql/a-metric/").json()
-    assert compare_query_strings(response['sql'], "SELECT  COUNT(*) col0 \n FROM rev.my_table AS my_table\n")
-    assert response["columns"]==[{"name": "col0", "type": "bigint"}]
+    assert compare_query_strings(
+        response["sql"],
+        "SELECT  COUNT(*) col0 \n FROM rev.my_table AS my_table\n",
+    )
+    assert response["columns"] == [{"name": "col0", "type": "bigint"}]
     assert response["dialect"] is None
 
 

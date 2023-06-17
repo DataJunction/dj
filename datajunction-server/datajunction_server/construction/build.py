@@ -1,6 +1,5 @@
 """Functions to add to an ast DJ node queries"""
 import collections
-from itertools import chain
 
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
@@ -392,7 +391,9 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             temp_query = parse(
                 f"select * order by {order}",
             )
-            query.select.organization.order += temp_query.select.organization.order  # type:ignore
+            query.select.organization.order += (  # type:ignore
+                temp_query.select.organization.order  # type:ignore
+            )
 
     # add all used dimension columns to the projection without duplicates
     projection_update = []

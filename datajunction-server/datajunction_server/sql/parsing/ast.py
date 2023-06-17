@@ -2051,7 +2051,17 @@ class From(Node):
         return "".join(parts)
 
 
+@dataclass(eq=False)
+class SetOp(Node):
+    """
+    A set operation
+    """
 
+    kind: str = ""  # Union, intersect, ...
+    right: Optional["SelectExpression"] = None
+
+    def __str__(self) -> str:
+        return f"\n{self.kind}\n{self.right}"
 
 
 @dataclass(eq=False)
@@ -2107,14 +2117,28 @@ class Organization(Node):
 
 
 @dataclass(eq=False)
-class SelectExpression(TableExpression):
+class SelectExpression(Aliasable, Expression):
     """
     An uninitializable Type for Select for use as a default where
     a Select is required.
     """
 
+    quantifier: str = ""  # Distinct, All
+    projection: List[Union[Aliasable, Expression]] = field(default_factory=list)
+    from_: Optional[From] = None
+    group_by: List[Expression] = field(default_factory=list)
+    having: Optional[Expression] = None
+    where: Optional[Expression] = None
+    lateral_views: List[LateralView] = field(default_factory=list)
+    set_op: Optional[SetOp] = None
     limit: Optional[Expression] = None
     organization: Optional[Organization] = None
+
+    def add_set_op(self, set_op: SetOp):
+        if self.set_op:
+            self.set_op.right.add_set_op(set_op)
+        else:
+            self.set_op = set_op
 
     def add_aliases_to_unnamed_columns(self) -> None:
         """
@@ -2129,52 +2153,11 @@ class SelectExpression(TableExpression):
                 projection.append(expression)
         self.projection = projection
 
-@dataclass(eq=False)
-class SetOp(SelectExpression):
-    """
-    A set operation
-    """
 
-    kind: str = ""  # Union, intersect, ...
-    left: Optional[TableExpression] = None
-    right: Optional[TableExpression] = None
-
-    def __str__(self) -> str:
-        setop = f"{self.left}\n{self.kind}\n{self.right}"
-        if self.organization:
-            setop+=f"\n{self.organization}"
-        if self.limit:
-            setop+=f"LIMIT {self.limit}"
-        return setop
-    
-    def compile(self, ctx: CompileContext):
-        """
-        Compile a set operation
-        """
-        if self.is_compiled():
-            return
-        # things we could check here:
-        # - all table expressions in the setop must have the same number of columns and the pairwise types must be the same
-
-        # column names are taken from the leading query i.e. left
-        left = cast(self.left, TableExpression)
-        left.compile(ctx)
-        if left.is_compiled():
-            self._columns = left.columns[:]
-            
-
-@dataclass(eq=False)
 class Select(SelectExpression):
     """
     A single select statement type
     """
-    quantifier: str = ""  # Distinct, All
-    projection: List[Union[Aliasable, Expression]] = field(default_factory=list)
-    from_: Optional[From] = None
-    group_by: List[Expression] = field(default_factory=list)
-    having: Optional[Expression] = None
-    where: Optional[Expression] = None
-    lateral_views: List[LateralView] = field(default_factory=list)
 
     def __str__(self) -> str:
         parts = ["SELECT "]
@@ -2193,10 +2176,13 @@ class Select(SelectExpression):
             parts.extend(("HAVING ", str(self.having), "\n"))
         select = " ".join(parts).strip()
 
+        # Add set operations
+        if self.set_op:
+            select += f"\n{self.set_op}"
         if self.organization:
-            select+=f"\n{self.organization}"
+            select += f"\n{self.organization}"
         if self.limit:
-            select+=f"LIMIT {self.limit}"
+            select += f"LIMIT {self.limit}"
         if self.parenthesized:
             select = f"({select})"
 
@@ -2214,12 +2200,7 @@ class Select(SelectExpression):
             )
         return self.projection[0].type
 
-    def is_compiled(self) -> bool:
-        return super(Expression, self).is_compiled()
-    
     def compile(self, ctx: CompileContext):
-        if self.is_compiled():
-            return
         if not self.group_by and self.having:
             ctx.exception.errors.append(
                 DJError(
@@ -2231,9 +2212,8 @@ class Select(SelectExpression):
                     context=str(self),
                 ),
             )
-        self._is_compiled = True
-        super(Expression, self).compile(ctx)
-        
+
+        super().compile(ctx)
 
 
 @dataclass(eq=False)
