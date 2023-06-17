@@ -251,6 +251,12 @@ tr {
   margin: 2rem;
 }
 
+.card-light-shadow {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+  transition: all 0.3s cubic-bezier(.25,.8,.25,1);
+  padding: 1rem;
+}
+
 .table-responsive {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
@@ -645,6 +651,7 @@ pre {
   background-color: #ffffff;
   max-width: fit-content;
 }
+
 .card-header {
   align-items: center;
   margin: 0.5rem;
@@ -740,6 +747,7 @@ pre {
   font-weight: 600;
   line-height: 20px;
   padding: 6px 16px;
+  margin: 5px;
   position: relative;
   text-align: center;
   text-decoration: none;
@@ -763,4 +771,9 @@ pre {
 .executing-button {
   background-color: #bbbbbb;
   color: #fff
+}
+
+.neutral-button {
+  background-color: #f6f8fa;
+  color: #24292f;
 }
