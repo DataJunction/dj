@@ -419,7 +419,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
     query.select.projection = projection_update
 
     if limit is not None:
-        query.limit = ast.Number(limit)
+        query.select.limit = ast.Number(limit)
 
 
 def _get_node_table(
@@ -710,7 +710,7 @@ def build_metric_nodes(
     combined_ast.select.organization = ast.Organization(orderby_sort_items)
 
     if limit is not None:
-        combined_ast.limit = ast.Number(limit)
+        combined_ast.select.limit = ast.Number(limit)
 
     return combined_ast
 
