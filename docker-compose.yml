@@ -39,7 +39,7 @@ services:
       context: ./datajunction-server
     volumes:
       - ./datajunction-server:/code
-    command: /bin/bash -c "cp -n /code/dj.demo.db /code/dj.db | true && sleep 2 && alembic upgrade head
+    command: /bin/bash -c "cp -n /code/dj.demo.db /code/dj.db | true && sleep 2 && alembic upgrade head"
     restart: on-failure
 
   djui:
