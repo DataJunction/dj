@@ -607,7 +607,7 @@ def build_metric_nodes(
         current_table = ast.Table(metric_ast_alias)
 
         organization = cast(ast.Organization, metric_ast.select.organization)
-
+        metric_ast.select.organization=None
         # if an orderby referred to this metric node, parse and add it to the order items
         if metric_order := (
             [None]
@@ -617,7 +617,7 @@ def build_metric_nodes(
                 if metric_node.name == order_metric
             ]
         ).pop():
-            metric_sort_item = parse(f"select * order by {metric_order}").organization.order[0]  # type: ignore #pylint: disable=C0301
+            metric_sort_item = parse(f"select * order by {metric_order}").select.organization.order[0]  # type: ignore #pylint: disable=C0301
             metric_col = ast.Column(
                 name=ast.Name(
                     [
@@ -707,7 +707,7 @@ def build_metric_nodes(
         if isinstance(sort_item, ast.SortItem):
             orderby_sort_items.insert(idx, sort_item)
 
-    combined_ast.organization = ast.Organization(orderby_sort_items)
+    combined_ast.select.organization = ast.Organization(orderby_sort_items)
 
     if limit is not None:
         combined_ast.limit = ast.Number(limit)
