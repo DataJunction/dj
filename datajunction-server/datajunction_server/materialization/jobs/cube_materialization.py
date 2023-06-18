@@ -94,7 +94,6 @@ class DruidCubeMaterializationJob(MaterializationJob):
             if cube_config.partitions
             else []
         )
-        print("cube_config.partitions", cube_config.partitions)
         if not temporal_partitions:
             raise DJException(
                 "Druid ingestion requires a temporal partition to be specified",

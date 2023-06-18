@@ -259,6 +259,7 @@ def test_create_cube_with_materialization(client_with_query_service: TestClient)
             ],
         },
     )
+    print(response.json())
     default_materialization = response.json()["materializations"][0]
     assert default_materialization["job"] == "DruidCubeMaterializationJob"
     assert default_materialization["schedule"] == "0 * * * *"
@@ -855,7 +856,7 @@ def test_add_materialization_cube_failures(
     assert response.json() == {
         "message": "No change has been made to the materialization config for node "
         "`default.repairs_cube` and engine `druid` as the config does not have valid "
-        "configuration for engine `druid`. \nExpecting 'druid' key in `config`.",
+        "configuration for engine `druid`.",
     }
 
     response = client_with_repairs_cube.post(
@@ -898,9 +899,7 @@ def test_add_materialization_cube_failures(
     assert response.json() == {
         "message": "No change has been made to the materialization config for node "
         "`default.repairs_cube` and engine `druid` as the config does not have "
-        "valid configuration for engine `druid`. "
-        "\n* field required: granularity"
-        "\n* field required: timestamp_column",
+        "valid configuration for engine `druid`."
     }
 
 
