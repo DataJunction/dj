@@ -437,6 +437,13 @@ tbody th {
   margin: 0.25rem;
 }
 
+.partition_value_highlight {
+  border: solid #5c3b8f 0.025em;
+  color: #5c3b8f;
+  background-color: #5c3b8f25;
+  margin: 0.25rem;
+}
+
 .upstreams {
   width: 260px;
   display: flex;
