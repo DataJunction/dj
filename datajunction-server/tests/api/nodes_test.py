@@ -1419,7 +1419,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                     "AS languages,\n\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) "
                     "AS num_users \n FROM basic.dim_users AS basic_DOT_source_DOT_users "
                     "\n WHERE  basic_DOT_source_DOT_users.country IN ('DE', 'MY') \n "
-                    "GROUP BY  1\n",
+                    "GROUP BY  1\n\n",
                     "upstream_tables": ["public.basic.dim_users"],
                 },
                 "schedule": "0 * * * *",
