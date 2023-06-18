@@ -236,9 +236,8 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
         sa_column=SqlaColumn("job", String),
     )
 
-    @validator('config')
+    @validator("config")
     def val_b(cls, value):
-        print(value)
         return value.dict()
 
 
@@ -252,15 +251,4 @@ class UpsertMaterialization(BaseSQLModel):
     config: Union[
         DruidCubeConfigInput, GenericCubeConfigInput, GenericMaterializationConfigInput,
     ]
-    schedule: str
-
-
-class UpsertCubeMaterialization(BaseSQLModel):
-    """
-    An upsert object for cube materialization configs
-    """
-
-    name: Optional[str]
-    engine: EngineRef
-    config: Union[DruidCubeConfigInput, GenericCubeConfigInput]
     schedule: str
