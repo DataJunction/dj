@@ -2176,9 +2176,6 @@ class Select(SelectExpression):
             parts.extend(("HAVING ", str(self.having), "\n"))
         select = " ".join(parts).strip()
 
-        # Add set operations
-        if self.set_op:
-            select += f"\n{self.set_op}"
         if self.organization:
             select += f"\n{self.organization}"
         if self.limit:
@@ -2186,6 +2183,8 @@ class Select(SelectExpression):
         if self.parenthesized:
             select = f"({select})"
 
+        if self.set_op:
+            select += f"\n{self.set_op}"
         if self.alias:
             as_ = " AS " if self.as_ else " "
             return f"{select}{as_}{self.alias}"
