@@ -24,6 +24,7 @@ class GenericMaterializationInput(BaseModel):
 
     name: str
     node_name: str
+    node_version: str
     node_type: str
     schedule: str
     query: str
@@ -126,6 +127,7 @@ class GenericMaterializationConfigInput(BaseModel):
     """
     User-input portions of the materialization config
     """
+
     # List of partitions that materialization jobs (ongoing and backfill) will operate on.
     partitions: Optional[List[Partition]]
     # Spark config
@@ -192,6 +194,7 @@ class DruidCubeConfigInput(GenericCubeConfigInput):
     """
     Specific Druid cube materialization fields that require user input
     """
+
     prefix: Optional[str] = ""
     suffix: Optional[str] = ""
     druid: DruidConf
@@ -223,7 +226,9 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
     schedule: str
 
     # Arbitrary config relevant to the materialization engine
-    config: Union[GenericMaterializationConfig, DruidCubeConfig] = Field(default={}, sa_column=SqlaColumn(JSON))
+    config: Union[GenericMaterializationConfig, DruidCubeConfig] = Field(
+        default={}, sa_column=SqlaColumn(JSON),
+    )
 
     # The name of the plugin that handles materialization, if any
     job: str = Field(
@@ -244,7 +249,9 @@ class UpsertMaterialization(BaseSQLModel):
 
     name: Optional[str]
     engine: EngineRef
-    config: Union[DruidCubeConfigInput, GenericCubeConfigInput, GenericMaterializationConfigInput]
+    config: Union[
+        DruidCubeConfigInput, GenericCubeConfigInput, GenericMaterializationConfigInput,
+    ]
     schedule: str
 
 

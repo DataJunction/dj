@@ -65,7 +65,6 @@ from datajunction_server.models.materialization import (
     Partition,
     PartitionType,
     SparkConf,
-    UpsertCubeMaterialization,
     UpsertMaterialization,
 )
 from datajunction_server.models.node import (
@@ -349,7 +348,7 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
 
 def build_cube_config(
     cube_node: NodeRevision,
-    config: Dict,
+    engine: Engine,
     combined_ast: ast.Query,
 ) -> Union[DruidCubeConfig, GenericCubeConfig]:
     """
@@ -426,28 +425,20 @@ def build_cube_config(
         )
         for metric, measures in metrics_to_measures.items()
     }
-    upstream_tables = list(
-        {
-            f"{tbl.dj_node.catalog.name}.{tbl.identifier()}"
-            for tbl in combined_ast.find_all(ast.Table)
-            if tbl.dj_node
-        },
+    upstream_tables = sorted(
+        list(
+            {
+                f"{tbl.dj_node.catalog.name}.{tbl.identifier()}"
+                for tbl in combined_ast.find_all(ast.Table)
+                if tbl.dj_node
+            },
+        ),
     )
-    if config.get("druid"):
-        return DruidCubeConfig(
-            query=str(combined_ast),
-            dimensions=list(dimensions_set),
-            measures=measures,
-            spark=SparkConf(__root__=config.get("spark", {})),
-            druid=DruidConf(**config["druid"]),
-            upstream_tables=upstream_tables,
-            partitions=config.get("partitions"),
-        )
     return GenericCubeConfig(
         query=str(combined_ast),
-        dimensions=list(dimensions_set),
+        dimensions=sorted(list(dimensions_set)),
         measures=measures,
-        partitions=config.get("partitions"),
+        partitions=[],
         upstream_tables=upstream_tables,
     )
 
@@ -559,7 +550,7 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
                 partitions=data.config.partitions,
                 upstream_tables=default_job_config.upstream_tables,
             )
-        except (KeyError, ValidationError, AttributeError) as exception:
+        except (KeyError, ValidationError, AttributeError):
             return JSONResponse(
                 status_code=500,
                 content={
@@ -579,24 +570,25 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
         for materialization in current_revision.materializations
         if materialization.name == materialization_name
     ]
-    if (
-        existing_materialization_for_engine
-        and existing_materialization_for_engine[0].config == generic_config
-    ):
-        existing_materialization_info = query_service_client.get_materialization_info(
-            name,
-            materialization_name,
-        )
-        return JSONResponse(
-            status_code=HTTPStatus.CREATED,
-            content={
-                "message": (
-                    f"The same materialization config with name `{materialization_name}`"
-                    f"already exists for node `{name}` so no update was performed."
-                ),
-                "info": existing_materialization_info.dict(),
-            },
-        )
+    # if (
+    #     existing_materialization_for_engine
+    #     and existing_materialization_for_engine[0].config == generic_config
+    # ):
+    #     existing_materialization_info = query_service_client.get_materialization_info(
+    #         name,
+    #         current_revision.version,
+    #         materialization_name,
+    #     )
+    #     return JSONResponse(
+    #         status_code=HTTPStatus.CREATED,
+    #         content={
+    #             "message": (
+    #                 f"The same materialization config with name `{materialization_name}`"
+    #                 f"already exists for node `{name}` so no update was performed."
+    #             ),
+    #             "info": existing_materialization_info.dict(),
+    #         },
+    #     )
 
     # If changes are detected, save the new materialization
     unchanged_existing_materializations = [
@@ -656,6 +648,7 @@ def list_node_materializations(
     for materialization in node.current.materializations:
         info = query_service_client.get_materialization_info(
             node_name,
+            node.current.version,
             materialization.name,
         )
         materialization = MaterializationConfigInfoUnified(
@@ -876,7 +869,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         catalog=catalog,
     )
 
-    # If a materialization was configured, set it up for the cube
+    # Set up a default materialization for the cube
     node_revision.materializations = []
     default_materialization = UpsertMaterialization(
         name="placeholder",
@@ -885,33 +878,29 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         config={},
         job="CubeMaterializationJob",
     )
-    for materialization in data.materializations or [
-        default_materialization,
-    ]:
-        engine = get_engine(
-            session,
-            name=materialization.engine.name,
-            version=materialization.engine.version,
-        )
-        cube_custom_config = build_cube_config(
-            node_revision,
-            materialization.config.dict(),
-            combined_ast,
-        )
-        new_materialization = Materialization(
-            name=materialization.name or cube_custom_config.identifier(),
-            node_revision=node_revision,
-            engine=engine,
-            config=cube_custom_config,
-            schedule=materialization.schedule,
-            job=(
-                DefaultCubeMaterialization.__name__
-                if not isinstance(cube_custom_config, DruidCubeConfig)
-                else DruidCubeMaterializationJob.__name__
-            ),
-        )
-        print("cube_custom_config", cube_custom_config.json())
-        node_revision.materializations.append(new_materialization)
+    engine = get_engine(
+        session,
+        name=default_materialization.engine.name,
+        version=default_materialization.engine.version,
+    )
+    cube_custom_config = build_cube_config(
+        node_revision,
+        engine,
+        combined_ast,
+    )
+    new_materialization = Materialization(
+        name=cube_custom_config.identifier(),
+        node_revision=node_revision,
+        engine=engine,
+        config=cube_custom_config,
+        schedule=default_materialization.schedule,
+        job=(
+            DefaultCubeMaterialization.__name__
+            if not isinstance(cube_custom_config, DruidCubeConfig)
+            else DruidCubeMaterializationJob.__name__
+        ),
+    )
+    node_revision.materializations.append(new_materialization)
     return node_revision
 
 
@@ -1429,7 +1418,9 @@ def update_a_node(
     session.refresh(node.current)
 
     if new_revision.materializations and new_revision.query != old_revision.query:
-        schedule_materialization_jobs(new_revision.materializations, query_service_client)
+        schedule_materialization_jobs(
+            new_revision.materializations, query_service_client,
+        )
     return node  # type: ignore
 
 

@@ -147,6 +147,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
             DruidMaterializationInput(
                 name=materialization.name,
                 node_name=materialization.node_revision.name,
+                node_version=materialization.node_revision.version,
                 node_type=materialization.node_revision.type,
                 schedule=materialization.schedule,
                 query=cube_config.query,

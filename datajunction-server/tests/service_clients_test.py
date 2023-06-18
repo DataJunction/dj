@@ -357,10 +357,11 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client = QueryServiceClient(uri=self.endpoint)
         response = query_service_client.get_materialization_info(
             node_name="default.hard_hat",
+            node_version="v3.1",
             materialization_name="default",
         )
         mock_request.assert_called_with(
-            "/materialization/default.hard_hat/default/",
+            "/materialization/default.hard_hat/v3.1/default/",
             timeout=3,
         )
         assert response == {
@@ -385,6 +386,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client = QueryServiceClient(uri=self.endpoint)
         response = query_service_client.get_materialization_info(
             node_name="default.hard_hat",
+            node_version="v3.1",
             materialization_name="default",
         )
         assert response == {
