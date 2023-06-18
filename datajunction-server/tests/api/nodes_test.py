@@ -12,6 +12,20 @@ from datajunction_server.models import Database, Table
 from datajunction_server.models.column import Column
 from datajunction_server.models.node import Node, NodeRevision, NodeStatus, NodeType
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
+from tests.sql.utils import compare_query_strings
+
+
+def materialization_compare(response, expected):
+    """Compares two materialization lists of json
+    configs paying special attention to query comparison"""
+    for (materialization_response, materialization_expected) in zip(response, expected):
+        assert compare_query_strings(
+            materialization_response["config"]["query"],
+            materialization_expected["config"]["query"],
+        )
+        del materialization_response["config"]["query"]
+        del materialization_expected["config"]["query"]
+        assert materialization_response == materialization_expected
 
 
 def test_read_node(client_with_examples: TestClient) -> None:
@@ -1431,58 +1445,61 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
         data = response.json()
         assert data["version"] == "v1.0"
-        assert data["materializations"] == [
-            {
-                "name": "country_3491792861",
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                    "uri": None,
-                    "dialect": "spark",
+        materialization_compare(
+            data["materializations"],
+            [
+                {
+                    "name": "country_3491792861",
+                    "engine": {
+                        "name": "spark",
+                        "version": "2.4.4",
+                        "uri": None,
+                        "dialect": "spark",
+                    },
+                    "config": {
+                        "query": "SELECT  basic_DOT_source_DOT_users.country,\n\tCOUNT( "
+                        "DISTINCT basic_DOT_source_DOT_users.id) AS num_users \n "
+                        "FROM basic.dim_users AS basic_DOT_source_DOT_users \n WHERE"
+                        "  basic_DOT_source_DOT_users.country IN ('DE', 'MY') \n "
+                        "GROUP BY  1\n",
+                        "partitions": [
+                            {
+                                "name": "country",
+                                "values": ["DE", "MY"],
+                                "range": None,
+                                "type_": "categorical",
+                                "expression": None,
+                            },
+                        ],
+                        "spark": {},
+                        "upstream_tables": ["public.basic.dim_users"],
+                    },
+                    "schedule": "0 * * * *",
+                    "job": "SparkSqlMaterializationJob",
                 },
-                "config": {
-                    "query": "SELECT  basic_DOT_source_DOT_users.country,\n\tCOUNT( "
-                    "DISTINCT basic_DOT_source_DOT_users.id) AS num_users \n "
-                    "FROM basic.dim_users AS basic_DOT_source_DOT_users \n WHERE"
-                    "  basic_DOT_source_DOT_users.country IN ('DE', 'MY') \n "
-                    "GROUP BY  1\n",
-                    "partitions": [
-                        {
-                            "name": "country",
-                            "values": ["DE", "MY"],
-                            "range": None,
-                            "type_": "categorical",
-                            "expression": None,
-                        },
-                    ],
-                    "spark": {},
-                    "upstream_tables": ["public.basic.dim_users"],
+                {
+                    "config": {
+                        "partitions": [],
+                        "query": "SELECT  basic_DOT_source_DOT_users.country,\n"
+                        "\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS "
+                        "num_users \n"
+                        " FROM basic.dim_users AS basic_DOT_source_DOT_users \n"
+                        " GROUP BY  1\n",
+                        "spark": {},
+                        "upstream_tables": ["public.basic.dim_users"],
+                    },
+                    "engine": {
+                        "dialect": "spark",
+                        "name": "spark",
+                        "uri": None,
+                        "version": "2.4.4",
+                    },
+                    "job": "SparkSqlMaterializationJob",
+                    "name": "default",
+                    "schedule": "0 * * * *",
                 },
-                "schedule": "0 * * * *",
-                "job": "SparkSqlMaterializationJob",
-            },
-            {
-                "config": {
-                    "partitions": [],
-                    "query": "SELECT  basic_DOT_source_DOT_users.country,\n"
-                    "\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS "
-                    "num_users \n"
-                    " FROM basic.dim_users AS basic_DOT_source_DOT_users \n"
-                    " GROUP BY  1\n",
-                    "spark": {},
-                    "upstream_tables": ["public.basic.dim_users"],
-                },
-                "engine": {
-                    "dialect": "spark",
-                    "name": "spark",
-                    "uri": None,
-                    "version": "2.4.4",
-                },
-                "job": "SparkSqlMaterializationJob",
-                "name": "default",
-                "schedule": "0 * * * *",
-            },
-        ]
+            ],
+        )
 
         # Setting the materialization config with a temporal partition should succeed
         response = client_with_query_service.post(
@@ -1525,120 +1542,126 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get("/nodes/default.hard_hat/")
         data = response.json()
         assert data["version"] == "v1.0"
-        assert data["materializations"] == [
-            {
-                "name": "country_birth_date_contractor_id_379232101",
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                    "uri": None,
-                    "dialect": "spark",
+        materialization_compare(
+            data["materializations"],
+            [
+                {
+                    "name": "country_birth_date_contractor_id_379232101",
+                    "engine": {
+                        "name": "spark",
+                        "version": "2.4.4",
+                        "uri": None,
+                        "dialect": "spark",
+                    },
+                    "config": {
+                        "query": "SELECT  default_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats."
+                        "birth_date,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats."
+                        "contractor_id,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard"
+                        "_hats.first_name,\n\tdefault_DOT_hard_hats.hard_hat_id,\n\tdefault_D"
+                        "OT_hard_hats.hire_date,\n\tdefault_DOT_hard_hats.last_name,\n\tdefau"
+                        "lt_DOT_hard_hats.manager,\n\tdefault_DOT_hard_hats.postal_code,\n\t"
+                        "default_DOT_hard_hats.state,\n\tdefault_DOT_hard_hats.title \n FROM"
+                        " roads.hard_hats AS default_DOT_hard_hats \n WHERE  default_DOT_har"
+                        "d_hats.country IN ('DE', 'MY') AND default_DOT_hard_hats.contractor"
+                        "_id BETWEEN 1 AND 10\n",
+                        "partitions": [
+                            {
+                                "name": "country",
+                                "values": ["DE", "MY"],
+                                "range": None,
+                                "type_": "categorical",
+                                "expression": None,
+                            },
+                            {
+                                "name": "birth_date",
+                                "values": None,
+                                "range": [20010101, 20020101],
+                                "type_": "temporal",
+                                "expression": None,
+                            },
+                            {
+                                "name": "contractor_id",
+                                "values": None,
+                                "range": [1, 10],
+                                "type_": "categorical",
+                                "expression": None,
+                            },
+                        ],
+                        "spark": {},
+                        "upstream_tables": ["default.roads.hard_hats"],
+                    },
+                    "schedule": "0 * * * *",
+                    "job": "SparkSqlMaterializationJob",
                 },
-                "config": {
-                    "query": "SELECT  default_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats."
-                    "birth_date,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats."
-                    "contractor_id,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard"
-                    "_hats.first_name,\n\tdefault_DOT_hard_hats.hard_hat_id,\n\tdefault_D"
-                    "OT_hard_hats.hire_date,\n\tdefault_DOT_hard_hats.last_name,\n\tdefau"
-                    "lt_DOT_hard_hats.manager,\n\tdefault_DOT_hard_hats.postal_code,\n\t"
-                    "default_DOT_hard_hats.state,\n\tdefault_DOT_hard_hats.title \n FROM"
-                    " roads.hard_hats AS default_DOT_hard_hats \n WHERE  default_DOT_har"
-                    "d_hats.country IN ('DE', 'MY') AND default_DOT_hard_hats.contractor"
-                    "_id BETWEEN 1 AND 10\n",
-                    "partitions": [
-                        {
-                            "name": "country",
-                            "values": ["DE", "MY"],
-                            "range": None,
-                            "type_": "categorical",
-                            "expression": None,
-                        },
-                        {
-                            "name": "birth_date",
-                            "values": None,
-                            "range": [20010101, 20020101],
-                            "type_": "temporal",
-                            "expression": None,
-                        },
-                        {
-                            "name": "contractor_id",
-                            "values": None,
-                            "range": [1, 10],
-                            "type_": "categorical",
-                            "expression": None,
-                        },
-                    ],
-                    "spark": {},
-                    "upstream_tables": ["default.roads.hard_hats"],
-                },
-                "schedule": "0 * * * *",
-                "job": "SparkSqlMaterializationJob",
-            },
-        ]
+            ],
+        )
 
         # Check listing materializations of the node
         response = client_with_query_service.get(
             "/nodes/default.hard_hat/materializations/",
         )
-        assert response.json() == [
-            {
-                "config": {
-                    "partitions": [
-                        {
-                            "expression": None,
-                            "name": "country",
-                            "range": None,
-                            "type_": "categorical",
-                            "values": ["DE", "MY"],
-                        },
-                        {
-                            "expression": None,
-                            "name": "birth_date",
-                            "range": [20010101, 20020101],
-                            "type_": "temporal",
-                            "values": None,
-                        },
-                        {
-                            "expression": None,
-                            "name": "contractor_id",
-                            "range": [1, 10],
-                            "type_": "categorical",
-                            "values": None,
-                        },
-                    ],
-                    "query": "SELECT  default_DOT_hard_hats.address,\n"
-                    "\tdefault_DOT_hard_hats.birth_date,\n"
-                    "\tdefault_DOT_hard_hats.city,\n"
-                    "\tdefault_DOT_hard_hats.contractor_id,\n"
-                    "\tdefault_DOT_hard_hats.country,\n"
-                    "\tdefault_DOT_hard_hats.first_name,\n"
-                    "\tdefault_DOT_hard_hats.hard_hat_id,\n"
-                    "\tdefault_DOT_hard_hats.hire_date,\n"
-                    "\tdefault_DOT_hard_hats.last_name,\n"
-                    "\tdefault_DOT_hard_hats.manager,\n"
-                    "\tdefault_DOT_hard_hats.postal_code,\n"
-                    "\tdefault_DOT_hard_hats.state,\n"
-                    "\tdefault_DOT_hard_hats.title \n"
-                    " FROM roads.hard_hats AS default_DOT_hard_hats \n"
-                    " WHERE  default_DOT_hard_hats.country IN ('DE', 'MY') "
-                    "AND default_DOT_hard_hats.contractor_id BETWEEN 1 AND "
-                    "10\n",
-                    "spark": {},
-                    "upstream_tables": ["default.roads.hard_hats"],
+        materialization_compare(
+            response.json(),
+            [
+                {
+                    "config": {
+                        "partitions": [
+                            {
+                                "expression": None,
+                                "name": "country",
+                                "range": None,
+                                "type_": "categorical",
+                                "values": ["DE", "MY"],
+                            },
+                            {
+                                "expression": None,
+                                "name": "birth_date",
+                                "range": [20010101, 20020101],
+                                "type_": "temporal",
+                                "values": None,
+                            },
+                            {
+                                "expression": None,
+                                "name": "contractor_id",
+                                "range": [1, 10],
+                                "type_": "categorical",
+                                "values": None,
+                            },
+                        ],
+                        "query": "SELECT  default_DOT_hard_hats.address,\n"
+                        "\tdefault_DOT_hard_hats.birth_date,\n"
+                        "\tdefault_DOT_hard_hats.city,\n"
+                        "\tdefault_DOT_hard_hats.contractor_id,\n"
+                        "\tdefault_DOT_hard_hats.country,\n"
+                        "\tdefault_DOT_hard_hats.first_name,\n"
+                        "\tdefault_DOT_hard_hats.hard_hat_id,\n"
+                        "\tdefault_DOT_hard_hats.hire_date,\n"
+                        "\tdefault_DOT_hard_hats.last_name,\n"
+                        "\tdefault_DOT_hard_hats.manager,\n"
+                        "\tdefault_DOT_hard_hats.postal_code,\n"
+                        "\tdefault_DOT_hard_hats.state,\n"
+                        "\tdefault_DOT_hard_hats.title \n"
+                        " FROM roads.hard_hats AS default_DOT_hard_hats \n"
+                        " WHERE  default_DOT_hard_hats.country IN ('DE', 'MY') "
+                        "AND default_DOT_hard_hats.contractor_id BETWEEN 1 AND "
+                        "10\n",
+                        "spark": {},
+                        "upstream_tables": ["default.roads.hard_hats"],
+                    },
+                    "engine": {
+                        "dialect": "spark",
+                        "name": "spark",
+                        "uri": None,
+                        "version": "2.4.4",
+                    },
+                    "job": "SparkSqlMaterializationJob",
+                    "name": "country_birth_date_contractor_id_379232101",
+                    "output_tables": ["common.a", "common.b"],
+                    "schedule": "0 * * * *",
+                    "urls": ["http://fake.url/job"],
                 },
-                "engine": {
-                    "dialect": "spark",
-                    "name": "spark",
-                    "uri": None,
-                    "version": "2.4.4",
-                },
-                "job": "SparkSqlMaterializationJob",
-                "name": "country_birth_date_contractor_id_379232101",
-                "output_tables": ["common.a", "common.b"],
-                "schedule": "0 * * * *",
-                "urls": ["http://fake.url/job"],
-            },
-        ]
+            ],
+        )
 
 
 class TestNodeColumnsAttributes:

@@ -343,42 +343,6 @@ def _build_select_ast(
     _build_tables_on_select(session, select, tables, build_criteria)
 
 
-def _consolidate_tables(query: ast.Query):
-    """
-    Checks all the tables whose nearest query is
-    the one given, matching identifiers, and makes them
-    all the same `Table` in memory
-    """
-    foundation_tables_map = {}
-    column_tables_map = {}
-    for tbl in query.find_all(ast.Table):
-        if tbl.get_nearest_parent_of_type(ast.Query) is not query:
-            continue  # pragma: no cover
-        ident = tbl.identifier(False)
-        if isinstance(tbl.parent, ast.Column):
-            if ident not in column_tables_map:
-                column_tables_map[ident] = [tbl]
-            else:
-                column_tables_map[ident].append(tbl)
-        else:
-            if ident not in foundation_tables_map:
-                foundation_tables_map[ident] = [tbl]
-            else:
-                foundation_tables_map[ident].append(tbl)  # pragma: no cover
-
-    for ident, tbls in foundation_tables_map.items():
-        for tbl in tbls[1:]:
-            tbl.swap(tbls[0])  # pragma: no cover
-        if ident in column_tables_map:
-            for col_tbl in column_tables_map[ident]:
-                col_tbl.swap(tbls[0])
-            del column_tables_map[ident]
-
-    for tbls in column_tables_map.values():
-        for tbl in tbls[1:]:
-            tbl.swap(tbls[0])
-
-
 # pylint: disable=R0915
 def add_filters_dimensions_orderby_limit_to_query_ast(
     query: ast.Query,
@@ -401,7 +365,6 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             query.select.group_by += temp_select.group_by  # type:ignore
             for col in temp_select.find_all(ast.Column):
                 projection_addition[col.identifier(False)] = col
-                col.namespace_table()
 
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
@@ -417,37 +380,20 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 if not dimensions:
                     projection_addition[col.identifier(False)] = col
-                col.namespace_table()
 
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
-    if not query.organization:
-        query.organization = ast.Organization([])
-
-    # for order bys, we must be using dimensions
-    # that are already used in dimensions, filters
-    # so for the sake of building rn, we will dupe cols
-    # if used already, otherwise, the orderby col will
-    # be put in the projection as with the dimensions, filters
-    # columns
+    if not query.select.organization:
+        query.select.organization = ast.Organization([])
 
     if orderby:
         for order in orderby:
             temp_query = parse(
                 f"select * order by {order}",
             )
-
-            for col in temp_query.find_all(ast.Column):
-                ident = col.identifier(False)
-                col.namespace_table()
-                if ident in projection_addition:
-                    col.swap(projection_addition[ident])
-                else:
-                    raise DJInvalidInputException(
-                        f"Column {col} found in order-by clause must"
-                        " also be specified in the metrics or dimensions.",
-                    )
-            query.organization.order += temp_query.organization.order  # type:ignore
+            query.select.organization.order += (  # type:ignore
+                temp_query.select.organization.order  # type:ignore
+            )
 
     # add all used dimension columns to the projection without duplicates
     projection_update = []
@@ -473,7 +419,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
     query.select.projection = projection_update
 
     if limit is not None:
-        query.limit = ast.Number(limit)
+        query.select.limit = ast.Number(limit)
 
 
 def _get_node_table(
@@ -561,7 +507,6 @@ def build_node(  # pylint: disable=too-many-arguments
         orderby,
         limit,
     )
-    _consolidate_tables(query)
     return build_ast(session, query, build_criteria)
 
 
@@ -661,8 +606,8 @@ def build_metric_nodes(
         # Add the metric and dimensions to the final query layer's SELECT
         current_table = ast.Table(metric_ast_alias)
 
-        organization = cast(ast.Organization, metric_ast.organization)
-
+        organization = cast(ast.Organization, metric_ast.select.organization)
+        metric_ast.select.organization = None
         # if an orderby referred to this metric node, parse and add it to the order items
         if metric_order := (
             [None]
@@ -672,7 +617,7 @@ def build_metric_nodes(
                 if metric_node.name == order_metric
             ]
         ).pop():
-            metric_sort_item = parse(f"select * order by {metric_order}").organization.order[0]  # type: ignore #pylint: disable=C0301
+            metric_sort_item = parse(f"select * order by {metric_order}").select.organization.order[0]  # type: ignore #pylint: disable=C0301
             metric_col = ast.Column(
                 name=ast.Name(
                     [
@@ -762,10 +707,10 @@ def build_metric_nodes(
         if isinstance(sort_item, ast.SortItem):
             orderby_sort_items.insert(idx, sort_item)
 
-    combined_ast.organization = ast.Organization(orderby_sort_items)
+    combined_ast.select.organization = ast.Organization(orderby_sort_items)
 
     if limit is not None:
-        combined_ast.limit = ast.Number(limit)
+        combined_ast.select.limit = ast.Number(limit)
 
     return combined_ast
 

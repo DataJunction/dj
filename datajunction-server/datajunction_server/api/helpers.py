@@ -595,3 +595,24 @@ def get_history(
         .offset(offset)
         .limit(limit),
     ).all()
+
+
+def validate_orderby(
+    orderby: List[str],
+    metrics: List[str],
+    dimension_attributes: List[str],
+):
+    """
+    Validate that all elements in an order by match a metric or dimension attribute
+    """
+    invalid_orderbys = []
+    for orderby_element in orderby:
+        if orderby_element not in metrics + dimension_attributes:
+            invalid_orderbys.append(orderby_element)
+    if invalid_orderbys:
+        raise DJException(
+            message=(
+                f"Columns {invalid_orderbys} in order by clause must also be "
+                "specified in the metrics or dimensions"
+            ),
+        )

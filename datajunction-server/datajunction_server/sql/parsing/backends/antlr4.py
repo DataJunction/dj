@@ -272,8 +272,9 @@ def _(ctx: sbp.QueryContext):
         ctes = visit(ctes_ctx)
     limit, organization = visit(ctx.queryOrganization())
     select = visit(ctx.queryTerm())
-
-    return ast.Query(ctes=ctes, select=select, limit=limit, organization=organization)
+    select.limit = limit
+    select.organization = organization
+    return ast.Query(ctes=ctes, select=select)
 
 
 @visit.register
@@ -862,11 +863,14 @@ def _(ctx: sbp.SubqueryExpressionContext):
 def _(ctx: sbp.SetOperationContext):
     operator = ctx.operator.text
     quantifier = f" {visit(ctx.setQuantifier())}" if ctx.setQuantifier() else ""
-    return ast.SetOp(
-        left=visit(ctx.left),
-        kind=f"{operator}{quantifier}",
-        right=visit(ctx.right),
+    left = visit(ctx.left)
+    left.add_set_op(
+        ast.SetOp(
+            kind=f"{operator}{quantifier}",
+            right=visit(ctx.right),
+        ),
     )
+    return left
 
 
 @visit.register

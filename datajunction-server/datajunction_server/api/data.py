@@ -14,6 +14,7 @@ from datajunction_server.api.helpers import (
     get_node_by_name,
     get_query,
     validate_cube,
+    validate_orderby,
 )
 from datajunction_server.construction.build import build_metric_nodes
 from datajunction_server.errors import DJException, DJInvalidInputException
@@ -132,7 +133,7 @@ def get_data(  # pylint: disable=too-many-locals
             f"The selected engine is not available for the node {node_name}. "
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
-
+    validate_orderby(orderby, [node_name], dimensions)
     query_ast = get_query(
         session=session,
         node_name=node_name,
@@ -200,6 +201,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
         metrics,
         dimensions,
     )
+    validate_orderby(orderby, metrics, dimensions)
     query_ast = build_metric_nodes(
         session,
         metric_nodes,
