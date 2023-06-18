@@ -2185,8 +2185,6 @@ class Select(SelectExpression):
         if self.limit:
             select += f"LIMIT {self.limit}"
 
-
-
         if self.alias:
             as_ = " AS " if self.as_ else " "
             return f"{select}{as_}{self.alias}"

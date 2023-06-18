@@ -1443,7 +1443,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
         data = response.json()
         assert data["version"] == "v1.0"
-        assert materialization_compare(
+        materialization_compare(
             data["materializations"],
             [
                 {
@@ -1540,7 +1540,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get("/nodes/default.hard_hat/")
         data = response.json()
         assert data["version"] == "v1.0"
-        assert materialization_compare(
+        materialization_compare(
             data["materializations"],
             [
                 {
@@ -1598,7 +1598,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_query_service.get(
             "/nodes/default.hard_hat/materializations/",
         )
-        assert materialization_compare(
+        materialization_compare(
             response.json(),
             [
                 {
