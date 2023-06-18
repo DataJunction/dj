@@ -21,14 +21,10 @@ export default function NodeMaterializationTab({ node, djClient }) {
   const rangePartition = partition => {
     return (
       <div>
-        <div>
-          Min:{' '}
-          <span className="badge partition_value">{partition.range[0]}</span>
-        </div>
-        <div>
-          Max:{' '}
+        <span className="badge partition_value">
+          <span className="badge partition_value">{partition.range[0]}</span>to
           <span className="badge partition_value">{partition.range[1]}</span>
-        </div>
+        </span>
       </div>
     );
   };
@@ -72,6 +68,12 @@ export default function NodeMaterializationTab({ node, djClient }) {
                     {partition.range !== null && partition.range.length > 0
                       ? rangePartition(partition)
                       : null}
+                    {partition.range.length === 0 &&
+                    partition.values.length === 0 ? (
+                      <span className={`badge partition_value_highlight`}>
+                        ALL
+                      </span>
+                    ) : null}
                   </div>
                 </div>
               ) : null,
