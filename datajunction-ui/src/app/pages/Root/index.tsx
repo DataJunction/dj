@@ -29,7 +29,7 @@ export function Root() {
               </span>
               <span className="menu-link">
                 <span className="menu-title">
-                  <a href="/cubebuilder">Cube Builder</a>
+                  <a href="/sql">SQL</a>
                 </span>
               </span>
               <span className="menu-link">

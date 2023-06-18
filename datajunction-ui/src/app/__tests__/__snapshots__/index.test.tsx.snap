@@ -88,8 +88,8 @@ exports[`<App /> should render and match the snapshot 1`] = `
             />
           </Route>
           <Route
-            element={<CubeBuilderPage />}
-            path="cubebuilder"
+            element={<SQLBuilderPage />}
+            path="sql"
           />
         </React.Fragment>
       </Route>

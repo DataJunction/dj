@@ -7,7 +7,7 @@ import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import { format } from 'sql-formatter';
 import Select from 'react-select';
 
-export function CubeBuilderPage() {
+export function SQLBuilderPage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [metrics, setMetrics] = useState([]);
   const [commonDimensionsList, setCommonDimensionsList] = useState([]);
@@ -124,9 +124,9 @@ export function CubeBuilderPage() {
           <div className="card-header">
             {showHelp ? (
               <div className="card-light-shadow">
-                <h6>Using the Cube Builder</h6>
+                <h6>Using the SQL Builder</h6>
                 <p>
-                  The cube builder allows you to group multiple metrics along
+                  The sql builder allows you to group multiple metrics along
                   with their shared dimensions. Using your selections,
                   DataJunction will generate the corresponding SQL.
                 </p>
@@ -249,6 +249,6 @@ export function CubeBuilderPage() {
   );
 }
 
-CubeBuilderPage.defaultProps = {
+SQLBuilderPage.defaultProps = {
   djClient: DataJunctionAPI,
 };

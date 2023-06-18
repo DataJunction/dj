@@ -5,10 +5,10 @@
 import * as React from 'react';
 import { lazyLoad } from '../../../utils/loadable';
 
-export const CubeBuilderPage = props => {
+export const SQLBuilderPage = props => {
   return lazyLoad(
     () => import('./index'),
-    module => module.CubeBuilderPage,
+    module => module.SQLBuilderPage,
     {
       fallback: <div></div>,
     },
