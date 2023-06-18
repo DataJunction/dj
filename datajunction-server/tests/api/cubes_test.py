@@ -300,74 +300,42 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
     assert default_materialization["schedule"] == "@daily"
     assert default_materialization["config"]["partitions"] == []
     assert default_materialization["config"]["upstream_tables"] == [
-         "default.roads.dispatchers",
-         "default.roads.hard_hats",
-         "default.roads.municipality",
-         "default.roads.municipality_municipality_type",
-         "default.roads.municipality_type",
-         "default.roads.repair_order_details",
-         "default.roads.repair_orders",
+        "default.roads.dispatchers",
+        "default.roads.hard_hats",
+        "default.roads.municipality",
+        "default.roads.municipality_municipality_type",
+        "default.roads.municipality_type",
+        "default.roads.repair_order_details",
+        "default.roads.repair_orders",
     ]
     assert default_materialization["config"]["dimensions"] == [
-         "city",
-         "company_name",
-         "country",
-         "local_region",
-         "postal_code",
-         "state",
+        "city",
+        "company_name",
+        "country",
+        "local_region",
+        "postal_code",
+        "state",
     ]
     assert default_materialization["config"]["measures"] == {
         "default_DOT_discounted_orders_rate": [
-            {
-                "name": "discount_sum",
-                "agg": "sum",
-                "type": "bigint"
-            },
-            {
-                "name": "placeholder_count",
-                "agg": "count",
-                "type": "bigint"
-            }
+            {"name": "discount_sum", "agg": "sum", "type": "bigint"},
+            {"name": "placeholder_count", "agg": "count", "type": "bigint"},
         ],
         "default_DOT_num_repair_orders": [
-            {
-                "name": "repair_order_id_count",
-                "agg": "count",
-                "type": "bigint"
-            }
+            {"name": "repair_order_id_count", "agg": "count", "type": "bigint"},
         ],
         "default_DOT_avg_repair_price": [
-            {
-                "name": "price_count",
-                "agg": "count",
-                "type": "bigint"
-            },
-            {
-                "name": "price_sum",
-                "agg": "sum",
-                "type": "double"
-            }
+            {"name": "price_count", "agg": "count", "type": "bigint"},
+            {"name": "price_sum", "agg": "sum", "type": "double"},
         ],
         "default_DOT_total_repair_cost": [
-            {
-                "name": "price_sum",
-                "agg": "sum",
-                "type": "double"
-            }
+            {"name": "price_sum", "agg": "sum", "type": "double"},
         ],
         "default_DOT_total_repair_order_discounts": [
-            {
-                "name": "price_discount_sum",
-                "agg": "sum",
-                "type": "double"
-            }
+            {"name": "price_discount_sum", "agg": "sum", "type": "double"},
         ],
         "default_DOT_double_total_repair_cost": [
-            {
-                "name": "price_sum",
-                "agg": "sum",
-                "type": "double"
-            }
+            {"name": "price_sum", "agg": "sum", "type": "double"},
         ],
     }
 
@@ -915,7 +883,7 @@ def test_add_materialization_cube_failures(
     assert response.json() == {
         "message": "No change has been made to the materialization config for node "
         "`default.repairs_cube` and engine `druid` as the config does not have "
-        "valid configuration for engine `druid`."
+        "valid configuration for engine `druid`.",
     }
 
 

@@ -425,13 +425,15 @@ def build_cube_config(
         )
         for metric, measures in metrics_to_measures.items()
     }
-    upstream_tables = sorted(list(
-        {
-            f"{tbl.dj_node.catalog.name}.{tbl.identifier()}"
-            for tbl in combined_ast.find_all(ast.Table)
-            if tbl.dj_node
-        },
-    ))
+    upstream_tables = sorted(
+        list(
+            {
+                f"{tbl.dj_node.catalog.name}.{tbl.identifier()}"
+                for tbl in combined_ast.find_all(ast.Table)
+                if tbl.dj_node
+            },
+        ),
+    )
     return GenericCubeConfig(
         query=str(combined_ast),
         dimensions=sorted(list(dimensions_set)),
@@ -568,24 +570,25 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
         for materialization in current_revision.materializations
         if materialization.name == materialization_name
     ]
-    if (
-        existing_materialization_for_engine
-        and existing_materialization_for_engine[0].config == generic_config
-    ):
-        existing_materialization_info = query_service_client.get_materialization_info(
-            name,
-            materialization_name,
-        )
-        return JSONResponse(
-            status_code=HTTPStatus.CREATED,
-            content={
-                "message": (
-                    f"The same materialization config with name `{materialization_name}`"
-                    f"already exists for node `{name}` so no update was performed."
-                ),
-                "info": existing_materialization_info.dict(),
-            },
-        )
+    # if (
+    #     existing_materialization_for_engine
+    #     and existing_materialization_for_engine[0].config == generic_config
+    # ):
+    #     existing_materialization_info = query_service_client.get_materialization_info(
+    #         name,
+    #         current_revision.version,
+    #         materialization_name,
+    #     )
+    #     return JSONResponse(
+    #         status_code=HTTPStatus.CREATED,
+    #         content={
+    #             "message": (
+    #                 f"The same materialization config with name `{materialization_name}`"
+    #                 f"already exists for node `{name}` so no update was performed."
+    #             ),
+    #             "info": existing_materialization_info.dict(),
+    #         },
+    #     )
 
     # If changes are detected, save the new materialization
     unchanged_existing_materializations = [
@@ -645,6 +648,7 @@ def list_node_materializations(
     for materialization in node.current.materializations:
         info = query_service_client.get_materialization_info(
             node_name,
+            node.current.version,
             materialization.name,
         )
         materialization = MaterializationConfigInfoUnified(
@@ -1414,7 +1418,9 @@ def update_a_node(
     session.refresh(node.current)
 
     if new_revision.materializations and new_revision.query != old_revision.query:
-        schedule_materialization_jobs(new_revision.materializations, query_service_client)
+        schedule_materialization_jobs(
+            new_revision.materializations, query_service_client,
+        )
     return node  # type: ignore
 
 
