@@ -8,9 +8,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
-from datajunction_server.api.helpers import get_engine, get_query, validate_cube, validate_orderby
+from datajunction_server.api.helpers import (
+    get_engine,
+    get_query,
+    validate_cube,
+    validate_orderby,
+)
 from datajunction_server.construction.build import build_metric_nodes
-from datajunction_server.errors import DJException
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.utils import get_session
