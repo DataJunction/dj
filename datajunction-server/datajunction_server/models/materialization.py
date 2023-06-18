@@ -227,7 +227,8 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
 
     # Arbitrary config relevant to the materialization engine
     config: Union[GenericMaterializationConfig, DruidCubeConfig] = Field(
-        default={}, sa_column=SqlaColumn(JSON),
+        default={},
+        sa_column=SqlaColumn(JSON),
     )
 
     # The name of the plugin that handles materialization, if any
@@ -237,7 +238,8 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
     )
 
     @validator("config")
-    def config_validator(cls, value):
+    def config_validator(cls, value):  # pylint: disable=no-self-argument
+        """Changes `config` to a dict prior to saving"""
         return value.dict()
 
 
@@ -249,6 +251,8 @@ class UpsertMaterialization(BaseSQLModel):
     name: Optional[str]
     engine: EngineRef
     config: Union[
-        DruidCubeConfigInput, GenericCubeConfigInput, GenericMaterializationConfigInput,
+        DruidCubeConfigInput,
+        GenericCubeConfigInput,
+        GenericMaterializationConfigInput,
     ]
     schedule: str
