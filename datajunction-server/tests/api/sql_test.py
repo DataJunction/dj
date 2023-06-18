@@ -865,6 +865,6 @@ def test_get_sql_for_metrics_orderby_not_in_dimensions(
     )
     data = response.json()
     assert data["message"] == (
-        "Column default.hard_hat.city found in order-by "
-        "clause must also be specified in the metrics or dimensions."
+        "Columns ['default.hard_hat.city'] in order by "
+        "clause must also be specified in the metrics or dimensions"
     )
