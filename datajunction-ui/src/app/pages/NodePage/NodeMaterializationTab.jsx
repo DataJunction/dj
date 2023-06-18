@@ -1,9 +1,4 @@
-import { useContext, useEffect, useState } from 'react';
-import Select from 'react-select';
-import DJClientContext from '../../providers/djclient';
-import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
-import { format } from 'sql-formatter';
+import { useEffect, useState } from 'react';
 
 const cronstrue = require('cronstrue');
 
