@@ -679,11 +679,11 @@ class Column(Aliasable, Named, Expression):
     def type(self):
         if self._type:
             return self._type
-
         # Column was derived from some other expression we can get the type of
         if self.expression:
             self.add_type(self.expression.type)
             return self.expression.type
+
         raise DJParseException(f"Cannot resolve type of column {self}.")
 
     def add_type(self, type_: ColumnType) -> "Column":
@@ -2052,32 +2052,16 @@ class From(Node):
 
 
 @dataclass(eq=False)
-class SetOp(TableExpression):
+class SetOp(Node):
     """
     A set operation
     """
 
     kind: str = ""  # Union, intersect, ...
-    left: Optional[TableExpression] = None
-    right: Optional[TableExpression] = None
+    right: Optional["SelectExpression"] = None
 
     def __str__(self) -> str:
-        return f"{self.left}\n{self.kind}\n{self.right}"
-
-    def compile(self, ctx: CompileContext):
-        """
-        Compile a set operation
-        """
-        if self.is_compiled():
-            return
-        # things we could check here:
-        # - all table expressions in the setop must have the same number of columns and the pairwise types must be the same
-
-        # column names are taken from the leading query i.e. left
-        left = cast(self.left, TableExpression)
-        left.compile(ctx)
-        if left.is_compiled():
-            self._columns = left.columns[:]
+        return f"\n{self.kind}\n{self.right}"
 
 
 @dataclass(eq=False)
@@ -2098,103 +2082,6 @@ class Cast(Expression):
         Return the type of the expression
         """
         return self.data_type
-
-
-@dataclass(eq=False)
-class SelectExpression(Aliasable, Expression):
-    """
-    An uninitializable Type for Select for use as a default where
-    a Select is required.
-    """
-
-    quantifier: str = ""  # Distinct, All
-    projection: List[Union[Aliasable, Expression]] = field(default_factory=list)
-    from_: Optional[From] = None
-    group_by: List[Expression] = field(default_factory=list)
-    having: Optional[Expression] = None
-    where: Optional[Expression] = None
-    set_op: List[SetOp] = field(default_factory=list)
-    lateral_views: List[LateralView] = field(default_factory=list)
-
-    def add_aliases_to_unnamed_columns(self) -> None:
-        """
-        Add an alias to any unnamed columns in the projection (`col{n}`)
-        """
-        projection = []
-        for i, expression in enumerate(self.projection):
-            if not isinstance(expression, Aliasable):
-                name = f"col{i}"
-                projection.append(expression.set_alias(Name(name)))
-            else:
-                projection.append(expression)
-        self.projection = projection
-
-
-class Select(SelectExpression):
-    """
-    A single select statement type
-    """
-
-    def add_set_op(self, set_op: SetOp):
-        """
-        Add a set op such as UNION, UNION ALL or INTERSECT
-        """
-        self.set_op.append(set_op)
-
-    def __str__(self) -> str:
-        parts = ["SELECT "]
-        if self.quantifier:
-            parts.append(f"{self.quantifier}\n")
-        parts.append(",\n\t".join(str(exp) for exp in self.projection))
-        if self.from_ is not None:
-            parts.extend(("\n", str(self.from_), "\n"))
-        for view in self.lateral_views:
-            parts.append(f"\n{view}")
-        if self.where is not None:
-            parts.extend(("WHERE ", str(self.where), "\n"))
-        if self.group_by:
-            parts.extend(("GROUP BY ", ", ".join(str(exp) for exp in self.group_by)))
-        if self.having is not None:
-            parts.extend(("HAVING ", str(self.having), "\n"))
-        select = " ".join(parts).strip()
-
-        # Add set operations
-        if self.set_op:
-            if self.parenthesized:
-                select = f"({select})"  # Add additional parentheses inclusive of set operations
-            select += "\n" + "\n".join([str(so) for so in self.set_op])
-
-        if self.parenthesized:
-            select = f"({select})"
-
-        if self.alias:
-            as_ = " AS " if self.as_ else " "
-            return f"{select}{as_}{self.alias}"
-        return select
-
-    @property
-    def type(self) -> ColumnType:
-        if len(self.projection) != 1:
-            raise DJParseException(
-                "Can only infer type of a SELECT when it "
-                f"has a single expression in its projection. In {self}.",
-            )
-        return self.projection[0].type
-
-    def compile(self, ctx: CompileContext):
-        if not self.group_by and self.having:
-            ctx.exception.errors.append(
-                DJError(
-                    code=ErrorCode.INVALID_SQL_QUERY,
-                    message=(
-                        "HAVING without a GROUP BY is not allowed. "
-                        "Did you want to use a WHERE clause instead?"
-                    ),
-                    context=str(self),
-                ),
-            )
-
-        super().compile(ctx)
 
 
 @dataclass(eq=False)
@@ -2230,6 +2117,105 @@ class Organization(Node):
 
 
 @dataclass(eq=False)
+class SelectExpression(Aliasable, Expression):
+    """
+    An uninitializable Type for Select for use as a default where
+    a Select is required.
+    """
+
+    quantifier: str = ""  # Distinct, All
+    projection: List[Union[Aliasable, Expression]] = field(default_factory=list)
+    from_: Optional[From] = None
+    group_by: List[Expression] = field(default_factory=list)
+    having: Optional[Expression] = None
+    where: Optional[Expression] = None
+    lateral_views: List[LateralView] = field(default_factory=list)
+    set_op: Optional[SetOp] = None
+    limit: Optional[Expression] = None
+    organization: Optional[Organization] = None
+
+    def add_set_op(self, set_op: SetOp):
+        if self.set_op:
+            self.set_op.right.add_set_op(set_op)
+        else:
+            self.set_op = set_op
+
+    def add_aliases_to_unnamed_columns(self) -> None:
+        """
+        Add an alias to any unnamed columns in the projection (`col{n}`)
+        """
+        projection = []
+        for i, expression in enumerate(self.projection):
+            if not isinstance(expression, Aliasable):
+                name = f"col{i}"
+                projection.append(expression.set_alias(Name(name)))
+            else:
+                projection.append(expression)
+        self.projection = projection
+
+
+class Select(SelectExpression):
+    """
+    A single select statement type
+    """
+
+    def __str__(self) -> str:
+        parts = ["SELECT "]
+        if self.quantifier:
+            parts.append(f"{self.quantifier}\n")
+        parts.append(",\n\t".join(str(exp) for exp in self.projection))
+        if self.from_ is not None:
+            parts.extend(("\n", str(self.from_), "\n"))
+        for view in self.lateral_views:
+            parts.append(f"\n{view}")
+        if self.where is not None:
+            parts.extend(("WHERE ", str(self.where), "\n"))
+        if self.group_by:
+            parts.extend(("GROUP BY ", ", ".join(str(exp) for exp in self.group_by)))
+        if self.having is not None:
+            parts.extend(("HAVING ", str(self.having), "\n"))
+        select = " ".join(parts).strip()
+        if self.parenthesized:
+            select = f"({select})"
+        if self.set_op:
+            select += f"\n{self.set_op}"
+
+        if self.organization:
+            select += f"\n{self.organization}"
+        if self.limit:
+            select += f"LIMIT {self.limit}"
+
+        if self.alias:
+            as_ = " AS " if self.as_ else " "
+            return f"{select}{as_}{self.alias}"
+        return select
+
+    @property
+    def type(self) -> ColumnType:
+        if len(self.projection) != 1:
+            raise DJParseException(
+                "Can only infer type of a SELECT when it "
+                f"has a single expression in its projection. In {self}.",
+            )
+        return self.projection[0].type
+
+    def compile(self, ctx: CompileContext):
+        if not self.group_by and self.having:
+            ctx.exception.errors.append(
+                DJError(
+                    code=ErrorCode.INVALID_SQL_QUERY,
+                    message=(
+                        "HAVING without a GROUP BY is not allowed. "
+                        "Did you want to use a WHERE clause instead?"
+                    ),
+                    context=str(self),
+                ),
+            )
+
+        super().compile(ctx)
+
+
+@dataclass(eq=False)
 class Query(TableExpression):
     """
     Overarching query type
@@ -2237,8 +2223,6 @@ class Query(TableExpression):
 
     select: SelectExpression = field(default_factory=SelectExpression)
     ctes: List["Query"] = field(default_factory=list)
-    limit: Optional[Expression] = None
-    organization: Optional[Organization] = None
 
     def is_compiled(self) -> bool:
         return not any(
@@ -2272,11 +2256,6 @@ class Query(TableExpression):
         with_ = f"WITH\n{ctes}" if ctes else ""
 
         parts = [f"{with_}{self.select}\n"]
-        if self.organization:
-            parts.append(str(self.organization))
-        if self.limit is not None:
-            limit = f"LIMIT {self.limit}"
-            parts.append(limit)
         query = "".join(parts)
         if self.parenthesized:
             query = f"({query})"

@@ -1116,21 +1116,18 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
             "errors": [],
         }
     ),
-    """
-    WITHm0_default_DOT_avg_repair_priceAS(SELECTavg(default_DOT_repair_order_details.price
-    )ASdefault_DOT_avg_repair_price,\tdefault_DOT_hard_hat.stateFROMroads.
-    repair_order_detailsASdefault_DOT_repair_order_detailsLEFTOUTERJOIN(SELECT
-    default_DOT_repair_orders.dispatcher_id,\tdefault_DOT_repair_orders.hard_hat_id,\t
-    default_DOT_repair_orders.municipality_id,\tdefault_DOT_repair_orders.repair_order_id
-    FROMroads.repair_ordersASdefault_DOT_repair_orders)ASdefault_DOT_repair_orderON
-    default_DOT_repair_order_details.repair_order_id=default_DOT_repair_order.
-    repair_order_idLEFTOUTERJOIN(SELECTdefault_DOT_hard_hats.hard_hat_id,\t
-    default_DOT_hard_hats.stateFROMroads.hard_hatsASdefault_DOT_hard_hats)AS
-    default_DOT_hard_hatONdefault_DOT_repair_order.hard_hat_id=default_DOT_hard_hat.
-    hard_hat_idGROUPBYdefault_DOT_hard_hat.state)SELECTm0_default_DOT_avg_repair_price.
-    default_DOT_avg_repair_price,\tm0_default_DOT_avg_repair_price.stateFROM
-    m0_default_DOT_avg_repair_price
-    """.strip()
+    """WITHm0_default_DOT_avg_repair_priceAS(SELECTdefault_DOT_hard_hat.state,\t
+    avg(default_DOT_repair_order_details.price)ASdefault_DOT_avg_repair_priceFROM
+    roads.repair_order_detailsASdefault_DOT_repair_order_detailsLEFTOUTERJOIN
+    (SELECTdefault_DOT_repair_orders.dispatcher_id,\tdefault_DOT_repair_orders.hard_hat_id,
+    \tdefault_DOT_repair_orders.municipality_id,\tdefault_DOT_repair_orders.repair_order_id
+    FROMroads.repair_ordersASdefault_DOT_repair_orders)ASdefault_DOT_repair_order
+    ONdefault_DOT_repair_order_details.repair_order_id=default_DOT_repair_order.repair_order_id
+    LEFTOUTERJOIN(SELECTdefault_DOT_hard_hats.hard_hat_id,\tdefault_DOT_hard_hats.state
+    FROMroads.hard_hatsASdefault_DOT_hard_hats)ASdefault_DOT_hard_hatON
+    default_DOT_repair_order.hard_hat_id=default_DOT_hard_hat.hard_hat_idGROUPBY
+    default_DOT_hard_hat.state)SELECTm0_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
+    \tm0_default_DOT_avg_repair_price.stateFROMm0_default_DOT_avg_repair_price""".strip()
     .replace('"', "")
     .replace("\n", "")
     .replace(" ", ""): QueryWithResults(
@@ -1142,21 +1139,19 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
             "errors": [],
         }
     ),
-    """
-    WITHm0_default_DOT_avg_repair_priceAS(SELECTavg(default_DOT_repair_order_details.price)
-    ASdefault_DOT_avg_repair_price,\tdefault_DOT_hard_hat.postal_codeFROMroads.repair_order
-    _detailsASdefault_DOT_repair_order_detailsLEFTOUTERJOIN(SELECTdefault_DOT_repair_orders.
-    dispatcher_id,\tdefault_DOT_repair_orders.hard_hat_id,\tdefault_DOT_repair_orders.
-    municipality_id,\tdefault_DOT_repair_orders.repair_order_idFROMroads.repair_ordersAS
-    default_DOT_repair_orders)ASdefault_DOT_repair_orderONdefault_DOT_repair_order_details
-    .repair_order_id=default_DOT_repair_order.repair_order_idLEFTOUTERJOIN(SELECT
-    default_DOT_hard_hats.hard_hat_id,\tdefault_DOT_hard_hats.postal_code,\tdefault_DOT_
-    hard_hats.stateFROMroads.hard_hatsASdefault_DOT_hard_hats)ASdefault_DOT_hard_hatON
-    default_DOT_repair_order.hard_hat_id=default_DOT_hard_hat.hard_hat_idGROUPBYdefault_
-    DOT_hard_hat.postal_code)SELECTm0_default_DOT_avg_repair_price.default_DOT_avg_
-    repair_price,\tm0_default_DOT_avg_repair_price.postal_codeFROMm0_default_DOT_
-    avg_repair_price
-    """.strip()
+    """WITHm0_default_DOT_avg_repair_priceAS(SELECTdefault_DOT_hard_hat.postal_code,
+    \tavg(default_DOT_repair_order_details.price)ASdefault_DOT_avg_repair_priceFROM
+    roads.repair_order_detailsASdefault_DOT_repair_order_detailsLEFTOUTERJOIN
+    (SELECTdefault_DOT_repair_orders.dispatcher_id,\tdefault_DOT_repair_orders.hard_hat_id,
+    \tdefault_DOT_repair_orders.municipality_id,\tdefault_DOT_repair_orders.repair_order_id
+    FROMroads.repair_ordersASdefault_DOT_repair_orders)ASdefault_DOT_repair_orderON
+    default_DOT_repair_order_details.repair_order_id=default_DOT_repair_order.repair_order_id
+    LEFTOUTERJOIN(SELECTdefault_DOT_hard_hats.hard_hat_id,\tdefault_DOT_hard_hats.postal_code,
+    \tdefault_DOT_hard_hats.stateFROMroads.hard_hatsASdefault_DOT_hard_hats)ASdefault_DOT_hard_hat
+    ONdefault_DOT_repair_order.hard_hat_id=default_DOT_hard_hat.hard_hat_idGROUPBY
+    default_DOT_hard_hat.postal_code)SELECTm0_default_DOT_avg_repair_price.
+    default_DOT_avg_repair_price,\tm0_default_DOT_avg_repair_price.postal_code
+    FROMm0_default_DOT_avg_repair_price""".strip()
     .replace('"', "")
     .replace("\n", "")
     .replace(" ", ""): (

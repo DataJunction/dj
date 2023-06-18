@@ -8,7 +8,12 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
-from datajunction_server.api.helpers import get_engine, get_query, validate_cube
+from datajunction_server.api.helpers import (
+    get_engine,
+    get_query,
+    validate_cube,
+    validate_orderby,
+)
 from datajunction_server.construction.build import build_metric_nodes
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
@@ -38,6 +43,7 @@ def get_sql(
         if engine_name
         else None
     )
+    validate_orderby(orderby, [node_name], dimensions)
     query_ast = get_query(
         session=session,
         node_name=node_name,
@@ -83,6 +89,7 @@ def get_sql_for_metrics(
         metrics,
         dimensions,
     )
+    validate_orderby(orderby, metrics, dimensions)
     query_ast = build_metric_nodes(
         session,
         metric_nodes,
