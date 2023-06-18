@@ -1,7 +1,7 @@
 import React from 'react';
 
 const ToggleSwitch = ({ checked, onChange, toggleName }) => (
-  <div>
+  <>
     <input
       id="show-compiled-sql-toggle"
       type="checkbox"
@@ -11,7 +11,7 @@ const ToggleSwitch = ({ checked, onChange, toggleName }) => (
     />
     <label htmlFor="show-compiled-sql-toggle" className="switch"></label>{' '}
     {toggleName}
-  </div>
+  </>
 );
 
 export default ToggleSwitch;

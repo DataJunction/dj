@@ -27,6 +27,19 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  metrics: async function (name) {
+    const data = await (await fetch(DJ_URL + '/metrics/')).json();
+    return data;
+  },
+
+  commonDimensions: async function (metrics) {
+    const metricsQuery = '?' + metrics.map(m => `metric=${m}`).join('&');
+    const data = await (
+      await fetch(DJ_URL + '/metrics/common/dimensions/' + metricsQuery)
+    ).json();
+    return data;
+  },
+
   history: async function (type, name, offset, limit) {
     const data = await (
       await fetch(
@@ -69,6 +82,25 @@ export const DataJunctionAPI = {
     ).json();
     return data;
   },
+  sqls: async function (metricSelection, dimensionSelection) {
+    const params = new URLSearchParams();
+    metricSelection.map(metric => params.append('metrics', metric));
+    dimensionSelection.map(dimension => params.append('dimensions', dimension));
+    const data = await (await fetch(DJ_URL + '/sql/?' + params)).json();
+    return data;
+  },
+
+  data: async function (metricSelection, dimensionSelection) {
+    const params = new URLSearchParams();
+    metricSelection.map(metric => params.append('metrics', metric));
+    dimensionSelection.map(dimension => params.append('dimensions', dimension));
+    const data = await (
+      await fetch(DJ_URL + '/data/?' + params + '&limit=100')
+    ).json();
+    return data;
+  },
+
+  lineage: async function (node) {},
 
   compiledSql: async function (node) {
     const data = await (await fetch(DJ_URL + `/sql/${node}/`)).json();

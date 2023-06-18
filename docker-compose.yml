@@ -16,7 +16,6 @@ services:
     networks:
       - core
     environment:
-      - DOTENV_FILE=.docker-env/.env
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - OTEL_RESOURCE_ATTRIBUTES=service.name=datajunction.server
     build:
@@ -36,25 +35,23 @@ services:
     container_name: db_migration
     networks:
       - core
-    environment:
-      - DOTENV_FILE=.docker-env/.env
     build:
       context: ./datajunction-server
     volumes:
       - ./datajunction-server:/code
-    command: alembic upgrade head
+    command: /bin/bash -c "cp -n /code/dj.demo.db /code/dj.db | true && sleep 2 && alembic upgrade head"
     restart: on-failure
 
   djui:
     container_name: djui
     build:
-      context: ./djui
+      context: ./datajunction-ui
     ports:
       - "3000:3000"
     stdin_open: true
     volumes:
-      - ./djui:/usr/src/app/
-      - ./djui/node_modules:/usr/src/app/node_modules
+      - ./datajunction-ui:/usr/src/app/
+      - ./datajunction-ui/node_modules:/usr/src/app/node_modules
     command: ["yarn", "webpack-start", "--host", "0.0.0.0", "--port", "3000"]
 
   djqs:
@@ -81,7 +78,7 @@ services:
       context: ./datajunction-query
     volumes:
       - ./datajunction-query:/code
-    command: /bin/bash -c "cp -n /code/djqs.demo.db /code/djqs.demo.db | true && sleep 2 && alembic upgrade head"
+    command: /bin/bash -c "cp -n /code/djqs.demo.db /code/djqs.db | true && sleep 2 && alembic upgrade head"
     restart: on-failure
     depends_on:
       - djqs
