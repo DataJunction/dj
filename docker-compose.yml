@@ -45,13 +45,13 @@ services:
   djui:
     container_name: djui
     build:
-      context: ./djui
+      context: ./datajunction-ui
     ports:
       - "3000:3000"
     stdin_open: true
     volumes:
-      - ./djui:/usr/src/app/
-      - ./djui/node_modules:/usr/src/app/node_modules
+      - ./datajunction-ui:/usr/src/app/
+      - ./datajunction-ui/node_modules:/usr/src/app/node_modules
     command: ["yarn", "webpack-start", "--host", "0.0.0.0", "--port", "3000"]
 
   djqs:
