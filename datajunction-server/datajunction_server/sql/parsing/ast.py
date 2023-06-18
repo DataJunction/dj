@@ -2175,16 +2175,18 @@ class Select(SelectExpression):
         if self.having is not None:
             parts.extend(("HAVING ", str(self.having), "\n"))
         select = " ".join(parts).strip()
+        if self.parenthesized:
+            select = f"({select})"
+        if self.set_op:
+            select += f"\n{self.set_op}"
 
         if self.organization:
             select += f"\n{self.organization}"
         if self.limit:
             select += f"LIMIT {self.limit}"
-        if self.parenthesized:
-            select = f"({select})"
 
-        if self.set_op:
-            select += f"\n{self.set_op}"
+
+
         if self.alias:
             as_ = " AS " if self.as_ else " "
             return f"{select}{as_}{self.alias}"
