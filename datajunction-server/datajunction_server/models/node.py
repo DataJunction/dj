@@ -31,7 +31,7 @@ from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
     Materialization,
     MaterializationConfigOutput,
-    UpsertCubeMaterializationConfig,
+    UpsertCubeMaterialization,
 )
 from datajunction_server.models.tag import Tag, TagNodeRelationship
 from datajunction_server.sql.parsing.types import ColumnType
@@ -716,7 +716,7 @@ class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
     A create object for cube nodes
     """
 
-    materializations: Optional[List[UpsertCubeMaterializationConfig]] = []
+    materializations: Optional[List[UpsertCubeMaterialization]] = []
 
 
 class UpdateNode(MutableNodeFields, SourceNodeFields):
