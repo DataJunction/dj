@@ -119,7 +119,7 @@ def test_sql(
         (
             "default.long_events",
             [],
-            ["event_source.device_id = 'Android'"],
+            ["default.event_source.device_id = 'Android'"],
             """
               SELECT  default_DOT_event_source.country,
                       default_DOT_event_source.device_id,
