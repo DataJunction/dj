@@ -679,11 +679,11 @@ class Column(Aliasable, Named, Expression):
     def type(self):
         if self._type:
             return self._type
-
         # Column was derived from some other expression we can get the type of
         if self.expression:
             self.add_type(self.expression.type)
             return self.expression.type
+
         raise DJParseException(f"Cannot resolve type of column {self}.")
 
     def add_type(self, type_: ColumnType) -> "Column":

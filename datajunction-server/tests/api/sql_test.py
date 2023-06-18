@@ -131,24 +131,18 @@ def test_sql(
             """,
         ),
         (
-            "default.municipality_dim",
+            "default.municipality",
             [],
             ["default.municipality.state_id = 'CA'"],
             """
-            SELECT
-              default_DOT_municipality.contact_name,
-              default_DOT_municipality.contact_title,
-              default_DOT_municipality.local_region,
-              default_DOT_municipality.municipality_id,
-              default_DOT_municipality_municipality_type.municipality_type_id,
-              default_DOT_municipality_type.municipality_type_desc,
-              default_DOT_municipality.state_id
-            FROM
-              roads.municipality AS default_DOT_municipality
-              LEFT JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
-              LEFT JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc
-            WHERE
-              default_DOT_municipality.state_id = 'CA'
+              SELECT  default_DOT_municipality.contact_name,
+                      default_DOT_municipality.contact_title,
+                      default_DOT_municipality.state_id,
+                      default_DOT_municipality.local_region,
+                      default_DOT_municipality.municipality_id,
+                      default_DOT_municipality.phone
+              FROM roads.municipality AS default_DOT_municipality
+              WHERE  default_DOT_municipality.state_id = 'CA'
             """,
         ),
         (
