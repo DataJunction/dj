@@ -1346,6 +1346,87 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
+    def test_update_node_query_with_materializations(
+        self,
+        client_with_query_service: TestClient,
+    ):
+        """
+        Testing updating a node's query when the node already has materializations. The node's
+        materializations should be updated based on the new query and rescheduled.
+        """
+        client_with_query_service.post(
+            "/engines/",
+            json={
+                "name": "spark",
+                "version": "2.4.4",
+                "dialect": "spark",
+            },
+        )
+
+        client_with_query_service.post(
+            "/nodes/basic.transform.country_agg/materialization/",
+            json={
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
+                "config": {
+                    "partitions": [
+                        {
+                            "name": "country",
+                            "values": ["DE", "MY"],
+                            "type_": "categorical",
+                        },
+                    ],
+                },
+                "schedule": "0 * * * *",
+            },
+        )
+        client_with_query_service.patch(
+            "/nodes/basic.transform.country_agg/",
+            json={
+                "query": (
+                    "SELECT country, COUNT(DISTINCT id) AS num_users, "
+                    "COUNT(DISTINCT preferred_language) AS languages "
+                    "FROM basic.source.users GROUP BY 1"
+                ),
+            },
+        )
+        response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
+        node_output = response.json()
+        assert node_output["materializations"] == [
+            {
+                "name": "country_3491792861",
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                    "uri": None,
+                    "dialect": "spark",
+                },
+                "config": {
+                    "partitions": [
+                        {
+                            "name": "country",
+                            "values": ["DE", "MY"],
+                            "range": None,
+                            "expression": None,
+                            "type_": "categorical",
+                        },
+                    ],
+                    "spark": {},
+                    "query": "SELECT  basic_DOT_source_DOT_users.country,\n\t"
+                    "COUNT( DISTINCT basic_DOT_source_DOT_users.preferred_language) "
+                    "AS languages,\n\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) "
+                    "AS num_users \n FROM basic.dim_users AS basic_DOT_source_DOT_users "
+                    "\n WHERE  basic_DOT_source_DOT_users.country IN ('DE', 'MY') \n "
+                    "GROUP BY  1\n",
+                    "upstream_tables": ["public.basic.dim_users"],
+                },
+                "schedule": "0 * * * *",
+                "job": "SparkSqlMaterializationJob",
+            },
+        ]
+
     def test_add_materialization_success(self, client_with_query_service: TestClient):
         """
         Verifies success cases of adding materialization config.

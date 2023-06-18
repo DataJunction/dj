@@ -235,6 +235,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             GenericMaterializationInput(
                 name="default",
                 node_name="default.hard_hat",
+                node_version="v1",
                 node_type=NodeType.DIMENSION,
                 schedule="0 * * * *",
                 query="",
@@ -249,6 +250,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             json={
                 "name": "default",
                 "node_name": "default.hard_hat",
+                "node_version": "v1",
                 "node_type": "dimension",
                 "partitions": [],
                 "query": "",
@@ -312,6 +314,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             GenericMaterializationInput(
                 name="default",
                 node_name="default.hard_hat",
+                node_version="v1",
                 node_type=NodeType.DIMENSION,
                 schedule="0 * * * *",
                 query="",
@@ -325,6 +328,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             json={
                 "name": "default",
                 "node_name": "default.hard_hat",
+                "node_version": "v1",
                 "node_type": "dimension",
                 "schedule": "0 * * * *",
                 "query": "",

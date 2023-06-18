@@ -837,11 +837,11 @@ def test_add_materialization_cube_failures(
             "schedule": "",
         },
     )
-    assert response.json() == {
-        "message": "No change has been made to the materialization config for node "
+    assert response.json()["message"] == (
+        "No change has been made to the materialization config for node "
         "`default.repairs_cube` and engine `druid` as the config does not have valid "
-        "configuration for engine `druid`.",
-    }
+        "configuration for engine `druid`."
+    )
 
     response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
@@ -880,11 +880,11 @@ def test_add_materialization_cube_failures(
             "schedule": "",
         },
     )
-    assert response.json() == {
-        "message": "No change has been made to the materialization config for node "
+    assert response.json()["message"] == (
+        "No change has been made to the materialization config for node "
         "`default.repairs_cube` and engine `druid` as the config does not have "
-        "valid configuration for engine `druid`.",
-    }
+        "valid configuration for engine `druid`."
+    )
 
 
 def test_add_materialization_config_to_cube(
