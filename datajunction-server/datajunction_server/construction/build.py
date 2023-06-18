@@ -607,7 +607,7 @@ def build_metric_nodes(
         current_table = ast.Table(metric_ast_alias)
 
         organization = cast(ast.Organization, metric_ast.select.organization)
-        metric_ast.select.organization=None
+        metric_ast.select.organization = None
         # if an orderby referred to this metric node, parse and add it to the order items
         if metric_order := (
             [None]
