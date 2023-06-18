@@ -9,6 +9,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
+import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { Root } from './pages/Root/Loadable';
 import { ListNamespacesPage } from './pages/ListNamespacesPage';
@@ -46,6 +47,7 @@ export function App() {
                     key="namespaces"
                   />
                 </Route>
+                <Route path="sql" key="sql" element={<SQLBuilderPage />} />
               </>
             }
           />

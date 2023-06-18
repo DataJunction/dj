@@ -6,7 +6,7 @@ export default class NamespaceHeader extends Component {
     const namespaceParts = namespace.split('.');
     const namespaceList = namespaceParts.map((piece, index) => {
       return (
-        <li className="breadcrumb-item">
+        <li className="breadcrumb-item" key={index}>
           <a
             className="link-body-emphasis"
             href={'/namespaces/' + namespaceParts.slice(0, index + 1).join('.')}

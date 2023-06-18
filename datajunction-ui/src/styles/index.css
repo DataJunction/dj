@@ -132,6 +132,12 @@ ul {
   border-top-left-radius: inherit;
   border-top-right-radius: inherit;
 }
+.li {
+  cursor: pointer;
+}
+.raw-node-list {
+  flex: 0 0 50px;
+}
 .d-flex {
   display: flex !important;
 }
@@ -242,7 +248,13 @@ tr {
   background-clip: border-box;
   /*border: 1px solid #edf2f9;*/
   border-radius: 1rem;
-  margin: 4rem;
+  margin: 2rem;
+}
+
+.card-light-shadow {
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
+  transition: all 0.3s cubic-bezier(.25,.8,.25,1);
+  padding: 1rem;
 }
 
 .table-responsive {
@@ -351,7 +363,6 @@ tbody th {
   vertical-align: middle;
   padding: 0.44rem;
   border-radius: 0.375rem;
-  cursor: crosshair;
   word-wrap: break-word;
   white-space: break-spaces;
 }
@@ -635,6 +646,7 @@ pre {
   background-color: #ffffff;
   max-width: fit-content;
 }
+
 .card-header {
   align-items: center;
   margin: 0.5rem;
@@ -686,4 +698,46 @@ pre {
 
 .checkbox {
   display: none;
+}
+
+.button-3 {
+  appearance: none;
+  border: 1px solid rgba(27, 31, 35, .15);
+  border-radius: 6px;
+  box-shadow: rgba(27, 31, 35, .1) 0 1px 0;
+  box-sizing: border-box;
+  cursor: pointer;
+  display: inline-block;
+  font-weight: 600;
+  line-height: 20px;
+  padding: 6px 16px;
+  margin: 5px;
+  position: relative;
+  text-align: center;
+  text-decoration: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.button-3:focus:not(:focus-visible):not(.focus-visible) {
+  box-shadow: none;
+  outline: none;
+}
+
+.execute-button {
+  background-color: #00b368;
+  color: #fff
+}
+
+.executing-button {
+  background-color: #bbbbbb;
+  color: #fff
+}
+
+.neutral-button {
+  background-color: #f6f8fa;
+  color: #24292f;
 }

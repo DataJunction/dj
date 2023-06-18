@@ -83,7 +83,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./djui
+        working-directory: ./datajunction-ui
     strategy:
       matrix:
         node-version: [19.x]

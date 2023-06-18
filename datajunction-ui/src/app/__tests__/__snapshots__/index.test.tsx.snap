@@ -18,16 +18,21 @@ exports[`<App /> should render and match the snapshot 1`] = `
     value={
       Object {
         "DataJunctionAPI": Object {
+          "commonDimensions": [Function],
           "compiledSql": [Function],
           "dag": [Function],
+          "data": [Function],
           "downstreams": [Function],
           "history": [Function],
+          "lineage": [Function],
           "materializations": [Function],
           "metric": [Function],
+          "metrics": [Function],
           "namespace": [Function],
           "namespaces": [Function],
           "node": [Function],
           "sql": [Function],
+          "sqls": [Function],
           "upstreams": [Function],
         },
       }
@@ -52,16 +57,21 @@ exports[`<App /> should render and match the snapshot 1`] = `
               <ListNamespacesPage
                 djClient={
                   Object {
+                    "commonDimensions": [Function],
                     "compiledSql": [Function],
                     "dag": [Function],
+                    "data": [Function],
                     "downstreams": [Function],
                     "history": [Function],
+                    "lineage": [Function],
                     "materializations": [Function],
                     "metric": [Function],
+                    "metrics": [Function],
                     "namespace": [Function],
                     "namespaces": [Function],
                     "node": [Function],
                     "sql": [Function],
+                    "sqls": [Function],
                     "upstreams": [Function],
                   }
                 }
@@ -77,6 +87,10 @@ exports[`<App /> should render and match the snapshot 1`] = `
               path=":namespace"
             />
           </Route>
+          <Route
+            element={<SQLBuilderPage />}
+            path="sql"
+          />
         </React.Fragment>
       </Route>
       <Route
