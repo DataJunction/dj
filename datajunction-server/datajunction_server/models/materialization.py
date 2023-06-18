@@ -237,7 +237,7 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
     )
 
     @validator("config")
-    def val_b(cls, value):
+    def config_validator(cls, value):
         return value.dict()
 
 
