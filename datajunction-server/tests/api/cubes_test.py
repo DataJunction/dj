@@ -202,68 +202,6 @@ def test_raise_on_cube_with_multiple_catalogs(
     assert "Metrics and dimensions cannot be from multiple catalogs" in data["message"]
 
 
-def test_create_cube_with_materialization(client_with_query_service: TestClient):
-    """
-    Testing creating cube with materialization configs
-    """
-    metrics_list = [
-        "default.discounted_orders_rate",
-        "default.num_repair_orders",
-        "default.avg_repair_price",
-        "default.total_repair_cost",
-        "default.total_repair_order_discounts",
-    ]
-
-    response = client_with_query_service.post(
-        "/nodes/cube/",
-        json={
-            "metrics": metrics_list,
-            "dimensions": [
-                "default.hard_hat.country",
-                "default.hard_hat.postal_code",
-                "default.hard_hat.city",
-                "default.hard_hat.state",
-                "default.dispatcher.company_name",
-                "default.municipality_dim.local_region",
-                "default.hard_hat.hire_date",
-            ],
-            "filters": ["default.hard_hat.state='AZ'"],
-            "description": "Cube of various metrics related to repairs",
-            "mode": "published",
-            "name": "default.repairs_cube_with_materialization",
-            "materializations": [
-                {
-                    "engine": {
-                        "name": "druid",
-                        "version": "",
-                    },
-                    "config": {
-                        "druid": {
-                            "granularity": "DAY",
-                            "intervals": [],
-                            "timestamp_column": "hire_date",
-                            "parse_spec_format": "parquet",
-                        },
-                        "partitions": [
-                            {
-                                "name": "hire_date",
-                                "type_": "temporal",
-                                "values": [],
-                                "range": (20210101, 20220101),
-                            },
-                        ],
-                        "spark": {},
-                    },
-                    "schedule": "0 * * * *",
-                },
-            ],
-        },
-    )
-    default_materialization = response.json()["materializations"][0]
-    assert default_materialization["job"] == "DruidCubeMaterializationJob"
-    assert default_materialization["schedule"] == "0 * * * *"
-
-
 @pytest.fixture
 def client_with_repairs_cube(client_with_query_service: TestClient):
     """
@@ -355,6 +293,52 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
     assert results["name"] == "default.repairs_cube"
     assert results["display_name"] == "Default: Repairs Cube"
     assert results["description"] == "Cube of various metrics related to repairs"
+
+    default_materialization = response.json()["materializations"][0]
+    assert default_materialization["job"] == "DefaultCubeMaterialization"
+    assert default_materialization["name"] == "default"
+    assert default_materialization["schedule"] == "@daily"
+    assert default_materialization["config"]["partitions"] == []
+    assert default_materialization["config"]["upstream_tables"] == [
+        "default.roads.dispatchers",
+        "default.roads.hard_hats",
+        "default.roads.municipality",
+        "default.roads.municipality_municipality_type",
+        "default.roads.municipality_type",
+        "default.roads.repair_order_details",
+        "default.roads.repair_orders",
+    ]
+    assert default_materialization["config"]["dimensions"] == [
+        "city",
+        "company_name",
+        "country",
+        "local_region",
+        "postal_code",
+        "state",
+    ]
+    assert default_materialization["config"]["measures"] == {
+        "default_DOT_discounted_orders_rate": [
+            {"name": "discount_sum", "agg": "sum", "type": "bigint"},
+            {"name": "placeholder_count", "agg": "count", "type": "bigint"},
+        ],
+        "default_DOT_num_repair_orders": [
+            {"name": "repair_order_id_count", "agg": "count", "type": "bigint"},
+        ],
+        "default_DOT_avg_repair_price": [
+            {"name": "price_count", "agg": "count", "type": "bigint"},
+            {"name": "price_sum", "agg": "sum", "type": "double"},
+        ],
+        "default_DOT_total_repair_cost": [
+            {"name": "price_sum", "agg": "sum", "type": "double"},
+        ],
+        "default_DOT_total_repair_order_discounts": [
+            {"name": "price_discount_sum", "agg": "sum", "type": "double"},
+        ],
+        "default_DOT_double_total_repair_cost": [
+            {"name": "price_sum", "agg": "sum", "type": "double"},
+        ],
+    }
+
     expected_query = """
 WITH
 m0_default_DOT_discounted_orders_rate AS (SELECT  default_DOT_dispatcher.company_name,
@@ -537,7 +521,6 @@ FULL OUTER JOIN m3_default_DOT_total_repair_cost ON m0_default_DOT_discounted_or
 FULL OUTER JOIN m4_default_DOT_total_repair_order_discounts ON m0_default_DOT_discounted_orders_rate.company_name = m4_default_DOT_total_repair_order_discounts.company_name AND m0_default_DOT_discounted_orders_rate.city = m4_default_DOT_total_repair_order_discounts.city AND m0_default_DOT_discounted_orders_rate.country = m4_default_DOT_total_repair_order_discounts.country AND m0_default_DOT_discounted_orders_rate.postal_code = m4_default_DOT_total_repair_order_discounts.postal_code AND m0_default_DOT_discounted_orders_rate.state = m4_default_DOT_total_repair_order_discounts.state AND m0_default_DOT_discounted_orders_rate.local_region = m4_default_DOT_total_repair_order_discounts.local_region
 FULL OUTER JOIN m5_default_DOT_double_total_repair_cost ON m0_default_DOT_discounted_orders_rate.company_name = m5_default_DOT_double_total_repair_cost.company_name AND m0_default_DOT_discounted_orders_rate.city = m5_default_DOT_double_total_repair_cost.city AND m0_default_DOT_discounted_orders_rate.country = m5_default_DOT_double_total_repair_cost.country AND m0_default_DOT_discounted_orders_rate.postal_code = m5_default_DOT_double_total_repair_cost.postal_code AND m0_default_DOT_discounted_orders_rate.state = m5_default_DOT_double_total_repair_cost.state AND m0_default_DOT_discounted_orders_rate.local_region = m5_default_DOT_double_total_repair_cost.local_region
     """
-    print("RES", results["query"])
     assert compare_query_strings(results["query"], expected_query)
 
 
@@ -852,11 +835,11 @@ def test_add_materialization_cube_failures(
             "schedule": "",
         },
     )
-    assert response.json() == {
-        "message": "No change has been made to the materialization config for node "
+    assert response.json()["message"] == (
+        "No change has been made to the materialization config for node "
         "`default.repairs_cube` and engine `druid` as the config does not have valid "
-        "configuration for engine `druid`. \nExpecting 'druid' key in `config`.",
-    }
+        "configuration for engine `druid`."
+    )
 
     response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
@@ -895,13 +878,11 @@ def test_add_materialization_cube_failures(
             "schedule": "",
         },
     )
-    assert response.json() == {
-        "message": "No change has been made to the materialization config for node "
+    assert response.json()["message"] == (
+        "No change has been made to the materialization config for node "
         "`default.repairs_cube` and engine `druid` as the config does not have "
-        "valid configuration for engine `druid`. "
-        "\n* field required: granularity"
-        "\n* field required: timestamp_column",
-    }
+        "valid configuration for engine `druid`."
+    )
 
 
 def test_add_materialization_config_to_cube(

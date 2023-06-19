@@ -3,7 +3,7 @@ import enum
 import zlib
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
-from pydantic import AnyHttpUrl, BaseModel
+from pydantic import AnyHttpUrl, BaseModel, validator
 from sqlalchemy import JSON
 from sqlalchemy import Column as SqlaColumn
 from sqlalchemy import String
@@ -24,6 +24,7 @@ class GenericMaterializationInput(BaseModel):
 
     name: str
     node_name: str
+    node_version: str
     node_type: str
     schedule: str
     query: str
@@ -70,17 +71,6 @@ class MaterializationConfigInfoUnified(
     """
     Materialization config + info
     """
-
-
-class UpsertMaterializationConfig(BaseSQLModel):
-    """
-    An upsert object for materialization configs
-    """
-
-    name: Optional[str]
-    engine: EngineRef
-    config: Dict
-    schedule: str
 
 
 class SparkConf(BaseSQLModel):
@@ -133,18 +123,24 @@ class Partition(BaseSQLModel):
     type_: PartitionType
 
 
-class GenericMaterializationConfig(BaseModel):
+class GenericMaterializationConfigInput(BaseModel):
+    """
+    User-input portions of the materialization config
+    """
+
+    # List of partitions that materialization jobs (ongoing and backfill) will operate on.
+    partitions: Optional[List[Partition]]
+    # Spark config
+    spark: Optional[SparkConf]
+
+
+class GenericMaterializationConfig(GenericMaterializationConfigInput):
     """
     Generic node materialization config needed by any materialization choices
     and engine combinations
     """
 
     query: Optional[str]
-
-    # List of partitions that materialization jobs (ongoing and backfill) will operate on.
-    partitions: Optional[List[Partition]]
-
-    spark: Optional[SparkConf]
     upstream_tables: Optional[List[str]]
 
     def identifier(self) -> str:
@@ -168,6 +164,49 @@ class GenericMaterializationConfig(BaseModel):
         return "_".join(entities)
 
 
+class DruidConf(BaseSQLModel):
+    """Druid configuration"""
+
+    granularity: str
+    intervals: Optional[List[str]]
+    timestamp_column: str
+    timestamp_format: Optional[str]
+    parse_spec_format: Optional[str]
+
+
+class GenericCubeConfigInput(GenericMaterializationConfigInput):
+    """
+    Generic cube materialization config fields that require user input
+    """
+
+    dimensions: Optional[List[str]]
+    measures: Optional[Dict[str, List[Dict[str, str]]]]
+
+
+class GenericCubeConfig(GenericCubeConfigInput, GenericMaterializationConfig):
+    """
+    Generic cube materialization config needed by any materialization
+    choices and engine combinations
+    """
+
+
+class DruidCubeConfigInput(GenericCubeConfigInput):
+    """
+    Specific Druid cube materialization fields that require user input
+    """
+
+    prefix: Optional[str] = ""
+    suffix: Optional[str] = ""
+    druid: DruidConf
+
+
+class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
+    """
+    Specific cube materialization implementation with Spark and Druid ingestion and
+    optional prefix and/or suffix to include with the materialized entity's name.
+    """
+
+
 class Materialization(BaseSQLModel, table=True):  # type: ignore
     """
     Materialization configured for a node.
@@ -187,7 +226,10 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
     schedule: str
 
     # Arbitrary config relevant to the materialization engine
-    config: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
+    config: Union[GenericMaterializationConfig, DruidCubeConfig] = Field(
+        default={},
+        sa_column=SqlaColumn(JSON),
+    )
 
     # The name of the plugin that handles materialization, if any
     job: str = Field(
@@ -195,44 +237,22 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
         sa_column=SqlaColumn("job", String),
     )
 
-
-class DruidConf(BaseSQLModel):
-    """Druid configuration"""
-
-    granularity: str
-    intervals: Optional[List[str]]
-    timestamp_column: str
-    timestamp_format: Optional[str]
-    parse_spec_format: Optional[str]
+    @validator("config")
+    def config_validator(cls, value):  # pylint: disable=no-self-argument
+        """Changes `config` to a dict prior to saving"""
+        return value.dict()
 
 
-class GenericCubeConfig(GenericMaterializationConfig):
+class UpsertMaterialization(BaseSQLModel):
     """
-    Generic cube materialization config needed by any materialization
-    choices and engine combinations
-    """
-
-    dimensions: Optional[List[str]]
-    measures: Optional[Dict[str, List[Dict[str, str]]]]
-
-
-class DruidCubeConfig(GenericCubeConfig):
-    """
-    Specific cube materialization implementation with Spark and Druid ingestion and
-    optional prefix and/or suffix to include with the materialized entity's name.
-    """
-
-    prefix: Optional[str] = ""
-    suffix: Optional[str] = ""
-    druid: Optional[DruidConf]
-
-
-class UpsertCubeMaterializationConfig(BaseSQLModel):
-    """
-    An upsert object for cube materialization configs
+    An upsert object for materialization configs
     """
 
     name: Optional[str]
     engine: EngineRef
-    config: Union[DruidCubeConfig, GenericCubeConfig]
+    config: Union[
+        DruidCubeConfigInput,
+        GenericCubeConfigInput,
+        GenericMaterializationConfigInput,
+    ]
     schedule: str

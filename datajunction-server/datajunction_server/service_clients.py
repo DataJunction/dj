@@ -159,14 +159,15 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
 
     def get_materialization_info(
         self,
-        node_name,
-        materialization_name,
+        node_name: str,
+        node_version: str,
+        materialization_name: str,
     ) -> MaterializationInfo:
         """
         Gets materialization info for the node and materialization config name.
         """
         response = self.requests_session.get(
-            f"/materialization/{node_name}/{materialization_name}/",
+            f"/materialization/{node_name}/{node_version}/{materialization_name}/",
             timeout=3,
         )
         if not response.ok:
