@@ -373,10 +373,6 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
         # Criteria to determine if an availability state should be used needs to be added
         return True
 
-    # @validator("partitions")
-    # def validate_partitions(cls, value):  # pylint: disable=no-self-argument
-    #     return [AvailablePartition(**val) for val in value] if value else []
-
 
 class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
     """
