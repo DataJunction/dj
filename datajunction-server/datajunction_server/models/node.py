@@ -6,11 +6,11 @@ import enum
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
-from pydantic import root_validator
+from pydantic import root_validator, validator
 from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.sql.schema import UniqueConstraint
@@ -225,7 +225,55 @@ class NodeMissingParents(BaseSQLModel, table=True):  # type: ignore
     )
 
 
-class AvailabilityStateBase(BaseSQLModel):
+class TemporalPartitionRange(BaseSQLModel):
+    """
+    Any temporal partition range with a min and max partition.
+    """
+
+    min_partition: Optional[List[str]]
+    max_partition: Optional[List[str]]
+
+    def merge_temporal(self, other: "TemporalPartitionRange"):
+        """
+        Merge the temporal availability states with each other by recording the
+        largest possible range
+        """
+        self.min_partition = min(
+            x for x in (self.min_partition, other.min_partition) if x
+        )
+        self.max_partition = max(
+            x for x in (self.max_partition, other.max_partition) if x
+        )
+        return self
+
+
+class AvailablePartition(TemporalPartitionRange):
+    """
+    Partition-level availability
+    """
+
+    name: str  # i.e., country, group_id, etc
+    value: str  # DE, 1234, MY etc
+    valid_through_ts: int  # valid through timestamp
+
+    @staticmethod
+    def parse_partitions(partitions: Optional[List[Any]]) -> List["AvailablePartition"]:
+        """
+        Parse a list of partitions into AvailablePartition objects
+        """
+        return (
+            [
+                AvailablePartition(**partition)
+                if isinstance(partition, dict)
+                else partition
+                for partition in partitions
+            ]
+            if partitions
+            else []
+        )
+
+
+class AvailabilityStateBase(TemporalPartitionRange):
     """
     An availability state base
     """
@@ -234,8 +282,74 @@ class AvailabilityStateBase(BaseSQLModel):
     schema_: Optional[str] = Field(default=None)
     table: str
     valid_through_ts: int
-    max_partition: List[str] = Field(sa_column=SqlaColumn(JSON))
-    min_partition: List[str] = Field(sa_column=SqlaColumn(JSON))
+
+    # Node-level temporal ranges
+    min_partition: Optional[List[str]] = Field(sa_column=SqlaColumn(JSON))
+    max_partition: Optional[List[str]] = Field(sa_column=SqlaColumn(JSON))
+
+    # Specific partitions and their temporal ranges.
+    partitions: Optional[List[AvailablePartition]] = Field(
+        sa_column=SqlaColumn(JSON),
+    )
+
+    @validator("partitions")
+    def validate_partitions(cls, partitions):  # pylint: disable=no-self-argument
+        """
+        Validator for partitions
+        """
+        return [partition.dict() for partition in partitions] if partitions else []
+
+    def merge(self, other: "AvailabilityStateBase"):
+        """
+        Merge this availability state with another.
+        """
+        new_partitions = AvailablePartition.parse_partitions(other.partitions)
+        existing_partitions = AvailablePartition.parse_partitions(self.partitions)
+
+        new_partitions_lookup = {
+            (partition.name, partition.value): partition for partition in new_partitions
+        }
+        existing_partitions_lookup = {
+            (partition.name, partition.value): partition
+            for partition in existing_partitions
+        }
+
+        # Merge the partitions, if any
+        all_partition_keys = set(existing_partitions_lookup.keys()).union(
+            set(new_partitions_lookup.keys()),
+        )
+        for partition_key in all_partition_keys:
+            if (
+                partition_key in new_partitions_lookup
+                and partition_key in existing_partitions_lookup
+            ):
+                new_partitions_lookup[partition_key].merge_temporal(  # pragma: no cover
+                    existing_partitions_lookup[partition_key],
+                )
+            if (
+                partition_key not in new_partitions_lookup
+                and partition_key in existing_partitions_lookup
+            ):
+                new_partitions_lookup[partition_key] = existing_partitions_lookup[
+                    partition_key
+                ]
+
+        # merge the node-level temporal ranges, if any
+        self.merge_temporal(other)
+
+        final_partitions = {}
+        for partition_key, partition in new_partitions_lookup.items():
+            # merge in the node-level temporal range to each partition-level range to maximize
+            # the size of the range
+            partition.merge_temporal(self)
+            if (
+                partition.min_partition < self.min_partition  # type: ignore
+                or partition.max_partition > self.max_partition  # type: ignore
+            ):
+                final_partitions[(partition.name, partition.value)] = partition
+
+        self.partitions = [val.dict() for val in final_partitions.values()]
+        return self
 
 
 class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
