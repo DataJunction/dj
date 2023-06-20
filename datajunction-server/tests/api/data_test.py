@@ -1,6 +1,7 @@
 """
 Tests for the data API.
 """
+from unittest import mock
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
@@ -304,6 +305,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "min_partition": ["2022", "01", "01"],
             "table": "pmts",
             "max_partition": ["2023", "01", "25"],
+            "partitions": [],
             "schema_": "accounting",
             "id": 1,
         }
@@ -399,6 +401,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "min_partition": ["2022", "01", "01"],
             "table": "new_payments_table",
             "max_partition": ["2023", "01", "25"],
+            "partitions": [],
             "schema_": "new_accounting",
             "id": 3,
         }
@@ -538,7 +541,174 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "table": "large_pmts",
             "max_partition": ["2023", "01", "02"],
             "schema_": "accounting",
+            "partitions": [],
             "id": 2,
+        }
+
+    def test_set_node_level_availability(
+        self,
+        client_with_examples: TestClient,
+    ):
+        """
+        Test setting node-level availability
+        """
+
+        # Case: The node starts off with a partition-level time range availability.
+        # We add a node-level availability with a wider time range than at the
+        # partition level. We expect this new availability state to overwrite
+        # the partition-level availability since it encompasses it.
+        client_with_examples.post(
+            "/data/default.large_revenue_payments_only/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "accounting",
+                "table": "large_pmts",
+                "valid_through_ts": 20230101,
+                "partitions": [
+                    {
+                        "name": "account_type",
+                        "value": "checking",
+                        "min_partition": ["20230101"],
+                        "max_partition": ["20230105"],
+                        "valid_through_ts": 20230101,
+                    },
+                ],
+            },
+        )
+        client_with_examples.post(
+            "/data/default.large_revenue_payments_only/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "accounting",
+                "table": "large_pmts",
+                "valid_through_ts": 20230101,
+                "min_partition": ["20230101"],
+                "max_partition": ["20230110"],
+                "partitions": [],
+            },
+        )
+        response = client_with_examples.get(
+            "/nodes/default.large_revenue_payments_only/",
+        )
+        assert response.json()["availability"] == {
+            "catalog": "default",
+            "id": mock.ANY,
+            "min_partition": ["20230101"],
+            "max_partition": ["20230110"],
+            "partitions": [],
+            "schema_": "accounting",
+            "table": "large_pmts",
+            "updated_at": mock.ANY,
+            "valid_through_ts": 20230101,
+        }
+
+        # Set a node level availability with a smaller time range than the existing
+        # one will result in no change to the merged availability state
+        client_with_examples.post(
+            "/data/default.large_revenue_payments_only/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "accounting",
+                "table": "large_pmts",
+                "valid_through_ts": 20230101,
+                "min_partition": ["20230103"],
+                "max_partition": ["20230105"],
+                "partitions": [],
+            },
+        )
+        response = client_with_examples.get(
+            "/nodes/default.large_revenue_payments_only/",
+        )
+        assert response.json()["availability"] == {
+            "catalog": "default",
+            "id": mock.ANY,
+            "min_partition": ["20230101"],
+            "max_partition": ["20230110"],
+            "partitions": [],
+            "schema_": "accounting",
+            "table": "large_pmts",
+            "updated_at": mock.ANY,
+            "valid_through_ts": 20230101,
+        }
+
+        # Set a partition-level availability with a smaller time range than
+        # the existing node-level time range will result in no change to the
+        # merged availability state
+        client_with_examples.post(
+            "/data/default.large_revenue_payments_only/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "accounting",
+                "table": "large_pmts",
+                "valid_through_ts": 20230101,
+                "partitions": [
+                    {
+                        "name": "account_type",
+                        "value": "checking",
+                        "min_partition": ["20230102"],
+                        "max_partition": ["20230107"],
+                        "valid_through_ts": 20230101,
+                    },
+                ],
+            },
+        )
+        response = client_with_examples.get(
+            "/nodes/default.large_revenue_payments_only/",
+        )
+        assert response.json()["availability"] == {
+            "catalog": "default",
+            "id": mock.ANY,
+            "min_partition": ["20230101"],
+            "max_partition": ["20230110"],
+            "partitions": [],
+            "schema_": "accounting",
+            "table": "large_pmts",
+            "updated_at": mock.ANY,
+            "valid_through_ts": 20230101,
+        }
+
+        # Set a partition-level availability with a larger time range than
+        # the existing node-level time range will result in the partition with
+        # the larger range being recorded
+        response = client_with_examples.post(
+            "/data/default.large_revenue_payments_only/availability/",
+            json={
+                "catalog": "default",
+                "schema_": "accounting",
+                "table": "large_pmts",
+                "valid_through_ts": 20230101,
+                "partitions": [
+                    {
+                        "name": "account_type",
+                        "value": "checking",
+                        "min_partition": ["20230102"],
+                        "max_partition": ["20230115"],
+                        "valid_through_ts": 20230101,
+                    },
+                ],
+            },
+        )
+        response = client_with_examples.get(
+            "/nodes/default.large_revenue_payments_only/",
+        )
+        assert response.json()["availability"] == {
+            "catalog": "default",
+            "id": mock.ANY,
+            "min_partition": ["20230101"],
+            "max_partition": ["20230110"],
+            "partitions": [
+                {
+                    "name": "account_type",
+                    "value": "checking",
+                    "min_partition": ["20230101"],
+                    "max_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+            "schema_": "accounting",
+            "table": "large_pmts",
+            "updated_at": mock.ANY,
+            "valid_through_ts": 20230101,
         }
 
     def test_merging_in_a_lower_min_partition(
@@ -597,6 +767,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "table": "large_pmts",
             "max_partition": ["2023", "01", "01"],
             "schema_": "accounting",
+            "partitions": [],
             "id": 2,
         }
 
@@ -656,6 +827,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "table": "large_pmts",
             "max_partition": ["2023", "01", "01"],
             "schema_": "accounting",
+            "partitions": [],
             "id": 2,
         }
 
@@ -696,6 +868,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "table": "revenue",
             "max_partition": ["2023", "01", "01"],
             "schema_": "accounting",
+            "partitions": [],
             "id": 1,
         }
 
