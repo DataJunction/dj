@@ -71,8 +71,8 @@ class DruidCubeMaterializationJob(MaterializationJob):
             + node_name.replace(".", "_DOT_")  # type: ignore
             + cube_config.suffix  # type: ignore
         )
-        _metrics_spec = [
-            {
+        _metrics_spec = {
+            measure["name"]: {
                 "fieldName": measure["name"],
                 "name": measure["name"],
                 "type": DRUID_AGG_MAPPING[
@@ -81,10 +81,9 @@ class DruidCubeMaterializationJob(MaterializationJob):
             }
             for measure_group in cube_config.measures.values()  # type: ignore
             for measure in measure_group
-        ]
-        metrics_spec = [
-            dict(tup) for tup in {tuple(spec.items()) for spec in _metrics_spec}
-        ]
+        }
+
+        metrics_spec = list(_metrics_spec.values())
         temporal_partitions = (
             [
                 partition

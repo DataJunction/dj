@@ -318,24 +318,70 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
     ]
     assert default_materialization["config"]["measures"] == {
         "default_DOT_discounted_orders_rate": [
-            {"name": "discount_sum", "agg": "sum", "type": "bigint"},
-            {"name": "placeholder_count", "agg": "count", "type": "bigint"},
+            {
+                "name": "discount_sum",
+                "agg": "sum",
+                "field_name": "m0_default_DOT_discounted_orders_rate_discount_sum",
+                "type": "bigint",
+            },
+            {
+                "name": "placeholder_count",
+                "field_name": "m0_default_DOT_discounted_orders_rate_placeholder_count",
+                "agg": "count",
+                "type": "bigint",
+            },
         ],
         "default_DOT_num_repair_orders": [
-            {"name": "repair_order_id_count", "agg": "count", "type": "bigint"},
+            {
+                "name": "repair_order_id_count",
+                "field_name": "m1_default_DOT_num_repair_orders_repair_order_id_count",
+                "agg": "count",
+                "type": "bigint",
+            },
         ],
         "default_DOT_avg_repair_price": [
-            {"name": "price_count", "agg": "count", "type": "bigint"},
-            {"name": "price_sum", "agg": "sum", "type": "double"},
+            {
+                "name": "price_count",
+                "field_name": "m2_default_DOT_avg_repair_price_price_count",
+                "agg": "count",
+                "type": "bigint",
+            },
+            {
+                "name": "price_sum",
+                "field_name": "m2_default_DOT_avg_repair_price_price_sum",
+                "agg": "sum",
+                "type": "double",
+            },
         ],
         "default_DOT_total_repair_cost": [
-            {"name": "price_sum", "agg": "sum", "type": "double"},
+            {
+                "name": "price_sum",
+                "field_name": "m3_default_DOT_total_repair_cost_price_sum",
+                "agg": "sum",
+                "type": "double",
+            },
         ],
         "default_DOT_total_repair_order_discounts": [
-            {"name": "price_discount_sum", "agg": "sum", "type": "double"},
+            {
+                "name": "price_discount_sum",
+                "field_name": "m4_default_DOT_total_repair_order_discounts_price_discount_sum",
+                "agg": "sum",
+                "type": "double",
+            },
         ],
         "default_DOT_double_total_repair_cost": [
-            {"name": "price_sum", "agg": "sum", "type": "double"},
+            {
+                "name": "price_sum",
+                "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
+                "agg": "sum",
+                "type": "double",
+            },
+            {
+                "name": "price_sum",
+                "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
+                "agg": "sum",
+                "type": "double",
+            },
         ],
     }
 
@@ -773,11 +819,13 @@ FULL OUTER JOIN m5_default_DOT_double_total_repair_cost ON m0_default_DOT_discou
         "default_DOT_avg_repair_price": [
             {
                 "name": "price_count",
+                "field_name": "m2_default_DOT_avg_repair_price_price_count",
                 "agg": "count",
                 "type": "bigint",
             },
             {
                 "name": "price_sum",
+                "field_name": "m2_default_DOT_avg_repair_price_price_sum",
                 "agg": "sum",
                 "type": "double",
             },
@@ -786,6 +834,13 @@ FULL OUTER JOIN m5_default_DOT_double_total_repair_cost ON m0_default_DOT_discou
             {
                 "agg": "sum",
                 "type": "double",
+                "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
+                "name": "price_sum",
+            },
+            {
+                "agg": "sum",
+                "type": "double",
+                "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
                 "name": "price_sum",
             },
         ],
@@ -794,13 +849,20 @@ FULL OUTER JOIN m5_default_DOT_double_total_repair_cost ON m0_default_DOT_discou
                 "agg": "sum",
                 "type": "bigint",
                 "name": "discount_sum",
+                "field_name": "m0_default_DOT_discounted_orders_rate_discount_sum",
             },
-            {"agg": "count", "type": "bigint", "name": "placeholder_count"},
+            {
+                "agg": "count",
+                "type": "bigint",
+                "name": "placeholder_count",
+                "field_name": "m0_default_DOT_discounted_orders_rate_placeholder_count",
+            },
         ],
         "default_DOT_num_repair_orders": [
             {
                 "name": "repair_order_id_count",
                 "agg": "count",
+                "field_name": "m1_default_DOT_num_repair_orders_repair_order_id_count",
                 "type": "bigint",
             },
         ],
@@ -808,6 +870,7 @@ FULL OUTER JOIN m5_default_DOT_double_total_repair_cost ON m0_default_DOT_discou
             {
                 "agg": "sum",
                 "type": "double",
+                "field_name": "m4_default_DOT_total_repair_order_discounts_price_discount_sum",
                 "name": "price_discount_sum",
             },
         ],
@@ -815,6 +878,7 @@ FULL OUTER JOIN m5_default_DOT_double_total_repair_cost ON m0_default_DOT_discou
             {
                 "name": "price_sum",
                 "agg": "sum",
+                "field_name": "m3_default_DOT_total_repair_cost_price_sum",
                 "type": "double",
             },
         ],
@@ -962,26 +1026,34 @@ def test_add_materialization_config_to_cube(
             },
             "metricsSpec": [
                 {
-                    "fieldName": "discount_sum",
+                    "fieldName": "m0_default_DOT_discounted_orders_rate_discount_sum",
                     "name": "discount_sum",
                     "type": "longSum",
                 },
                 {
-                    "fieldName": "placeholder_count",
+                    "fieldName": "m0_default_DOT_discounted_orders_rate_placeholder_count",
                     "name": "placeholder_count",
                     "type": "longSum",
                 },
-                {"fieldName": "price_count", "name": "price_count", "type": "longSum"},
                 {
-                    "fieldName": "price_discount_sum",
+                    "fieldName": "m1_default_DOT_num_repair_orders_repair_order_id_count",
+                    "name": "repair_order_id_count",
+                    "type": "longSum",
+                },
+                {
+                    "fieldName": "m2_default_DOT_avg_repair_price_price_count",
+                    "name": "price_count",
+                    "type": "longSum",
+                },
+                {
+                    "fieldName": "m4_default_DOT_total_repair_order_discounts_price_discount_sum",
                     "name": "price_discount_sum",
                     "type": "doubleSum",
                 },
-                {"fieldName": "price_sum", "name": "price_sum", "type": "doubleSum"},
                 {
-                    "fieldName": "repair_order_id_count",
-                    "name": "repair_order_id_count",
-                    "type": "longSum",
+                    "fieldName": "m5_default_DOT_double_total_repair_cost_price_sum",
+                    "name": "price_sum",
+                    "type": "doubleSum",
                 },
             ],
             "granularitySpec": {
