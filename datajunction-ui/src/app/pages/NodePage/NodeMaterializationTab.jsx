@@ -63,8 +63,9 @@ export default function NodeMaterializationTab({ node, djClient }) {
                     {partition.range !== null && partition.range.length > 0
                       ? rangePartition(partition)
                       : null}
-                    {partition.range.length === 0 &&
-                    partition.values.length === 0 ? (
+                    {(partition.range === null && partition.values === null) ||
+                    (partition.range.length === 0 &&
+                      partition.values.length === 0) ? (
                       <span className={`badge partition_value_highlight`}>
                         ALL
                       </span>
