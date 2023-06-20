@@ -153,7 +153,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             json=materialization_input.dict(),
         )
         if not response.ok:  # pragma: no cover
-            return MaterializationInfo(urls=[])
+            return MaterializationInfo(urls=[], output_tables=[])
         result = response.json()
         return MaterializationInfo(**result)
 
