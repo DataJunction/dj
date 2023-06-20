@@ -38,14 +38,17 @@ class Measure(SQLModel):
     """
 
     name: str
+    field_name: str
     agg: str
     type: str
 
     def __eq__(self, other):
-        return tuple(self.__dict__.items()) == tuple(other.__dict__.items())
+        return tuple(self.__dict__.items()) == tuple(
+            other.__dict__.items(),
+        )  # pragma: no cover
 
     def __hash__(self):
-        return hash(tuple(self.__dict__.items()))
+        return hash(tuple(self.__dict__.items()))  # pragma: no cover
 
 
 class CubeRevisionMetadata(SQLModel):
