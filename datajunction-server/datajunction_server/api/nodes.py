@@ -345,7 +345,7 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
     )
 
 
-def build_cube_config(
+def build_cube_config(  # pylint: disable=too-many-locals
     cube_node: NodeRevision,
     combined_ast: ast.Query,
 ) -> Union[DruidCubeConfig, GenericCubeConfig]:
@@ -369,6 +369,7 @@ def build_cube_config(
         dim.name for dim in cube_node.columns if dim.has_dimension_attribute()
     }
     metrics_to_measures = {}
+    measures_tracker = defaultdict(list)
     for cte in combined_ast.ctes:
         metrics_to_measures.update(decompose_metrics(cte, dimensions_set))
         new_select_projection: Set[Union[ast.Aliasable, ast.Expression]] = set()
@@ -377,10 +378,22 @@ def build_cube_config(
                 new_select_projection = set(new_select_projection).union(
                     metrics_to_measures[expr],
                 )
+                for measure in metrics_to_measures[expr]:
+                    measures_tracker[expr.alias_or_name.name].append(  # type: ignore
+                        Measure(
+                            name=measure.alias_or_name.name,
+                            field_name=str(
+                                f"{cte.alias_or_name}_{measure.alias_or_name}",
+                            ),
+                            agg=str(measure.child.name),
+                            type=str(measure.type),
+                        ),
+                    )
             else:
                 new_select_projection.add(expr)
         cte.select.projection = list(new_select_projection)
-
+    for metric, all_measures in measures_tracker.items():
+        measures_tracker[metric] = sorted(all_measures, key=lambda x: x.name)
     combined_ast.select.projection = [
         (
             ast.Column(name=col.alias_or_name, _table=cte).set_alias(  # type: ignore
@@ -406,23 +419,7 @@ def build_cube_config(
                 ast.Name(col_name),
             ),
         )
-    measures = {
-        metric.alias_or_name.name: sorted(
-            [
-                measure_obj.dict()
-                for measure_obj in {
-                    Measure(
-                        name=str(measure.alias_or_name),
-                        agg=str(measure.child.name),
-                        type=str(measure.type),
-                    )
-                    for measure in measures
-                }
-            ],
-            key=lambda x: x["name"],
-        )
-        for metric, measures in metrics_to_measures.items()
-    }
+
     upstream_tables = sorted(
         list(
             {
@@ -435,7 +432,7 @@ def build_cube_config(
     return GenericCubeConfig(
         query=str(combined_ast),
         dimensions=sorted(list(dimensions_set)),
-        measures=measures,
+        measures=measures_tracker,
         partitions=[],
         upstream_tables=upstream_tables,
     )
