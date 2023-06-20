@@ -73,7 +73,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
         )
         _metrics_spec = {
             measure["name"]: {
-                "fieldName": measure["name"],
+                "fieldName": measure["field_name"],
                 "name": measure["name"],
                 "type": DRUID_AGG_MAPPING[
                     (measure["type"].lower(), measure["agg"].lower())
