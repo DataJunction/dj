@@ -252,8 +252,8 @@ tr {
 }
 
 .card-light-shadow {
-  box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24);
-  transition: all 0.3s cubic-bezier(.25,.8,.25,1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+  transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
   padding: 1rem;
 }
 
@@ -434,6 +434,13 @@ tbody th {
 .partition_value {
   border: solid #00b368 0.025em;
   background-color: #ccf7e525;
+  margin: 0.25rem;
+}
+
+.partition_value_highlight {
+  border: solid #5c3b8f 0.025em;
+  color: #5c3b8f;
+  background-color: #5c3b8f25;
   margin: 0.25rem;
 }
 
@@ -702,9 +709,9 @@ pre {
 
 .button-3 {
   appearance: none;
-  border: 1px solid rgba(27, 31, 35, .15);
+  border: 1px solid rgba(27, 31, 35, 0.15);
   border-radius: 6px;
-  box-shadow: rgba(27, 31, 35, .1) 0 1px 0;
+  box-shadow: rgba(27, 31, 35, 0.1) 0 1px 0;
   box-sizing: border-box;
   cursor: pointer;
   display: inline-block;
@@ -729,12 +736,12 @@ pre {
 
 .execute-button {
   background-color: #00b368;
-  color: #fff
+  color: #fff;
 }
 
 .executing-button {
   background-color: #bbbbbb;
-  color: #fff
+  color: #fff;
 }
 
 .neutral-button {
