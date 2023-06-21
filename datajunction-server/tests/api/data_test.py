@@ -284,8 +284,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -302,12 +302,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "pmts",
-            "max_partition": ["2023", "01", "25"],
+            "max_temporal_partition": ["2023", "01", "25"],
             "partitions": [],
             "schema_": "accounting",
             "id": 1,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
 
     def test_availability_catalog_mismatch(
@@ -324,8 +326,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -348,8 +350,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -364,8 +366,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -380,8 +382,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "new_accounting",
                 "table": "new_payments_table",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
+                "categorical_partitions": [],
+                "temporal_partitions": [],
             },
         )
         data = response.json()
@@ -398,12 +402,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "new_payments_table",
-            "max_partition": ["2023", "01", "25"],
+            "max_temporal_partition": ["2023", "01", "25"],
             "partitions": [],
             "schema_": "new_accounting",
             "id": 3,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
 
     def test_that_update_at_timestamp_is_being_updated(
@@ -421,8 +427,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         assert response.status_code == 200
@@ -443,8 +449,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         assert response.status_code == 200
@@ -472,8 +478,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -500,8 +506,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         response = client_with_examples.post(
@@ -511,16 +517,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230102,
-                "max_partition": [
+                "max_temporal_partition": [
                     "2023",
                     "01",
                     "02",
-                ],  # should be used since it's a higher max_partition
-                "min_partition": [
+                ],  # should be used since it's a higher max_temporal_partition
+                "min_temporal_partition": [
                     "2023",
                     "01",
                     "02",
-                ],  # should be ignored since it's a higher min_partition
+                ],  # should be ignored since it's a higher min_temporal_partition
             },
         )
         data = response.json()
@@ -537,12 +543,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230102,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "large_pmts",
-            "max_partition": ["2023", "01", "02"],
+            "max_temporal_partition": ["2023", "01", "02"],
             "schema_": "accounting",
             "partitions": [],
             "id": 2,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
 
     def test_set_node_level_availability(
@@ -557,47 +565,53 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         # We add a node-level availability with a wider time range than at the
         # partition level. We expect this new availability state to overwrite
         # the partition-level availability since it encompasses it.
-        client_with_examples.post(
-            "/data/default.large_revenue_payments_only/availability/",
+        response = client_with_examples.post(
+            "/data/default.local_hard_hats/availability/",
             json={
                 "catalog": "default",
-                "schema_": "accounting",
-                "table": "large_pmts",
+                "schema_": "dimensions",
+                "table": "local_hard_hats",
                 "valid_through_ts": 20230101,
+                "categorical_partitions": ["country", "postal_code"],
+                "temporal_partitions": ["birth_date"],
                 "partitions": [
                     {
                         "name": "account_type",
-                        "value": "checking",
-                        "min_partition": ["20230101"],
-                        "max_partition": ["20230105"],
+                        "value": ["DE", "ABC123D"],
+                        "min_temporal_partition": ["20230101"],
+                        "max_temporal_partition": ["20230105"],
                         "valid_through_ts": 20230101,
                     },
                 ],
             },
         )
         client_with_examples.post(
-            "/data/default.large_revenue_payments_only/availability/",
+            "/data/default.local_hard_hats/availability/",
             json={
                 "catalog": "default",
-                "schema_": "accounting",
-                "table": "large_pmts",
+                "schema_": "dimensions",
+                "table": "local_hard_hats",
                 "valid_through_ts": 20230101,
-                "min_partition": ["20230101"],
-                "max_partition": ["20230110"],
+                "categorical_partitions": ["country", "manager"],
+                "temporal_partitions": ["birth_date"],
+                "min_temporal_partition": ["20230101"],
+                "max_temporal_partition": ["20230110"],
                 "partitions": [],
             },
         )
         response = client_with_examples.get(
-            "/nodes/default.large_revenue_payments_only/",
+            "/nodes/default.local_hard_hats/",
         )
         assert response.json()["availability"] == {
             "catalog": "default",
             "id": mock.ANY,
-            "min_partition": ["20230101"],
-            "max_partition": ["20230110"],
+            "min_temporal_partition": ["20230101"],
+            "max_temporal_partition": ["20230110"],
+            "categorical_partitions": ["country", "manager"],
+            "temporal_partitions": ["birth_date"],
             "partitions": [],
-            "schema_": "accounting",
-            "table": "large_pmts",
+            "schema_": "dimensions",
+            "table": "local_hard_hats",
             "updated_at": mock.ANY,
             "valid_through_ts": 20230101,
         }
@@ -605,28 +619,32 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         # Set a node level availability with a smaller time range than the existing
         # one will result in no change to the merged availability state
         client_with_examples.post(
-            "/data/default.large_revenue_payments_only/availability/",
+            "/data/default.local_hard_hats/availability/",
             json={
                 "catalog": "default",
-                "schema_": "accounting",
-                "table": "large_pmts",
+                "schema_": "dimensions",
+                "table": "local_hard_hats",
                 "valid_through_ts": 20230101,
-                "min_partition": ["20230103"],
-                "max_partition": ["20230105"],
+                "min_temporal_partition": ["20230103"],
+                "max_temporal_partition": ["20230105"],
+                "categorical_partitions": ["country", "manager"],
+                "temporal_partitions": ["birth_date"],
                 "partitions": [],
             },
         )
         response = client_with_examples.get(
-            "/nodes/default.large_revenue_payments_only/",
+            "/nodes/default.local_hard_hats/",
         )
         assert response.json()["availability"] == {
             "catalog": "default",
             "id": mock.ANY,
-            "min_partition": ["20230101"],
-            "max_partition": ["20230110"],
+            "min_temporal_partition": ["20230101"],
+            "max_temporal_partition": ["20230110"],
             "partitions": [],
-            "schema_": "accounting",
-            "table": "large_pmts",
+            "schema_": "dimensions",
+            "table": "local_hard_hats",
+            "categorical_partitions": ["country", "manager"],
+            "temporal_partitions": ["birth_date"],
             "updated_at": mock.ANY,
             "valid_through_ts": 20230101,
         }
@@ -635,34 +653,37 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         # the existing node-level time range will result in no change to the
         # merged availability state
         client_with_examples.post(
-            "/data/default.large_revenue_payments_only/availability/",
+            "/data/default.local_hard_hats/availability/",
             json={
                 "catalog": "default",
-                "schema_": "accounting",
-                "table": "large_pmts",
+                "schema_": "dimensions",
+                "table": "local_hard_hats",
                 "valid_through_ts": 20230101,
+                "categorical_partitions": ["country", "manager"],
+                "temporal_partitions": ["birth_date"],
                 "partitions": [
                     {
-                        "name": "account_type",
-                        "value": "checking",
-                        "min_partition": ["20230102"],
-                        "max_partition": ["20230107"],
+                        "value": ["DE", None],
+                        "min_temporal_partition": ["20230102"],
+                        "max_temporal_partition": ["20230107"],
                         "valid_through_ts": 20230101,
                     },
                 ],
             },
         )
         response = client_with_examples.get(
-            "/nodes/default.large_revenue_payments_only/",
+            "/nodes/default.local_hard_hats/",
         )
         assert response.json()["availability"] == {
             "catalog": "default",
             "id": mock.ANY,
-            "min_partition": ["20230101"],
-            "max_partition": ["20230110"],
+            "min_temporal_partition": ["20230101"],
+            "max_temporal_partition": ["20230110"],
             "partitions": [],
-            "schema_": "accounting",
-            "table": "large_pmts",
+            "schema_": "dimensions",
+            "table": "local_hard_hats",
+            "categorical_partitions": ["country", "manager"],
+            "temporal_partitions": ["birth_date"],
             "updated_at": mock.ANY,
             "valid_through_ts": 20230101,
         }
@@ -671,42 +692,44 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         # the existing node-level time range will result in the partition with
         # the larger range being recorded
         response = client_with_examples.post(
-            "/data/default.large_revenue_payments_only/availability/",
+            "/data/default.local_hard_hats/availability/",
             json={
                 "catalog": "default",
-                "schema_": "accounting",
-                "table": "large_pmts",
+                "schema_": "dimensions",
+                "table": "local_hard_hats",
                 "valid_through_ts": 20230101,
+                "categorical_partitions": ["country", "manager"],
+                "temporal_partitions": ["birth_date"],
                 "partitions": [
                     {
-                        "name": "account_type",
-                        "value": "checking",
-                        "min_partition": ["20230102"],
-                        "max_partition": ["20230115"],
+                        "value": ["DE", None],
+                        "min_temporal_partition": ["20230102"],
+                        "max_temporal_partition": ["20230115"],
                         "valid_through_ts": 20230101,
                     },
                 ],
             },
         )
         response = client_with_examples.get(
-            "/nodes/default.large_revenue_payments_only/",
+            "/nodes/default.local_hard_hats/",
         )
         assert response.json()["availability"] == {
             "catalog": "default",
             "id": mock.ANY,
-            "min_partition": ["20230101"],
-            "max_partition": ["20230110"],
+            "min_temporal_partition": ["20230101"],
+            "max_temporal_partition": ["20230110"],
+            "categorical_partitions": ["country", "manager"],
+            "temporal_partitions": ["birth_date"],
             "partitions": [
                 {
-                    "name": "account_type",
-                    "value": "checking",
-                    "min_partition": ["20230101"],
-                    "max_partition": ["20230115"],
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
                     "valid_through_ts": 20230101,
                 },
             ],
-            "schema_": "accounting",
-            "table": "large_pmts",
+            "schema_": "dimensions",
+            "table": "local_hard_hats",
             "updated_at": mock.ANY,
             "valid_through_ts": 20230101,
         }
@@ -726,8 +749,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         response = client_with_examples.post(
@@ -737,12 +760,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": [
+                "max_temporal_partition": [
                     "2021",
                     "12",
                     "31",
-                ],  # should be ignored since it's a lower max_partition
-                "min_partition": [
+                ],  # should be ignored since it's a lower max_temporal_partition
+                "min_temporal_partition": [
                     "2021",
                     "12",
                     "31",
@@ -763,9 +786,11 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "default",
-            "min_partition": ["2021", "12", "31"],
+            "min_temporal_partition": ["2021", "12", "31"],
+            "categorical_partitions": [],
+            "temporal_partitions": [],
             "table": "large_pmts",
-            "max_partition": ["2023", "01", "01"],
+            "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "partitions": [],
             "id": 2,
@@ -786,8 +811,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         response = client_with_examples.post(
@@ -797,16 +822,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20221231,
-                "max_partition": [
+                "max_temporal_partition": [
                     "2023",
                     "01",
                     "01",
-                ],  # should be ignored since it's a lower max_partition
-                "min_partition": [
+                ],  # should be ignored since it's a lower max_temporal_partition
+                "min_temporal_partition": [
                     "2022",
                     "01",
                     "01",
-                ],  # should be used since it's a lower min_partition
+                ],  # should be used since it's a lower min_temporal_partition
             },
         )
         data = response.json()
@@ -823,12 +848,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20221231,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "large_pmts",
-            "max_partition": ["2023", "01", "01"],
+            "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "partitions": [],
             "id": 2,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
 
     def test_setting_availablity_state_on_a_source_node(
@@ -846,8 +873,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "revenue",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -864,12 +891,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "revenue",
-            "max_partition": ["2023", "01", "01"],
+            "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
             "partitions": [],
             "id": 1,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
 
     def test_raise_on_setting_invalid_availability_state_on_a_source_node(
@@ -886,8 +915,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
