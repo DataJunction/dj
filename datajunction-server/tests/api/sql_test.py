@@ -1,5 +1,5 @@
 """Tests for the /sql/ endpoint"""
-# pylint: disable=line-too-long
+# pylint: disable=line-too-long,too-many-lines
 import pytest
 from sqlmodel import Session
 from starlette.testclient import TestClient
@@ -184,24 +184,27 @@ def test_sql(
                 "default.repair_orders.order_date >= '2020-01-01'",
             ],
             """
-            SELECT  default_DOT_hard_hat.city,
-                    default_DOT_dispatcher.company_name,
-                    count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders,
+            SELECT  default_DOT_dispatcher.company_name,
+                    default_DOT_hard_hat.city,
                     default_DOT_hard_hat.last_name,
-                    default_DOT_municipality_dim.local_region
+                    default_DOT_municipality_dim.local_region,
+                    count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
             FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
                     default_DOT_dispatchers.dispatcher_id,
                     default_DOT_dispatchers.phone
-            FROM roads.dispatchers AS default_DOT_dispatchers) AS default_DOT_dispatcher ON default_DOT_repair_orders.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+            FROM roads.dispatchers AS default_DOT_dispatchers)
+            AS default_DOT_dispatcher ON default_DOT_repair_orders.dispatcher_id = default_DOT_dispatcher.dispatcher_id
             LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
                     default_DOT_hard_hats.hard_hat_id,
                     default_DOT_hard_hats.last_name,
                     default_DOT_hard_hats.state
-            FROM roads.hard_hats AS default_DOT_hard_hats) AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+            FROM roads.hard_hats AS default_DOT_hard_hats)
+            AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
             LEFT OUTER JOIN (SELECT  default_DOT_municipality.local_region,
-                    default_DOT_municipality.municipality_id
+                    default_DOT_municipality.municipality_id AS municipality_id
             FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
-            LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc) AS default_DOT_municipality_dim ON default_DOT_repair_orders.municipality_id = default_DOT_municipality_dim.municipality_id
+            LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc)
+            AS default_DOT_municipality_dim ON default_DOT_repair_orders.municipality_id = default_DOT_municipality_dim.municipality_id
             WHERE  default_DOT_repair_orders.dispatcher_id = 1 AND default_DOT_hard_hat.state != 'AZ' AND default_DOT_dispatcher.phone = '4082021022' AND default_DOT_repair_orders.order_date >= '2020-01-01'
             GROUP BY  default_DOT_hard_hat.city, default_DOT_hard_hat.last_name, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
             """,
@@ -374,52 +377,29 @@ def test_sql_with_filters(
             ],
             ["foo.bar.hard_hat.last_name"],
             """
-            SELECT
-              foo_DOT_bar_DOT_hard_hat.city,
-              foo_DOT_bar_DOT_dispatcher.company_name,
-              count(
-                foo_DOT_bar_DOT_repair_orders.repair_order_id
-              ) AS foo_DOT_bar_DOT_num_repair_orders,
-              foo_DOT_bar_DOT_hard_hat.last_name,
-              foo_DOT_bar_DOT_municipality_dim.local_region
-            FROM
-              roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
-              LEFT OUTER JOIN (
-                SELECT
-                  foo_DOT_bar_DOT_dispatchers.company_name,
-                  foo_DOT_bar_DOT_dispatchers.dispatcher_id,
-                  foo_DOT_bar_DOT_dispatchers.phone
-                FROM
-                  roads.dispatchers AS foo_DOT_bar_DOT_dispatchers
-              ) AS foo_DOT_bar_DOT_dispatcher ON foo_DOT_bar_DOT_repair_orders.dispatcher_id = foo_DOT_bar_DOT_dispatcher.dispatcher_id
-              LEFT OUTER JOIN (
-                SELECT
-                  foo_DOT_bar_DOT_hard_hats.city,
-                  foo_DOT_bar_DOT_hard_hats.hard_hat_id,
-                  foo_DOT_bar_DOT_hard_hats.last_name,
-                  foo_DOT_bar_DOT_hard_hats.state
-                FROM
-                  roads.hard_hats AS foo_DOT_bar_DOT_hard_hats
-              ) AS foo_DOT_bar_DOT_hard_hat ON foo_DOT_bar_DOT_repair_orders.hard_hat_id = foo_DOT_bar_DOT_hard_hat.hard_hat_id
-              LEFT OUTER JOIN (
-                SELECT
-                  foo_DOT_bar_DOT_municipality.local_region,
-                  foo_DOT_bar_DOT_municipality.municipality_id
-                FROM
-                  roads.municipality AS foo_DOT_bar_DOT_municipality
-                  LEFT JOIN roads.municipality_municipality_type AS foo_DOT_bar_DOT_municipality_municipality_type ON foo_DOT_bar_DOT_municipality.municipality_id = foo_DOT_bar_DOT_municipality_municipality_type.municipality_id
-                  LEFT JOIN roads.municipality_type AS foo_DOT_bar_DOT_municipality_type ON foo_DOT_bar_DOT_municipality_municipality_type.municipality_type_id = foo_DOT_bar_DOT_municipality_type.municipality_type_desc
-              ) AS foo_DOT_bar_DOT_municipality_dim ON foo_DOT_bar_DOT_repair_orders.municipality_id = foo_DOT_bar_DOT_municipality_dim.municipality_id
-            WHERE
-              foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
-              AND foo_DOT_bar_DOT_hard_hat.state != 'AZ'
-              AND foo_DOT_bar_DOT_dispatcher.phone = '4082021022'
-              AND foo_DOT_bar_DOT_repair_orders.order_date >= '2020-01-01'
-            GROUP BY
-              foo_DOT_bar_DOT_hard_hat.city,
-              foo_DOT_bar_DOT_hard_hat.last_name,
-              foo_DOT_bar_DOT_dispatcher.company_name,
-              foo_DOT_bar_DOT_municipality_dim.local_region
+            SELECT  foo_DOT_bar_DOT_dispatcher.company_name,
+                    foo_DOT_bar_DOT_hard_hat.city,
+                    foo_DOT_bar_DOT_hard_hat.last_name,
+                    foo_DOT_bar_DOT_municipality_dim.local_region,
+                    count(foo_DOT_bar_DOT_repair_orders.repair_order_id) AS foo_DOT_bar_DOT_num_repair_orders
+            FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders LEFT OUTER JOIN (SELECT  foo_DOT_bar_DOT_dispatchers.company_name,
+                    foo_DOT_bar_DOT_dispatchers.dispatcher_id,
+                    foo_DOT_bar_DOT_dispatchers.phone
+            FROM roads.dispatchers AS foo_DOT_bar_DOT_dispatchers)
+            AS foo_DOT_bar_DOT_dispatcher ON foo_DOT_bar_DOT_repair_orders.dispatcher_id = foo_DOT_bar_DOT_dispatcher.dispatcher_id
+            LEFT OUTER JOIN (SELECT  foo_DOT_bar_DOT_hard_hats.city,
+                    foo_DOT_bar_DOT_hard_hats.hard_hat_id,
+                    foo_DOT_bar_DOT_hard_hats.last_name,
+                    foo_DOT_bar_DOT_hard_hats.state
+            FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats)
+            AS foo_DOT_bar_DOT_hard_hat ON foo_DOT_bar_DOT_repair_orders.hard_hat_id = foo_DOT_bar_DOT_hard_hat.hard_hat_id
+            LEFT OUTER JOIN (SELECT  foo_DOT_bar_DOT_municipality.local_region,
+                    foo_DOT_bar_DOT_municipality.municipality_id AS municipality_id
+            FROM roads.municipality AS foo_DOT_bar_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS foo_DOT_bar_DOT_municipality_municipality_type ON foo_DOT_bar_DOT_municipality.municipality_id = foo_DOT_bar_DOT_municipality_municipality_type.municipality_id
+            LEFT  JOIN roads.municipality_type AS foo_DOT_bar_DOT_municipality_type ON foo_DOT_bar_DOT_municipality_municipality_type.municipality_type_id = foo_DOT_bar_DOT_municipality_type.municipality_type_desc)
+            AS foo_DOT_bar_DOT_municipality_dim ON foo_DOT_bar_DOT_repair_orders.municipality_id = foo_DOT_bar_DOT_municipality_dim.municipality_id
+            WHERE  foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1 AND foo_DOT_bar_DOT_hard_hat.state != 'AZ' AND foo_DOT_bar_DOT_dispatcher.phone = '4082021022' AND foo_DOT_bar_DOT_repair_orders.order_date >= '2020-01-01'
+            GROUP BY  foo_DOT_bar_DOT_hard_hat.city, foo_DOT_bar_DOT_hard_hat.last_name, foo_DOT_bar_DOT_dispatcher.company_name, foo_DOT_bar_DOT_municipality_dim.local_region
             ORDER BY foo_DOT_bar_DOT_hard_hat.last_name
             """,
         ),
@@ -651,156 +631,73 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
     )
     data = response.json()
     expected_sql = """
-WITH m0_default_DOT_discounted_orders_rate AS (
-  SELECT
-    default_DOT_dispatcher.company_name,
-    default_DOT_hard_hat.city,
-    default_DOT_hard_hat.country,
-    default_DOT_hard_hat.postal_code,
-    default_DOT_hard_hat.state,
-    default_DOT_municipality_dim.local_region,
-    CAST(
-      sum(
-        if(
-          default_DOT_repair_order_details.discount > 0.0,
-          1, 0
-        )
-      ) AS DOUBLE
-    ) / count(*) AS default_DOT_discounted_orders_rate
-  FROM
-    roads.repair_order_details AS default_DOT_repair_order_details
-    LEFT OUTER JOIN (
-      SELECT
-        default_DOT_repair_orders.dispatcher_id,
-        default_DOT_repair_orders.hard_hat_id,
-        default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id
-      FROM
-        roads.repair_orders AS default_DOT_repair_orders
-    ) AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-    LEFT OUTER JOIN (
-      SELECT
-        default_DOT_dispatchers.company_name,
-        default_DOT_dispatchers.dispatcher_id
-      FROM
-        roads.dispatchers AS default_DOT_dispatchers
-    ) AS default_DOT_dispatcher ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-    LEFT OUTER JOIN (
-      SELECT
-        default_DOT_hard_hats.city,
-        default_DOT_hard_hats.country,
-        default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.postal_code,
-        default_DOT_hard_hats.state
-      FROM
-        roads.hard_hats AS default_DOT_hard_hats
-    ) AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-    LEFT OUTER JOIN (
-      SELECT
-        default_DOT_municipality.local_region,
-        default_DOT_municipality.municipality_id
-      FROM
-        roads.municipality AS default_DOT_municipality
-        LEFT JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
-        LEFT JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc
-    ) AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
-  GROUP BY
-    default_DOT_hard_hat.country,
-    default_DOT_hard_hat.postal_code,
-    default_DOT_hard_hat.city,
-    default_DOT_hard_hat.state,
-    default_DOT_dispatcher.company_name,
-    default_DOT_municipality_dim.local_region
-),
-m1_default_DOT_num_repair_orders AS (
-  SELECT
-    default_DOT_dispatcher.company_name,
-    default_DOT_hard_hat.city,
-    default_DOT_hard_hat.country,
-    default_DOT_hard_hat.postal_code,
-    default_DOT_hard_hat.state,
-    default_DOT_municipality_dim.local_region,
-    count(
-      default_DOT_repair_orders.repair_order_id
-    ) default_DOT_num_repair_orders
-  FROM
-    roads.repair_orders AS default_DOT_repair_orders
-    LEFT OUTER JOIN (
-      SELECT
-        default_DOT_dispatchers.company_name,
-        default_DOT_dispatchers.dispatcher_id
-      FROM
-        roads.dispatchers AS default_DOT_dispatchers
-    ) AS default_DOT_dispatcher ON default_DOT_repair_orders.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-    LEFT OUTER JOIN (
-      SELECT
-        default_DOT_hard_hats.city,
-        default_DOT_hard_hats.country,
-        default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.postal_code,
-        default_DOT_hard_hats.state
-      FROM
-        roads.hard_hats AS default_DOT_hard_hats
-    ) AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-    LEFT OUTER JOIN (
-      SELECT
-        default_DOT_municipality.local_region,
-        default_DOT_municipality.municipality_id
-      FROM
-        roads.municipality AS default_DOT_municipality
-        LEFT JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
-        LEFT JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc
-    ) AS default_DOT_municipality_dim ON default_DOT_repair_orders.municipality_id = default_DOT_municipality_dim.municipality_id
-  GROUP BY
-    default_DOT_hard_hat.country,
-    default_DOT_hard_hat.postal_code,
-    default_DOT_hard_hat.city,
-    default_DOT_hard_hat.state,
-    default_DOT_dispatcher.company_name,
-    default_DOT_municipality_dim.local_region
-)
-SELECT
-  m0_default_DOT_discounted_orders_rate.default_DOT_discounted_orders_rate,
-  m1_default_DOT_num_repair_orders.default_DOT_num_repair_orders,
-  COALESCE(
-    m0_default_DOT_discounted_orders_rate.company_name,
-    m1_default_DOT_num_repair_orders.company_name
-  ) company_name,
-  COALESCE(
-    m0_default_DOT_discounted_orders_rate.city,
-    m1_default_DOT_num_repair_orders.city
-  ) city,
-  COALESCE(
-    m0_default_DOT_discounted_orders_rate.country,
-    m1_default_DOT_num_repair_orders.country
-  ) country,
-  COALESCE(
-    m0_default_DOT_discounted_orders_rate.postal_code,
-    m1_default_DOT_num_repair_orders.postal_code
-  ) postal_code,
-  COALESCE(
-    m0_default_DOT_discounted_orders_rate.state,
-    m1_default_DOT_num_repair_orders.state
-  ) state,
-  COALESCE(
-    m0_default_DOT_discounted_orders_rate.local_region,
-    m1_default_DOT_num_repair_orders.local_region
-  ) local_region
-FROM
-  m0_default_DOT_discounted_orders_rate FULL
-  OUTER JOIN m1_default_DOT_num_repair_orders ON m0_default_DOT_discounted_orders_rate.company_name = m1_default_DOT_num_repair_orders.company_name
-  AND m0_default_DOT_discounted_orders_rate.city = m1_default_DOT_num_repair_orders.city
-  AND m0_default_DOT_discounted_orders_rate.country = m1_default_DOT_num_repair_orders.country
-  AND m0_default_DOT_discounted_orders_rate.postal_code = m1_default_DOT_num_repair_orders.postal_code
-  AND m0_default_DOT_discounted_orders_rate.state = m1_default_DOT_num_repair_orders.state
-  AND m0_default_DOT_discounted_orders_rate.local_region = m1_default_DOT_num_repair_orders.local_region
-ORDER BY
-  m0_default_DOT_discounted_orders_rate.country,
-  m1_default_DOT_num_repair_orders.default_DOT_num_repair_orders,
-  m0_default_DOT_discounted_orders_rate.company_name,
-  m0_default_DOT_discounted_orders_rate.default_DOT_discounted_orders_rate
-LIMIT
-  100
+    WITH
+    m0_default_DOT_discounted_orders_rate AS (SELECT  default_DOT_dispatcher.company_name,
+            default_DOT_hard_hat.city,
+            default_DOT_hard_hat.country,
+            default_DOT_hard_hat.postal_code,
+            default_DOT_hard_hat.state,
+            default_DOT_municipality_dim.local_region,
+            CAST(sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) AS DOUBLE) / count(*) AS default_DOT_discounted_orders_rate
+    FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
+            default_DOT_repair_orders.hard_hat_id,
+            default_DOT_repair_orders.municipality_id,
+            default_DOT_repair_orders.repair_order_id
+    FROM roads.repair_orders AS default_DOT_repair_orders)
+    AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
+    LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
+            default_DOT_dispatchers.dispatcher_id
+    FROM roads.dispatchers AS default_DOT_dispatchers)
+    AS default_DOT_dispatcher ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
+            default_DOT_hard_hats.country,
+            default_DOT_hard_hats.hard_hat_id,
+            default_DOT_hard_hats.postal_code,
+            default_DOT_hard_hats.state
+    FROM roads.hard_hats AS default_DOT_hard_hats)
+    AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+    LEFT OUTER JOIN (SELECT  default_DOT_municipality.local_region,
+            default_DOT_municipality.municipality_id AS municipality_id
+    FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
+    LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc)
+    AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
+    GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
+    ),
+    m1_default_DOT_num_repair_orders AS (SELECT  default_DOT_dispatcher.company_name,
+            default_DOT_hard_hat.city,
+            default_DOT_hard_hat.country,
+            default_DOT_hard_hat.postal_code,
+            default_DOT_hard_hat.state,
+            default_DOT_municipality_dim.local_region,
+            count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
+    FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
+            default_DOT_dispatchers.dispatcher_id
+    FROM roads.dispatchers AS default_DOT_dispatchers)
+    AS default_DOT_dispatcher ON default_DOT_repair_orders.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
+            default_DOT_hard_hats.country,
+            default_DOT_hard_hats.hard_hat_id,
+            default_DOT_hard_hats.postal_code,
+            default_DOT_hard_hats.state
+    FROM roads.hard_hats AS default_DOT_hard_hats)
+    AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+    LEFT OUTER JOIN (SELECT  default_DOT_municipality.local_region,
+            default_DOT_municipality.municipality_id AS municipality_id
+    FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
+    LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc)
+    AS default_DOT_municipality_dim ON default_DOT_repair_orders.municipality_id = default_DOT_municipality_dim.municipality_id
+    GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
+    )SELECT  m0_default_DOT_discounted_orders_rate.default_DOT_discounted_orders_rate,
+            m1_default_DOT_num_repair_orders.default_DOT_num_repair_orders,
+            COALESCE(m0_default_DOT_discounted_orders_rate.company_name, m1_default_DOT_num_repair_orders.company_name) company_name,
+            COALESCE(m0_default_DOT_discounted_orders_rate.city, m1_default_DOT_num_repair_orders.city) city,
+            COALESCE(m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_num_repair_orders.country) country,
+            COALESCE(m0_default_DOT_discounted_orders_rate.postal_code, m1_default_DOT_num_repair_orders.postal_code) postal_code,
+            COALESCE(m0_default_DOT_discounted_orders_rate.state, m1_default_DOT_num_repair_orders.state) state,
+            COALESCE(m0_default_DOT_discounted_orders_rate.local_region, m1_default_DOT_num_repair_orders.local_region) local_region
+    FROM m0_default_DOT_discounted_orders_rate FULL OUTER JOIN m1_default_DOT_num_repair_orders ON m0_default_DOT_discounted_orders_rate.company_name = m1_default_DOT_num_repair_orders.company_name AND m0_default_DOT_discounted_orders_rate.city = m1_default_DOT_num_repair_orders.city AND m0_default_DOT_discounted_orders_rate.country = m1_default_DOT_num_repair_orders.country AND m0_default_DOT_discounted_orders_rate.postal_code = m1_default_DOT_num_repair_orders.postal_code AND m0_default_DOT_discounted_orders_rate.state = m1_default_DOT_num_repair_orders.state AND m0_default_DOT_discounted_orders_rate.local_region = m1_default_DOT_num_repair_orders.local_region
+    ORDER BY m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_num_repair_orders.default_DOT_num_repair_orders, m0_default_DOT_discounted_orders_rate.company_name, m0_default_DOT_discounted_orders_rate.default_DOT_discounted_orders_rate
+    LIMIT 100
     """
     assert compare_query_strings(data["sql"], expected_sql)
     assert data["columns"] == [
@@ -930,7 +827,9 @@ def test_get_sql_including_dimension_ids(client_with_examples: TestClient):
     )
 
 
-def test_get_sql_including_dimensions_with_disambiguated_columns(client_with_examples: TestClient):
+def test_get_sql_including_dimensions_with_disambiguated_columns(
+    client_with_examples: TestClient,
+):
     """
     Test getting SQL that includes dimensions with SQL that has to disambiguate projection columns with prefixes
     """
@@ -957,26 +856,26 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(client_with_exa
                 default_DOT_municipality_dim.municipality_type_desc,
                 default_DOT_municipality_dim.municipality_type_id,
                 default_DOT_municipality_dim.state_id,
-                sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost 
+                sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost
         FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
                 default_DOT_repair_orders.hard_hat_id,
                 default_DOT_repair_orders.municipality_id,
-                default_DOT_repair_orders.repair_order_id 
+                default_DOT_repair_orders.repair_order_id
         FROM roads.repair_orders AS default_DOT_repair_orders)
         AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
         LEFT OUTER JOIN (SELECT  default_DOT_municipality.municipality_id AS municipality_id,
                 default_DOT_municipality_type.municipality_type_desc AS municipality_type_desc,
                 default_DOT_municipality_municipality_type.municipality_type_id AS municipality_type_id,
-                default_DOT_municipality.state_id 
+                default_DOT_municipality.state_id
         FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
         LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc)
-        AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id 
+        AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
         GROUP BY  default_DOT_municipality_dim.state_id, default_DOT_municipality_dim.municipality_type_id, default_DOT_municipality_dim.municipality_type_desc, default_DOT_municipality_dim.municipality_id
         )SELECT  m0_default_DOT_total_repair_cost.default_DOT_total_repair_cost,
                 m0_default_DOT_total_repair_cost.municipality_id,
                 m0_default_DOT_total_repair_cost.municipality_type_desc,
                 m0_default_DOT_total_repair_cost.municipality_type_id,
-                m0_default_DOT_total_repair_cost.state_id 
+                m0_default_DOT_total_repair_cost.state_id
         FROM m0_default_DOT_total_repair_cost
     """,
     )
