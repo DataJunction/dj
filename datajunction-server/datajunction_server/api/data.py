@@ -78,23 +78,12 @@ def add_an_availability_state(
         and node_revision.availability.schema_ == data.schema_
         and node_revision.availability.table == data.table
     ):
-        # Currently, we do not consider type information. We should eventually check the type of
-        # the partition values in order to cast them before sorting.
-        data.max_partition = max(
-            (
-                node_revision.availability.max_partition,
-                data.max_partition,
-            ),
-        )
-        data.min_partition = min(
-            (
-                node_revision.availability.min_partition,
-                data.min_partition,
-            ),
-        )
+        data.merge(node_revision.availability)
 
-    db_new_availability = AvailabilityState.from_orm(data)
-    node_revision.availability = db_new_availability
+    # Update the node with the new availability state
+    node_revision.availability = AvailabilityState.from_orm(data)
+    if node_revision.availability and not node_revision.availability.partitions:
+        node_revision.availability.partitions = []
     session.add(node_revision)
     session.commit()
     return JSONResponse(
