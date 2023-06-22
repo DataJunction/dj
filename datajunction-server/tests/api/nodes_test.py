@@ -563,31 +563,31 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert response.json()["dimensions"] == [
-            {"name": "default.messages.user_id", "type": "int", "link": ""},
-            {"name": "default.us_users.age", "type": "int", "link": "user_id"},
-            {"name": "default.us_users.country", "type": "string", "link": "user_id"},
+            {"name": "default.messages.user_id", "type": "int", "path": ""},
+            {"name": "default.us_users.age", "type": "int", "path": "user_id"},
+            {"name": "default.us_users.country", "type": "string", "path": "user_id"},
             {
                 "name": "default.us_users.created_at",
                 "type": "timestamp",
-                "link": "user_id",
+                "path": "user_id",
             },
-            {"name": "default.us_users.full_name", "type": "string", "link": "user_id"},
-            {"name": "default.us_users.gender", "type": "string", "link": "user_id"},
-            {"name": "default.us_users.id", "type": "int", "link": "user_id"},
+            {"name": "default.us_users.full_name", "type": "string", "path": "user_id"},
+            {"name": "default.us_users.gender", "type": "string", "path": "user_id"},
+            {"name": "default.us_users.id", "type": "int", "path": "user_id"},
             {
                 "name": "default.us_users.post_processing_timestamp",
                 "type": "timestamp",
-                "link": "user_id",
+                "path": "user_id",
             },
             {
                 "name": "default.us_users.preferred_language",
                 "type": "string",
-                "link": "user_id",
+                "path": "user_id",
             },
             {
                 "name": "default.us_users.secret_number",
                 "type": "float",
-                "link": "user_id",
+                "path": "user_id",
             },
         ]
         # Deactivate the dimension node
@@ -601,7 +601,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert [
-            {"link": "", "name": "default.messages.user_id", "type": "int"},
+            {"path": "", "name": "default.messages.user_id", "type": "int"},
         ] == response.json()["dimensions"]
         # The metric should still be VALID
         response = client.get("/nodes/default.num_messages/")
@@ -616,29 +616,29 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert response.json()["dimensions"] == [
-            {"link": "", "name": "default.messages.user_id", "type": "int"},
-            {"link": "user_id", "name": "default.us_users.age", "type": "int"},
-            {"link": "user_id", "name": "default.us_users.country", "type": "string"},
+            {"path": "", "name": "default.messages.user_id", "type": "int"},
+            {"path": "user_id", "name": "default.us_users.age", "type": "int"},
+            {"path": "user_id", "name": "default.us_users.country", "type": "string"},
             {
-                "link": "user_id",
+                "path": "user_id",
                 "name": "default.us_users.created_at",
                 "type": "timestamp",
             },
-            {"link": "user_id", "name": "default.us_users.full_name", "type": "string"},
-            {"link": "user_id", "name": "default.us_users.gender", "type": "string"},
-            {"link": "user_id", "name": "default.us_users.id", "type": "int"},
+            {"path": "user_id", "name": "default.us_users.full_name", "type": "string"},
+            {"path": "user_id", "name": "default.us_users.gender", "type": "string"},
+            {"path": "user_id", "name": "default.us_users.id", "type": "int"},
             {
-                "link": "user_id",
+                "path": "user_id",
                 "name": "default.us_users.post_processing_timestamp",
                 "type": "timestamp",
             },
             {
-                "link": "user_id",
+                "path": "user_id",
                 "name": "default.us_users.preferred_language",
                 "type": "string",
             },
             {
-                "link": "user_id",
+                "path": "user_id",
                 "name": "default.us_users.secret_number",
                 "type": "float",
             },
