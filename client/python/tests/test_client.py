@@ -496,7 +496,7 @@ class TestDJClient:
         assert {
             "name": "foo.bar.dispatcher.company_name",
             "type": "string",
-            "link": "dispatcher_id",
+            "path": "dispatcher_id",
         } in result
 
     def test_failure_modes(self, client):
