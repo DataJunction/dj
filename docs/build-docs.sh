@@ -15,11 +15,11 @@ SET_AS_LATEST=$2   # false
 BASE_URL=$3        # http://localhost:55555
 
 if [ "$SET_AS_LATEST" = true ] ; then
-    hugo -d public --contentDir content/${VERSION}/ --configDir config --baseUrl $BASE_URL --cleanDestinationDir
+    hugo -d public --contentDir content/${VERSION}/ --configDir config --baseURL $BASE_URL --cleanDestinationDir
 fi
 
 # Build the versions site (sits outside of docs sites for each version)
-hugo -d public/versions --contentDir content/versions/ --configDir config --baseUrl $BASE_URL --environment versions --cleanDestinationDir
+hugo -d public/versions --contentDir content/versions/ --configDir config --baseURL $BASE_URL --environment versions --cleanDestinationDir
 
 # Build the docs site for specified version
-hugo -d public/${VERSION} --contentDir content/${VERSION}/ --configDir config --baseUrl "${BASE_URL}${VERSION}" --cleanDestinationDir
+hugo -d public/${VERSION} --contentDir content/${VERSION}/ --configDir config --baseURL "${BASE_URL}${VERSION}" --cleanDestinationDir
