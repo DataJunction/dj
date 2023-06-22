@@ -6,27 +6,61 @@ import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import { format } from 'sql-formatter';
 import Select from 'react-select';
+import QueryInfo from '../../components/QueryInfo';
 
 export function SQLBuilderPage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const [stagedMetrics, setStagedMetrics] = useState([]);
   const [metrics, setMetrics] = useState([]);
   const [commonDimensionsList, setCommonDimensionsList] = useState([]);
   const [selectedDimensions, setSelectedDimensions] = useState([]);
+  const [stagedDimensions, setStagedDimensions] = useState([]);
   const [selectedMetrics, setSelectedMetrics] = useState([]);
   const [query, setQuery] = useState('');
+  const [submittedQueryInfo, setSubmittedQueryInfo] = useState(null);
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
   const [viewData, setViewData] = useState(false);
   const [showHelp, setShowHelp] = useState(true);
+  const [showNumRows, setShowNumRows] = useState(100);
+  const [displayedRows, setDisplayedRows] = useState(<></>);
+  const numRowsOptions = [
+    {
+      value: 10,
+      label: '10 Rows',
+      isFixed: true,
+    },
+    {
+      value: 100,
+      label: '100 Rows',
+      isFixed: true,
+    },
+    {
+      value: 1000,
+      label: '1,000 Rows',
+      isFixed: true,
+    },
+  ];
   const toggleViewData = () => setViewData(current => !current);
 
+  // Get data for the current selection of metrics and dimensions
   const getData = () => {
     setLoadingData(true);
     const fetchData = async () => {
-      const data = await djClient.data(selectedMetrics, selectedDimensions);
+      setData(null);
+      const queryInfo = await djClient.data(
+        selectedMetrics,
+        selectedDimensions,
+      );
       setLoadingData(false);
-      setData(data);
-      setViewData(true);
+      setSubmittedQueryInfo(queryInfo);
+      queryInfo.numRows = 0;
+      if (queryInfo.results && queryInfo.results?.length) {
+        setData(queryInfo.results);
+        queryInfo.numRows = queryInfo.results[0].rows.length;
+        setViewData(true);
+        setShowNumRows(10);
+      }
     };
     fetchData().catch(console.error);
   };
@@ -39,13 +73,21 @@ export function SQLBuilderPage() {
   const handleMetricSelect = event => {
     const metrics = event.map(m => m.value);
     resetView();
-    setSelectedMetrics(metrics);
+    setStagedMetrics(metrics);
+  };
+
+  const handleMetricSelectorClose = () => {
+    setSelectedMetrics(stagedMetrics);
   };
 
   const handleDimensionSelect = event => {
     const dimensions = event.map(d => d.value);
     resetView();
-    setSelectedDimensions(dimensions);
+    setStagedDimensions(dimensions);
+  };
+
+  const handleDimensionSelectorClose = () => {
+    setSelectedDimensions(stagedDimensions);
   };
 
   // Get metrics
@@ -89,6 +131,21 @@ export function SQLBuilderPage() {
     fetchData().catch(console.error);
   }, [selectedMetrics, selectedDimensions, djClient]);
 
+  // Set number of rows to display
+  useEffect(() => {
+    if (data) {
+      setDisplayedRows(
+        data[0].rows.slice(0, showNumRows).map((rowData, index) => (
+          <tr key={`data-row:${index}`}>
+            {rowData.map(rowValue => (
+              <td key={rowValue}>{rowValue}</td>
+            ))}
+          </tr>
+        )),
+      );
+    }
+  }, [showNumRows, data]);
+
   // @ts-ignore
   return (
     <>
@@ -106,6 +163,7 @@ export function SQLBuilderPage() {
               isClearable
               closeMenuOnSelect={false}
               onChange={handleMetricSelect}
+              onMenuClose={handleMetricSelectorClose}
             />
             <h4>Shared Dimensions</h4>
             <Select
@@ -119,6 +177,7 @@ export function SQLBuilderPage() {
               isClearable
               closeMenuOnSelect={false}
               onChange={handleDimensionSelect}
+              onMenuClose={handleDimensionSelectorClose}
             />
           </div>
           <div className="card-header">
@@ -159,7 +218,7 @@ export function SQLBuilderPage() {
               <></>
             )}
             {query ? (
-              <h6>
+              <>
                 {loadingData ? (
                   <span className="button-3 executing-button">
                     {'Running Query'}
@@ -169,15 +228,24 @@ export function SQLBuilderPage() {
                     {'Run Query'}
                   </span>
                 )}
-
                 {data ? (
                   viewData ? (
-                    <span
-                      className="button-3 neutral-button"
-                      onClick={toggleViewData}
-                    >
-                      {'View Query'}
-                    </span>
+                    <>
+                      <span
+                        className="button-3 neutral-button"
+                        onClick={toggleViewData}
+                      >
+                        {'View Query'}
+                      </span>
+                      <span style={{ display: 'inline-block' }}>
+                        <Select
+                          name="num-rows"
+                          defaultValue={numRowsOptions[0]}
+                          options={numRowsOptions}
+                          onChange={e => setShowNumRows(e.value)}
+                        />
+                      </span>
+                    </>
                   ) : (
                     <span
                       className="button-3 neutral-button"
@@ -189,11 +257,11 @@ export function SQLBuilderPage() {
                 ) : (
                   <></>
                 )}
-              </h6>
+              </>
             ) : (
               <></>
             )}
-
+            {submittedQueryInfo ? <QueryInfo {...submittedQueryInfo} /> : <></>}
             <div>
               {query && !viewData ? (
                 <SyntaxHighlighter language="sql" style={foundation}>
@@ -211,34 +279,18 @@ export function SQLBuilderPage() {
               )}
             </div>
             {data && viewData ? (
-              data.state === 'FINISHED' ? (
-                <div className="table-responsive">
-                  <table className="card-inner-table table">
-                    <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-                      <tr>
-                        {data.results[0].columns.map(columnName => (
-                          <th key={columnName.name}>{columnName.name}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {data.results[0].rows.map((rowData, index) => (
-                        <tr key={`data-row:${index}`}>
-                          {rowData.map(rowValue => (
-                            <td key={rowValue}>{rowValue}</td>
-                          ))}
-                        </tr>
+              <div className="table-responsive">
+                <table className="card-inner-table table">
+                  <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+                    <tr>
+                      {data[0].columns.map(columnName => (
+                        <th key={columnName.name}>{columnName.name}</th>
                       ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : data.state ? (
-                <div>
-                  {`Ran into an issue while running the query. (Query State: ${data.state}, Errors: ${data.errors})`}
-                </div>
-              ) : (
-                <></>
-              )
+                    </tr>
+                  </thead>
+                  <tbody>{displayedRows}</tbody>
+                </table>
+              </div>
             ) : (
               <></>
             )}

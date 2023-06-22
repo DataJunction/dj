@@ -1,6 +1,8 @@
 import { MarkerType } from 'reactflow';
 
-const DJ_URL = 'http://localhost:8000'; //process.env.REACT_APP_DJ_URL;
+const DJ_URL = process.env.REACT_APP_DJ_URL
+  ? process.env.REACT_APP_DJ_URL
+  : 'http://localhost:8000';
 
 export const DataJunctionAPI = {
   node: async function (name) {
