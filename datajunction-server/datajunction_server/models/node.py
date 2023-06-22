@@ -1,16 +1,17 @@
 """
 Model for nodes.
 """
-# pylint: disable=too-many-instance-attributes
+# pylint: disable=too-many-instance-attributes,too-many-lines
 import enum
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
-from pydantic import root_validator
+from pydantic import root_validator, validator
 from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlalchemy.sql.schema import UniqueConstraint
@@ -225,7 +226,132 @@ class NodeMissingParents(BaseSQLModel, table=True):  # type: ignore
     )
 
 
-class AvailabilityStateBase(BaseSQLModel):
+class TemporalPartitionRange(BaseSQLModel):
+    """
+    Any temporal partition range with a min and max partition.
+    """
+
+    min_temporal_partition: Optional[List[str]] = None
+    max_temporal_partition: Optional[List[str]] = None
+
+    def is_outside(self, other) -> bool:
+        """
+        Whether this temporal range is outside the time bounds of the other temporal range
+        """
+        return (
+            self.min_temporal_partition < other.min_temporal_partition
+            or self.max_temporal_partition > other.max_temporal_partition
+        )
+
+
+class PartitionAvailability(TemporalPartitionRange):
+    """
+    Partition-level availability
+    """
+
+    # This list maps to the ordered list of categorical partitions at the node level.
+    # For example, if the node's `categorical_partitions` are configured as ["country", "group_id"],
+    # a valid entry for `value` may be ["DE", null].
+    value: List[Optional[str]]
+
+    # Valid through timestamp
+    valid_through_ts: Optional[int]
+
+
+class AvailabilityNode(TemporalPartitionRange):
+    """A node in the availability trie tracker"""
+
+    children: Dict = {}
+    valid_through_ts: Optional[int] = Field(default=-sys.maxsize - 1)
+
+    def merge_temporal(self, other: "AvailabilityNode"):
+        """
+        Merge the temporal ranges with each other by saving the largest
+        possible time range.
+        """
+        self.min_temporal_partition = min(  # type: ignore
+            self.min_temporal_partition,
+            other.min_temporal_partition,
+        )
+        self.max_temporal_partition = max(  # type: ignore
+            self.max_temporal_partition,
+            other.max_temporal_partition,
+        )
+        self.valid_through_ts = max(  # type: ignore
+            self.valid_through_ts,
+            other.valid_through_ts,
+        )
+
+
+class AvailabilityTracker:
+    """
+    Tracks the availability of the partitions in a trie, which is used for merging
+    availability states across categorical and temporal partitions.
+    """
+
+    def __init__(self):
+        self.root = AvailabilityNode()
+
+    def insert(self, partition):
+        """
+        Inserts the partition availability into the availability tracker trie.
+        """
+        current = self.root
+        for value in partition.value:
+            next_item = AvailabilityNode(
+                min_temporal_partition=partition.min_temporal_partition,
+                max_temporal_partition=partition.max_temporal_partition,
+                valid_through_ts=partition.valid_through_ts,
+            )
+            # If a wildcard is found, only add this specific partition's
+            # time range if it's wider than the range of the wildcard
+            if None in current.children and partition.is_outside(
+                current.children[None],
+            ):
+                wildcard_partition = current.children[None]
+                next_item.merge_temporal(wildcard_partition)
+                current.children[value] = next_item
+            else:
+                # Add if partition doesn't match any existing, otherwise merge with existing
+                if value not in current.children:
+                    current.children[value] = next_item
+                else:
+                    next_item = current.children[value]
+                    next_item.merge_temporal(partition)
+
+                # Remove extraneous partitions at this level if this partition value is a wildcard
+                if value is None:
+                    child_keys = [key for key in current.children if key is not None]
+                    for child in child_keys:
+                        child_partition = current.children[child]
+                        if not child_partition.is_outside(partition):
+                            del current.children[child]
+            current = next_item
+
+    def get_partition_range(self) -> List[PartitionAvailability]:
+        """
+        Gets the final set of merged partitions.
+        """
+        candidates: List[Tuple[AvailabilityNode, List[str]]] = [(self.root, [])]
+        final_partitions = []
+        while candidates:
+            current, partition_list = candidates.pop()
+            if current.children:
+                for key, value in current.children.items():
+                    candidates.append((value, partition_list + [key]))
+            else:
+                final_partitions.append(
+                    PartitionAvailability(
+                        value=partition_list,
+                        min_temporal_partition=current.min_temporal_partition,
+                        max_temporal_partition=current.max_temporal_partition,
+                        valid_through_ts=current.valid_through_ts,
+                    ),
+                )
+        return final_partitions
+
+
+class AvailabilityStateBase(TemporalPartitionRange):
     """
     An availability state base
     """
@@ -234,8 +360,96 @@ class AvailabilityStateBase(BaseSQLModel):
     schema_: Optional[str] = Field(default=None)
     table: str
     valid_through_ts: int
-    max_partition: List[str] = Field(sa_column=SqlaColumn(JSON))
-    min_partition: List[str] = Field(sa_column=SqlaColumn(JSON))
+
+    # An ordered list of categorical partitions like ["country", "group_id"]
+    # or ["region_id", "age_group"]
+    categorical_partitions: Optional[List[str]] = Field(
+        sa_column=SqlaColumn("categorical_partitions", JSON),
+        default=[],
+    )
+
+    # An ordered list of temporal partitions like ["date", "hour"] or ["date"]
+    temporal_partitions: Optional[List[str]] = Field(
+        sa_column=SqlaColumn("temporal_partitions", JSON),
+        default=[],
+    )
+
+    # Node-level temporal ranges
+    min_temporal_partition: Optional[List[str]] = Field(
+        sa_column=SqlaColumn(JSON),
+        default=[],
+    )
+    max_temporal_partition: Optional[List[str]] = Field(
+        sa_column=SqlaColumn(JSON),
+        default=[],
+    )
+
+    # Partition-level availabilities
+    partitions: Optional[List[PartitionAvailability]] = Field(
+        sa_column=SqlaColumn("partitions", JSON),
+        default=[],
+    )
+
+    @validator("partitions")
+    def validate_partitions(cls, partitions):  # pylint: disable=no-self-argument
+        """
+        Validator for partitions
+        """
+        return [partition.dict() for partition in partitions] if partitions else []
+
+    def merge(self, other: "AvailabilityStateBase"):
+        """
+        Merge this availability state with another.
+        """
+        all_partitions = [
+            PartitionAvailability(**partition)
+            if isinstance(partition, dict)
+            else partition
+            for partition in self.partitions + other.partitions  # type: ignore
+        ]
+        top_level_partition = PartitionAvailability(
+            value=[None for _ in other.categorical_partitions]
+            if other.categorical_partitions
+            else [],
+            min_temporal_partition=min(
+                x
+                for x in (self.min_temporal_partition, other.min_temporal_partition)
+                if x
+            ),
+            max_temporal_partition=max(
+                x
+                for x in (self.max_temporal_partition, other.max_temporal_partition)
+                if x
+            ),
+        )
+        all_partitions += [top_level_partition]
+
+        tracker = AvailabilityTracker()
+        for partition in all_partitions:
+            tracker.insert(partition)
+        final_partitions = tracker.get_partition_range()
+
+        self.partitions = [
+            partition
+            for partition in final_partitions
+            if not all(val is None for val in partition.value)
+        ]
+        merged_top_level = [
+            partition
+            for partition in final_partitions
+            if all(val is None for val in partition.value)
+        ]
+
+        if merged_top_level:  # pragma: no cover
+            self.min_temporal_partition = (
+                top_level_partition.min_temporal_partition
+                or merged_top_level[0].min_temporal_partition
+            )
+            self.max_temporal_partition = (
+                top_level_partition.max_temporal_partition
+                or merged_top_level[0].max_temporal_partition
+            )
+        return self
 
 
 class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore

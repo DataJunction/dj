@@ -1,7 +1,11 @@
 """
 Tests for the data API.
 """
+# pylint: disable=too-many-lines
+from typing import Dict, List, Optional
+from unittest import mock
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -283,8 +287,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -301,11 +305,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "pmts",
-            "max_partition": ["2023", "01", "25"],
+            "max_temporal_partition": ["2023", "01", "25"],
+            "partitions": [],
             "schema_": "accounting",
             "id": 1,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
 
     def test_availability_catalog_mismatch(
@@ -322,8 +329,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -346,8 +353,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -362,8 +369,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -378,8 +385,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "new_accounting",
                 "table": "new_payments_table",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
+                "categorical_partitions": [],
+                "temporal_partitions": [],
             },
         )
         data = response.json()
@@ -396,11 +405,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230125,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "new_payments_table",
-            "max_partition": ["2023", "01", "25"],
+            "max_temporal_partition": ["2023", "01", "25"],
+            "partitions": [],
             "schema_": "new_accounting",
             "id": 3,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
 
     def test_that_update_at_timestamp_is_being_updated(
@@ -418,8 +430,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         assert response.status_code == 200
@@ -440,8 +452,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         assert response.status_code == 200
@@ -469,8 +481,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "pmts",
                 "valid_through_ts": 20230125,
-                "max_partition": ["2023", "01", "25"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "25"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -497,8 +509,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         response = client_with_examples.post(
@@ -508,16 +520,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230102,
-                "max_partition": [
+                "max_temporal_partition": [
                     "2023",
                     "01",
                     "02",
-                ],  # should be used since it's a higher max_partition
-                "min_partition": [
+                ],  # should be used since it's a higher max_temporal_partition
+                "min_temporal_partition": [
                     "2023",
                     "01",
                     "02",
-                ],  # should be ignored since it's a higher min_partition
+                ],  # should be ignored since it's a higher min_temporal_partition
             },
         )
         data = response.json()
@@ -534,12 +546,404 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230102,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "large_pmts",
-            "max_partition": ["2023", "01", "02"],
+            "max_temporal_partition": ["2023", "01", "02"],
             "schema_": "accounting",
+            "partitions": [],
             "id": 2,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
+
+    @pytest.fixture
+    def post_local_hard_hats_availability(self, client_with_examples: TestClient):
+        """
+        Fixture for posting availability for local_hard_hats
+        """
+
+        def _post(
+            min_temporal_partition: Optional[List[str]] = None,
+            max_temporal_partition: Optional[List[str]] = None,
+            partitions: List[Dict] = None,
+            categorical_partitions: List[str] = None,
+        ):
+            print("categorical_partitions:!", categorical_partitions)
+            if categorical_partitions is None:
+                print("REACHED")
+                categorical_partitions = ["country", "postal_code"]
+            return client_with_examples.post(
+                "/data/default.local_hard_hats/availability/",
+                json={
+                    "catalog": "default",
+                    "schema_": "dimensions",
+                    "table": "local_hard_hats",
+                    "valid_through_ts": 20230101,
+                    "categorical_partitions": categorical_partitions,
+                    "temporal_partitions": ["birth_date"],
+                    "min_temporal_partition": min_temporal_partition,
+                    "max_temporal_partition": max_temporal_partition,
+                    "partitions": partitions,
+                },
+            )
+
+        return _post
+
+    def test_set_temporal_only_availability(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Test setting availability on a node where it only has temporal partitions and
+        no categorical partitions.
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230105"],
+            partitions=[],
+            categorical_partitions=[],
+        )
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
+            categorical_partitions=[],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        assert response.json()["availability"] == {
+            "catalog": "default",
+            "id": mock.ANY,
+            "min_temporal_partition": ["20230101"],
+            "max_temporal_partition": ["20230110"],
+            "categorical_partitions": [],
+            "temporal_partitions": ["birth_date"],
+            "partitions": [],
+            "schema_": "dimensions",
+            "table": "local_hard_hats",
+            "updated_at": mock.ANY,
+            "valid_through_ts": 20230101,
+        }
+
+    def test_set_node_level_availability_wider_time_range(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        The node starts off with partition-level availability with a specific time range.
+        We add in a node-level availability with a wider time range than at the partition
+        level. We expect this new availability state to overwrite the partition-level
+        availability.
+        """
+        # Set initial availability state
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["DE", "ABC123D"],
+                    "min_temporal_partition": ["20230101"],
+                    "max_temporal_partition": ["20230105"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+        # Post wider availability
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        assert response.json()["availability"] == {
+            "catalog": "default",
+            "id": mock.ANY,
+            "min_temporal_partition": ["20230101"],
+            "max_temporal_partition": ["20230110"],
+            "categorical_partitions": ["country", "postal_code"],
+            "temporal_partitions": ["birth_date"],
+            "partitions": [],
+            "schema_": "dimensions",
+            "table": "local_hard_hats",
+            "updated_at": mock.ANY,
+            "valid_through_ts": 20230101,
+        }
+
+    def test_set_node_level_availability_smaller_time_range(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Set a node level availability with a smaller time range than the existing
+        one will result in no change to the merged availability state
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
+        )
+
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230103"],
+            max_temporal_partition=["20230105"],
+            partitions=[],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == []
+
+    def test_set_partition_level_availability_smaller_time_range(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Set a partition-level availability with a smaller time range than
+        the existing node-level time range will result in no change to the
+        merged availability state
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230107"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == []
+
+    def test_set_partition_level_availability_larger_time_range(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Set a partition-level availability with a larger time range than
+        the existing node-level time range will result in the partition with
+        the larger range being recorded
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == [
+            {
+                "value": ["DE", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230115"],
+                "valid_through_ts": 20230101,
+            },
+        ]
+
+    def test_set_orthogonal_partition_level_availability(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Test setting an orthogonal partition-level availability.
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["MY", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == [
+            {
+                "value": ["DE", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230115"],
+                "valid_through_ts": 20230101,
+            },
+            {
+                "value": ["MY", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230115"],
+                "valid_through_ts": 20230101,
+            },
+        ]
+
+    def test_set_overlap_partition_level_availability(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Test setting an overlapping partition-level availability.
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230105"],
+                    "max_temporal_partition": ["20230215"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == [
+            {
+                "value": ["DE", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230215"],
+                "valid_through_ts": 20230101,
+            },
+        ]
+
+    def test_set_semioverlap_partition_level_availability(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Test setting a semi-overlapping partition-level availability.
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+                {
+                    "value": ["DE", "abc-def"],
+                    "min_temporal_partition": ["20230202"],
+                    "max_temporal_partition": ["20230215"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+                {
+                    "value": ["DE", "abc-def"],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230215"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == [
+            {
+                "value": ["DE", "abc-def"],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230215"],
+                "valid_through_ts": 20230101,
+            },
+            {
+                "value": ["DE", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230115"],
+                "valid_through_ts": 20230101,
+            },
+        ]
 
     def test_merging_in_a_lower_min_partition(
         self,
@@ -556,8 +960,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         response = client_with_examples.post(
@@ -567,12 +971,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": [
+                "max_temporal_partition": [
                     "2021",
                     "12",
                     "31",
-                ],  # should be ignored since it's a lower max_partition
-                "min_partition": [
+                ],  # should be ignored since it's a lower max_temporal_partition
+                "min_temporal_partition": [
                     "2021",
                     "12",
                     "31",
@@ -593,10 +997,13 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "default",
-            "min_partition": ["2021", "12", "31"],
+            "min_temporal_partition": ["2021", "12", "31"],
+            "categorical_partitions": [],
+            "temporal_partitions": [],
             "table": "large_pmts",
-            "max_partition": ["2023", "01", "01"],
+            "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
+            "partitions": [],
             "id": 2,
         }
 
@@ -615,8 +1022,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         response = client_with_examples.post(
@@ -626,16 +1033,16 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20221231,
-                "max_partition": [
+                "max_temporal_partition": [
                     "2023",
                     "01",
                     "01",
-                ],  # should be ignored since it's a lower max_partition
-                "min_partition": [
+                ],  # should be ignored since it's a lower max_temporal_partition
+                "min_temporal_partition": [
                     "2022",
                     "01",
                     "01",
-                ],  # should be used since it's a lower min_partition
+                ],  # should be used since it's a lower min_temporal_partition
             },
         )
         data = response.json()
@@ -652,11 +1059,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20221231,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "large_pmts",
-            "max_partition": ["2023", "01", "01"],
+            "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
+            "partitions": [],
             "id": 2,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
 
     def test_setting_availablity_state_on_a_source_node(
@@ -674,8 +1084,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "revenue",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
@@ -692,11 +1102,14 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert node_dict == {
             "valid_through_ts": 20230101,
             "catalog": "default",
-            "min_partition": ["2022", "01", "01"],
+            "min_temporal_partition": ["2022", "01", "01"],
             "table": "revenue",
-            "max_partition": ["2023", "01", "01"],
+            "max_temporal_partition": ["2023", "01", "01"],
             "schema_": "accounting",
+            "partitions": [],
             "id": 1,
+            "categorical_partitions": [],
+            "temporal_partitions": [],
         }
 
     def test_raise_on_setting_invalid_availability_state_on_a_source_node(
@@ -713,8 +1126,8 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "schema_": "accounting",
                 "table": "large_pmts",
                 "valid_through_ts": 20230101,
-                "max_partition": ["2023", "01", "01"],
-                "min_partition": ["2022", "01", "01"],
+                "max_temporal_partition": ["2023", "01", "01"],
+                "min_temporal_partition": ["2022", "01", "01"],
             },
         )
         data = response.json()
