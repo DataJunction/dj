@@ -399,13 +399,13 @@ EXAMPLES = (  # type: ignore
             "description": "Municipality dimension",
             "query": """
                         SELECT
-                        m.municipality_id,
+                        m.municipality_id AS municipality_id,
                         contact_name,
                         contact_title,
                         local_region,
                         state_id,
-                        mmt.municipality_type_id,
-                        mt.municipality_type_desc
+                        mmt.municipality_type_id AS municipality_type_id,
+                        mt.municipality_type_desc AS municipality_type_desc
                         FROM default.municipality AS m
                         LEFT JOIN default.municipality_municipality_type AS mmt
                         ON m.municipality_id = mmt.municipality_id
@@ -925,13 +925,13 @@ EXAMPLES = (  # type: ignore
             "description": "Municipality dimension",
             "query": """
                         SELECT
-                        m.municipality_id,
+                        m.municipality_id AS municipality_id,
                         contact_name,
                         contact_title,
                         local_region,
                         state_id,
-                        mmt.municipality_type_id,
-                        mt.municipality_type_desc
+                        mmt.municipality_type_id AS municipality_type_id,
+                        mt.municipality_type_desc AS municipality_type_desc
                         FROM foo.bar.municipality AS m
                         LEFT JOIN foo.bar.municipality_municipality_type AS mmt
                         ON m.municipality_id = mmt.municipality_id
