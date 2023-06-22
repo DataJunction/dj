@@ -563,16 +563,32 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert response.json()["dimensions"] == [
-            {"name": "default.messages.user_id", "type": "int"},
-            {"name": "default.us_users.age", "type": "int"},
-            {"name": "default.us_users.country", "type": "string"},
-            {"name": "default.us_users.created_at", "type": "timestamp"},
-            {"name": "default.us_users.full_name", "type": "string"},
-            {"name": "default.us_users.gender", "type": "string"},
-            {"name": "default.us_users.id", "type": "int"},
-            {"name": "default.us_users.post_processing_timestamp", "type": "timestamp"},
-            {"name": "default.us_users.preferred_language", "type": "string"},
-            {"name": "default.us_users.secret_number", "type": "float"},
+            {"name": "default.messages.user_id", "type": "int", "link": ""},
+            {"name": "default.us_users.age", "type": "int", "link": "user_id"},
+            {"name": "default.us_users.country", "type": "string", "link": "user_id"},
+            {
+                "name": "default.us_users.created_at",
+                "type": "timestamp",
+                "link": "user_id",
+            },
+            {"name": "default.us_users.full_name", "type": "string", "link": "user_id"},
+            {"name": "default.us_users.gender", "type": "string", "link": "user_id"},
+            {"name": "default.us_users.id", "type": "int", "link": "user_id"},
+            {
+                "name": "default.us_users.post_processing_timestamp",
+                "type": "timestamp",
+                "link": "user_id",
+            },
+            {
+                "name": "default.us_users.preferred_language",
+                "type": "string",
+                "link": "user_id",
+            },
+            {
+                "name": "default.us_users.secret_number",
+                "type": "float",
+                "link": "user_id",
+            },
         ]
         # Deactivate the dimension node
         response = client.post("/nodes/default.us_users/deactivate/")
@@ -584,9 +600,9 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # The deactivated dimension's attributes should no longer be available to the metric
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
-        assert [{"name": "default.messages.user_id", "type": "int"}] == response.json()[
-            "dimensions"
-        ]
+        assert [
+            {"link": "", "name": "default.messages.user_id", "type": "int"},
+        ] == response.json()["dimensions"]
         # The metric should still be VALID
         response = client.get("/nodes/default.num_messages/")
         assert response.json()["status"] == NodeStatus.VALID
