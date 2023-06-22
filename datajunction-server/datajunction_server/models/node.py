@@ -3,7 +3,8 @@ Model for nodes.
 """
 # pylint: disable=too-many-instance-attributes,too-many-lines
 import enum
-from dataclasses import dataclass, field
+import sys
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
 from typing import Dict, List, Optional, Tuple
@@ -230,21 +231,17 @@ class TemporalPartitionRange(BaseSQLModel):
     Any temporal partition range with a min and max partition.
     """
 
-    min_temporal_partition: Optional[List[str]]
-    max_temporal_partition: Optional[List[str]]
+    min_temporal_partition: Optional[List[str]] = None
+    max_temporal_partition: Optional[List[str]] = None
 
-    def merge_temporal(self, other: "TemporalPartitionRange"):
+    def is_outside(self, other) -> bool:
         """
-        Merge the temporal availability states with each other by recording the
-        largest possible range
+        Whether this temporal range is outside the time bounds of the other temporal range
         """
-        self.min_temporal_partition = min(
-            x for x in (self.min_temporal_partition, other.min_temporal_partition) if x
+        return (
+            self.min_temporal_partition < other.min_temporal_partition
+            or self.max_temporal_partition > other.max_temporal_partition
         )
-        self.max_temporal_partition = max(
-            x for x in (self.max_temporal_partition, other.max_temporal_partition) if x
-        )
-        return self
 
 
 class PartitionAvailability(TemporalPartitionRange):
@@ -261,14 +258,29 @@ class PartitionAvailability(TemporalPartitionRange):
     valid_through_ts: Optional[int]
 
 
-@dataclass
-class AvailabilityNode:
+class AvailabilityNode(TemporalPartitionRange):
     """A node in the availability trie tracker"""
 
-    children: Dict = field(default_factory=dict)
-    min_temporal_partition: Optional[List[str]] = None
-    max_temporal_partition: Optional[List[str]] = None
-    valid_through_ts: Optional[str] = None
+    children: Dict = {}
+    valid_through_ts: Optional[int] = Field(default=-sys.maxsize - 1)
+
+    def merge_temporal(self, other: "AvailabilityNode"):
+        """
+        Merge the temporal ranges with each other by saving the largest
+        possible time range.
+        """
+        self.min_temporal_partition = min(  # type: ignore
+            self.min_temporal_partition,
+            other.min_temporal_partition,
+        )
+        self.max_temporal_partition = max(  # type: ignore
+            self.max_temporal_partition,
+            other.max_temporal_partition,
+        )
+        self.valid_through_ts = max(  # type: ignore
+            self.valid_through_ts,
+            other.valid_through_ts,
+        )
 
 
 class AvailabilityTracker:
@@ -284,61 +296,37 @@ class AvailabilityTracker:
         """
         Inserts the partition availability into the availability tracker trie.
         """
-        root = self.root
+        current = self.root
         for value in partition.value:
-            # there's a wildcard in here, so only add if this partition's time range is
-            # outside bounds of wildcard's time range
-            if None in root.children:
-                if (
-                    partition.min_temporal_partition
-                    < root.children[None].min_temporal_partition
-                    or partition.max_temporal_partition
-                    > root.children[None].max_temporal_partition
-                ):
-                    root.children[value] = AvailabilityNode(
-                        min_temporal_partition=min(
-                            partition.min_temporal_partition,
-                            root.children[None].min_temporal_partition,
-                        ),
-                        max_temporal_partition=max(
-                            partition.max_temporal_partition,
-                            root.children[None].max_temporal_partition,
-                        ),
-                        valid_through_ts=(
-                            max(
-                                root.children[None].valid_through_ts,
-                                partition.valid_through_ts,
-                            )
-                            if root.children[None].valid_through_ts
-                            and partition.valid_through_ts
-                            else root.children[None].valid_through_ts
-                            or partition.valid_through_ts
-                        ),
-                    )
-                    node = root.children[value]
-                else:
-                    node = root.children[None]
+            next_item = AvailabilityNode(
+                min_temporal_partition=partition.min_temporal_partition,
+                max_temporal_partition=partition.max_temporal_partition,
+                valid_through_ts=partition.valid_through_ts,
+            )
+            # If a wildcard is found, only add this specific partition's
+            # time range if it's wider than the range of the wildcard
+            if None in current.children and partition.is_outside(
+                current.children[None],
+            ):
+                wildcard_partition = current.children[None]
+                next_item.merge_temporal(wildcard_partition)
+                current.children[value] = next_item
             else:
-                if value not in root.children:
-                    root.children[value] = AvailabilityNode(
-                        min_temporal_partition=partition.min_temporal_partition,
-                        max_temporal_partition=partition.max_temporal_partition,
-                        valid_through_ts=partition.valid_through_ts,
-                    )
-                node = root.children[value]
+                # Add if partition doesn't match any existing, otherwise merge with existing
+                if value not in current.children:
+                    current.children[value] = next_item
+                else:
+                    next_item = current.children[value]
+                    next_item.merge_temporal(partition)
 
                 # Remove extraneous partitions at this level if this partition value is a wildcard
                 if value is None:
-                    child_keys = [key for key in root.children if key is not None]
+                    child_keys = [key for key in current.children if key is not None]
                     for child in child_keys:
-                        if (
-                            root.children[child].min_temporal_partition
-                            >= partition.min_temporal_partition
-                            and root.children[child].max_temporal_partition
-                            <= partition.max_temporal_partition
-                        ):
-                            del root.children[child]
-            root = node
+                        child_partition = current.children[child]
+                        if not child_partition.is_outside(partition):
+                            del current.children[child]
+            current = next_item
 
     def get_partition_range(self) -> List[PartitionAvailability]:
         """
@@ -376,23 +364,29 @@ class AvailabilityStateBase(TemporalPartitionRange):
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]
     categorical_partitions: Optional[List[str]] = Field(
-        sa_column=SqlaColumn(JSON, post_update=True),
+        sa_column=SqlaColumn("categorical_partitions", JSON),
         default=[],
     )
 
     # An ordered list of temporal partitions like ["date", "hour"] or ["date"]
     temporal_partitions: Optional[List[str]] = Field(
-        sa_column=SqlaColumn(JSON, post_update=True),
+        sa_column=SqlaColumn("temporal_partitions", JSON),
         default=[],
     )
 
     # Node-level temporal ranges
-    min_temporal_partition: Optional[List[str]] = Field(sa_column=SqlaColumn(JSON))
-    max_temporal_partition: Optional[List[str]] = Field(sa_column=SqlaColumn(JSON))
+    min_temporal_partition: Optional[List[str]] = Field(
+        sa_column=SqlaColumn(JSON),
+        default=[],
+    )
+    max_temporal_partition: Optional[List[str]] = Field(
+        sa_column=SqlaColumn(JSON),
+        default=[],
+    )
 
     # Partition-level availabilities
     partitions: Optional[List[PartitionAvailability]] = Field(
-        sa_column=SqlaColumn(JSON),
+        sa_column=SqlaColumn("partitions", JSON),
         default=[],
     )
 
@@ -413,23 +407,22 @@ class AvailabilityStateBase(TemporalPartitionRange):
             else partition
             for partition in self.partitions + other.partitions  # type: ignore
         ]
-        top_level_min = min(
-            x for x in (self.min_temporal_partition, other.min_temporal_partition) if x
+        top_level_partition = PartitionAvailability(
+            value=[None for _ in other.categorical_partitions]
+            if other.categorical_partitions
+            else [],
+            min_temporal_partition=min(
+                x
+                for x in (self.min_temporal_partition, other.min_temporal_partition)
+                if x
+            ),
+            max_temporal_partition=max(
+                x
+                for x in (self.max_temporal_partition, other.max_temporal_partition)
+                if x
+            ),
         )
-        top_level_max = max(
-            x for x in (self.max_temporal_partition, other.max_temporal_partition) if x
-        )
-
-        if top_level_max and top_level_min:
-            all_partitions.append(
-                PartitionAvailability(
-                    value=[None for _ in other.categorical_partitions]
-                    if other.categorical_partitions
-                    else [],
-                    min_temporal_partition=top_level_min,
-                    max_temporal_partition=top_level_max,
-                ),
-            )
+        all_partitions += [top_level_partition]
 
         tracker = AvailabilityTracker()
         for partition in all_partitions:
@@ -441,18 +434,20 @@ class AvailabilityStateBase(TemporalPartitionRange):
             for partition in final_partitions
             if not all(val is None for val in partition.value)
         ]
-        top_level = [
+        merged_top_level = [
             partition
             for partition in final_partitions
             if all(val is None for val in partition.value)
         ]
-        print(top_level)
-        if top_level:
+
+        if merged_top_level:  # pragma: no cover
             self.min_temporal_partition = (
-                top_level_min or top_level[0].min_temporal_partition
+                top_level_partition.min_temporal_partition
+                or merged_top_level[0].min_temporal_partition
             )
             self.max_temporal_partition = (
-                top_level_max or top_level[0].max_temporal_partition
+                top_level_partition.max_temporal_partition
+                or merged_top_level[0].max_temporal_partition
             )
         return self
 

@@ -80,7 +80,7 @@ def add_an_availability_state(
     ):
         data.merge(node_revision.availability)
 
-        # Update the node with the new availability state
+    # Update the node with the new availability state
     node_revision.availability = AvailabilityState.from_orm(data)
     if node_revision.availability and not node_revision.availability.partitions:
         node_revision.availability.partitions = []
