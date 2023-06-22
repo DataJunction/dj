@@ -186,6 +186,10 @@ h6 {
 .badge.bg-secondary-soft {
   color: #6e84a3;
 }
+.badge.bg-secondary-error {
+  color: #6e84a3;
+  background-color: #fad7dd;
+}
 .badge.rounded-pill {
   padding-right: 0.6em;
   padding-left: 0.6em;
