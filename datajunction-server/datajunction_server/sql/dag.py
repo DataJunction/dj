@@ -38,19 +38,6 @@ def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
             continue
         processed.add(current_node)
 
-        # Update multi-link dimensions set
-        columns_per_dimension = itertools.groupby(
-            sorted(
-                [col for col in current_node.current.columns if col.dimension],
-                key=lambda x: x.dimension.name,
-            ),
-            key=lambda x: x.dimension.name,
-        )
-        grouped_dims = {dim: list(values) for dim, values in columns_per_dimension}
-        multi_link_dimensions = multi_link_dimensions.union(
-            {dim for dim, values in grouped_dims.items() if len(values) > 1},
-        )
-
         for column in current_node.current.columns:
             # Include the dimension if it's a column belonging to a dimension node
             # or if it's tagged with the dimension column attribute
@@ -63,16 +50,15 @@ def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
                 or column.dimension
             ):
                 link_col = (
-                    link_column.name + "."
-                    if link_column is not None
-                    and link_column.dimension
-                    and link_column.dimension.name in multi_link_dimensions
+                    link_column.name
+                    if link_column is not None and link_column.dimension
                     else ""
                 )
                 dimensions.append(
                     DimensionAttributeOutput(
-                        name=f"{link_col}{current_node.name}.{column.name}",
+                        name=f"{current_node.name}.{column.name}",
                         type=column.type,
+                        link=link_col,
                     ),
                 )
             if column.dimension and column.dimension not in processed:
