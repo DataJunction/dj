@@ -616,16 +616,32 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert response.json()["dimensions"] == [
-            {"name": "default.messages.user_id", "type": "int"},
-            {"name": "default.us_users.age", "type": "int"},
-            {"name": "default.us_users.country", "type": "string"},
-            {"name": "default.us_users.created_at", "type": "timestamp"},
-            {"name": "default.us_users.full_name", "type": "string"},
-            {"name": "default.us_users.gender", "type": "string"},
-            {"name": "default.us_users.id", "type": "int"},
-            {"name": "default.us_users.post_processing_timestamp", "type": "timestamp"},
-            {"name": "default.us_users.preferred_language", "type": "string"},
-            {"name": "default.us_users.secret_number", "type": "float"},
+            {"link": "", "name": "default.messages.user_id", "type": "int"},
+            {"link": "user_id", "name": "default.us_users.age", "type": "int"},
+            {"link": "user_id", "name": "default.us_users.country", "type": "string"},
+            {
+                "link": "user_id",
+                "name": "default.us_users.created_at",
+                "type": "timestamp",
+            },
+            {"link": "user_id", "name": "default.us_users.full_name", "type": "string"},
+            {"link": "user_id", "name": "default.us_users.gender", "type": "string"},
+            {"link": "user_id", "name": "default.us_users.id", "type": "int"},
+            {
+                "link": "user_id",
+                "name": "default.us_users.post_processing_timestamp",
+                "type": "timestamp",
+            },
+            {
+                "link": "user_id",
+                "name": "default.us_users.preferred_language",
+                "type": "string",
+            },
+            {
+                "link": "user_id",
+                "name": "default.us_users.secret_number",
+                "type": "float",
+            },
         ]
         # The metric should still be VALID
         response = client.get("/nodes/default.num_messages/")
