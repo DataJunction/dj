@@ -8,6 +8,7 @@ export default function QueryInfo({
   output_table,
   scheduled,
   started,
+  numRows,
 }) {
   const stateIcon =
     state === 'FINISHED' ? (
@@ -51,6 +52,7 @@ export default function QueryInfo({
             <th>Errors</th>
             <th>Links</th>
             <th>Output Table</th>
+            <th>Number of Rows</th>
           </tr>
         </thead>
         <tbody>
@@ -95,6 +97,7 @@ export default function QueryInfo({
               )}
             </td>
             <td>{output_table}</td>
+            <td>{numRows}</td>
           </tr>
         </tbody>
       </table>
