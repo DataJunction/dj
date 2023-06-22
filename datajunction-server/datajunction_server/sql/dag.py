@@ -2,8 +2,10 @@
 DAG related functions.
 """
 import collections
-from typing import List
+import itertools
+from typing import List, Optional, Set, Tuple
 
+from datajunction_server.models import Column
 from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
 from datajunction_server.utils import get_settings
 
@@ -17,18 +19,37 @@ def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
     dimensions = []
 
     # Start with the node itself or the node's immediate parent if it's a metric node
-    to_process = collections.deque(
-        [node, *(node.current.parents if node.type == NodeType.METRIC else [])],
+    node_starting_state = (node, None)
+    immediate_parent_starting_state = [
+        (parent, None)
+        for parent in (node.current.parents if node.type == NodeType.METRIC else [])
+    ]
+    to_process: collections.deque[Tuple[Node, Optional[Column]]] = collections.deque(
+        [node_starting_state, *immediate_parent_starting_state],
     )
-    processed = set()
+    processed: Set[Node] = set()
+    multi_link_dimensions: Set[str] = set()
 
     while to_process:
-        current_node = to_process.popleft()
+        current_node, link_column = to_process.popleft()
 
         # Don't include attributes from deactivated dimensions
         if current_node.deactivated_at:
             continue
         processed.add(current_node)
+
+        # Update multi-link dimensions set
+        columns_per_dimension = itertools.groupby(
+            sorted(
+                [col for col in current_node.current.columns if col.dimension],
+                key=lambda x: x.dimension.name,
+            ),
+            key=lambda x: x.dimension.name,
+        )
+        grouped_dims = {dim: list(values) for dim, values in columns_per_dimension}
+        multi_link_dimensions = multi_link_dimensions.union(
+            {dim for dim, values in grouped_dims.items() if len(values) > 1},
+        )
 
         for column in current_node.current.columns:
             # Include the dimension if it's a column belonging to a dimension node
@@ -41,14 +62,21 @@ def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
                 )
                 or column.dimension
             ):
+                link_col = (
+                    link_column.name + "."
+                    if link_column is not None
+                    and link_column.dimension
+                    and link_column.dimension.name in multi_link_dimensions
+                    else ""
+                )
                 dimensions.append(
                     DimensionAttributeOutput(
-                        name=f"{current_node.name}.{column.name}",
+                        name=f"{link_col}{current_node.name}.{column.name}",
                         type=column.type,
                     ),
                 )
             if column.dimension and column.dimension not in processed:
-                to_process.append(column.dimension)
+                to_process.append((column.dimension, column))
     return sorted(dimensions, key=lambda x: x.name)
 
 

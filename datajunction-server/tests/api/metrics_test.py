@@ -278,6 +278,66 @@ def test_get_dimensions(client_with_examples: TestClient):
     ]
 
 
+def test_get_multi_link_dimensions(
+    client_with_examples: TestClient,
+):
+    """
+    In some cases, the same dimension may be linked to different columns on a node.
+    The returned dimension attributes should contain a prefix of the column in order to
+    distinguish between the source of the dimension.
+    """
+    client_with_examples.post(
+        "/nodes/default.hard_hat/columns/birth_date/"
+        "?dimension=default.date_dim&dimension_column=dateint",
+    )
+    client_with_examples.post(
+        "/nodes/default.hard_hat/columns/hire_date/"
+        "?dimension=default.date_dim&dimension_column=dateint",
+    )
+    response = client_with_examples.get("/metrics/default.num_repair_orders/")
+    assert response.json()["dimensions"] == [
+        {"name": "birth_date.default.date_dim.dateint", "type": "timestamp"},
+        {"name": "birth_date.default.date_dim.day", "type": "int"},
+        {"name": "birth_date.default.date_dim.month", "type": "int"},
+        {"name": "birth_date.default.date_dim.year", "type": "int"},
+        {"name": "default.dispatcher.company_name", "type": "string"},
+        {"name": "default.dispatcher.dispatcher_id", "type": "int"},
+        {"name": "default.dispatcher.phone", "type": "string"},
+        {"name": "default.hard_hat.address", "type": "string"},
+        {"name": "default.hard_hat.birth_date", "type": "timestamp"},
+        {"name": "default.hard_hat.city", "type": "string"},
+        {"name": "default.hard_hat.contractor_id", "type": "int"},
+        {"name": "default.hard_hat.country", "type": "string"},
+        {"name": "default.hard_hat.first_name", "type": "string"},
+        {"name": "default.hard_hat.hard_hat_id", "type": "int"},
+        {"name": "default.hard_hat.hire_date", "type": "timestamp"},
+        {"name": "default.hard_hat.last_name", "type": "string"},
+        {"name": "default.hard_hat.manager", "type": "int"},
+        {"name": "default.hard_hat.postal_code", "type": "string"},
+        {"name": "default.hard_hat.state", "type": "string"},
+        {"name": "default.hard_hat.title", "type": "string"},
+        {"name": "default.municipality_dim.contact_name", "type": "string"},
+        {"name": "default.municipality_dim.contact_title", "type": "string"},
+        {"name": "default.municipality_dim.local_region", "type": "string"},
+        {"name": "default.municipality_dim.municipality_id", "type": "string"},
+        {"name": "default.municipality_dim.municipality_type_desc", "type": "string"},
+        {"name": "default.municipality_dim.municipality_type_id", "type": "string"},
+        {"name": "default.municipality_dim.state_id", "type": "int"},
+        {"name": "default.repair_orders.dispatcher_id", "type": "int"},
+        {"name": "default.repair_orders.hard_hat_id", "type": "int"},
+        {"name": "default.repair_orders.municipality_id", "type": "string"},
+        {"name": "default.us_state.state_id", "type": "int"},
+        {"name": "default.us_state.state_name", "type": "string"},
+        {"name": "default.us_state.state_region", "type": "int"},
+        {"name": "default.us_state.state_region_description", "type": "string"},
+        {"name": "default.us_state.state_short", "type": "string"},
+        {"name": "hire_date.default.date_dim.dateint", "type": "timestamp"},
+        {"name": "hire_date.default.date_dim.day", "type": "int"},
+        {"name": "hire_date.default.date_dim.month", "type": "int"},
+        {"name": "hire_date.default.date_dim.year", "type": "int"},
+    ]
+
+
 def test_type_inference_structs(client_with_examples: TestClient):
     """
     Testing type resolution for structs select
