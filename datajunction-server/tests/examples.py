@@ -267,6 +267,40 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
+        "/nodes/source/",
+        {
+            "columns": [
+                {"name": "dateint", "type": "timestamp"},
+                {"name": "month", "type": "int"},
+                {"name": "year", "type": "int"},
+                {"name": "day", "type": "int"},
+            ],
+            "description": "Date table",
+            "mode": "published",
+            "name": "default.date",
+            "catalog": "default",
+            "schema_": "datetime",
+            "table": "date",
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "description": "Date dimension",
+            "query": """
+                SELECT
+                    dateint,
+                    month,
+                    year,
+                    day
+                FROM default.date
+            """,
+            "mode": "published",
+            "name": "default.date_dim",
+            "primary_key": ["dateint"],
+        },
+    ),
+    (
         "/nodes/dimension/",
         {
             "description": "Repair order dimension",
