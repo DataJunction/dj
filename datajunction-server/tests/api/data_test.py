@@ -1,8 +1,11 @@
 """
 Tests for the data API.
 """
+# pylint: disable=too-many-lines
+from typing import Dict, List, Optional
 from unittest import mock
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -553,52 +556,63 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "temporal_partitions": [],
         }
 
-    def test_set_node_level_availability(
+    @pytest.fixture
+    def post_local_hard_hats_availability(self, client_with_examples: TestClient):
+        """
+        Fixture for posting availability for local_hard_hats
+        """
+
+        def _post(
+            min_temporal_partition: Optional[List[str]] = None,
+            max_temporal_partition: Optional[List[str]] = None,
+            partitions: List[Dict] = None,
+        ):
+            return client_with_examples.post(
+                "/data/default.local_hard_hats/availability/",
+                json={
+                    "catalog": "default",
+                    "schema_": "dimensions",
+                    "table": "local_hard_hats",
+                    "valid_through_ts": 20230101,
+                    "categorical_partitions": ["country", "postal_code"],
+                    "temporal_partitions": ["birth_date"],
+                    "min_temporal_partition": min_temporal_partition,
+                    "max_temporal_partition": max_temporal_partition,
+                    "partitions": partitions,
+                },
+            )
+
+        return _post
+
+    def test_set_node_level_availability_wider_time_range(
         self,
         client_with_examples: TestClient,
+        post_local_hard_hats_availability,
     ):
         """
-        Test setting node-level availability
+        The node starts off with partition-level availability with a specific time range.
+        We add in a node-level availability with a wider time range than at the partition
+        level. We expect this new availability state to overwrite the partition-level
+        availability.
         """
+        # Set initial availability state
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["DE", "ABC123D"],
+                    "min_temporal_partition": ["20230101"],
+                    "max_temporal_partition": ["20230105"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+        # Post wider availability
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
+        )
 
-        # Case: The node starts off with a partition-level time range availability.
-        # We add a node-level availability with a wider time range than at the
-        # partition level. We expect this new availability state to overwrite
-        # the partition-level availability since it encompasses it.
-        response = client_with_examples.post(
-            "/data/default.local_hard_hats/availability/",
-            json={
-                "catalog": "default",
-                "schema_": "dimensions",
-                "table": "local_hard_hats",
-                "valid_through_ts": 20230101,
-                "categorical_partitions": ["country", "postal_code"],
-                "temporal_partitions": ["birth_date"],
-                "partitions": [
-                    {
-                        "name": "account_type",
-                        "value": ["DE", "ABC123D"],
-                        "min_temporal_partition": ["20230101"],
-                        "max_temporal_partition": ["20230105"],
-                        "valid_through_ts": 20230101,
-                    },
-                ],
-            },
-        )
-        client_with_examples.post(
-            "/data/default.local_hard_hats/availability/",
-            json={
-                "catalog": "default",
-                "schema_": "dimensions",
-                "table": "local_hard_hats",
-                "valid_through_ts": 20230101,
-                "categorical_partitions": ["country", "manager"],
-                "temporal_partitions": ["birth_date"],
-                "min_temporal_partition": ["20230101"],
-                "max_temporal_partition": ["20230110"],
-                "partitions": [],
-            },
-        )
         response = client_with_examples.get(
             "/nodes/default.local_hard_hats/",
         )
@@ -607,7 +621,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "id": mock.ANY,
             "min_temporal_partition": ["20230101"],
             "max_temporal_partition": ["20230110"],
-            "categorical_partitions": ["country", "manager"],
+            "categorical_partitions": ["country", "postal_code"],
             "temporal_partitions": ["birth_date"],
             "partitions": [],
             "schema_": "dimensions",
@@ -616,111 +630,88 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "valid_through_ts": 20230101,
         }
 
-        # Set a node level availability with a smaller time range than the existing
-        # one will result in no change to the merged availability state
-        client_with_examples.post(
-            "/data/default.local_hard_hats/availability/",
-            json={
-                "catalog": "default",
-                "schema_": "dimensions",
-                "table": "local_hard_hats",
-                "valid_through_ts": 20230101,
-                "min_temporal_partition": ["20230103"],
-                "max_temporal_partition": ["20230105"],
-                "categorical_partitions": ["country", "manager"],
-                "temporal_partitions": ["birth_date"],
-                "partitions": [],
-            },
+    def test_set_node_level_availability_smaller_time_range(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Set a node level availability with a smaller time range than the existing
+        one will result in no change to the merged availability state
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
         )
-        response = client_with_examples.get(
-            "/nodes/default.local_hard_hats/",
-        )
-        assert response.json()["availability"] == {
-            "catalog": "default",
-            "id": mock.ANY,
-            "min_temporal_partition": ["20230101"],
-            "max_temporal_partition": ["20230110"],
-            "partitions": [],
-            "schema_": "dimensions",
-            "table": "local_hard_hats",
-            "categorical_partitions": ["country", "manager"],
-            "temporal_partitions": ["birth_date"],
-            "updated_at": mock.ANY,
-            "valid_through_ts": 20230101,
-        }
 
-        # Set a partition-level availability with a smaller time range than
-        # the existing node-level time range will result in no change to the
-        # merged availability state
-        client_with_examples.post(
-            "/data/default.local_hard_hats/availability/",
-            json={
-                "catalog": "default",
-                "schema_": "dimensions",
-                "table": "local_hard_hats",
-                "valid_through_ts": 20230101,
-                "categorical_partitions": ["country", "manager"],
-                "temporal_partitions": ["birth_date"],
-                "partitions": [
-                    {
-                        "value": ["DE", None],
-                        "min_temporal_partition": ["20230102"],
-                        "max_temporal_partition": ["20230107"],
-                        "valid_through_ts": 20230101,
-                    },
-                ],
-            },
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230103"],
+            max_temporal_partition=["20230105"],
+            partitions=[],
         )
-        response = client_with_examples.get(
-            "/nodes/default.local_hard_hats/",
-        )
-        assert response.json()["availability"] == {
-            "catalog": "default",
-            "id": mock.ANY,
-            "min_temporal_partition": ["20230101"],
-            "max_temporal_partition": ["20230110"],
-            "partitions": [],
-            "schema_": "dimensions",
-            "table": "local_hard_hats",
-            "categorical_partitions": ["country", "manager"],
-            "temporal_partitions": ["birth_date"],
-            "updated_at": mock.ANY,
-            "valid_through_ts": 20230101,
-        }
 
-        # Set a partition-level availability with a larger time range than
-        # the existing node-level time range will result in the partition with
-        # the larger range being recorded
-        response = client_with_examples.post(
-            "/data/default.local_hard_hats/availability/",
-            json={
-                "catalog": "default",
-                "schema_": "dimensions",
-                "table": "local_hard_hats",
-                "valid_through_ts": 20230101,
-                "categorical_partitions": ["country", "manager"],
-                "temporal_partitions": ["birth_date"],
-                "partitions": [
-                    {
-                        "value": ["DE", None],
-                        "min_temporal_partition": ["20230102"],
-                        "max_temporal_partition": ["20230115"],
-                        "valid_through_ts": 20230101,
-                    },
-                ],
-            },
-        )
         response = client_with_examples.get(
             "/nodes/default.local_hard_hats/",
         )
-        assert response.json()["availability"] == {
-            "catalog": "default",
-            "id": mock.ANY,
-            "min_temporal_partition": ["20230101"],
-            "max_temporal_partition": ["20230110"],
-            "categorical_partitions": ["country", "manager"],
-            "temporal_partitions": ["birth_date"],
-            "partitions": [
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == []
+
+    def test_set_partition_level_availability_smaller_time_range(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Set a partition-level availability with a smaller time range than
+        the existing node-level time range will result in no change to the
+        merged availability state
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230107"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == []
+
+    def test_set_partition_level_availability_larger_time_range(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Set a partition-level availability with a larger time range than
+        the existing node-level time range will result in the partition with
+        the larger range being recorded
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
                 {
                     "value": ["DE", None],
                     "min_temporal_partition": ["20230102"],
@@ -728,11 +719,187 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "valid_through_ts": 20230101,
                 },
             ],
-            "schema_": "dimensions",
-            "table": "local_hard_hats",
-            "updated_at": mock.ANY,
-            "valid_through_ts": 20230101,
-        }
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == [
+            {
+                "value": ["DE", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230115"],
+                "valid_through_ts": 20230101,
+            },
+        ]
+
+    def test_set_orthogonal_partition_level_availability(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Test setting an orthogonal partition-level availability.
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["MY", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == [
+            {
+                "value": ["DE", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230115"],
+                "valid_through_ts": 20230101,
+            },
+            {
+                "value": ["MY", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230115"],
+                "valid_through_ts": 20230101,
+            },
+        ]
+
+    def test_set_overlap_partition_level_availability(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Test setting an overlapping partition-level availability.
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230105"],
+                    "max_temporal_partition": ["20230215"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == [
+            {
+                "value": ["DE", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230215"],
+                "valid_through_ts": 20230101,
+            },
+        ]
+
+    def test_set_semioverlap_partition_level_availability(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Test setting a semi-overlapping partition-level availability.
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+                {
+                    "value": ["DE", "abc-def"],
+                    "min_temporal_partition": ["20230202"],
+                    "max_temporal_partition": ["20230215"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        post_local_hard_hats_availability(
+            partitions=[
+                {
+                    "value": ["DE", None],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230115"],
+                    "valid_through_ts": 20230101,
+                },
+                {
+                    "value": ["DE", "abc-def"],
+                    "min_temporal_partition": ["20230102"],
+                    "max_temporal_partition": ["20230215"],
+                    "valid_through_ts": 20230101,
+                },
+            ],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        availability = response.json()["availability"]
+        assert availability["min_temporal_partition"] == ["20230101"]
+        assert availability["max_temporal_partition"] == ["20230110"]
+        assert availability["partitions"] == [
+            {
+                "value": ["DE", "abc-def"],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230215"],
+                "valid_through_ts": 20230101,
+            },
+            {
+                "value": ["DE", None],
+                "min_temporal_partition": ["20230102"],
+                "max_temporal_partition": ["20230115"],
+                "valid_through_ts": 20230101,
+            },
+        ]
 
     def test_merging_in_a_lower_min_partition(
         self,
