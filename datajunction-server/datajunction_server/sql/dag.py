@@ -3,7 +3,7 @@ DAG related functions.
 """
 import collections
 import itertools
-from typing import List, Optional, Set, Tuple
+from typing import Deque, List, Optional, Set, Tuple
 
 from datajunction_server.models import Column
 from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
@@ -24,7 +24,7 @@ def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
         (parent, None)
         for parent in (node.current.parents if node.type == NodeType.METRIC else [])
     ]
-    to_process: collections.deque[Tuple[Node, Optional[Column]]] = collections.deque(
+    to_process: Deque[Tuple[Node, Optional[Column]]] = collections.deque(
         [node_starting_state, *immediate_parent_starting_state],
     )
     processed: Set[Node] = set()
