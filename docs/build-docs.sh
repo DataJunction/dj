@@ -2,10 +2,11 @@ if [ $# -eq 0 ]; then
     echo
     echo "Build a specified version of the DJ docs"
     echo
-    echo "Syntax: ./build-docs.sh <VERSION> <SET_AS_LATEST>"
+    echo "Syntax: ./build-docs.sh <VERSION> <SET_AS_LATEST> <BASE_URL>"
     echo
     echo "VERSION: The version of the docs site to build, i.e. 0.1.0"
     echo "SET_AS_LATEST: Additionally build the specified version as the default/latest docs site, i.e. true"
+    echo "BASE_URL: The base URL to set for the build"
     echo
     exit 1
 fi
