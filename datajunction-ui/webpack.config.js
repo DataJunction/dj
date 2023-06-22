@@ -1,7 +1,9 @@
 const webpack = require('webpack');
+const dotenv = require('dotenv').config()
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
 // const MiniCssExtractPlugin = require('mini-css-extract-plugin');
+require('dotenv').config({ path: './.env' }); 
 
 var babelOptions = {
   presets: ['@babel/preset-react'],
@@ -100,7 +102,7 @@ module.exports = {
       template: path.resolve(__dirname, 'public', 'index.html'),
     }),
     new webpack.DefinePlugin({
-      REACT_APP_DJ_URL: 'http://localhost:8000',
+      "process.env": JSON.stringify(process.env)
     }),
     // new MiniCssExtractPlugin({
     //   filename: './styles/index.css',

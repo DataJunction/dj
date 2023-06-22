@@ -6,6 +6,7 @@ import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import { format } from 'sql-formatter';
 import Select from 'react-select';
+import QueryInfo from '../../components/QueryInfo';
 
 export function SQLBuilderPage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -14,6 +15,7 @@ export function SQLBuilderPage() {
   const [selectedDimensions, setSelectedDimensions] = useState([]);
   const [selectedMetrics, setSelectedMetrics] = useState([]);
   const [query, setQuery] = useState('');
+  const [submittedQueryInfo, setSubmittedQueryInfo] = useState(null);
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
   const [viewData, setViewData] = useState(false);
@@ -23,10 +25,17 @@ export function SQLBuilderPage() {
   const getData = () => {
     setLoadingData(true);
     const fetchData = async () => {
-      const data = await djClient.data(selectedMetrics, selectedDimensions);
+      setData(null);
+      const queryInfo = await djClient.data(
+        selectedMetrics,
+        selectedDimensions,
+      );
       setLoadingData(false);
-      setData(data);
-      setViewData(true);
+      setSubmittedQueryInfo(queryInfo);
+      if (queryInfo.results && queryInfo.results?.length) {
+        setData(queryInfo.results);
+        setViewData(true);
+      }
     };
     fetchData().catch(console.error);
   };
@@ -169,7 +178,6 @@ export function SQLBuilderPage() {
                     {'Run Query'}
                   </span>
                 )}
-
                 {data ? (
                   viewData ? (
                     <span
@@ -193,7 +201,7 @@ export function SQLBuilderPage() {
             ) : (
               <></>
             )}
-
+            {submittedQueryInfo ? <QueryInfo {...submittedQueryInfo} /> : <></>}
             <div>
               {query && !viewData ? (
                 <SyntaxHighlighter language="sql" style={foundation}>
@@ -211,34 +219,26 @@ export function SQLBuilderPage() {
               )}
             </div>
             {data && viewData ? (
-              data.state === 'FINISHED' ? (
-                <div className="table-responsive">
-                  <table className="card-inner-table table">
-                    <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-                      <tr>
-                        {data.results[0].columns.map(columnName => (
-                          <th key={columnName.name}>{columnName.name}</th>
+              <div className="table-responsive">
+                <table className="card-inner-table table">
+                  <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+                    <tr>
+                      {data[0].columns.map(columnName => (
+                        <th key={columnName.name}>{columnName.name}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data[0].rows.map((rowData, index) => (
+                      <tr key={`data-row:${index}`}>
+                        {rowData.map(rowValue => (
+                          <td key={rowValue}>{rowValue}</td>
                         ))}
                       </tr>
-                    </thead>
-                    <tbody>
-                      {data.results[0].rows.map((rowData, index) => (
-                        <tr key={`data-row:${index}`}>
-                          {rowData.map(rowValue => (
-                            <td key={rowValue}>{rowValue}</td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : data.state ? (
-                <div>
-                  {`Ran into an issue while running the query. (Query State: ${data.state}, Errors: ${data.errors})`}
-                </div>
-              ) : (
-                <></>
-              )
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             ) : (
               <></>
             )}
