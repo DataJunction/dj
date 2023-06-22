@@ -96,9 +96,9 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     assert data["name"] == "child"
     assert data["query"] == "SELECT COUNT(*) FROM parent"
     assert data["dimensions"] == [
-        {"name": "parent.ds", "type": "string"},
-        {"name": "parent.foo", "type": "float"},
-        {"name": "parent.user_id", "type": "int"},
+        {"name": "parent.ds", "type": "string", "link": ""},
+        {"name": "parent.foo", "type": "float", "link": ""},
+        {"name": "parent.user_id", "type": "int", "link": ""},
     ]
 
 
@@ -147,42 +147,134 @@ def test_common_dimensions(
     )
     assert response.status_code == 200
     assert response.json() == [
-        {"name": "default.dispatcher.company_name", "type": "string"},
-        {"name": "default.dispatcher.dispatcher_id", "type": "int"},
-        {"name": "default.dispatcher.phone", "type": "string"},
-        {"name": "default.hard_hat.address", "type": "string"},
-        {"name": "default.hard_hat.birth_date", "type": "timestamp"},
-        {"name": "default.hard_hat.city", "type": "string"},
-        {"name": "default.hard_hat.contractor_id", "type": "int"},
-        {"name": "default.hard_hat.country", "type": "string"},
-        {"name": "default.hard_hat.first_name", "type": "string"},
-        {"name": "default.hard_hat.hard_hat_id", "type": "int"},
-        {"name": "default.hard_hat.hire_date", "type": "timestamp"},
-        {"name": "default.hard_hat.last_name", "type": "string"},
-        {"name": "default.hard_hat.manager", "type": "int"},
-        {"name": "default.hard_hat.postal_code", "type": "string"},
-        {"name": "default.hard_hat.state", "type": "string"},
-        {"name": "default.hard_hat.title", "type": "string"},
-        {"name": "default.municipality_dim.contact_name", "type": "string"},
-        {"name": "default.municipality_dim.contact_title", "type": "string"},
-        {"name": "default.municipality_dim.local_region", "type": "string"},
-        {"name": "default.municipality_dim.municipality_id", "type": "string"},
-        {"name": "default.municipality_dim.municipality_type_desc", "type": "string"},
-        {"name": "default.municipality_dim.municipality_type_id", "type": "string"},
-        {"name": "default.municipality_dim.state_id", "type": "int"},
-        {"name": "default.repair_order.dispatched_date", "type": "timestamp"},
-        {"name": "default.repair_order.dispatcher_id", "type": "int"},
-        {"name": "default.repair_order.hard_hat_id", "type": "int"},
-        {"name": "default.repair_order.municipality_id", "type": "string"},
-        {"name": "default.repair_order.order_date", "type": "timestamp"},
-        {"name": "default.repair_order.repair_order_id", "type": "int"},
-        {"name": "default.repair_order.required_date", "type": "timestamp"},
-        {"name": "default.repair_order_details.repair_order_id", "type": "int"},
-        {"name": "default.us_state.state_id", "type": "int"},
-        {"name": "default.us_state.state_name", "type": "string"},
-        {"name": "default.us_state.state_region", "type": "int"},
-        {"name": "default.us_state.state_region_description", "type": "string"},
-        {"name": "default.us_state.state_short", "type": "string"},
+        {
+            "name": "default.dispatcher.company_name",
+            "type": "string",
+            "link": "dispatcher_id",
+        },
+        {
+            "name": "default.dispatcher.dispatcher_id",
+            "type": "int",
+            "link": "dispatcher_id",
+        },
+        {"name": "default.dispatcher.phone", "type": "string", "link": "dispatcher_id"},
+        {"name": "default.hard_hat.address", "type": "string", "link": "hard_hat_id"},
+        {
+            "name": "default.hard_hat.birth_date",
+            "type": "timestamp",
+            "link": "hard_hat_id",
+        },
+        {"name": "default.hard_hat.city", "type": "string", "link": "hard_hat_id"},
+        {
+            "name": "default.hard_hat.contractor_id",
+            "type": "int",
+            "link": "hard_hat_id",
+        },
+        {"name": "default.hard_hat.country", "type": "string", "link": "hard_hat_id"},
+        {
+            "name": "default.hard_hat.first_name",
+            "type": "string",
+            "link": "hard_hat_id",
+        },
+        {"name": "default.hard_hat.hard_hat_id", "type": "int", "link": "hard_hat_id"},
+        {
+            "name": "default.hard_hat.hire_date",
+            "type": "timestamp",
+            "link": "hard_hat_id",
+        },
+        {"name": "default.hard_hat.last_name", "type": "string", "link": "hard_hat_id"},
+        {"name": "default.hard_hat.manager", "type": "int", "link": "hard_hat_id"},
+        {
+            "name": "default.hard_hat.postal_code",
+            "type": "string",
+            "link": "hard_hat_id",
+        },
+        {"name": "default.hard_hat.state", "type": "string", "link": "hard_hat_id"},
+        {"name": "default.hard_hat.title", "type": "string", "link": "hard_hat_id"},
+        {
+            "name": "default.municipality_dim.contact_name",
+            "type": "string",
+            "link": "municipality_id",
+        },
+        {
+            "name": "default.municipality_dim.contact_title",
+            "type": "string",
+            "link": "municipality_id",
+        },
+        {
+            "name": "default.municipality_dim.local_region",
+            "type": "string",
+            "link": "municipality_id",
+        },
+        {
+            "name": "default.municipality_dim.municipality_id",
+            "type": "string",
+            "link": "municipality_id",
+        },
+        {
+            "name": "default.municipality_dim.municipality_type_desc",
+            "type": "string",
+            "link": "municipality_id",
+        },
+        {
+            "name": "default.municipality_dim.municipality_type_id",
+            "type": "string",
+            "link": "municipality_id",
+        },
+        {
+            "name": "default.municipality_dim.state_id",
+            "type": "int",
+            "link": "municipality_id",
+        },
+        {
+            "name": "default.repair_order.dispatched_date",
+            "type": "timestamp",
+            "link": "repair_order_id",
+        },
+        {
+            "name": "default.repair_order.dispatcher_id",
+            "type": "int",
+            "link": "repair_order_id",
+        },
+        {
+            "name": "default.repair_order.hard_hat_id",
+            "type": "int",
+            "link": "repair_order_id",
+        },
+        {
+            "name": "default.repair_order.municipality_id",
+            "type": "string",
+            "link": "repair_order_id",
+        },
+        {
+            "name": "default.repair_order.order_date",
+            "type": "timestamp",
+            "link": "repair_order_id",
+        },
+        {
+            "name": "default.repair_order.repair_order_id",
+            "type": "int",
+            "link": "repair_order_id",
+        },
+        {
+            "name": "default.repair_order.required_date",
+            "type": "timestamp",
+            "link": "repair_order_id",
+        },
+        {
+            "name": "default.repair_order_details.repair_order_id",
+            "type": "int",
+            "link": "",
+        },
+        {"name": "default.us_state.state_id", "type": "int", "link": "state"},
+        {"name": "default.us_state.state_name", "type": "string", "link": "state"},
+        {"name": "default.us_state.state_region", "type": "int", "link": "state"},
+        {
+            "name": "default.us_state.state_region_description",
+            "type": "string",
+            "link": "state",
+        },
+        {"name": "default.us_state.state_short", "type": "string", "link": "state"},
     ]
 
 

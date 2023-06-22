@@ -69,7 +69,7 @@ def test_get_dimensions() -> None:
     child_ref.current = child
 
     assert get_dimensions(child_ref) == [
-        {"name": "A.b_id", "type": "int"},
-        {"name": "B.attribute", "type": "string"},
-        {"name": "B.id", "type": "int"},
+        {"name": "A.b_id", "type": "int", "link": ""},
+        {"name": "B.attribute", "type": "string", "link": "b_id"},
+        {"name": "B.id", "type": "int", "link": "b_id"},
     ]

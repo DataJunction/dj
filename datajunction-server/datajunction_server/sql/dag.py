@@ -2,7 +2,6 @@
 DAG related functions.
 """
 import collections
-import itertools
 from typing import Deque, List, Optional, Set, Tuple
 
 from datajunction_server.models import Column
@@ -28,7 +27,6 @@ def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
         [node_starting_state, *immediate_parent_starting_state],
     )
     processed: Set[Node] = set()
-    multi_link_dimensions: Set[str] = set()
 
     while to_process:
         current_node, link_column = to_process.popleft()
