@@ -107,7 +107,10 @@ export function SQLBuilderPage() {
           selectedMetrics,
         );
         setCommonDimensionsList(
-          commonDimensions.map(d => ({ value: d.name, label: d.name })),
+          commonDimensions.map(d => ({
+            value: d.name,
+            label: d.name + ' ↔ ' + d.link,
+          })),
         );
       } else {
         setCommonDimensionsList([]);

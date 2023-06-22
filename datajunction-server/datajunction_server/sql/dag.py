@@ -70,9 +70,9 @@ def get_shared_dimensions(
     """
     Return a list of dimensions that are common between the nodes.
     """
-    common = {dim.name: dim for dim in get_dimensions(metric_nodes[0])}
+    common = {(dim.name, dim.link): dim for dim in get_dimensions(metric_nodes[0])}
     for node in set(metric_nodes[1:]):
-        node_dimensions = {dim.name: dim for dim in get_dimensions(node)}
+        node_dimensions = {(dim.name, dim.link): dim for dim in get_dimensions(node)}
         common_dim_keys = common.keys() & node_dimensions.keys()
         common = {dim: node_dimensions[dim] for dim in common_dim_keys}
     return sorted(common.values(), key=lambda x: x.name)
