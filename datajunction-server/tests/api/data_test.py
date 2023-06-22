@@ -566,7 +566,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             min_temporal_partition: Optional[List[str]] = None,
             max_temporal_partition: Optional[List[str]] = None,
             partitions: List[Dict] = None,
+            categorical_partitions: List[str] = None,
         ):
+            print("categorical_partitions:!", categorical_partitions)
+            if categorical_partitions is None:
+                print("REACHED")
+                categorical_partitions = ["country", "postal_code"]
             return client_with_examples.post(
                 "/data/default.local_hard_hats/availability/",
                 json={
@@ -574,7 +579,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "schema_": "dimensions",
                     "table": "local_hard_hats",
                     "valid_through_ts": 20230101,
-                    "categorical_partitions": ["country", "postal_code"],
+                    "categorical_partitions": categorical_partitions,
                     "temporal_partitions": ["birth_date"],
                     "min_temporal_partition": min_temporal_partition,
                     "max_temporal_partition": max_temporal_partition,
@@ -583,6 +588,45 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             )
 
         return _post
+
+    def test_set_temporal_only_availability(
+        self,
+        client_with_examples: TestClient,
+        post_local_hard_hats_availability,
+    ):
+        """
+        Test setting availability on a node where it only has temporal partitions and
+        no categorical partitions.
+        """
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230105"],
+            partitions=[],
+            categorical_partitions=[],
+        )
+        post_local_hard_hats_availability(
+            min_temporal_partition=["20230101"],
+            max_temporal_partition=["20230110"],
+            partitions=[],
+            categorical_partitions=[],
+        )
+
+        response = client_with_examples.get(
+            "/nodes/default.local_hard_hats/",
+        )
+        assert response.json()["availability"] == {
+            "catalog": "default",
+            "id": mock.ANY,
+            "min_temporal_partition": ["20230101"],
+            "max_temporal_partition": ["20230110"],
+            "categorical_partitions": [],
+            "temporal_partitions": ["birth_date"],
+            "partitions": [],
+            "schema_": "dimensions",
+            "table": "local_hard_hats",
+            "updated_at": mock.ANY,
+            "valid_through_ts": 20230101,
+        }
 
     def test_set_node_level_availability_wider_time_range(
         self,
