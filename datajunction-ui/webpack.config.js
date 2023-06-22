@@ -2,7 +2,6 @@ const webpack = require('webpack');
 const dotenv = require('dotenv').config()
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-// const MiniCssExtractPlugin = require('mini-css-extract-plugin');
 require('dotenv').config({ path: './.env' }); 
 
 var babelOptions = {
@@ -104,8 +103,5 @@ module.exports = {
     new webpack.DefinePlugin({
       "process.env": JSON.stringify(process.env)
     }),
-    // new MiniCssExtractPlugin({
-    //   filename: './styles/index.css',
-    // }),
   ],
 };
