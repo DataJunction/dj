@@ -1,6 +1,7 @@
 """
 Tests for the metrics API.
 """
+# pylint: disable=too-many-lines
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -96,9 +97,9 @@ def test_read_metric(session: Session, client: TestClient) -> None:
     assert data["name"] == "child"
     assert data["query"] == "SELECT COUNT(*) FROM parent"
     assert data["dimensions"] == [
-        {"name": "parent.ds", "type": "string"},
-        {"name": "parent.foo", "type": "float"},
-        {"name": "parent.user_id", "type": "int"},
+        {"name": "parent.ds", "type": "string", "path": []},
+        {"name": "parent.foo", "type": "float", "path": []},
+        {"name": "parent.user_id", "type": "int", "path": []},
     ]
 
 
@@ -140,49 +141,560 @@ def test_common_dimensions(
     """
     Test ``GET /metrics/common/dimensions``.
     """
+    client_with_examples.post(
+        "/nodes/default.hard_hat/columns/birth_date/"
+        "?dimension=default.date_dim&dimension_column=dateint",
+    )
+    client_with_examples.post(
+        "/nodes/default.hard_hat/columns/hire_date/"
+        "?dimension=default.date_dim&dimension_column=dateint",
+    )
     response = client_with_examples.get(
         "/metrics/common/dimensions?"
         "metric=default.total_repair_order_discounts"
         "&metric=default.total_repair_cost",
     )
     assert response.status_code == 200
+
     assert response.json() == [
-        {"name": "default.dispatcher.company_name", "type": "string"},
-        {"name": "default.dispatcher.dispatcher_id", "type": "int"},
-        {"name": "default.dispatcher.phone", "type": "string"},
-        {"name": "default.hard_hat.address", "type": "string"},
-        {"name": "default.hard_hat.birth_date", "type": "timestamp"},
-        {"name": "default.hard_hat.city", "type": "string"},
-        {"name": "default.hard_hat.contractor_id", "type": "int"},
-        {"name": "default.hard_hat.country", "type": "string"},
-        {"name": "default.hard_hat.first_name", "type": "string"},
-        {"name": "default.hard_hat.hard_hat_id", "type": "int"},
-        {"name": "default.hard_hat.hire_date", "type": "timestamp"},
-        {"name": "default.hard_hat.last_name", "type": "string"},
-        {"name": "default.hard_hat.manager", "type": "int"},
-        {"name": "default.hard_hat.postal_code", "type": "string"},
-        {"name": "default.hard_hat.state", "type": "string"},
-        {"name": "default.hard_hat.title", "type": "string"},
-        {"name": "default.municipality_dim.contact_name", "type": "string"},
-        {"name": "default.municipality_dim.contact_title", "type": "string"},
-        {"name": "default.municipality_dim.local_region", "type": "string"},
-        {"name": "default.municipality_dim.municipality_id", "type": "string"},
-        {"name": "default.municipality_dim.municipality_type_desc", "type": "string"},
-        {"name": "default.municipality_dim.municipality_type_id", "type": "string"},
-        {"name": "default.municipality_dim.state_id", "type": "int"},
-        {"name": "default.repair_order.dispatched_date", "type": "timestamp"},
-        {"name": "default.repair_order.dispatcher_id", "type": "int"},
-        {"name": "default.repair_order.hard_hat_id", "type": "int"},
-        {"name": "default.repair_order.municipality_id", "type": "string"},
-        {"name": "default.repair_order.order_date", "type": "timestamp"},
-        {"name": "default.repair_order.repair_order_id", "type": "int"},
-        {"name": "default.repair_order.required_date", "type": "timestamp"},
-        {"name": "default.repair_order_details.repair_order_id", "type": "int"},
-        {"name": "default.us_state.state_id", "type": "int"},
-        {"name": "default.us_state.state_name", "type": "string"},
-        {"name": "default.us_state.state_region", "type": "int"},
-        {"name": "default.us_state.state_region_description", "type": "string"},
-        {"name": "default.us_state.state_short", "type": "string"},
+        {
+            "name": "default.dispatcher.company_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.dispatcher.company_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.dispatcher.dispatcher_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.dispatcher.dispatcher_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.dispatcher.phone",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.dispatcher.phone",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.address",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.address",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.birth_date",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.hard_hat.birth_date",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.hard_hat.city",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.city",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.contractor_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.hard_hat.contractor_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.hard_hat.country",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.country",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.first_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.first_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.hard_hat_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.hard_hat.hard_hat_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.hard_hat.hire_date",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.hard_hat.hire_date",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.hard_hat.last_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.last_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.manager",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.hard_hat.manager",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.hard_hat.postal_code",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.postal_code",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.state",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.state",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.title",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.title",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.contact_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.contact_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.contact_title",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.contact_title",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.local_region",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.local_region",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.municipality_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.municipality_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.municipality_type_desc",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.municipality_type_desc",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.municipality_type_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.municipality_type_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.state_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.municipality_dim.state_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.dispatched_date",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.repair_order.dispatched_date",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.repair_order.dispatcher_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.dispatcher_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.hard_hat_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.hard_hat_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.municipality_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "string",
+        },
+        {
+            "name": "default.repair_order.municipality_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "string",
+        },
+        {
+            "name": "default.repair_order.order_date",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.repair_order.order_date",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.repair_order.repair_order_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.repair_order_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.required_date",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.repair_order.required_date",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.repair_order_details.repair_order_id",
+            "path": [],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order_details.repair_order_id",
+            "path": [],
+            "type": "int",
+        },
+        {
+            "name": "default.us_state.state_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.us_state.state_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.us_state.state_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.us_state.state_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.us_state.state_region",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.us_state.state_region",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.us_state.state_region_description",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.us_state.state_region_description",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.us_state.state_short",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.us_state.state_short",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "string",
+        },
     ]
 
 
@@ -239,42 +751,460 @@ def test_get_dimensions(client_with_examples: TestClient):
 
     data = response.json()
     assert data["dimensions"] == [
-        {"name": "default.dispatcher.company_name", "type": "string"},
-        {"name": "default.dispatcher.dispatcher_id", "type": "int"},
-        {"name": "default.dispatcher.phone", "type": "string"},
-        {"name": "default.hard_hat.address", "type": "string"},
-        {"name": "default.hard_hat.birth_date", "type": "timestamp"},
-        {"name": "default.hard_hat.city", "type": "string"},
-        {"name": "default.hard_hat.contractor_id", "type": "int"},
-        {"name": "default.hard_hat.country", "type": "string"},
-        {"name": "default.hard_hat.first_name", "type": "string"},
-        {"name": "default.hard_hat.hard_hat_id", "type": "int"},
-        {"name": "default.hard_hat.hire_date", "type": "timestamp"},
-        {"name": "default.hard_hat.last_name", "type": "string"},
-        {"name": "default.hard_hat.manager", "type": "int"},
-        {"name": "default.hard_hat.postal_code", "type": "string"},
-        {"name": "default.hard_hat.state", "type": "string"},
-        {"name": "default.hard_hat.title", "type": "string"},
-        {"name": "default.municipality_dim.contact_name", "type": "string"},
-        {"name": "default.municipality_dim.contact_title", "type": "string"},
-        {"name": "default.municipality_dim.local_region", "type": "string"},
-        {"name": "default.municipality_dim.municipality_id", "type": "string"},
-        {"name": "default.municipality_dim.municipality_type_desc", "type": "string"},
-        {"name": "default.municipality_dim.municipality_type_id", "type": "string"},
-        {"name": "default.municipality_dim.state_id", "type": "int"},
-        {"name": "default.repair_order.dispatched_date", "type": "timestamp"},
-        {"name": "default.repair_order.dispatcher_id", "type": "int"},
-        {"name": "default.repair_order.hard_hat_id", "type": "int"},
-        {"name": "default.repair_order.municipality_id", "type": "string"},
-        {"name": "default.repair_order.order_date", "type": "timestamp"},
-        {"name": "default.repair_order.repair_order_id", "type": "int"},
-        {"name": "default.repair_order.required_date", "type": "timestamp"},
-        {"name": "default.repair_order_details.repair_order_id", "type": "int"},
-        {"name": "default.us_state.state_id", "type": "int"},
-        {"name": "default.us_state.state_name", "type": "string"},
-        {"name": "default.us_state.state_region", "type": "int"},
-        {"name": "default.us_state.state_region_description", "type": "string"},
-        {"name": "default.us_state.state_short", "type": "string"},
+        {
+            "name": "default.dispatcher.company_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.dispatcher.dispatcher_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.dispatcher.phone",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.address",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.birth_date",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.hard_hat.city",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.contractor_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.hard_hat.country",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.first_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.hard_hat_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.hard_hat.hire_date",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.hard_hat.last_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.manager",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.hard_hat.postal_code",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.state",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.hard_hat.title",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.contact_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.contact_title",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.local_region",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.municipality_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.municipality_type_desc",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.municipality_type_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.municipality_dim.state_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.dispatched_date",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.repair_order.dispatcher_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.hard_hat_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.municipality_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "string",
+        },
+        {
+            "name": "default.repair_order.order_date",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.repair_order.repair_order_id",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "int",
+        },
+        {
+            "name": "default.repair_order.required_date",
+            "path": ["default.repair_order_details.repair_order_id"],
+            "type": "timestamp",
+        },
+        {
+            "name": "default.repair_order_details.repair_order_id",
+            "path": [],
+            "type": "int",
+        },
+        {
+            "name": "default.us_state.state_id",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.us_state.state_name",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.us_state.state_region",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.us_state.state_region_description",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "string",
+        },
+        {
+            "name": "default.us_state.state_short",
+            "path": [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+            "type": "string",
+        },
+    ]
+
+
+def test_get_multi_link_dimensions(
+    client_with_examples: TestClient,
+):
+    """
+    In some cases, the same dimension may be linked to different columns on a node.
+    The returned dimension attributes should the join path between the given dimension
+    attribute and the original node, in order to help disambiguate the source of the dimension.
+    """
+    response = client_with_examples.get("/metrics/default.avg_user_age/")
+    assert response.json()["dimensions"] == [
+        {
+            "name": "default.date_dim.dateint",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.dateint",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.dateint",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.dateint",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.day",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.day",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.day",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.day",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.month",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.month",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.month",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.month",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.year",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.year",
+            "path": [
+                "default.user_dim.birth_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.year",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.formation_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.date_dim.year",
+            "path": [
+                "default.user_dim.residence_country",
+                "default.special_country_dim.last_election_date",
+            ],
+            "type": "int",
+        },
+        {
+            "name": "default.special_country_dim.country_code",
+            "path": ["default.user_dim.birth_country"],
+            "type": "string",
+        },
+        {
+            "name": "default.special_country_dim.country_code",
+            "path": ["default.user_dim.residence_country"],
+            "type": "string",
+        },
+        {
+            "name": "default.special_country_dim.formation_date",
+            "path": ["default.user_dim.birth_country"],
+            "type": "int",
+        },
+        {
+            "name": "default.special_country_dim.formation_date",
+            "path": ["default.user_dim.residence_country"],
+            "type": "int",
+        },
+        {
+            "name": "default.special_country_dim.last_election_date",
+            "path": ["default.user_dim.birth_country"],
+            "type": "int",
+        },
+        {
+            "name": "default.special_country_dim.last_election_date",
+            "path": ["default.user_dim.residence_country"],
+            "type": "int",
+        },
+        {
+            "name": "default.special_country_dim.name",
+            "path": ["default.user_dim.birth_country"],
+            "type": "string",
+        },
+        {
+            "name": "default.special_country_dim.name",
+            "path": ["default.user_dim.residence_country"],
+            "type": "string",
+        },
+        {"name": "default.user_dim.age", "path": [], "type": "int"},
+        {"name": "default.user_dim.birth_country", "path": [], "type": "string"},
+        {"name": "default.user_dim.residence_country", "path": [], "type": "string"},
+        {"name": "default.user_dim.user_id", "path": [], "type": "int"},
     ]
 
 
