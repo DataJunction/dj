@@ -2,6 +2,7 @@
 DAG related functions.
 """
 import collections
+import itertools
 from typing import Deque, List, Set, Tuple
 
 from datajunction_server.models import Column
@@ -78,9 +79,24 @@ def get_shared_dimensions(
     """
     Return a list of dimensions that are common between the nodes.
     """
-    common = {dim.name: dim for dim in get_dimensions(metric_nodes[0])}
+    common = {
+        k: list(v)
+        for k, v in itertools.groupby(
+            get_dimensions(metric_nodes[0]),
+            key=lambda dim: dim.name,
+        )
+    }
     for node in set(metric_nodes[1:]):
-        node_dimensions = {dim.name: dim for dim in get_dimensions(node)}
-        common_dim_keys = common.keys() & node_dimensions.keys()
-        common = {dim: node_dimensions[dim] for dim in common_dim_keys}
-    return sorted(common.values(), key=lambda x: (x.name, x.path))
+        node_dimensions = {
+            k: list(v)
+            for k, v in itertools.groupby(
+                get_dimensions(node),
+                key=lambda dim: dim.name,
+            )
+        }
+        common_dim_keys = common.keys() & list(node_dimensions.keys())
+        common = {dim: common[dim] + node_dimensions[dim] for dim in common_dim_keys}
+    return sorted(
+        [y for x in common.values() for y in x],
+        key=lambda x: (x.name, x.path),
+    )

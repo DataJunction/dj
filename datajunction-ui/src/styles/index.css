@@ -448,6 +448,22 @@ tbody th {
   margin: 0.25rem;
 }
 
+.dimension_option {
+  border: solid #5c3b8f 0.025em;
+  color: #5c3b8f;
+  background-color: #5c3b8f25;
+  margin: 0.25rem;
+  font-size: 16px;
+}
+
+.dimension_option_subheading {
+  background-color: #ffffff !important;
+  color: #580076;
+  padding: 0.4rem;
+  margin: 0.4rem;
+  font-size: 12px;
+}
+
 .upstreams {
   width: 260px;
   display: flex;

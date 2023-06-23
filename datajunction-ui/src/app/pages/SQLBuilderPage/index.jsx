@@ -109,7 +109,8 @@ export function SQLBuilderPage() {
         setCommonDimensionsList(
           commonDimensions.map(d => ({
             value: d.name,
-            label: d.name + ' ↔ ' + d.link,
+            label: d.name,
+            path: d.path.join(' ▶ '),
           })),
         );
       } else {
@@ -148,6 +149,12 @@ export function SQLBuilderPage() {
       );
     }
   }, [showNumRows, data]);
+  const formatOptionLabel = ({ value, label, path }) => (
+    <div className={`badge dimension_option`}>
+      <div>{label}</div>
+      <span className={`badge dimension_option_subheading`}>{path}</span>
+    </div>
+  );
 
   // @ts-ignore
   return (
@@ -171,6 +178,7 @@ export function SQLBuilderPage() {
             <h4>Shared Dimensions</h4>
             <Select
               name="dimensions"
+              formatOptionLabel={formatOptionLabel}
               options={commonDimensionsList}
               noOptionsMessage={() =>
                 'No shared dimensions found. Try selecting different metrics.'
