@@ -12,8 +12,6 @@ services:
   dj:
     container_name: dj
     stdin_open: true
-    env_file:
-      - ./datajunction-server/.docker-env/.env
     tty: true
     networks:
       - core
@@ -35,8 +33,6 @@ services:
 
   db_migration:
     container_name: db_migration
-    env_file:
-      - ./datajunction-server/.docker-env/.env
     networks:
       - core
     build:
