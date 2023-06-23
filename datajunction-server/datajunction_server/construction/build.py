@@ -302,6 +302,7 @@ def _build_tables_on_select(
             select.replace(
                 tbl,
                 node_ast,
+                copy=False,
             )
 
 
