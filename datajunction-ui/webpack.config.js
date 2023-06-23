@@ -1,8 +1,8 @@
 const webpack = require('webpack');
-const dotenv = require('dotenv').config()
+const dotenv = require('dotenv').config();
 const path = require('path');
 const HtmlWebpackPlugin = require('html-webpack-plugin');
-require('dotenv').config({ path: './.env' }); 
+require('dotenv').config({ path: './.env' });
 
 var babelOptions = {
   presets: ['@babel/preset-react'],
@@ -101,7 +101,7 @@ module.exports = {
       template: path.resolve(__dirname, 'public', 'index.html'),
     }),
     new webpack.DefinePlugin({
-      "process.env": JSON.stringify(process.env)
+      'process.env': JSON.stringify(process.env),
     }),
   ],
 };

@@ -493,7 +493,14 @@ class TestDJClient:
         """
         metric = client.metric(node_name="foo.bar.avg_repair_price")
         result = metric.dimensions()
-        assert {"name": "foo.bar.dispatcher.company_name", "type": "string"} in result
+        assert {
+            "name": "foo.bar.dispatcher.company_name",
+            "type": "string",
+            "path": [
+                "foo.bar.repair_order_details.repair_order_id",
+                "foo.bar.repair_order.dispatcher_id",
+            ],
+        } in result
 
     def test_failure_modes(self, client):
         """
