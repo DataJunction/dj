@@ -85,7 +85,7 @@ export function DJNode({ id, data }) {
       <tr>
         <a href={`/nodes/${dim.name.substring(0, dim.name.lastIndexOf('.'))}`}>
           <td>
-            {dim.name} &#8596; {dim.link}
+            {dim.name} &#8596; {dim.path.slice(-1)}
           </td>
         </a>
       </tr>
