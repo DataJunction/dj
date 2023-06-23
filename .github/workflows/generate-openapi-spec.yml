@@ -19,13 +19,24 @@ jobs:
         with:
           python-version: "3.10"
 
+      - name: Set up Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: 19
+
       - name: Install DJ
         run: |
           python -m pip install --upgrade pip
           pip install .
 
       - name: Generate OpenAPI Spec
-        run: ./scripts/generate-openapi.py -o openapi.json
+        run: |
+          ./scripts/generate-openapi.py -o ../openapi.json
+
+      - name: Generate Markdown Docs from Spec
+        run: |
+          npm install -g widdershins
+          widdershins ../openapi.json -o ../docs/content/0.1.0/docs/developers/the-datajunction-api-specification.md --code=true --omitBody=true --summary=true
 
       - name: Configure Git
         run: |
@@ -38,7 +49,8 @@ jobs:
 
       - name: Commit OpenAPI Spec
         run: |
-          git add openapi.json
+          git add ../openapi.json
+          git add ../docs/content/0.1.0/docs/developers/the-datajunction-api-specification.md
           git commit -m "Updating OpenAPI Spec"
           git checkout -b ci-pr/python-client-${{ steps.sha.outputs.short_sha }}
           git push --set-upstream origin ci-pr/python-client-${{ steps.sha.outputs.short_sha }}
