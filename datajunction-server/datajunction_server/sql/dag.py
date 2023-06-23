@@ -2,7 +2,7 @@
 DAG related functions.
 """
 import collections
-from typing import Deque, List, Optional, Set, Tuple
+from typing import Deque, List, Set, Tuple
 
 from datajunction_server.models import Column
 from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
@@ -18,18 +18,19 @@ def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
     dimensions = []
 
     # Start with the node itself or the node's immediate parent if it's a metric node
-    node_starting_state = (node, None)
-    immediate_parent_starting_state = [
-        (parent, None)
+    StateTrackingType = Tuple[Node, List[Column]]
+    node_starting_state: StateTrackingType = (node, [])
+    immediate_parent_starting_state: List[StateTrackingType] = [
+        (parent, [])
         for parent in (node.current.parents if node.type == NodeType.METRIC else [])
     ]
-    to_process: Deque[Tuple[Node, Optional[Column]]] = collections.deque(
+    to_process: Deque[StateTrackingType] = collections.deque(
         [node_starting_state, *immediate_parent_starting_state],
     )
     processed: Set[Node] = set()
 
     while to_process:
-        current_node, link_column = to_process.popleft()
+        current_node, join_path = to_process.popleft()
 
         # Don't include attributes from deactivated dimensions
         if current_node.deactivated_at:
@@ -47,20 +48,27 @@ def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
                 )
                 or column.dimension
             ):
-                link_col = (
-                    link_column.name
+                join_path_str = [
+                    (
+                        (
+                            link_column.node_revisions[0].name + "."
+                            if link_column.node_revisions
+                            else ""
+                        )
+                        + link_column.name
+                    )
+                    for link_column in join_path
                     if link_column is not None and link_column.dimension
-                    else ""
-                )
+                ]
                 dimensions.append(
                     DimensionAttributeOutput(
                         name=f"{current_node.name}.{column.name}",
                         type=column.type,
-                        path=link_col,
+                        path=join_path_str,
                     ),
                 )
             if column.dimension and column.dimension not in processed:
-                to_process.append((column.dimension, column))
+                to_process.append((column.dimension, join_path + [column]))
     return sorted(dimensions, key=lambda x: x.name)
 
 
@@ -70,9 +78,9 @@ def get_shared_dimensions(
     """
     Return a list of dimensions that are common between the nodes.
     """
-    common = {(dim.name, dim.path): dim for dim in get_dimensions(metric_nodes[0])}
+    common = {dim.name: dim for dim in get_dimensions(metric_nodes[0])}
     for node in set(metric_nodes[1:]):
-        node_dimensions = {(dim.name, dim.path): dim for dim in get_dimensions(node)}
+        node_dimensions = {dim.name: dim for dim in get_dimensions(node)}
         common_dim_keys = common.keys() & node_dimensions.keys()
         common = {dim: node_dimensions[dim] for dim in common_dim_keys}
     return sorted(common.values(), key=lambda x: (x.name, x.path))

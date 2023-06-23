@@ -819,7 +819,7 @@ class DimensionAttributeOutput(SQLModel):
 
     name: str
     type: ColumnType
-    path: Optional[str]
+    path: List[str]
 
     @root_validator
     def type_string(cls, values):  # pylint: disable=no-self-argument

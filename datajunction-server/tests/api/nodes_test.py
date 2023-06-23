@@ -563,31 +563,51 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert response.json()["dimensions"] == [
-            {"name": "default.messages.user_id", "type": "int", "path": ""},
-            {"name": "default.us_users.age", "type": "int", "path": "user_id"},
-            {"name": "default.us_users.country", "type": "string", "path": "user_id"},
+            {"name": "default.messages.user_id", "path": [], "type": "int"},
+            {
+                "name": "default.us_users.age",
+                "path": ["default.messages.user_id"],
+                "type": "int",
+            },
+            {
+                "name": "default.us_users.country",
+                "path": ["default.messages.user_id"],
+                "type": "string",
+            },
             {
                 "name": "default.us_users.created_at",
+                "path": ["default.messages.user_id"],
                 "type": "timestamp",
-                "path": "user_id",
             },
-            {"name": "default.us_users.full_name", "type": "string", "path": "user_id"},
-            {"name": "default.us_users.gender", "type": "string", "path": "user_id"},
-            {"name": "default.us_users.id", "type": "int", "path": "user_id"},
+            {
+                "name": "default.us_users.full_name",
+                "path": ["default.messages.user_id"],
+                "type": "string",
+            },
+            {
+                "name": "default.us_users.gender",
+                "path": ["default.messages.user_id"],
+                "type": "string",
+            },
+            {
+                "name": "default.us_users.id",
+                "path": ["default.messages.user_id"],
+                "type": "int",
+            },
             {
                 "name": "default.us_users.post_processing_timestamp",
+                "path": ["default.messages.user_id"],
                 "type": "timestamp",
-                "path": "user_id",
             },
             {
                 "name": "default.us_users.preferred_language",
+                "path": ["default.messages.user_id"],
                 "type": "string",
-                "path": "user_id",
             },
             {
                 "name": "default.us_users.secret_number",
+                "path": ["default.messages.user_id"],
                 "type": "float",
-                "path": "user_id",
             },
         ]
         # Deactivate the dimension node
@@ -601,7 +621,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert [
-            {"path": "", "name": "default.messages.user_id", "type": "int"},
+            {"path": [], "name": "default.messages.user_id", "type": "int"},
         ] == response.json()["dimensions"]
         # The metric should still be VALID
         response = client.get("/nodes/default.num_messages/")
@@ -616,30 +636,50 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert response.json()["dimensions"] == [
-            {"path": "", "name": "default.messages.user_id", "type": "int"},
-            {"path": "user_id", "name": "default.us_users.age", "type": "int"},
-            {"path": "user_id", "name": "default.us_users.country", "type": "string"},
+            {"name": "default.messages.user_id", "path": [], "type": "int"},
             {
-                "path": "user_id",
-                "name": "default.us_users.created_at",
-                "type": "timestamp",
-            },
-            {"path": "user_id", "name": "default.us_users.full_name", "type": "string"},
-            {"path": "user_id", "name": "default.us_users.gender", "type": "string"},
-            {"path": "user_id", "name": "default.us_users.id", "type": "int"},
-            {
-                "path": "user_id",
-                "name": "default.us_users.post_processing_timestamp",
-                "type": "timestamp",
+                "name": "default.us_users.age",
+                "path": ["default.messages.user_id"],
+                "type": "int",
             },
             {
-                "path": "user_id",
-                "name": "default.us_users.preferred_language",
+                "name": "default.us_users.country",
+                "path": ["default.messages.user_id"],
                 "type": "string",
             },
             {
-                "path": "user_id",
+                "name": "default.us_users.created_at",
+                "path": ["default.messages.user_id"],
+                "type": "timestamp",
+            },
+            {
+                "name": "default.us_users.full_name",
+                "path": ["default.messages.user_id"],
+                "type": "string",
+            },
+            {
+                "name": "default.us_users.gender",
+                "path": ["default.messages.user_id"],
+                "type": "string",
+            },
+            {
+                "name": "default.us_users.id",
+                "path": ["default.messages.user_id"],
+                "type": "int",
+            },
+            {
+                "name": "default.us_users.post_processing_timestamp",
+                "path": ["default.messages.user_id"],
+                "type": "timestamp",
+            },
+            {
+                "name": "default.us_users.preferred_language",
+                "path": ["default.messages.user_id"],
+                "type": "string",
+            },
+            {
                 "name": "default.us_users.secret_number",
+                "path": ["default.messages.user_id"],
                 "type": "float",
             },
         ]

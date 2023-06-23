@@ -267,40 +267,6 @@ EXAMPLES = (  # type: ignore
         },
     ),
     (
-        "/nodes/source/",
-        {
-            "columns": [
-                {"name": "dateint", "type": "timestamp"},
-                {"name": "month", "type": "int"},
-                {"name": "year", "type": "int"},
-                {"name": "day", "type": "int"},
-            ],
-            "description": "Date table",
-            "mode": "published",
-            "name": "default.date",
-            "catalog": "default",
-            "schema_": "datetime",
-            "table": "date",
-        },
-    ),
-    (
-        "/nodes/dimension/",
-        {
-            "description": "Date dimension",
-            "query": """
-                SELECT
-                    dateint,
-                    month,
-                    year,
-                    day
-                FROM default.date
-            """,
-            "mode": "published",
-            "name": "default.date_dim",
-            "primary_key": ["dateint"],
-        },
-    ),
-    (
         "/nodes/dimension/",
         {
             "description": "Repair order dimension",
@@ -1705,6 +1671,141 @@ EXAMPLES = (  # type: ignore
             "mode": "published",
             "name": "basic.avg_luminosity_patches",
         },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "columns": [
+                {"name": "dateint", "type": "int"},
+                {"name": "month", "type": "int"},
+                {"name": "year", "type": "int"},
+                {"name": "day", "type": "int"},
+            ],
+            "description": "Date table",
+            "mode": "published",
+            "name": "default.date",
+            "catalog": "default",
+            "schema_": "examples",
+            "table": "date",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "columns": [
+                {"name": "country_code", "type": "string"},
+                {"name": "name", "type": "string"},
+                {"name": "formation_date", "type": "int"},
+                {"name": "last_election_date", "type": "int"},
+            ],
+            "description": "Countries table",
+            "mode": "published",
+            "name": "default.countries",
+            "catalog": "default",
+            "schema_": "examples",
+            "table": "countries",
+        },
+    ),
+    (
+        "/nodes/source/",
+        {
+            "columns": [
+                {"name": "user_id", "type": "int"},
+                {"name": "birth_country", "type": "string"},
+                {"name": "residence_country", "type": "string"},
+                {"name": "age", "type": "int"},
+            ],
+            "description": "Users table",
+            "mode": "published",
+            "name": "default.users",
+            "catalog": "default",
+            "schema_": "examples",
+            "table": "users",
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "description": "Date dimension",
+            "query": """
+            SELECT
+                dateint,
+                month,
+                year,
+                day
+            FROM default.date
+        """,
+            "mode": "published",
+            "name": "default.date_dim",
+            "primary_key": ["dateint"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "description": "Country dimension",
+            "query": """
+            SELECT
+                country_code,
+                name,
+                formation_date,
+                last_election_date
+            FROM default.countries
+        """,
+            "mode": "published",
+            "name": "default.special_country_dim",
+            "primary_key": ["country_code"],
+        },
+    ),
+    (
+        "/nodes/dimension/",
+        {
+            "description": "User dimension",
+            "query": """
+            SELECT
+                user_id,
+                birth_country,
+                residence_country,
+                age
+            FROM default.users
+            """,
+            "mode": "published",
+            "name": "default.user_dim",
+            "primary_key": ["user_id"],
+        },
+    ),
+    (
+        "/nodes/metric/",
+        {
+            "description": "Average User Age",
+            "query": """
+            SELECT
+              AVG(age)
+            FROM default.user_dim
+            """,
+            "mode": "published",
+            "name": "default.avg_user_age",
+        },
+    ),
+    (
+        "/nodes/default.user_dim/columns/birth_country/"
+        "?dimension=default.special_country_dim&dimension_column=country_code",
+        {},
+    ),
+    (
+        "/nodes/default.user_dim/columns/residence_country/"
+        "?dimension=default.special_country_dim&dimension_column=country_code",
+        {},
+    ),
+    (
+        "/nodes/default.special_country_dim/columns/formation_date/"
+        "?dimension=default.date_dim&dimension_column=dateint",
+        {},
+    ),
+    (
+        "/nodes/default.special_country_dim/columns/last_election_date/"
+        "?dimension=default.date_dim&dimension_column=dateint",
+        {},
     ),
 )
 
