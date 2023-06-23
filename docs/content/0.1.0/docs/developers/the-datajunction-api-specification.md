@@ -1,10 +1,33 @@
 ---
-weight: 11
+title: DJ server v0.0.1a15
+language_tabs:
+  - shell: Shell
+  - http: HTTP
+  - javascript: JavaScript
+  - ruby: Ruby
+  - python: Python
+  - php: PHP
+  - java: Java
+  - go: Go
+toc_footers: []
+includes: []
+search: true
+highlight_theme: darkula
+headingLevel: 2
+
 ---
 
-# The DataJunction API Specification
+<!-- Generator: Widdershins v4.0.1 -->
+
+<h1 id="dj-server">DJ server v0.0.1a15</h1>
+
+> Scroll down for code samples, example requests and responses. Select a language for code samples from the tabs above or the mobile navigation menu.
+
+A simple DJ server running in Docker
 
 License: <a href="https://mit-license.org/">MIT License</a>
+
+<h1 id="dj-server-default">Default</h1>
 
 ## List Catalogs
 
@@ -404,7 +427,13 @@ Return a metric by name.
   "updated_at": "2019-08-24T14:15:22Z",
   "query": "string",
   "dimensions": [
-    "string"
+    {
+      "name": "string",
+      "type": {},
+      "path": [
+        "string"
+      ]
+    }
   ]
 }
 ```
@@ -440,7 +469,13 @@ Return common dimensions for a set of metrics.
 
 ```json
 [
-  "string"
+  {
+    "name": "string",
+    "type": {},
+    "path": [
+      "string"
+    ]
+  }
 ]
 ```
 
@@ -459,7 +494,11 @@ Status Code **200**
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|Response Get Common Dimensions Metrics Common Dimensions  Get|[string]|false|none|none|
+|Response Get Common Dimensions Metrics Common Dimensions  Get|[[DimensionAttributeOutput](#schemadimensionattributeoutput)]|false|none|[Dimension attribute output should include the name and type]|
+|» DimensionAttributeOutput|[DimensionAttributeOutput](#schemadimensionattributeoutput)|false|none|Dimension attribute output should include the name and type|
+|»» name|string|true|none|none|
+|»» type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
+|»» path|[string]|true|none|none|
 
 <aside class="success">
 This operation does not require authentication
@@ -578,16 +617,15 @@ Validate a node.
       "description": "",
       "query": "string",
       "availability": {
+        "min_temporal_partition": [],
+        "max_temporal_partition": [],
         "catalog": "string",
         "schema_": "string",
         "table": "string",
         "valid_through_ts": 0,
-        "max_partition": [
-          "string"
-        ],
-        "min_partition": [
-          "string"
-        ],
+        "categorical_partitions": [],
+        "temporal_partitions": [],
+        "partitions": [],
         "id": 0,
         "updated_at": "2019-08-24T14:15:22Z"
       },
@@ -609,8 +647,9 @@ Validate a node.
         }
       ],
       "updated_at": "2019-08-24T14:15:22Z",
-      "materialization_configs": [
+      "materializations": [
         {
+          "name": "string",
           "engine": {
             "name": "string",
             "version": "string",
@@ -618,7 +657,8 @@ Validate a node.
             "dialect": "spark"
           },
           "config": {},
-          "schedule": "string"
+          "schedule": "string",
+          "job": "string"
         }
       ],
       "parents": [
@@ -770,16 +810,15 @@ List the available nodes.
       "description": "",
       "query": "string",
       "availability": {
+        "min_temporal_partition": [],
+        "max_temporal_partition": [],
         "catalog": "string",
         "schema_": "string",
         "table": "string",
         "valid_through_ts": 0,
-        "max_partition": [
-          "string"
-        ],
-        "min_partition": [
-          "string"
-        ],
+        "categorical_partitions": [],
+        "temporal_partitions": [],
+        "partitions": [],
         "id": 0,
         "updated_at": "2019-08-24T14:15:22Z"
       },
@@ -801,8 +840,9 @@ List the available nodes.
         }
       ],
       "updated_at": "2019-08-24T14:15:22Z",
-      "materialization_configs": [
+      "materializations": [
         {
+          "name": "string",
           "engine": {
             "name": "string",
             "version": "string",
@@ -810,7 +850,8 @@ List the available nodes.
             "dialect": "spark"
           },
           "config": {},
-          "schedule": "string"
+          "schedule": "string",
+          "job": "string"
         }
       ],
       "parents": [
@@ -863,12 +904,20 @@ Status Code **200**
 |»»» description|string|false|none|none|
 |»»» query|string|false|none|none|
 |»»» availability|[AvailabilityState](#schemaavailabilitystate)|false|none|The availability of materialized data for a node|
+|»»»» min_temporal_partition|[string]|false|none|none|
+|»»»» max_temporal_partition|[string]|false|none|none|
 |»»»» catalog|string|true|none|none|
 |»»»» schema_|string|false|none|none|
 |»»»» table|string|true|none|none|
 |»»»» valid_through_ts|integer|true|none|none|
-|»»»» max_partition|[string]|true|none|none|
-|»»»» min_partition|[string]|true|none|none|
+|»»»» categorical_partitions|[string]|false|none|none|
+|»»»» temporal_partitions|[string]|false|none|none|
+|»»»» partitions|[[PartitionAvailability](#schemapartitionavailability)]|false|none|[Partition-level availability]|
+|»»»»» PartitionAvailability|[PartitionAvailability](#schemapartitionavailability)|false|none|Partition-level availability|
+|»»»»»» min_temporal_partition|[string]|false|none|none|
+|»»»»»» max_temporal_partition|[string]|false|none|none|
+|»»»»»» value|[string]|true|none|none|
+|»»»»»» valid_through_ts|integer|false|none|none|
 |»»»» id|integer|false|none|none|
 |»»»» updated_at|string(date-time)|false|none|none|
 |»»» columns|[[ColumnOutput](#schemacolumnoutput)]|true|none|[A simplified column schema, without ID or dimensions.]|
@@ -883,8 +932,9 @@ Status Code **200**
 |»»»»» dimension|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 |»»»»»» name|string|true|none|none|
 |»»» updated_at|string(date-time)|true|none|none|
-|»»» materialization_configs|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
+|»»» materializations|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
 |»»»» MaterializationConfigOutput|[MaterializationConfigOutput](#schemamaterializationconfigoutput)|false|none|Output for materialization config.|
+|»»»»» name|string|false|none|none|
 |»»»»» engine|[EngineInfo](#schemaengineinfo)|true|none|Class for engine creation|
 |»»»»»» name|string|true|none|none|
 |»»»»»» version|string|true|none|none|
@@ -892,6 +942,7 @@ Status Code **200**
 |»»»»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
 |»»»»» config|object|true|none|none|
 |»»»»» schedule|string|true|none|none|
+|»»»»» job|string|true|none|none|
 |»»» parents|[[NodeNameOutput](#schemanodenameoutput)]|true|none|[Node name only]|
 |»»»» NodeNameOutput|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 |»» created_at|string(date-time)|true|none|none|
@@ -968,16 +1019,15 @@ Show the active version of the specified node.
     "description": "",
     "query": "string",
     "availability": {
+      "min_temporal_partition": [],
+      "max_temporal_partition": [],
       "catalog": "string",
       "schema_": "string",
       "table": "string",
       "valid_through_ts": 0,
-      "max_partition": [
-        "string"
-      ],
-      "min_partition": [
-        "string"
-      ],
+      "categorical_partitions": [],
+      "temporal_partitions": [],
+      "partitions": [],
       "id": 0,
       "updated_at": "2019-08-24T14:15:22Z"
     },
@@ -999,8 +1049,9 @@ Show the active version of the specified node.
       }
     ],
     "updated_at": "2019-08-24T14:15:22Z",
-    "materialization_configs": [
+    "materializations": [
       {
+        "name": "string",
         "engine": {
           "name": "string",
           "version": "string",
@@ -1008,7 +1059,8 @@ Show the active version of the specified node.
           "dialect": "spark"
         },
         "config": {},
-        "schedule": "string"
+        "schedule": "string",
+        "job": "string"
       }
     ],
     "parents": [
@@ -1027,49 +1079,6 @@ Show the active version of the specified node.
 |Status|Meaning|Description|Schema|
 |---|---|---|---|
 |200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Successful Response|[NodeOutput](#schemanodeoutput)|
-|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
-
-<aside class="success">
-This operation does not require authentication
-</aside>
-
-## Delete A Node
-
-<a id="opIddelete_a_node_nodes__name___delete"></a>
-
-`DELETE /nodes/{name}/`
-
-Delete the specified node.
-
-<h3 id="delete-a-node-parameters">Parameters</h3>
-
-|Name|In|Type|Required|Description|
-|---|---|---|---|---|
-|name|path|string|true|none|
-
-> Example responses
-
-> 422 Response
-
-```json
-{
-  "detail": [
-    {
-      "loc": [
-        "string"
-      ],
-      "msg": "string",
-      "type": "string"
-    }
-  ]
-}
-```
-
-<h3 id="delete-a-node-responses">Responses</h3>
-
-|Status|Meaning|Description|Schema|
-|---|---|---|---|
-|204|[No Content](https://tools.ietf.org/html/rfc7231#section-6.3.5)|Successful Response|None|
 |422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
 
 <aside class="success">
@@ -1152,16 +1161,15 @@ Update a node.
     "description": "",
     "query": "string",
     "availability": {
+      "min_temporal_partition": [],
+      "max_temporal_partition": [],
       "catalog": "string",
       "schema_": "string",
       "table": "string",
       "valid_through_ts": 0,
-      "max_partition": [
-        "string"
-      ],
-      "min_partition": [
-        "string"
-      ],
+      "categorical_partitions": [],
+      "temporal_partitions": [],
+      "partitions": [],
       "id": 0,
       "updated_at": "2019-08-24T14:15:22Z"
     },
@@ -1183,8 +1191,9 @@ Update a node.
       }
     ],
     "updated_at": "2019-08-24T14:15:22Z",
-    "materialization_configs": [
+    "materializations": [
       {
+        "name": "string",
         "engine": {
           "name": "string",
           "version": "string",
@@ -1192,7 +1201,8 @@ Update a node.
           "dialect": "spark"
         },
         "config": {},
-        "schedule": "string"
+        "schedule": "string",
+        "job": "string"
       }
     ],
     "parents": [
@@ -1217,31 +1227,19 @@ Update a node.
 This operation does not require authentication
 </aside>
 
-## Upsert A Materialization Config
+## Deactivate A Node
 
-<a id="opIdupsert_a_materialization_config_nodes__name__materialization__post"></a>
+<a id="opIddeactivate_a_node_nodes__name__deactivate__post"></a>
 
-`POST /nodes/{name}/materialization/`
+`POST /nodes/{name}/deactivate/`
 
-Update materialization config of the specified node.
+Deactivate the specified node.
 
-> Body parameter
-
-```json
-{
-  "engine_name": "string",
-  "engine_version": "string",
-  "config": {},
-  "schedule": "string"
-}
-```
-
-<h3 id="upsert-a-materialization-config-parameters">Parameters</h3>
+<h3 id="deactivate-a-node-parameters">Parameters</h3>
 
 |Name|In|Type|Required|Description|
 |---|---|---|---|---|
 |name|path|string|true|none|
-|body|body|[UpsertMaterializationConfig](#schemaupsertmaterializationconfig)|true|none|
 
 > Example responses
 
@@ -1251,14 +1249,229 @@ Update materialization config of the specified node.
 null
 ```
 
-<h3 id="upsert-a-materialization-config-responses">Responses</h3>
+<h3 id="deactivate-a-node-responses">Responses</h3>
 
 |Status|Meaning|Description|Schema|
 |---|---|---|---|
 |201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Successful Response|Inline|
 |422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
 
-<h3 id="upsert-a-materialization-config-responseschema">Response Schema</h3>
+<h3 id="deactivate-a-node-responseschema">Response Schema</h3>
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
+## Activate A Node
+
+<a id="opIdactivate_a_node_nodes__name__activate__post"></a>
+
+`POST /nodes/{name}/activate/`
+
+Activate the specified node.
+
+<h3 id="activate-a-node-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|name|path|string|true|none|
+
+> Example responses
+
+> 201 Response
+
+```json
+null
+```
+
+<h3 id="activate-a-node-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Successful Response|Inline|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
+
+<h3 id="activate-a-node-responseschema">Response Schema</h3>
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
+## Upsert A Materialization
+
+<a id="opIdupsert_a_materialization_nodes__name__materialization__post"></a>
+
+`POST /nodes/{name}/materialization/`
+
+Add or update a materialization of the specified node. If a name is specified
+for the materialization config, it will always update that named config.
+
+> Body parameter
+
+```json
+{
+  "name": "string",
+  "engine": {
+    "name": "string",
+    "version": "string"
+  },
+  "config": {
+    "partitions": [
+      {
+        "name": "string",
+        "values": [
+          null
+        ],
+        "range": [
+          null
+        ],
+        "expression": "string",
+        "type_": "temporal"
+      }
+    ],
+    "spark": {
+      "property1": "string",
+      "property2": "string"
+    },
+    "dimensions": [
+      "string"
+    ],
+    "measures": {
+      "property1": [
+        {
+          "property1": "string",
+          "property2": "string"
+        }
+      ],
+      "property2": [
+        {
+          "property1": "string",
+          "property2": "string"
+        }
+      ]
+    },
+    "prefix": "",
+    "suffix": "",
+    "druid": {
+      "granularity": "string",
+      "intervals": [
+        "string"
+      ],
+      "timestamp_column": "string",
+      "timestamp_format": "string",
+      "parse_spec_format": "string"
+    }
+  },
+  "schedule": "string"
+}
+```
+
+<h3 id="upsert-a-materialization-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|name|path|string|true|none|
+|body|body|[UpsertMaterialization](#schemaupsertmaterialization)|true|none|
+
+> Example responses
+
+> 201 Response
+
+```json
+null
+```
+
+<h3 id="upsert-a-materialization-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|201|[Created](https://tools.ietf.org/html/rfc7231#section-6.3.2)|Successful Response|Inline|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
+
+<h3 id="upsert-a-materialization-responseschema">Response Schema</h3>
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
+## List Node Materializations
+
+<a id="opIdlist_node_materializations_nodes__node_name__materializations__get"></a>
+
+`GET /nodes/{node_name}/materializations/`
+
+Show all materializations configured for the node, with any associated metadata
+like urls from the materialization service, if available.
+
+<h3 id="list-node-materializations-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|node_name|path|string|true|none|
+
+> Example responses
+
+> 200 Response
+
+```json
+[
+  {
+    "name": "string",
+    "engine": {
+      "name": "string",
+      "version": "string",
+      "uri": "string",
+      "dialect": "spark"
+    },
+    "config": {},
+    "schedule": "string",
+    "job": "string",
+    "output_tables": [
+      "string"
+    ],
+    "urls": [
+      "http://example.com"
+    ]
+  }
+]
+```
+
+<h3 id="list-node-materializations-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Successful Response|Inline|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
+
+<h3 id="list-node-materializations-responseschema">Response Schema</h3>
+
+Status Code **200**
+
+*Response List Node Materializations Nodes  Node Name  Materializations  Get*
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|Response List Node Materializations Nodes  Node Name  Materializations  Get|[[MaterializationConfigInfoUnified](#schemamaterializationconfiginfounified)]|false|none|[Materialization config + info]|
+|» MaterializationConfigInfoUnified|[MaterializationConfigInfoUnified](#schemamaterializationconfiginfounified)|false|none|Materialization config + info|
+|»» name|string|false|none|none|
+|»» engine|[EngineInfo](#schemaengineinfo)|true|none|Class for engine creation|
+|»»» name|string|true|none|none|
+|»»» version|string|true|none|none|
+|»»» uri|string|false|none|none|
+|»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
+|»» config|object|true|none|none|
+|»» schedule|string|true|none|none|
+|»» job|string|true|none|none|
+|»» output_tables|[string]|true|none|none|
+|»» urls|[string]|true|none|none|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|dialect|spark|
+|dialect|trino|
+|dialect|druid|
 
 <aside class="success">
 This operation does not require authentication
@@ -1306,16 +1519,15 @@ List all revisions for the node.
     "description": "",
     "query": "string",
     "availability": {
+      "min_temporal_partition": [],
+      "max_temporal_partition": [],
       "catalog": "string",
       "schema_": "string",
       "table": "string",
       "valid_through_ts": 0,
-      "max_partition": [
-        "string"
-      ],
-      "min_partition": [
-        "string"
-      ],
+      "categorical_partitions": [],
+      "temporal_partitions": [],
+      "partitions": [],
       "id": 0,
       "updated_at": "2019-08-24T14:15:22Z"
     },
@@ -1337,8 +1549,9 @@ List all revisions for the node.
       }
     ],
     "updated_at": "2019-08-24T14:15:22Z",
-    "materialization_configs": [
+    "materializations": [
       {
+        "name": "string",
         "engine": {
           "name": "string",
           "version": "string",
@@ -1346,7 +1559,8 @@ List all revisions for the node.
           "dialect": "spark"
         },
         "config": {},
-        "schedule": "string"
+        "schedule": "string",
+        "job": "string"
       }
     ],
     "parents": [
@@ -1395,12 +1609,20 @@ Status Code **200**
 |»» description|string|false|none|none|
 |»» query|string|false|none|none|
 |»» availability|[AvailabilityState](#schemaavailabilitystate)|false|none|The availability of materialized data for a node|
+|»»» min_temporal_partition|[string]|false|none|none|
+|»»» max_temporal_partition|[string]|false|none|none|
 |»»» catalog|string|true|none|none|
 |»»» schema_|string|false|none|none|
 |»»» table|string|true|none|none|
 |»»» valid_through_ts|integer|true|none|none|
-|»»» max_partition|[string]|true|none|none|
-|»»» min_partition|[string]|true|none|none|
+|»»» categorical_partitions|[string]|false|none|none|
+|»»» temporal_partitions|[string]|false|none|none|
+|»»» partitions|[[PartitionAvailability](#schemapartitionavailability)]|false|none|[Partition-level availability]|
+|»»»» PartitionAvailability|[PartitionAvailability](#schemapartitionavailability)|false|none|Partition-level availability|
+|»»»»» min_temporal_partition|[string]|false|none|none|
+|»»»»» max_temporal_partition|[string]|false|none|none|
+|»»»»» value|[string]|true|none|none|
+|»»»»» valid_through_ts|integer|false|none|none|
 |»»» id|integer|false|none|none|
 |»»» updated_at|string(date-time)|false|none|none|
 |»» columns|[[ColumnOutput](#schemacolumnoutput)]|true|none|[A simplified column schema, without ID or dimensions.]|
@@ -1415,8 +1637,9 @@ Status Code **200**
 |»»»» dimension|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 |»»»»» name|string|true|none|none|
 |»» updated_at|string(date-time)|true|none|none|
-|»» materialization_configs|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
+|»» materializations|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
 |»»» MaterializationConfigOutput|[MaterializationConfigOutput](#schemamaterializationconfigoutput)|false|none|Output for materialization config.|
+|»»»» name|string|false|none|none|
 |»»»» engine|[EngineInfo](#schemaengineinfo)|true|none|Class for engine creation|
 |»»»»» name|string|true|none|none|
 |»»»»» version|string|true|none|none|
@@ -1424,6 +1647,7 @@ Status Code **200**
 |»»»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
 |»»»» config|object|true|none|none|
 |»»»» schedule|string|true|none|none|
+|»»»» job|string|true|none|none|
 |»» parents|[[NodeNameOutput](#schemanodenameoutput)]|true|none|[Node name only]|
 |»»» NodeNameOutput|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 
@@ -1511,16 +1735,15 @@ will be inferred using the configured query service.
     "description": "",
     "query": "string",
     "availability": {
+      "min_temporal_partition": [],
+      "max_temporal_partition": [],
       "catalog": "string",
       "schema_": "string",
       "table": "string",
       "valid_through_ts": 0,
-      "max_partition": [
-        "string"
-      ],
-      "min_partition": [
-        "string"
-      ],
+      "categorical_partitions": [],
+      "temporal_partitions": [],
+      "partitions": [],
       "id": 0,
       "updated_at": "2019-08-24T14:15:22Z"
     },
@@ -1542,8 +1765,9 @@ will be inferred using the configured query service.
       }
     ],
     "updated_at": "2019-08-24T14:15:22Z",
-    "materialization_configs": [
+    "materializations": [
       {
+        "name": "string",
         "engine": {
           "name": "string",
           "version": "string",
@@ -1551,7 +1775,8 @@ will be inferred using the configured query service.
           "dialect": "spark"
         },
         "config": {},
-        "schedule": "string"
+        "schedule": "string",
+        "job": "string"
       }
     ],
     "parents": [
@@ -1635,16 +1860,15 @@ Create a node.
     "description": "",
     "query": "string",
     "availability": {
+      "min_temporal_partition": [],
+      "max_temporal_partition": [],
       "catalog": "string",
       "schema_": "string",
       "table": "string",
       "valid_through_ts": 0,
-      "max_partition": [
-        "string"
-      ],
-      "min_partition": [
-        "string"
-      ],
+      "categorical_partitions": [],
+      "temporal_partitions": [],
+      "partitions": [],
       "id": 0,
       "updated_at": "2019-08-24T14:15:22Z"
     },
@@ -1666,8 +1890,9 @@ Create a node.
       }
     ],
     "updated_at": "2019-08-24T14:15:22Z",
-    "materialization_configs": [
+    "materializations": [
       {
+        "name": "string",
         "engine": {
           "name": "string",
           "version": "string",
@@ -1675,7 +1900,8 @@ Create a node.
           "dialect": "spark"
         },
         "config": {},
-        "schedule": "string"
+        "schedule": "string",
+        "job": "string"
       }
     ],
     "parents": [
@@ -1722,6 +1948,10 @@ Create a cube node.
   "filters": [
     "string"
   ],
+  "orderby": [
+    "string"
+  ],
+  "limit": 0,
   "description": "string",
   "mode": "published",
   "name": "string",
@@ -1764,16 +1994,15 @@ Create a cube node.
     "description": "",
     "query": "string",
     "availability": {
+      "min_temporal_partition": [],
+      "max_temporal_partition": [],
       "catalog": "string",
       "schema_": "string",
       "table": "string",
       "valid_through_ts": 0,
-      "max_partition": [
-        "string"
-      ],
-      "min_partition": [
-        "string"
-      ],
+      "categorical_partitions": [],
+      "temporal_partitions": [],
+      "partitions": [],
       "id": 0,
       "updated_at": "2019-08-24T14:15:22Z"
     },
@@ -1795,8 +2024,9 @@ Create a cube node.
       }
     ],
     "updated_at": "2019-08-24T14:15:22Z",
-    "materialization_configs": [
+    "materializations": [
       {
+        "name": "string",
         "engine": {
           "name": "string",
           "version": "string",
@@ -1804,7 +2034,8 @@ Create a cube node.
           "dialect": "spark"
         },
         "config": {},
-        "schedule": "string"
+        "schedule": "string",
+        "job": "string"
       }
     ],
     "parents": [
@@ -1843,7 +2074,7 @@ Add information to a node column
 |---|---|---|---|---|
 |name|path|string|true|none|
 |column|path|string|true|none|
-|dimension|query|string|false|none|
+|dimension|query|string|true|none|
 |dimension_column|query|string|false|none|
 
 > Example responses
@@ -1994,16 +2225,15 @@ List all nodes that are downstream from the given node, filterable by type.
       "description": "",
       "query": "string",
       "availability": {
+        "min_temporal_partition": [],
+        "max_temporal_partition": [],
         "catalog": "string",
         "schema_": "string",
         "table": "string",
         "valid_through_ts": 0,
-        "max_partition": [
-          "string"
-        ],
-        "min_partition": [
-          "string"
-        ],
+        "categorical_partitions": [],
+        "temporal_partitions": [],
+        "partitions": [],
         "id": 0,
         "updated_at": "2019-08-24T14:15:22Z"
       },
@@ -2025,8 +2255,9 @@ List all nodes that are downstream from the given node, filterable by type.
         }
       ],
       "updated_at": "2019-08-24T14:15:22Z",
-      "materialization_configs": [
+      "materializations": [
         {
+          "name": "string",
           "engine": {
             "name": "string",
             "version": "string",
@@ -2034,7 +2265,8 @@ List all nodes that are downstream from the given node, filterable by type.
             "dialect": "spark"
           },
           "config": {},
-          "schedule": "string"
+          "schedule": "string",
+          "job": "string"
         }
       ],
       "parents": [
@@ -2088,12 +2320,20 @@ Status Code **200**
 |»»» description|string|false|none|none|
 |»»» query|string|false|none|none|
 |»»» availability|[AvailabilityState](#schemaavailabilitystate)|false|none|The availability of materialized data for a node|
+|»»»» min_temporal_partition|[string]|false|none|none|
+|»»»» max_temporal_partition|[string]|false|none|none|
 |»»»» catalog|string|true|none|none|
 |»»»» schema_|string|false|none|none|
 |»»»» table|string|true|none|none|
 |»»»» valid_through_ts|integer|true|none|none|
-|»»»» max_partition|[string]|true|none|none|
-|»»»» min_partition|[string]|true|none|none|
+|»»»» categorical_partitions|[string]|false|none|none|
+|»»»» temporal_partitions|[string]|false|none|none|
+|»»»» partitions|[[PartitionAvailability](#schemapartitionavailability)]|false|none|[Partition-level availability]|
+|»»»»» PartitionAvailability|[PartitionAvailability](#schemapartitionavailability)|false|none|Partition-level availability|
+|»»»»»» min_temporal_partition|[string]|false|none|none|
+|»»»»»» max_temporal_partition|[string]|false|none|none|
+|»»»»»» value|[string]|true|none|none|
+|»»»»»» valid_through_ts|integer|false|none|none|
 |»»»» id|integer|false|none|none|
 |»»»» updated_at|string(date-time)|false|none|none|
 |»»» columns|[[ColumnOutput](#schemacolumnoutput)]|true|none|[A simplified column schema, without ID or dimensions.]|
@@ -2108,8 +2348,9 @@ Status Code **200**
 |»»»»» dimension|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 |»»»»»» name|string|true|none|none|
 |»»» updated_at|string(date-time)|true|none|none|
-|»»» materialization_configs|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
+|»»» materializations|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
 |»»»» MaterializationConfigOutput|[MaterializationConfigOutput](#schemamaterializationconfigoutput)|false|none|Output for materialization config.|
+|»»»»» name|string|false|none|none|
 |»»»»» engine|[EngineInfo](#schemaengineinfo)|true|none|Class for engine creation|
 |»»»»»» name|string|true|none|none|
 |»»»»»» version|string|true|none|none|
@@ -2117,6 +2358,7 @@ Status Code **200**
 |»»»»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
 |»»»»» config|object|true|none|none|
 |»»»»» schedule|string|true|none|none|
+|»»»»» job|string|true|none|none|
 |»»» parents|[[NodeNameOutput](#schemanodenameoutput)]|true|none|[Node name only]|
 |»»»» NodeNameOutput|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 |»» created_at|string(date-time)|true|none|none|
@@ -2205,16 +2447,15 @@ List all nodes that are upstream from the given node, filterable by type.
       "description": "",
       "query": "string",
       "availability": {
+        "min_temporal_partition": [],
+        "max_temporal_partition": [],
         "catalog": "string",
         "schema_": "string",
         "table": "string",
         "valid_through_ts": 0,
-        "max_partition": [
-          "string"
-        ],
-        "min_partition": [
-          "string"
-        ],
+        "categorical_partitions": [],
+        "temporal_partitions": [],
+        "partitions": [],
         "id": 0,
         "updated_at": "2019-08-24T14:15:22Z"
       },
@@ -2236,8 +2477,9 @@ List all nodes that are upstream from the given node, filterable by type.
         }
       ],
       "updated_at": "2019-08-24T14:15:22Z",
-      "materialization_configs": [
+      "materializations": [
         {
+          "name": "string",
           "engine": {
             "name": "string",
             "version": "string",
@@ -2245,7 +2487,8 @@ List all nodes that are upstream from the given node, filterable by type.
             "dialect": "spark"
           },
           "config": {},
-          "schedule": "string"
+          "schedule": "string",
+          "job": "string"
         }
       ],
       "parents": [
@@ -2299,12 +2542,20 @@ Status Code **200**
 |»»» description|string|false|none|none|
 |»»» query|string|false|none|none|
 |»»» availability|[AvailabilityState](#schemaavailabilitystate)|false|none|The availability of materialized data for a node|
+|»»»» min_temporal_partition|[string]|false|none|none|
+|»»»» max_temporal_partition|[string]|false|none|none|
 |»»»» catalog|string|true|none|none|
 |»»»» schema_|string|false|none|none|
 |»»»» table|string|true|none|none|
 |»»»» valid_through_ts|integer|true|none|none|
-|»»»» max_partition|[string]|true|none|none|
-|»»»» min_partition|[string]|true|none|none|
+|»»»» categorical_partitions|[string]|false|none|none|
+|»»»» temporal_partitions|[string]|false|none|none|
+|»»»» partitions|[[PartitionAvailability](#schemapartitionavailability)]|false|none|[Partition-level availability]|
+|»»»»» PartitionAvailability|[PartitionAvailability](#schemapartitionavailability)|false|none|Partition-level availability|
+|»»»»»» min_temporal_partition|[string]|false|none|none|
+|»»»»»» max_temporal_partition|[string]|false|none|none|
+|»»»»»» value|[string]|true|none|none|
+|»»»»»» valid_through_ts|integer|false|none|none|
 |»»»» id|integer|false|none|none|
 |»»»» updated_at|string(date-time)|false|none|none|
 |»»» columns|[[ColumnOutput](#schemacolumnoutput)]|true|none|[A simplified column schema, without ID or dimensions.]|
@@ -2319,8 +2570,9 @@ Status Code **200**
 |»»»»» dimension|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 |»»»»»» name|string|true|none|none|
 |»»» updated_at|string(date-time)|true|none|none|
-|»»» materialization_configs|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
+|»»» materializations|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
 |»»»» MaterializationConfigOutput|[MaterializationConfigOutput](#schemamaterializationconfigoutput)|false|none|Output for materialization config.|
+|»»»»» name|string|false|none|none|
 |»»»»» engine|[EngineInfo](#schemaengineinfo)|true|none|Class for engine creation|
 |»»»»»» name|string|true|none|none|
 |»»»»»» version|string|true|none|none|
@@ -2328,6 +2580,7 @@ Status Code **200**
 |»»»»»» dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
 |»»»»» config|object|true|none|none|
 |»»»»» schedule|string|true|none|none|
+|»»»»» job|string|true|none|none|
 |»»» parents|[[NodeNameOutput](#schemanodenameoutput)]|true|none|[Node name only]|
 |»»»» NodeNameOutput|[NodeNameOutput](#schemanodenameoutput)|false|none|Node name only|
 |»» created_at|string(date-time)|true|none|none|
@@ -2496,16 +2749,15 @@ Add an availability state to a node
 
 ```json
 {
+  "min_temporal_partition": [],
+  "max_temporal_partition": [],
   "catalog": "string",
   "schema_": "string",
   "table": "string",
   "valid_through_ts": 0,
-  "max_partition": [
-    "string"
-  ],
-  "min_partition": [
-    "string"
-  ]
+  "categorical_partitions": [],
+  "temporal_partitions": [],
+  "partitions": []
 }
 ```
 
@@ -2552,6 +2804,8 @@ Gets data for a node
 |node_name|path|string|true|none|
 |dimensions|query|array[string]|false|none|
 |filters|query|array[string]|false|none|
+|orderby|query|array[string]|false|none|
+|limit|query|integer|false|none|
 |async_|query|boolean|false|none|
 |engine_name|query|string|false|none|
 |engine_version|query|string|false|none|
@@ -2592,6 +2846,8 @@ Return data for a set of metrics with dimensions and filters
 |metrics|query|array[string]|false|none|
 |dimensions|query|array[string]|false|none|
 |filters|query|array[string]|false|none|
+|orderby|query|array[string]|false|none|
+|limit|query|integer|false|none|
 |async_|query|boolean|false|none|
 |engine_name|query|string|false|none|
 |engine_version|query|string|false|none|
@@ -2638,6 +2894,9 @@ Return data for a set of metrics with dimensions and filters
   "previous": "http://example.com",
   "errors": [
     "string"
+  ],
+  "links": [
+    "http://example.com"
   ]
 }
 ```
@@ -2704,6 +2963,105 @@ Status Code **200**
 This operation does not require authentication
 </aside>
 
+## List History
+
+<a id="opIdlist_history_history__entity_type___entity_name___get"></a>
+
+`GET /history/{entity_type}/{entity_name}/`
+
+List history for an entity type (i.e. Node) and entity name
+
+<h3 id="list-history-parameters">Parameters</h3>
+
+|Name|In|Type|Required|Description|
+|---|---|---|---|---|
+|entity_type|path|[EntityType](#schemaentitytype)|true|none|
+|entity_name|path|string|true|none|
+|offset|query|integer|false|none|
+|limit|query|integer|false|none|
+
+#### Enumerated Values
+
+|Parameter|Value|
+|---|---|
+|entity_type|attribute|
+|entity_type|catalog|
+|entity_type|engine|
+|entity_type|namespace|
+|entity_type|node|
+|entity_type|query|
+|entity_type|tag|
+
+> Example responses
+
+> 200 Response
+
+```json
+[
+  {
+    "id": 0,
+    "entity_type": "attribute",
+    "entity_name": "string",
+    "activity_type": "create",
+    "user": "string",
+    "pre": {},
+    "post": {},
+    "details": {},
+    "created_at": "2019-08-24T14:15:22Z"
+  }
+]
+```
+
+<h3 id="list-history-responses">Responses</h3>
+
+|Status|Meaning|Description|Schema|
+|---|---|---|---|
+|200|[OK](https://tools.ietf.org/html/rfc7231#section-6.3.1)|Successful Response|Inline|
+|422|[Unprocessable Entity](https://tools.ietf.org/html/rfc2518#section-10.3)|Validation Error|[HTTPValidationError](#schemahttpvalidationerror)|
+
+<h3 id="list-history-responseschema">Response Schema</h3>
+
+Status Code **200**
+
+*Response List History History  Entity Type   Entity Name   Get*
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|Response List History History  Entity Type   Entity Name   Get|[[History](#schemahistory)]|false|none|[An event to store as part of the server's activity history]|
+|» History|[History](#schemahistory)|false|none|An event to store as part of the server's activity history|
+|»» id|integer|false|none|none|
+|»» entity_type|[EntityType](#schemaentitytype)|false|none|An entity type for which activity can occur|
+|»» entity_name|string|false|none|none|
+|»» activity_type|[ActivityType](#schemaactivitytype)|false|none|An activity type|
+|»» user|string|false|none|none|
+|»» pre|object|false|none|none|
+|»» post|object|false|none|none|
+|»» details|object|false|none|none|
+|»» created_at|string(date-time)|false|none|none|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|entity_type|attribute|
+|entity_type|catalog|
+|entity_type|engine|
+|entity_type|namespace|
+|entity_type|node|
+|entity_type|query|
+|entity_type|tag|
+|activity_type|create|
+|activity_type|deactivate|
+|activity_type|activate|
+|activity_type|modify|
+|activity_type|link|
+|activity_type|tag|
+|activity_type|set_attribute|
+
+<aside class="success">
+This operation does not require authentication
+</aside>
+
 ## Get A Cube
 
 <a id="opIdget_a_cube_cubes__name___get"></a>
@@ -2732,16 +3090,15 @@ Get information on a cube
   "version": "string",
   "description": "",
   "availability": {
+    "min_temporal_partition": [],
+    "max_temporal_partition": [],
     "catalog": "string",
     "schema_": "string",
     "table": "string",
     "valid_through_ts": 0,
-    "max_partition": [
-      "string"
-    ],
-    "min_partition": [
-      "string"
-    ],
+    "categorical_partitions": [],
+    "temporal_partitions": [],
+    "partitions": [],
     "id": 0,
     "updated_at": "2019-08-24T14:15:22Z"
   },
@@ -2771,12 +3128,18 @@ Get information on a cube
     }
   ],
   "updated_at": "2019-08-24T14:15:22Z",
-  "materialization_configs": [
+  "materializations": [
     {
-      "node_revision_id": 0,
-      "engine_id": 0,
+      "name": "string",
+      "engine": {
+        "name": "string",
+        "version": "string",
+        "uri": "string",
+        "dialect": "spark"
+      },
+      "config": {},
       "schedule": "string",
-      "config": {}
+      "job": "string"
     }
   ]
 }
@@ -3186,6 +3549,8 @@ Return SQL for a node.
 |node_name|path|string|true|none|
 |dimensions|query|array[string]|false|none|
 |filters|query|array[string]|false|none|
+|orderby|query|array[string]|false|none|
+|limit|query|integer|false|none|
 |engine_name|query|string|false|none|
 |engine_version|query|string|false|none|
 
@@ -3232,6 +3597,8 @@ Return SQL for a set of metrics with dimensions and filters
 |metrics|query|array[string]|false|none|
 |dimensions|query|array[string]|false|none|
 |filters|query|array[string]|false|none|
+|orderby|query|array[string]|false|none|
+|limit|query|integer|false|none|
 |engine_name|query|string|false|none|
 |engine_version|query|string|false|none|
 
@@ -3264,6 +3631,38 @@ This operation does not require authentication
 </aside>
 
 # Schemas
+
+<h2 id="tocS_ActivityType">ActivityType</h2>
+<!-- backwards compatibility -->
+<a id="schemaactivitytype"></a>
+<a id="schema_ActivityType"></a>
+<a id="tocSactivitytype"></a>
+<a id="tocsactivitytype"></a>
+
+```json
+"create"
+
+```
+
+ActivityType
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|ActivityType|string|false|none|An activity type|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|ActivityType|create|
+|ActivityType|deactivate|
+|ActivityType|activate|
+|ActivityType|modify|
+|ActivityType|link|
+|ActivityType|tag|
+|ActivityType|set_attribute|
 
 <h2 id="tocS_AttributeOutput">AttributeOutput</h2>
 <!-- backwards compatibility -->
@@ -3357,16 +3756,15 @@ AttributeTypeName
 
 ```json
 {
+  "min_temporal_partition": [],
+  "max_temporal_partition": [],
   "catalog": "string",
   "schema_": "string",
   "table": "string",
   "valid_through_ts": 0,
-  "max_partition": [
-    "string"
-  ],
-  "min_partition": [
-    "string"
-  ],
+  "categorical_partitions": [],
+  "temporal_partitions": [],
+  "partitions": [],
   "id": 0,
   "updated_at": "2019-08-24T14:15:22Z"
 }
@@ -3379,12 +3777,15 @@ AvailabilityState
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
+|min_temporal_partition|[string]|false|none|none|
+|max_temporal_partition|[string]|false|none|none|
 |catalog|string|true|none|none|
 |schema_|string|false|none|none|
 |table|string|true|none|none|
 |valid_through_ts|integer|true|none|none|
-|max_partition|[string]|true|none|none|
-|min_partition|[string]|true|none|none|
+|categorical_partitions|[string]|false|none|none|
+|temporal_partitions|[string]|false|none|none|
+|partitions|[[PartitionAvailability](#schemapartitionavailability)]|false|none|[Partition-level availability]|
 |id|integer|false|none|none|
 |updated_at|string(date-time)|false|none|none|
 
@@ -3397,16 +3798,15 @@ AvailabilityState
 
 ```json
 {
+  "min_temporal_partition": [],
+  "max_temporal_partition": [],
   "catalog": "string",
   "schema_": "string",
   "table": "string",
   "valid_through_ts": 0,
-  "max_partition": [
-    "string"
-  ],
-  "min_partition": [
-    "string"
-  ]
+  "categorical_partitions": [],
+  "temporal_partitions": [],
+  "partitions": []
 }
 
 ```
@@ -3417,12 +3817,15 @@ AvailabilityStateBase
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
+|min_temporal_partition|[string]|false|none|none|
+|max_temporal_partition|[string]|false|none|none|
 |catalog|string|true|none|none|
 |schema_|string|false|none|none|
 |table|string|true|none|none|
 |valid_through_ts|integer|true|none|none|
-|max_partition|[string]|true|none|none|
-|min_partition|[string]|true|none|none|
+|categorical_partitions|[string]|false|none|none|
+|temporal_partitions|[string]|false|none|none|
+|partitions|[[PartitionAvailability](#schemapartitionavailability)]|false|none|[Partition-level availability]|
 
 <h2 id="tocS_Catalog">Catalog</h2>
 <!-- backwards compatibility -->
@@ -3634,6 +4037,10 @@ ColumnType
   "filters": [
     "string"
   ],
+  "orderby": [
+    "string"
+  ],
+  "limit": 0,
   "description": "string",
   "mode": "published",
   "name": "string",
@@ -3652,6 +4059,8 @@ CreateCubeNode
 |metrics|[string]|true|none|none|
 |dimensions|[string]|true|none|none|
 |filters|[string]|false|none|none|
+|orderby|[string]|false|none|none|
+|limit|integer|false|none|none|
 |description|string|true|none|none|
 |mode|[NodeMode](#schemanodemode)|true|none|Node mode.<br><br>A node can be in one of the following modes:<br><br>1. PUBLISHED - Must be valid and not cause any child nodes to be invalid<br>2. DRAFT - Can be invalid, have invalid parents, and include dangling references|
 |name|string|true|none|none|
@@ -3808,16 +4217,15 @@ CubeElementMetadata
   "version": "string",
   "description": "",
   "availability": {
+    "min_temporal_partition": [],
+    "max_temporal_partition": [],
     "catalog": "string",
     "schema_": "string",
     "table": "string",
     "valid_through_ts": 0,
-    "max_partition": [
-      "string"
-    ],
-    "min_partition": [
-      "string"
-    ],
+    "categorical_partitions": [],
+    "temporal_partitions": [],
+    "partitions": [],
     "id": 0,
     "updated_at": "2019-08-24T14:15:22Z"
   },
@@ -3847,12 +4255,18 @@ CubeElementMetadata
     }
   ],
   "updated_at": "2019-08-24T14:15:22Z",
-  "materialization_configs": [
+  "materializations": [
     {
-      "node_revision_id": 0,
-      "engine_id": 0,
+      "name": "string",
+      "engine": {
+        "name": "string",
+        "version": "string",
+        "uri": "string",
+        "dialect": "spark"
+      },
+      "config": {},
       "schedule": "string",
-      "config": {}
+      "job": "string"
     }
   ]
 }
@@ -3877,7 +4291,7 @@ CubeRevisionMetadata
 |query|string|true|none|none|
 |columns|[[ColumnOutput](#schemacolumnoutput)]|true|none|[A simplified column schema, without ID or dimensions.]|
 |updated_at|string(date-time)|true|none|none|
-|materialization_configs|[[MaterializationConfig](#schemamaterializationconfig)]|true|none|[Materialization configuration for a node and specific engines.]|
+|materializations|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
 
 <h2 id="tocS_Dialect">Dialect</h2>
 <!-- backwards compatibility -->
@@ -3907,6 +4321,140 @@ Dialect
 |Dialect|trino|
 |Dialect|druid|
 
+<h2 id="tocS_DimensionAttributeOutput">DimensionAttributeOutput</h2>
+<!-- backwards compatibility -->
+<a id="schemadimensionattributeoutput"></a>
+<a id="schema_DimensionAttributeOutput"></a>
+<a id="tocSdimensionattributeoutput"></a>
+<a id="tocsdimensionattributeoutput"></a>
+
+```json
+{
+  "name": "string",
+  "type": {},
+  "path": [
+    "string"
+  ]
+}
+
+```
+
+DimensionAttributeOutput
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|name|string|true|none|none|
+|type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
+|path|[string]|true|none|none|
+
+<h2 id="tocS_DruidConf">DruidConf</h2>
+<!-- backwards compatibility -->
+<a id="schemadruidconf"></a>
+<a id="schema_DruidConf"></a>
+<a id="tocSdruidconf"></a>
+<a id="tocsdruidconf"></a>
+
+```json
+{
+  "granularity": "string",
+  "intervals": [
+    "string"
+  ],
+  "timestamp_column": "string",
+  "timestamp_format": "string",
+  "parse_spec_format": "string"
+}
+
+```
+
+DruidConf
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|granularity|string|true|none|none|
+|intervals|[string]|false|none|none|
+|timestamp_column|string|true|none|none|
+|timestamp_format|string|false|none|none|
+|parse_spec_format|string|false|none|none|
+
+<h2 id="tocS_DruidCubeConfigInput">DruidCubeConfigInput</h2>
+<!-- backwards compatibility -->
+<a id="schemadruidcubeconfiginput"></a>
+<a id="schema_DruidCubeConfigInput"></a>
+<a id="tocSdruidcubeconfiginput"></a>
+<a id="tocsdruidcubeconfiginput"></a>
+
+```json
+{
+  "partitions": [
+    {
+      "name": "string",
+      "values": [
+        null
+      ],
+      "range": [
+        null
+      ],
+      "expression": "string",
+      "type_": "temporal"
+    }
+  ],
+  "spark": {
+    "property1": "string",
+    "property2": "string"
+  },
+  "dimensions": [
+    "string"
+  ],
+  "measures": {
+    "property1": [
+      {
+        "property1": "string",
+        "property2": "string"
+      }
+    ],
+    "property2": [
+      {
+        "property1": "string",
+        "property2": "string"
+      }
+    ]
+  },
+  "prefix": "",
+  "suffix": "",
+  "druid": {
+    "granularity": "string",
+    "intervals": [
+      "string"
+    ],
+    "timestamp_column": "string",
+    "timestamp_format": "string",
+    "parse_spec_format": "string"
+  }
+}
+
+```
+
+DruidCubeConfigInput
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|partitions|[[Partition](#schemapartition)]|false|none|[A partition specification tells the ongoing and backfill materialization jobs how to partition<br>the materialized dataset and which partition values (a list or range of values) to operate on.<br>Partitions may be temporal or categorical and will be handled differently depending on the type.<br><br>For temporal partition types, the ongoing materialization job will continue to operate on the<br>latest partitions and the partition values specified by `values` and `range` are only relevant<br>to the backfill job.<br><br>Examples:<br>    This will tell DJ to backfill for all values of the dateint partition:<br>      Partition(name=“dateint”, type="temporal", values=[], range=())<br>    This will tell DJ to backfill just 20230601 and 20230605:<br>      Partition(name=“dateint”, type="temporal", values=[20230601, 20230605], range=())<br>    This will tell DJ to backfill 20230601 and between 20220101 and 20230101:<br>      Partition(name=“dateint”, type="temporal", values=[20230601], range=(20220101, 20230101))<br><br>    For categorical partition types, the ongoing materialization job will *only* operate on the<br>    specified partition values in `values` and `range`:<br>        Partition(name=“group_id”, type="categorical", values=["a", "b", "c"], range=())]|
+|spark|[SparkConf](#schemasparkconf)|false|none|Spark configuration|
+|dimensions|[string]|false|none|none|
+|measures|object|false|none|none|
+|» **additionalProperties**|[object]|false|none|none|
+|»» **additionalProperties**|string|false|none|none|
+|prefix|string|false|none|none|
+|suffix|string|false|none|none|
+|druid|[DruidConf](#schemadruidconf)|true|none|Druid configuration|
+
 <h2 id="tocS_EngineInfo">EngineInfo</h2>
 <!-- backwards compatibility -->
 <a id="schemaengineinfo"></a>
@@ -3934,6 +4482,161 @@ EngineInfo
 |version|string|true|none|none|
 |uri|string|false|none|none|
 |dialect|[Dialect](#schemadialect)|false|none|SQL dialect|
+
+<h2 id="tocS_EngineRef">EngineRef</h2>
+<!-- backwards compatibility -->
+<a id="schemaengineref"></a>
+<a id="schema_EngineRef"></a>
+<a id="tocSengineref"></a>
+<a id="tocsengineref"></a>
+
+```json
+{
+  "name": "string",
+  "version": "string"
+}
+
+```
+
+EngineRef
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|name|string|true|none|none|
+|version|string|true|none|none|
+
+<h2 id="tocS_EntityType">EntityType</h2>
+<!-- backwards compatibility -->
+<a id="schemaentitytype"></a>
+<a id="schema_EntityType"></a>
+<a id="tocSentitytype"></a>
+<a id="tocsentitytype"></a>
+
+```json
+"attribute"
+
+```
+
+EntityType
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|EntityType|string|false|none|An entity type for which activity can occur|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|EntityType|attribute|
+|EntityType|catalog|
+|EntityType|engine|
+|EntityType|namespace|
+|EntityType|node|
+|EntityType|query|
+|EntityType|tag|
+
+<h2 id="tocS_GenericCubeConfigInput">GenericCubeConfigInput</h2>
+<!-- backwards compatibility -->
+<a id="schemagenericcubeconfiginput"></a>
+<a id="schema_GenericCubeConfigInput"></a>
+<a id="tocSgenericcubeconfiginput"></a>
+<a id="tocsgenericcubeconfiginput"></a>
+
+```json
+{
+  "partitions": [
+    {
+      "name": "string",
+      "values": [
+        null
+      ],
+      "range": [
+        null
+      ],
+      "expression": "string",
+      "type_": "temporal"
+    }
+  ],
+  "spark": {
+    "property1": "string",
+    "property2": "string"
+  },
+  "dimensions": [
+    "string"
+  ],
+  "measures": {
+    "property1": [
+      {
+        "property1": "string",
+        "property2": "string"
+      }
+    ],
+    "property2": [
+      {
+        "property1": "string",
+        "property2": "string"
+      }
+    ]
+  }
+}
+
+```
+
+GenericCubeConfigInput
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|partitions|[[Partition](#schemapartition)]|false|none|[A partition specification tells the ongoing and backfill materialization jobs how to partition<br>the materialized dataset and which partition values (a list or range of values) to operate on.<br>Partitions may be temporal or categorical and will be handled differently depending on the type.<br><br>For temporal partition types, the ongoing materialization job will continue to operate on the<br>latest partitions and the partition values specified by `values` and `range` are only relevant<br>to the backfill job.<br><br>Examples:<br>    This will tell DJ to backfill for all values of the dateint partition:<br>      Partition(name=“dateint”, type="temporal", values=[], range=())<br>    This will tell DJ to backfill just 20230601 and 20230605:<br>      Partition(name=“dateint”, type="temporal", values=[20230601, 20230605], range=())<br>    This will tell DJ to backfill 20230601 and between 20220101 and 20230101:<br>      Partition(name=“dateint”, type="temporal", values=[20230601], range=(20220101, 20230101))<br><br>    For categorical partition types, the ongoing materialization job will *only* operate on the<br>    specified partition values in `values` and `range`:<br>        Partition(name=“group_id”, type="categorical", values=["a", "b", "c"], range=())]|
+|spark|[SparkConf](#schemasparkconf)|false|none|Spark configuration|
+|dimensions|[string]|false|none|none|
+|measures|object|false|none|none|
+|» **additionalProperties**|[object]|false|none|none|
+|»» **additionalProperties**|string|false|none|none|
+
+<h2 id="tocS_GenericMaterializationConfigInput">GenericMaterializationConfigInput</h2>
+<!-- backwards compatibility -->
+<a id="schemagenericmaterializationconfiginput"></a>
+<a id="schema_GenericMaterializationConfigInput"></a>
+<a id="tocSgenericmaterializationconfiginput"></a>
+<a id="tocsgenericmaterializationconfiginput"></a>
+
+```json
+{
+  "partitions": [
+    {
+      "name": "string",
+      "values": [
+        null
+      ],
+      "range": [
+        null
+      ],
+      "expression": "string",
+      "type_": "temporal"
+    }
+  ],
+  "spark": {
+    "property1": "string",
+    "property2": "string"
+  }
+}
+
+```
+
+GenericMaterializationConfigInput
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|partitions|[[Partition](#schemapartition)]|false|none|[A partition specification tells the ongoing and backfill materialization jobs how to partition<br>the materialized dataset and which partition values (a list or range of values) to operate on.<br>Partitions may be temporal or categorical and will be handled differently depending on the type.<br><br>For temporal partition types, the ongoing materialization job will continue to operate on the<br>latest partitions and the partition values specified by `values` and `range` are only relevant<br>to the backfill job.<br><br>Examples:<br>    This will tell DJ to backfill for all values of the dateint partition:<br>      Partition(name=“dateint”, type="temporal", values=[], range=())<br>    This will tell DJ to backfill just 20230601 and 20230605:<br>      Partition(name=“dateint”, type="temporal", values=[20230601, 20230605], range=())<br>    This will tell DJ to backfill 20230601 and between 20220101 and 20230101:<br>      Partition(name=“dateint”, type="temporal", values=[20230601], range=(20220101, 20230101))<br><br>    For categorical partition types, the ongoing materialization job will *only* operate on the<br>    specified partition values in `values` and `range`:<br>        Partition(name=“group_id”, type="categorical", values=["a", "b", "c"], range=())]|
+|spark|[SparkConf](#schemasparkconf)|false|none|Spark configuration|
 
 <h2 id="tocS_HTTPValidationError">HTTPValidationError</h2>
 <!-- backwards compatibility -->
@@ -4016,33 +4719,86 @@ HealthcheckStatus
 |HealthcheckStatus|ok|
 |HealthcheckStatus|failed|
 
-<h2 id="tocS_MaterializationConfig">MaterializationConfig</h2>
+<h2 id="tocS_History">History</h2>
 <!-- backwards compatibility -->
-<a id="schemamaterializationconfig"></a>
-<a id="schema_MaterializationConfig"></a>
-<a id="tocSmaterializationconfig"></a>
-<a id="tocsmaterializationconfig"></a>
+<a id="schemahistory"></a>
+<a id="schema_History"></a>
+<a id="tocShistory"></a>
+<a id="tocshistory"></a>
 
 ```json
 {
-  "node_revision_id": 0,
-  "engine_id": 0,
-  "schedule": "string",
-  "config": {}
+  "id": 0,
+  "entity_type": "attribute",
+  "entity_name": "string",
+  "activity_type": "create",
+  "user": "string",
+  "pre": {},
+  "post": {},
+  "details": {},
+  "created_at": "2019-08-24T14:15:22Z"
 }
 
 ```
 
-MaterializationConfig
+History
 
 ### Properties
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|node_revision_id|integer|true|none|none|
-|engine_id|integer|true|none|none|
+|id|integer|false|none|none|
+|entity_type|[EntityType](#schemaentitytype)|false|none|An entity type for which activity can occur|
+|entity_name|string|false|none|none|
+|activity_type|[ActivityType](#schemaactivitytype)|false|none|An activity type|
+|user|string|false|none|none|
+|pre|object|false|none|none|
+|post|object|false|none|none|
+|details|object|false|none|none|
+|created_at|string(date-time)|false|none|none|
+
+<h2 id="tocS_MaterializationConfigInfoUnified">MaterializationConfigInfoUnified</h2>
+<!-- backwards compatibility -->
+<a id="schemamaterializationconfiginfounified"></a>
+<a id="schema_MaterializationConfigInfoUnified"></a>
+<a id="tocSmaterializationconfiginfounified"></a>
+<a id="tocsmaterializationconfiginfounified"></a>
+
+```json
+{
+  "name": "string",
+  "engine": {
+    "name": "string",
+    "version": "string",
+    "uri": "string",
+    "dialect": "spark"
+  },
+  "config": {},
+  "schedule": "string",
+  "job": "string",
+  "output_tables": [
+    "string"
+  ],
+  "urls": [
+    "http://example.com"
+  ]
+}
+
+```
+
+MaterializationConfigInfoUnified
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|name|string|false|none|none|
+|engine|[EngineInfo](#schemaengineinfo)|true|none|Class for engine creation|
+|config|object|true|none|none|
 |schedule|string|true|none|none|
-|config|object|false|none|none|
+|job|string|true|none|none|
+|output_tables|[string]|true|none|none|
+|urls|[string]|true|none|none|
 
 <h2 id="tocS_MaterializationConfigOutput">MaterializationConfigOutput</h2>
 <!-- backwards compatibility -->
@@ -4053,6 +4809,7 @@ MaterializationConfig
 
 ```json
 {
+  "name": "string",
   "engine": {
     "name": "string",
     "version": "string",
@@ -4060,7 +4817,8 @@ MaterializationConfig
     "dialect": "spark"
   },
   "config": {},
-  "schedule": "string"
+  "schedule": "string",
+  "job": "string"
 }
 
 ```
@@ -4071,9 +4829,11 @@ MaterializationConfigOutput
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
+|name|string|false|none|none|
 |engine|[EngineInfo](#schemaengineinfo)|true|none|Class for engine creation|
 |config|object|true|none|none|
 |schedule|string|true|none|none|
+|job|string|true|none|none|
 
 <h2 id="tocS_Metric">Metric</h2>
 <!-- backwards compatibility -->
@@ -4093,7 +4853,13 @@ MaterializationConfigOutput
   "updated_at": "2019-08-24T14:15:22Z",
   "query": "string",
   "dimensions": [
-    "string"
+    {
+      "name": "string",
+      "type": {},
+      "path": [
+        "string"
+      ]
+    }
   ]
 }
 
@@ -4113,7 +4879,7 @@ Metric
 |created_at|string(date-time)|true|none|none|
 |updated_at|string(date-time)|true|none|none|
 |query|string|true|none|none|
-|dimensions|[string]|true|none|none|
+|dimensions|[[DimensionAttributeOutput](#schemadimensionattributeoutput)]|true|none|[Dimension attribute output should include the name and type]|
 
 <h2 id="tocS_MutableAttributeTypeFields">MutableAttributeTypeFields</h2>
 <!-- backwards compatibility -->
@@ -4270,16 +5036,15 @@ NodeNamespace
     "description": "",
     "query": "string",
     "availability": {
+      "min_temporal_partition": [],
+      "max_temporal_partition": [],
       "catalog": "string",
       "schema_": "string",
       "table": "string",
       "valid_through_ts": 0,
-      "max_partition": [
-        "string"
-      ],
-      "min_partition": [
-        "string"
-      ],
+      "categorical_partitions": [],
+      "temporal_partitions": [],
+      "partitions": [],
       "id": 0,
       "updated_at": "2019-08-24T14:15:22Z"
     },
@@ -4301,8 +5066,9 @@ NodeNamespace
       }
     ],
     "updated_at": "2019-08-24T14:15:22Z",
-    "materialization_configs": [
+    "materializations": [
       {
+        "name": "string",
         "engine": {
           "name": "string",
           "version": "string",
@@ -4310,7 +5076,8 @@ NodeNamespace
           "dialect": "spark"
         },
         "config": {},
-        "schedule": "string"
+        "schedule": "string",
+        "job": "string"
       }
     ],
     "parents": [
@@ -4446,16 +5213,15 @@ NodeRevisionBase
   "description": "",
   "query": "string",
   "availability": {
+    "min_temporal_partition": [],
+    "max_temporal_partition": [],
     "catalog": "string",
     "schema_": "string",
     "table": "string",
     "valid_through_ts": 0,
-    "max_partition": [
-      "string"
-    ],
-    "min_partition": [
-      "string"
-    ],
+    "categorical_partitions": [],
+    "temporal_partitions": [],
+    "partitions": [],
     "id": 0,
     "updated_at": "2019-08-24T14:15:22Z"
   },
@@ -4477,8 +5243,9 @@ NodeRevisionBase
     }
   ],
   "updated_at": "2019-08-24T14:15:22Z",
-  "materialization_configs": [
+  "materializations": [
     {
+      "name": "string",
       "engine": {
         "name": "string",
         "version": "string",
@@ -4486,7 +5253,8 @@ NodeRevisionBase
         "dialect": "spark"
       },
       "config": {},
-      "schedule": "string"
+      "schedule": "string",
+      "job": "string"
     }
   ],
   "parents": [
@@ -4520,7 +5288,7 @@ NodeRevisionOutput
 |availability|[AvailabilityState](#schemaavailabilitystate)|false|none|The availability of materialized data for a node|
 |columns|[[ColumnOutput](#schemacolumnoutput)]|true|none|[A simplified column schema, without ID or dimensions.]|
 |updated_at|string(date-time)|true|none|none|
-|materialization_configs|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
+|materializations|[[MaterializationConfigOutput](#schemamaterializationconfigoutput)]|true|none|[Output for materialization config.]|
 |parents|[[NodeNameOutput](#schemanodenameoutput)]|true|none|[Node name only]|
 
 <h2 id="tocS_NodeStatus">NodeStatus</h2>
@@ -4630,16 +5398,15 @@ NodeType
       "description": "",
       "query": "string",
       "availability": {
+        "min_temporal_partition": [],
+        "max_temporal_partition": [],
         "catalog": "string",
         "schema_": "string",
         "table": "string",
         "valid_through_ts": 0,
-        "max_partition": [
-          "string"
-        ],
-        "min_partition": [
-          "string"
-        ],
+        "categorical_partitions": [],
+        "temporal_partitions": [],
+        "partitions": [],
         "id": 0,
         "updated_at": "2019-08-24T14:15:22Z"
       },
@@ -4661,8 +5428,9 @@ NodeType
         }
       ],
       "updated_at": "2019-08-24T14:15:22Z",
-      "materialization_configs": [
+      "materializations": [
         {
+          "name": "string",
           "engine": {
             "name": "string",
             "version": "string",
@@ -4670,7 +5438,8 @@ NodeType
             "dialect": "spark"
           },
           "config": {},
-          "schedule": "string"
+          "schedule": "string",
+          "job": "string"
         }
       ],
       "parents": [
@@ -4704,6 +5473,101 @@ NodeValidation
 |node_revision|[NodeRevision](#schemanoderevision)|true|none|A node revision.|
 |dependencies|[[NodeRevisionOutput](#schemanoderevisionoutput)]|true|none|[Output for a node revision with information about columns and if it is a metric.]|
 |columns|[[Column](#schemacolumn)]|true|none|[A column.<br><br>Columns can be physical (associated with ``Table`` objects) or abstract (associated<br>with ``Node`` objects).]|
+
+<h2 id="tocS_Partition">Partition</h2>
+<!-- backwards compatibility -->
+<a id="schemapartition"></a>
+<a id="schema_Partition"></a>
+<a id="tocSpartition"></a>
+<a id="tocspartition"></a>
+
+```json
+{
+  "name": "string",
+  "values": [
+    null
+  ],
+  "range": [
+    null
+  ],
+  "expression": "string",
+  "type_": "temporal"
+}
+
+```
+
+Partition
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|name|string|true|none|none|
+|values|[any]|false|none|none|
+|range|[any]|false|none|none|
+|expression|string|false|none|none|
+|type_|[PartitionType](#schemapartitiontype)|true|none|Partition type.<br><br>A partition can be temporal or categorical|
+
+<h2 id="tocS_PartitionAvailability">PartitionAvailability</h2>
+<!-- backwards compatibility -->
+<a id="schemapartitionavailability"></a>
+<a id="schema_PartitionAvailability"></a>
+<a id="tocSpartitionavailability"></a>
+<a id="tocspartitionavailability"></a>
+
+```json
+{
+  "min_temporal_partition": [
+    "string"
+  ],
+  "max_temporal_partition": [
+    "string"
+  ],
+  "value": [
+    "string"
+  ],
+  "valid_through_ts": 0
+}
+
+```
+
+PartitionAvailability
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|min_temporal_partition|[string]|false|none|none|
+|max_temporal_partition|[string]|false|none|none|
+|value|[string]|true|none|none|
+|valid_through_ts|integer|false|none|none|
+
+<h2 id="tocS_PartitionType">PartitionType</h2>
+<!-- backwards compatibility -->
+<a id="schemapartitiontype"></a>
+<a id="schema_PartitionType"></a>
+<a id="tocSpartitiontype"></a>
+<a id="tocspartitiontype"></a>
+
+```json
+"temporal"
+
+```
+
+PartitionType
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|PartitionType|string|false|none|Partition type.<br><br>A partition can be temporal or categorical|
+
+#### Enumerated Values
+
+|Property|Value|
+|---|---|
+|PartitionType|temporal|
+|PartitionType|categorical|
 
 <h2 id="tocS_QueryResults">QueryResults</h2>
 <!-- backwards compatibility -->
@@ -4818,6 +5682,9 @@ QueryState
   "previous": "http://example.com",
   "errors": [
     "string"
+  ],
+  "links": [
+    "http://example.com"
   ]
 }
 
@@ -4844,6 +5711,7 @@ QueryWithResults
 |next|string(uri)|false|none|none|
 |previous|string(uri)|false|none|none|
 |errors|[string]|true|none|none|
+|links|[string]|false|none|none|
 
 <h2 id="tocS_SourceColumnOutput">SourceColumnOutput</h2>
 <!-- backwards compatibility -->
@@ -4879,6 +5747,29 @@ SourceColumnOutput
 |type|[ColumnType](#schemacolumntype)|true|none|Base type for all Column Types|
 |attributes|[[AttributeOutput](#schemaattributeoutput)]|false|none|[Column attribute output.]|
 |dimension|string|false|none|none|
+
+<h2 id="tocS_SparkConf">SparkConf</h2>
+<!-- backwards compatibility -->
+<a id="schemasparkconf"></a>
+<a id="schema_SparkConf"></a>
+<a id="tocSsparkconf"></a>
+<a id="tocssparkconf"></a>
+
+```json
+{
+  "property1": "string",
+  "property2": "string"
+}
+
+```
+
+SparkConf
+
+### Properties
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|**additionalProperties**|string|false|none|none|
 
 <h2 id="tocS_StatementResults">StatementResults</h2>
 <!-- backwards compatibility -->
@@ -5141,32 +6032,104 @@ UpdateTag
 |description|string|false|none|none|
 |tag_metadata|object|false|none|none|
 
-<h2 id="tocS_UpsertMaterializationConfig">UpsertMaterializationConfig</h2>
+<h2 id="tocS_UpsertMaterialization">UpsertMaterialization</h2>
 <!-- backwards compatibility -->
-<a id="schemaupsertmaterializationconfig"></a>
-<a id="schema_UpsertMaterializationConfig"></a>
-<a id="tocSupsertmaterializationconfig"></a>
-<a id="tocsupsertmaterializationconfig"></a>
+<a id="schemaupsertmaterialization"></a>
+<a id="schema_UpsertMaterialization"></a>
+<a id="tocSupsertmaterialization"></a>
+<a id="tocsupsertmaterialization"></a>
 
 ```json
 {
-  "engine_name": "string",
-  "engine_version": "string",
-  "config": {},
+  "name": "string",
+  "engine": {
+    "name": "string",
+    "version": "string"
+  },
+  "config": {
+    "partitions": [
+      {
+        "name": "string",
+        "values": [
+          null
+        ],
+        "range": [
+          null
+        ],
+        "expression": "string",
+        "type_": "temporal"
+      }
+    ],
+    "spark": {
+      "property1": "string",
+      "property2": "string"
+    },
+    "dimensions": [
+      "string"
+    ],
+    "measures": {
+      "property1": [
+        {
+          "property1": "string",
+          "property2": "string"
+        }
+      ],
+      "property2": [
+        {
+          "property1": "string",
+          "property2": "string"
+        }
+      ]
+    },
+    "prefix": "",
+    "suffix": "",
+    "druid": {
+      "granularity": "string",
+      "intervals": [
+        "string"
+      ],
+      "timestamp_column": "string",
+      "timestamp_format": "string",
+      "parse_spec_format": "string"
+    }
+  },
   "schedule": "string"
 }
 
 ```
 
-UpsertMaterializationConfig
+UpsertMaterialization
 
 ### Properties
 
 |Name|Type|Required|Restrictions|Description|
 |---|---|---|---|---|
-|engine_name|string|true|none|none|
-|engine_version|string|true|none|none|
-|config|object|true|none|none|
+|name|string|false|none|none|
+|engine|[EngineRef](#schemaengineref)|true|none|Basic reference to an engine|
+|config|any|true|none|none|
+
+anyOf
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|» *anonymous*|[DruidCubeConfigInput](#schemadruidcubeconfiginput)|false|none|Specific Druid cube materialization fields that require user input|
+
+or
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|» *anonymous*|[GenericCubeConfigInput](#schemagenericcubeconfiginput)|false|none|Generic cube materialization config fields that require user input|
+
+or
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
+|» *anonymous*|[GenericMaterializationConfigInput](#schemagenericmaterializationconfiginput)|false|none|User-input portions of the materialization config|
+
+continued
+
+|Name|Type|Required|Restrictions|Description|
+|---|---|---|---|---|
 |schedule|string|true|none|none|
 
 <h2 id="tocS_ValidationError">ValidationError</h2>

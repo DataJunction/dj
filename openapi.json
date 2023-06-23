@@ -2,12 +2,12 @@
     "openapi": "3.0.2",
     "info": {
         "title": "DJ server",
-        "description": "A DataJunction metrics layer",
+        "description": "A simple DJ server running in Docker",
         "license": {
             "name": "MIT License",
             "url": "https://mit-license.org/"
         },
-        "version": "unknown"
+        "version": "0.0.1a15"
     },
     "paths": {
         "/catalogs/": {
@@ -718,9 +718,9 @@
         },
         "/nodes/{name}/materialization/": {
             "post": {
-                "summary": "Upsert A Materialization Config",
-                "description": "Update materialization config of the specified node. If a name is specified\nfor the materialization config, it will always update that named config.",
-                "operationId": "upsert_a_materialization_config_nodes__name__materialization__post",
+                "summary": "Upsert A Materialization",
+                "description": "Add or update a materialization of the specified node. If a name is specified\nfor the materialization config, it will always update that named config.",
+                "operationId": "upsert_a_materialization_nodes__name__materialization__post",
                 "parameters": [
                     {
                         "required": true,
@@ -736,7 +736,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/UpsertMaterializationConfig"
+                                "$ref": "#/components/schemas/UpsertMaterialization"
                             }
                         }
                     },
@@ -748,6 +748,50 @@
                         "content": {
                             "application/json": {
                                 "schema": {}
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Validation Error",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/HTTPValidationError"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/nodes/{node_name}/materializations/": {
+            "get": {
+                "summary": "List Node Materializations",
+                "description": "Show all materializations configured for the node, with any associated metadata\nlike urls from the materialization service, if available.",
+                "operationId": "list_node_materializations_nodes__node_name__materializations__get",
+                "parameters": [
+                    {
+                        "required": true,
+                        "schema": {
+                            "title": "Node Name",
+                            "type": "string"
+                        },
+                        "name": "node_name",
+                        "in": "path"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Successful Response",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "title": "Response List Node Materializations Nodes  Node Name  Materializations  Get",
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/MaterializationConfigInfoUnified"
+                                    }
+                                }
                             }
                         }
                     },
@@ -2384,12 +2428,26 @@
                 "required": [
                     "catalog",
                     "table",
-                    "valid_through_ts",
-                    "max_partition",
-                    "min_partition"
+                    "valid_through_ts"
                 ],
                 "type": "object",
                 "properties": {
+                    "min_temporal_partition": {
+                        "title": "Min Temporal Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": []
+                    },
+                    "max_temporal_partition": {
+                        "title": "Max Temporal Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": []
+                    },
                     "catalog": {
                         "title": "Catalog",
                         "type": "string"
@@ -2406,19 +2464,29 @@
                         "title": "Valid Through Ts",
                         "type": "integer"
                     },
-                    "max_partition": {
-                        "title": "Max Partition",
+                    "categorical_partitions": {
+                        "title": "Categorical Partitions",
                         "type": "array",
                         "items": {
                             "type": "string"
-                        }
+                        },
+                        "default": []
                     },
-                    "min_partition": {
-                        "title": "Min Partition",
+                    "temporal_partitions": {
+                        "title": "Temporal Partitions",
                         "type": "array",
                         "items": {
                             "type": "string"
-                        }
+                        },
+                        "default": []
+                    },
+                    "partitions": {
+                        "title": "Partitions",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PartitionAvailability"
+                        },
+                        "default": []
                     },
                     "id": {
                         "title": "Id",
@@ -2437,12 +2505,26 @@
                 "required": [
                     "catalog",
                     "table",
-                    "valid_through_ts",
-                    "max_partition",
-                    "min_partition"
+                    "valid_through_ts"
                 ],
                 "type": "object",
                 "properties": {
+                    "min_temporal_partition": {
+                        "title": "Min Temporal Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": []
+                    },
+                    "max_temporal_partition": {
+                        "title": "Max Temporal Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "default": []
+                    },
                     "catalog": {
                         "title": "Catalog",
                         "type": "string"
@@ -2459,19 +2541,29 @@
                         "title": "Valid Through Ts",
                         "type": "integer"
                     },
-                    "max_partition": {
-                        "title": "Max Partition",
+                    "categorical_partitions": {
+                        "title": "Categorical Partitions",
                         "type": "array",
                         "items": {
                             "type": "string"
-                        }
+                        },
+                        "default": []
                     },
-                    "min_partition": {
-                        "title": "Min Partition",
+                    "temporal_partitions": {
+                        "title": "Temporal Partitions",
                         "type": "array",
                         "items": {
                             "type": "string"
-                        }
+                        },
+                        "default": []
+                    },
+                    "partitions": {
+                        "title": "Partitions",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/PartitionAvailability"
+                        },
+                        "default": []
                     }
                 },
                 "description": "An availability state base"
@@ -2705,14 +2797,6 @@
                         "title": "Namespace",
                         "type": "string",
                         "default": "default"
-                    },
-                    "materialization_configs": {
-                        "title": "Materialization Configs",
-                        "type": "array",
-                        "items": {
-                            "$ref": "#/components/schemas/UpsertCubeMaterializationConfig"
-                        },
-                        "default": []
                     }
                 },
                 "description": "A create object for cube nodes"
@@ -2893,7 +2977,7 @@
                     "query",
                     "columns",
                     "updated_at",
-                    "materialization_configs"
+                    "materializations"
                 ],
                 "type": "object",
                 "properties": {
@@ -2951,8 +3035,8 @@
                         "type": "string",
                         "format": "date-time"
                     },
-                    "materialization_configs": {
-                        "title": "Materialization Configs",
+                    "materializations": {
+                        "title": "Materializations",
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/MaterializationConfigOutput"
@@ -2975,7 +3059,8 @@
                 "title": "DimensionAttributeOutput",
                 "required": [
                     "name",
-                    "type"
+                    "type",
+                    "path"
                 ],
                 "type": "object",
                 "properties": {
@@ -2985,6 +3070,13 @@
                     },
                     "type": {
                         "$ref": "#/components/schemas/ColumnType"
+                    },
+                    "path": {
+                        "title": "Path",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     }
                 },
                 "description": "Dimension attribute output should include the name and type"
@@ -3023,14 +3115,13 @@
                 },
                 "description": "Druid configuration"
             },
-            "DruidCubeConfig": {
-                "title": "DruidCubeConfig",
+            "DruidCubeConfigInput": {
+                "title": "DruidCubeConfigInput",
+                "required": [
+                    "druid"
+                ],
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "title": "Query",
-                        "type": "string"
-                    },
                     "partitions": {
                         "title": "Partitions",
                         "type": "array",
@@ -3040,13 +3131,6 @@
                     },
                     "spark": {
                         "$ref": "#/components/schemas/SparkConf"
-                    },
-                    "upstream_tables": {
-                        "title": "Upstream Tables",
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
                     },
                     "dimensions": {
                         "title": "Dimensions",
@@ -3082,7 +3166,7 @@
                         "$ref": "#/components/schemas/DruidConf"
                     }
                 },
-                "description": "Specific cube materialization implementation with Spark and Druid ingestion and\noptional prefix and/or suffix to include with the materialized entity's name."
+                "description": "Specific Druid cube materialization fields that require user input"
             },
             "EngineInfo": {
                 "title": "EngineInfo",
@@ -3143,14 +3227,10 @@
                 "type": "string",
                 "description": "An entity type for which activity can occur"
             },
-            "GenericCubeConfig": {
-                "title": "GenericCubeConfig",
+            "GenericCubeConfigInput": {
+                "title": "GenericCubeConfigInput",
                 "type": "object",
                 "properties": {
-                    "query": {
-                        "title": "Query",
-                        "type": "string"
-                    },
                     "partitions": {
                         "title": "Partitions",
                         "type": "array",
@@ -3160,13 +3240,6 @@
                     },
                     "spark": {
                         "$ref": "#/components/schemas/SparkConf"
-                    },
-                    "upstream_tables": {
-                        "title": "Upstream Tables",
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
                     },
                     "dimensions": {
                         "title": "Dimensions",
@@ -3189,7 +3262,24 @@
                         }
                     }
                 },
-                "description": "Generic cube materialization config needed by any materialization\nchoices and engine combinations"
+                "description": "Generic cube materialization config fields that require user input"
+            },
+            "GenericMaterializationConfigInput": {
+                "title": "GenericMaterializationConfigInput",
+                "type": "object",
+                "properties": {
+                    "partitions": {
+                        "title": "Partitions",
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/Partition"
+                        }
+                    },
+                    "spark": {
+                        "$ref": "#/components/schemas/SparkConf"
+                    }
+                },
+                "description": "User-input portions of the materialization config"
             },
             "HTTPValidationError": {
                 "title": "HTTPValidationError",
@@ -3275,6 +3365,57 @@
                     }
                 },
                 "description": "An event to store as part of the server's activity history"
+            },
+            "MaterializationConfigInfoUnified": {
+                "title": "MaterializationConfigInfoUnified",
+                "required": [
+                    "engine",
+                    "config",
+                    "schedule",
+                    "job",
+                    "output_tables",
+                    "urls"
+                ],
+                "type": "object",
+                "properties": {
+                    "name": {
+                        "title": "Name",
+                        "type": "string"
+                    },
+                    "engine": {
+                        "$ref": "#/components/schemas/EngineInfo"
+                    },
+                    "config": {
+                        "title": "Config",
+                        "type": "object"
+                    },
+                    "schedule": {
+                        "title": "Schedule",
+                        "type": "string"
+                    },
+                    "job": {
+                        "title": "Job",
+                        "type": "string"
+                    },
+                    "output_tables": {
+                        "title": "Output Tables",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "urls": {
+                        "title": "Urls",
+                        "type": "array",
+                        "items": {
+                            "maxLength": 65536,
+                            "minLength": 1,
+                            "type": "string",
+                            "format": "uri"
+                        }
+                    }
+                },
+                "description": "Materialization config + info"
             },
             "MaterializationConfigOutput": {
                 "title": "MaterializationConfigOutput",
@@ -3610,7 +3751,7 @@
                     "mode",
                     "columns",
                     "updated_at",
-                    "materialization_configs",
+                    "materializations",
                     "parents"
                 ],
                 "type": "object",
@@ -3679,8 +3820,8 @@
                         "type": "string",
                         "format": "date-time"
                     },
-                    "materialization_configs": {
-                        "title": "Materialization Configs",
+                    "materializations": {
+                        "title": "Materializations",
                         "type": "array",
                         "items": {
                             "$ref": "#/components/schemas/MaterializationConfigOutput"
@@ -3786,6 +3927,41 @@
                     }
                 },
                 "description": "A partition specification tells the ongoing and backfill materialization jobs how to partition\nthe materialized dataset and which partition values (a list or range of values) to operate on.\nPartitions may be temporal or categorical and will be handled differently depending on the type.\n\nFor temporal partition types, the ongoing materialization job will continue to operate on the\nlatest partitions and the partition values specified by `values` and `range` are only relevant\nto the backfill job.\n\nExamples:\n    This will tell DJ to backfill for all values of the dateint partition:\n      Partition(name=\u201cdateint\u201d, type=\"temporal\", values=[], range=())\n    This will tell DJ to backfill just 20230601 and 20230605:\n      Partition(name=\u201cdateint\u201d, type=\"temporal\", values=[20230601, 20230605], range=())\n    This will tell DJ to backfill 20230601 and between 20220101 and 20230101:\n      Partition(name=\u201cdateint\u201d, type=\"temporal\", values=[20230601], range=(20220101, 20230101))\n\n    For categorical partition types, the ongoing materialization job will *only* operate on the\n    specified partition values in `values` and `range`:\n        Partition(name=\u201cgroup_id\u201d, type=\"categorical\", values=[\"a\", \"b\", \"c\"], range=())"
+            },
+            "PartitionAvailability": {
+                "title": "PartitionAvailability",
+                "required": [
+                    "value"
+                ],
+                "type": "object",
+                "properties": {
+                    "min_temporal_partition": {
+                        "title": "Min Temporal Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "max_temporal_partition": {
+                        "title": "Max Temporal Partition",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "value": {
+                        "title": "Value",
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    "valid_through_ts": {
+                        "title": "Valid Through Ts",
+                        "type": "integer"
+                    }
+                },
+                "description": "Partition-level availability"
             },
             "PartitionType": {
                 "title": "PartitionType",
@@ -4182,8 +4358,8 @@
                 "additionalProperties": false,
                 "description": "Update tag model. Only works on mutable fields."
             },
-            "UpsertCubeMaterializationConfig": {
-                "title": "UpsertCubeMaterializationConfig",
+            "UpsertMaterialization": {
+                "title": "UpsertMaterialization",
                 "required": [
                     "engine",
                     "config",
@@ -4202,39 +4378,15 @@
                         "title": "Config",
                         "anyOf": [
                             {
-                                "$ref": "#/components/schemas/DruidCubeConfig"
+                                "$ref": "#/components/schemas/DruidCubeConfigInput"
                             },
                             {
-                                "$ref": "#/components/schemas/GenericCubeConfig"
+                                "$ref": "#/components/schemas/GenericCubeConfigInput"
+                            },
+                            {
+                                "$ref": "#/components/schemas/GenericMaterializationConfigInput"
                             }
                         ]
-                    },
-                    "schedule": {
-                        "title": "Schedule",
-                        "type": "string"
-                    }
-                },
-                "description": "An upsert object for cube materialization configs"
-            },
-            "UpsertMaterializationConfig": {
-                "title": "UpsertMaterializationConfig",
-                "required": [
-                    "engine",
-                    "config",
-                    "schedule"
-                ],
-                "type": "object",
-                "properties": {
-                    "name": {
-                        "title": "Name",
-                        "type": "string"
-                    },
-                    "engine": {
-                        "$ref": "#/components/schemas/EngineRef"
-                    },
-                    "config": {
-                        "title": "Config",
-                        "type": "object"
                     },
                     "schedule": {
                         "title": "Schedule",
