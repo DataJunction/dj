@@ -2,11 +2,14 @@ name: Generate OpenAPI Spec
 on:
   workflow_dispatch:
 jobs:
-  generate-python-client:
+  generate-openapi-spec:
     env:
       PDM_DEPS: 'urllib3<2'
+    defaults:
+      run:
+        working-directory: ./datajunction-server
     runs-on: ubuntu-latest
-    name: Generate Python Client
+    name: OpenAPI Spec
     steps:
       - name: Checkout
         uses: actions/checkout@v3
