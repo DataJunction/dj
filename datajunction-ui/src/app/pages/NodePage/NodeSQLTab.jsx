@@ -17,14 +17,10 @@ const NodeSQLTab = djNode => {
   useEffect(() => {
     const fetchData = async () => {
       const query = await djClient.sql(djNode.djNode.name, selection);
-      console.log(query.sql);
       setQuery(query.sql);
     };
     fetchData().catch(console.error);
   }, [djClient, djNode.djNode.name, selection]);
-
-  console.log(djNode.djNode.primary_key);
-
   const dimensionsList = djNode.djNode.dimensions
     ? djNode.djNode.dimensions.map(dim => ({
         value: dim.name,
@@ -43,13 +39,11 @@ const NodeSQLTab = djNode => {
   // ];
 
   const handleSubmit = event => {
-    console.log(event);
     event.preventDefault();
   };
 
   const handleChange = event => {
     setSelection({ filters: [], dimensions: event.map(dim => dim.value) });
-    console.log(event);
   };
 
   return (

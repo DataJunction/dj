@@ -124,7 +124,6 @@ const NodeLineage = djNode => {
               },
             };
             edges.push(edge);
-            console.log('Edge added:', edge);
           }
         });
       });

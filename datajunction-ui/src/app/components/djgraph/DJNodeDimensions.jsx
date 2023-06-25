@@ -31,9 +31,6 @@ export function DJNodeDimensions(data) {
   const groupedDimensions = dims =>
     dims.reduce((acc, current) => {
       const dimKey = current.dimension + ' via ' + current.path.slice(-1);
-      if (dimKey === 'column') {
-        console.log('found', dimKey, current);
-      }
       acc[dimKey] = acc[dimKey] || {
         dimension: current.dimension,
         path: current.path.slice(-1),
