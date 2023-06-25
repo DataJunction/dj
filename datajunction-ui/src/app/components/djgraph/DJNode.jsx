@@ -50,18 +50,72 @@ const Collapse = ({ collapsed, text, children }) => {
 };
 
 export function DJNode({ id, data }) {
+  const handleWrapperStyle = {
+    display: 'flex',
+    position: 'absolute',
+    height: '100%',
+    flexDirection: 'column',
+    top: '50%',
+    justifyContent: 'space-between',
+  };
+  const handleWrapperStyleRight = { ...handleWrapperStyle, ...{ right: 0 } };
+
+  const handleStyle = {
+    width: '12px',
+    height: '12px',
+    borderRadius: '12px',
+    background: 'transparent',
+    border: '4px solid transparent',
+    cursor: 'pointer',
+    position: 'absolute',
+    top: '0px',
+    left: 0,
+  };
+  const handleStyleLeft = percentage => {
+    return {
+      ...handleStyle,
+      ...{
+        transform: 'translate(-' + percentage + '%, -50%)',
+      },
+    };
+  };
   const columnsRenderer = data =>
     data.column_names.map(col => (
-      <tr>
-        <td>
+      <div className={'custom-node-subheader node_type__' + data.type}>
+        <div style={handleWrapperStyle}>
+          <Handle
+            type="target"
+            position="left"
+            id={data.name + '.' + col.name}
+            style={handleStyleLeft(100)}
+          />
+        </div>
+        <div
+          className="custom-node-port"
+          id={data.name + '.' + col.name}
+          key={'i-' + data.name + '.' + col.name}
+        >
           {data.primary_key.includes(col.name) ? (
             <b>{col.name} (PK)</b>
           ) : (
             <>{col.name}</>
           )}
-        </td>
-        <td style={{ textAlign: 'right' }}>{col.type}</td>
-      </tr>
+          <span
+            style={{ marginLeft: '0.25rem' }}
+            className={'badge node_type__' + data.type}
+          >
+            {col.type}
+          </span>
+        </div>
+        <div style={handleWrapperStyleRight}>
+          <Handle
+            type="source"
+            position="right"
+            id={data.name + '.' + col.name}
+            style={handleStyle}
+          />
+        </div>
+      </div>
     ));
 
   const [dimensions, setDimensions] = useState([]);
@@ -79,26 +133,62 @@ export function DJNode({ id, data }) {
       getDimensions();
     }
   }, [data, djClient]);
-
-  const dimensionsRenderer = dimensions =>
-    dimensions.map(dim => (
-      <tr>
-        <a href={`/nodes/${dim.name.substring(0, dim.name.lastIndexOf('.'))}`}>
-          <td>
-            {dim.name} &#8596; {dim.path.slice(-1)}
-          </td>
-        </a>
-      </tr>
-    ));
+  const dimensionsToObject = dimensions => {
+    return dimensions.map(dim => {
+      const [attribute, ...nodeName] = dim.name.split('.').reverse();
+      return {
+        dimension: nodeName.reverse().join('.'),
+        path: dim.path,
+        column: attribute,
+      };
+    });
+  };
+  const groupedDimensions = dims =>
+    dims.reduce((acc, current) => {
+      const dimKey = current.dimension + ' via ' + current.path.slice(-1);
+      if (dimKey === 'column') {
+        console.log('found', dimKey, current);
+      }
+      acc[dimKey] = acc[dimKey] || {
+        dimension: current.dimension,
+        path: current.path.slice(-1),
+        columns: [],
+      };
+      acc[dimKey].columns.push(current.column);
+      return acc;
+    }, {});
+  const dimensionsRenderer = grouped =>
+    Object.entries(grouped).map(([dimKey, dimValue]) => {
+      if (Array.isArray(dimValue.columns)) {
+        const attributes = dimValue.columns.map(col => {
+          return (
+            <span className={'badge node_type__metric white_badge'}>{col}</span>
+          );
+        });
+        return (
+          <div className={'custom-node-subheader node_type__' + data.type}>
+            <div className="custom-node-port">
+              {dimValue.dimension}{' '}
+              <div className={'badge node_type__metric'}>{dimValue.path}</div>
+            </div>
+            <div className={'dimension_attributes'}>{attributes}</div>
+          </div>
+        );
+      }
+      return <></>;
+    });
 
   return (
     <>
-      <Handle
-        type="target"
-        position={Position.Left}
-        style={{ backgroundColor: '#ccc' }}
-      />
       <div className="dj-node__full" style={renderBasedOnDJNodeType(data.type)}>
+        <div style={handleWrapperStyle}>
+          <Handle
+            type="target"
+            id={data.name}
+            position={Position.Left}
+            style={handleStyleLeft(100)}
+          />
+        </div>
         <div className="dj-node__header">
           <div className="serif">
             {data.name
@@ -112,23 +202,30 @@ export function DJNode({ id, data }) {
           <a href={`/nodes/${data.name}`}>
             {data.type === 'source' ? data.table : data.display_name}
           </a>
-          <Collapse
-            collapsed={true}
-            text={data.type !== 'metric' ? 'columns' : 'dimensions'}
-          >
-            <div className="dj-node__metadata">
-              {data.type !== 'metric'
-                ? columnsRenderer(data)
-                : dimensionsRenderer(dimensions)}
-            </div>
-          </Collapse>
+          {data.type !== 'metric' ? (
+            columnsRenderer(data)
+          ) : (
+            <Collapse
+              collapsed={true}
+              text={data.type !== 'metric' ? 'columns' : 'dimensions'}
+            >
+              {dimensions.length <= 0
+                ? ''
+                : dimensionsRenderer(
+                    groupedDimensions(dimensionsToObject(dimensions)),
+                  )}
+            </Collapse>
+          )}
+        </div>
+        <div style={handleWrapperStyleRight}>
+          <Handle
+            type="source"
+            id={data.name}
+            position={Position.Right}
+            style={handleStyleLeft(90)}
+          />
         </div>
       </div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        style={{ backgroundColor: '#ccc' }}
-      />
     </>
   );
 }
