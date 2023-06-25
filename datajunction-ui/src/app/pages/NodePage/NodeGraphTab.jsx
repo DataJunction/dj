@@ -12,13 +12,12 @@ import ReactFlow, {
 import '../../../styles/dag.css';
 import 'reactflow/dist/style.css';
 import DJNode from '../../components/djgraph/DJNode';
-import { DJColumn } from '../../components/djgraph/DJColumn';
 import dagre from 'dagre';
 import DJClientContext from '../../providers/djclient';
 
 const NodeLineage = djNode => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const nodeTypes = useMemo(() => ({ DJNode: DJNode, DJColumn: DJColumn }), []);
+  const nodeTypes = useMemo(() => ({ DJNode: DJNode }), []);
 
   const [nodes, setNodes, onNodesChange] = useNodesState([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
