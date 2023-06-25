@@ -74,9 +74,6 @@
   border-radius: 0 0 8px 8px;
 }
 
-/*.react-flow__node-DJNode {*/
-/*  height*/
-/*}*/
 .react-flow__node {
   z-index: -1 !important;
 }
@@ -87,13 +84,11 @@
 .table__full {
   display: flex;
   flex-direction: column;
-  /*height: inherit;*/
   border-width: 1px;
   border-style: solid;
   border-image: initial;
   border-color: #b0b9c2;
   border-radius: 8px;
-  /*overflow: hidden;*/
   box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
     rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
 }

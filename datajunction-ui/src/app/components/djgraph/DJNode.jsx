@@ -1,53 +1,10 @@
 import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
-import DJClientContext from '../../providers/djclient';
-import { useContext, useEffect, useState } from 'react';
-
-function renderBasedOnDJNodeType(param) {
-  switch (param) {
-    case 'source':
-      return { backgroundColor: '#7EB46150', color: '#7EB461' };
-    case 'transform':
-      return { backgroundColor: '#6DAAA750', color: '#6DAAA7' };
-    case 'dimension':
-      return { backgroundColor: '#CF7D2950', color: '#CF7D29' };
-    case 'metric':
-      return { backgroundColor: '#A27E8650', color: '#A27E86' };
-    case 'cube':
-      return { backgroundColor: '#C2180750', color: '#C21807' };
-    default:
-      return {};
-  }
-}
+import { DJNodeDimensions } from './DJNodeDimensions';
 
 function capitalize(string) {
   return string.charAt(0).toUpperCase() + string.slice(1);
 }
-
-const Collapse = ({ collapsed, text, children }) => {
-  const [isCollapsed, setIsCollapsed] = React.useState(collapsed);
-
-  return (
-    <>
-      <div className="collapse">
-        <button
-          className="collapse-button"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-        >
-          {isCollapsed ? '\u25B6 Show' : '\u25BC Hide'} {text}
-        </button>
-        <div
-          className={`collapse-content ${
-            isCollapsed ? 'collapsed' : 'expanded'
-          }`}
-          aria-expanded={isCollapsed}
-        >
-          {children}
-        </div>
-      </div>
-    </>
-  );
-};
 
 export function DJNode({ id, data }) {
   const handleWrapperStyle = {
@@ -100,10 +57,7 @@ export function DJNode({ id, data }) {
           ) : (
             <>{col.name}</>
           )}
-          <span
-            style={{ marginLeft: '0.25rem' }}
-            className={'badge node_type__' + data.type}
-          >
+          <span style={{ marginLeft: '0.25rem' }} className={'badge'}>
             {col.type}
           </span>
         </div>
@@ -118,69 +72,9 @@ export function DJNode({ id, data }) {
       </div>
     ));
 
-  const [dimensions, setDimensions] = useState([]);
-  const djClient = useContext(DJClientContext).DataJunctionAPI;
-  useEffect(() => {
-    if (data.type === 'metric') {
-      async function getDimensions() {
-        try {
-          const metricData = await djClient.metric(data.name);
-          setDimensions(metricData.dimensions);
-        } catch (err) {
-          console.log(err);
-        }
-      }
-      getDimensions();
-    }
-  }, [data, djClient]);
-  const dimensionsToObject = dimensions => {
-    return dimensions.map(dim => {
-      const [attribute, ...nodeName] = dim.name.split('.').reverse();
-      return {
-        dimension: nodeName.reverse().join('.'),
-        path: dim.path,
-        column: attribute,
-      };
-    });
-  };
-  const groupedDimensions = dims =>
-    dims.reduce((acc, current) => {
-      const dimKey = current.dimension + ' via ' + current.path.slice(-1);
-      if (dimKey === 'column') {
-        console.log('found', dimKey, current);
-      }
-      acc[dimKey] = acc[dimKey] || {
-        dimension: current.dimension,
-        path: current.path.slice(-1),
-        columns: [],
-      };
-      acc[dimKey].columns.push(current.column);
-      return acc;
-    }, {});
-  const dimensionsRenderer = grouped =>
-    Object.entries(grouped).map(([dimKey, dimValue]) => {
-      if (Array.isArray(dimValue.columns)) {
-        const attributes = dimValue.columns.map(col => {
-          return (
-            <span className={'badge node_type__metric white_badge'}>{col}</span>
-          );
-        });
-        return (
-          <div className={'custom-node-subheader node_type__' + data.type}>
-            <div className="custom-node-port">
-              {dimValue.dimension}{' '}
-              <div className={'badge node_type__metric'}>{dimValue.path}</div>
-            </div>
-            <div className={'dimension_attributes'}>{attributes}</div>
-          </div>
-        );
-      }
-      return <></>;
-    });
-
   return (
     <>
-      <div className="dj-node__full" style={renderBasedOnDJNodeType(data.type)}>
+      <div className={'dj-node__full node_type__' + data.type}>
         <div style={handleWrapperStyle}>
           <Handle
             type="target"
@@ -202,20 +96,9 @@ export function DJNode({ id, data }) {
           <a href={`/nodes/${data.name}`}>
             {data.type === 'source' ? data.table : data.display_name}
           </a>
-          {data.type !== 'metric' ? (
-            columnsRenderer(data)
-          ) : (
-            <Collapse
-              collapsed={true}
-              text={data.type !== 'metric' ? 'columns' : 'dimensions'}
-            >
-              {dimensions.length <= 0
-                ? ''
-                : dimensionsRenderer(
-                    groupedDimensions(dimensionsToObject(dimensions)),
-                  )}
-            </Collapse>
-          )}
+          {data.type !== 'metric'
+            ? columnsRenderer(data)
+            : DJNodeDimensions(data)}
         </div>
         <div style={handleWrapperStyleRight}>
           <Handle

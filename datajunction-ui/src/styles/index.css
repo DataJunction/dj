@@ -377,29 +377,27 @@ tbody th {
 /* Nodes */
 .node_type__source {
   background-color: #7eb46150 !important;
-  color: #000000;
-  padding: 0.5rem;
+  color: #7eb461;
 }
 
 .node_type__transform {
-  background-color: #ccefff !important;
-  color: #0063b4;
+  background-color: #6daaa750 !important;
+  color: #6daaa7;
 }
 
 .node_type__metric {
   background-color: #a27e8650 !important;
-  color: #000000 !important;
-  padding: 0.5rem;
+  color: #a27e86 !important;
 }
 
 .node_type__dimension {
-  background-color: #ffefd0 !important;
-  color: #a96621;
+  background-color: #cf7d2950 !important;
+  color: #cf7d29;
 }
 
 .node_type__cube {
-  background-color: #dbafff !important;
-  color: #580076;
+  background-color: #c2180750 !important;
+  color: #c2180750;
 }
 
 .history_type__create {
@@ -769,4 +767,7 @@ pre {
 .neutral-button {
   background-color: #f6f8fa;
   color: #24292f;
+}
+.text-black {
+  color: #000000 !important;
 }
