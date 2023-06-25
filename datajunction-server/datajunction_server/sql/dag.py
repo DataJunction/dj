@@ -13,7 +13,8 @@ settings = get_settings()
 
 
 def get_dimensions(
-    node: Node, attributes: bool = True,
+    node: Node,
+    attributes: bool = True,
 ) -> List[Union[DimensionAttributeOutput, Node]]:
     """
     Return all available dimensions for a given node.
