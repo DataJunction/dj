@@ -163,6 +163,9 @@ h6 {
   letter-spacing: 0.08em;
   color: #95aac9;
 }
+.larger {
+  font-size: 120%;
+}
 .py-3 {
   padding-top: 1rem !important;
   padding-bottom: 1rem !important;
@@ -373,11 +376,9 @@ tbody th {
 
 /* Nodes */
 .node_type__source {
-  /*background-color: #84ea4d50!important;*/
-  /*color: #4e8033;*/
-
-  background-color: #ccf7e5 !important;
-  color: #00b368;
+  background-color: #7eb46150 !important;
+  color: #000000;
+  padding: 0.5rem;
 }
 
 .node_type__transform {
@@ -386,8 +387,9 @@ tbody th {
 }
 
 .node_type__metric {
-  background-color: #fad7dd !important;
-  color: #a2283e;
+  background-color: #a27e8650 !important;
+  color: #000000 !important;
+  padding: 0.5rem;
 }
 
 .node_type__dimension {
