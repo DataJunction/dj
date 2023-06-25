@@ -42,8 +42,8 @@ const NodeLineage = djNode => {
       const nodeHeightTracker = {};
 
       nodes.forEach(node => {
-        console.log(node);
-        nodeHeightTracker[node.id] = node.data.column_names.length * 37 + 250;
+        nodeHeightTracker[node.id] =
+          Math.min(node.data.column_names.length, 10) * 37 + 250;
         dagreGraph.setNode(node.id, {
           width: nodeWidth,
           height: nodeHeightTracker[node.id],
@@ -76,7 +76,9 @@ const NodeLineage = djNode => {
       var djNodes = [djNode.djNode];
       for (const iterable of [related_nodes]) {
         for (const item of iterable) {
-          djNodes.push(item);
+          if (item.type !== 'cube') {
+            djNodes.push(item);
+          }
         }
       }
       let edges = [];

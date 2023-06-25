@@ -46,9 +46,7 @@ export function DJNodeDimensions(data) {
     Object.entries(grouped).map(([dimKey, dimValue]) => {
       if (Array.isArray(dimValue.columns)) {
         const attributes = dimValue.columns.map(col => {
-          return (
-            <span className={'badge node_type__metric white_badge'}>{col}</span>
-          );
+          return <span className={'badge white_badge'}>{col}</span>;
         });
         return (
           <div className={'custom-node-subheader node_type__' + data.type}>
@@ -65,13 +63,10 @@ export function DJNodeDimensions(data) {
       return <></>;
     });
   return (
-    <Collapse
-      collapsed={true}
-      text={data.type !== 'metric' ? 'columns' : 'dimensions'}
-    >
+    <>
       {dimensions.length <= 0
         ? ''
         : dimensionsRenderer(groupedDimensions(dimensionsToObject(dimensions)))}
-    </Collapse>
+    </>
   );
 }
