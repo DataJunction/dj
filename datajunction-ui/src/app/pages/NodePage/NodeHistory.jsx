@@ -5,7 +5,6 @@ export default function NodeHistory({ node, djClient }) {
   useEffect(() => {
     const fetchData = async () => {
       const data = await djClient.history('node', node.name);
-      console.log(data);
       setHistory(data);
     };
     fetchData().catch(console.error);

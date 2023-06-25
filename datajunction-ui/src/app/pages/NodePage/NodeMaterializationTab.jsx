@@ -7,7 +7,6 @@ export default function NodeMaterializationTab({ node, djClient }) {
   useEffect(() => {
     const fetchData = async () => {
       const data = await djClient.materializations(node.name);
-      console.log(data);
       setMaterializations(data);
     };
     fetchData().catch(console.error);
@@ -26,7 +25,6 @@ export default function NodeMaterializationTab({ node, djClient }) {
 
   const cron = materialization => {
     var parsedCron = '';
-    console.log(parsedCron);
     try {
       parsedCron = cronstrue.toString(materialization.schedule);
     } catch (e) {}

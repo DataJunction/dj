@@ -76,7 +76,6 @@ export const DataJunctionAPI = {
   },
 
   sql: async function (metric_name, selection) {
-    console.log('selection', selection);
     const data = await (
       await fetch(
         DJ_URL + '/sql/' + metric_name + '?' + new URLSearchParams(selection),
