@@ -1,6 +1,7 @@
 import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
 import { DJNodeDimensions } from './DJNodeDimensions';
+import Collapse from './Collapse';
 
 function capitalize(string) {
   return string.charAt(0).toUpperCase() + string.slice(1);
@@ -36,41 +37,6 @@ export function DJNode({ id, data }) {
       },
     };
   };
-  const columnsRenderer = data =>
-    data.column_names.map(col => (
-      <div className={'custom-node-subheader node_type__' + data.type}>
-        <div style={handleWrapperStyle}>
-          <Handle
-            type="target"
-            position="left"
-            id={data.name + '.' + col.name}
-            style={handleStyleLeft(100)}
-          />
-        </div>
-        <div
-          className="custom-node-port"
-          id={data.name + '.' + col.name}
-          key={'i-' + data.name + '.' + col.name}
-        >
-          {data.primary_key.includes(col.name) ? (
-            <b>{col.name} (PK)</b>
-          ) : (
-            <>{col.name}</>
-          )}
-          <span style={{ marginLeft: '0.25rem' }} className={'badge'}>
-            {col.type}
-          </span>
-        </div>
-        <div style={handleWrapperStyleRight}>
-          <Handle
-            type="source"
-            position="right"
-            id={data.name + '.' + col.name}
-            style={handleStyle}
-          />
-        </div>
-      </div>
-    ));
 
   return (
     <>
@@ -96,9 +62,11 @@ export function DJNode({ id, data }) {
           <a href={`/nodes/${data.name}`}>
             {data.type === 'source' ? data.table : data.display_name}
           </a>
-          {data.type !== 'metric'
-            ? columnsRenderer(data)
-            : DJNodeDimensions(data)}
+          <Collapse
+            collapsed={true}
+            text={data.type !== 'metric' ? 'columns' : 'dimensions'}
+            data={data}
+          />
         </div>
         <div style={handleWrapperStyleRight}>
           <Handle
