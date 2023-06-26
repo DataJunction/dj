@@ -2,24 +2,41 @@
 
 exports[`<DJNode /> should render and match the snapshot 1`] = `
 <React.Fragment>
-  <Memo(Handle)
-    position="left"
-    style={
-      Object {
-        "backgroundColor": "#ccc",
-      }
-    }
-    type="target"
-  />
   <div
-    className="dj-node__full"
-    style={
-      Object {
-        "backgroundColor": "#7EB46150",
-        "color": "#7EB461",
-      }
-    }
+    className="dj-node__full node_type__source"
   >
+    <div
+      style={
+        Object {
+          "display": "flex",
+          "flexDirection": "column",
+          "height": "100%",
+          "justifyContent": "space-between",
+          "position": "absolute",
+          "top": "50%",
+        }
+      }
+    >
+      <Memo(Handle)
+        id="shared.dimensions.accounts"
+        position="left"
+        style={
+          Object {
+            "background": "transparent",
+            "border": "4px solid transparent",
+            "borderRadius": "12px",
+            "cursor": "pointer",
+            "height": "12px",
+            "left": 0,
+            "position": "absolute",
+            "top": "0px",
+            "transform": "translate(-100%, -50%)",
+            "width": "12px",
+          }
+        }
+        type="target"
+      />
+    </div>
     <div
       className="dj-node__header"
     >
@@ -42,35 +59,54 @@ exports[`<DJNode /> should render and match the snapshot 1`] = `
       />
       <Collapse
         collapsed={true}
+        data={
+          Object {
+            "column_names": Array [
+              "a",
+            ],
+            "name": "shared.dimensions.accounts",
+            "primary_key": Array [
+              "id",
+            ],
+            "type": "source",
+          }
+        }
         text="columns"
-      >
-        <div
-          className="dj-node__metadata"
-        >
-          <tr>
-            <td>
-              <React.Fragment />
-            </td>
-            <td
-              style={
-                Object {
-                  "textAlign": "right",
-                }
-              }
-            />
-          </tr>
-        </div>
-      </Collapse>
+      />
+    </div>
+    <div
+      style={
+        Object {
+          "display": "flex",
+          "flexDirection": "column",
+          "height": "100%",
+          "justifyContent": "space-between",
+          "position": "absolute",
+          "right": 0,
+          "top": "50%",
+        }
+      }
+    >
+      <Memo(Handle)
+        id="shared.dimensions.accounts"
+        position="right"
+        style={
+          Object {
+            "background": "transparent",
+            "border": "4px solid transparent",
+            "borderRadius": "12px",
+            "cursor": "pointer",
+            "height": "12px",
+            "left": 0,
+            "position": "absolute",
+            "top": "0px",
+            "transform": "translate(-90%, -50%)",
+            "width": "12px",
+          }
+        }
+        type="source"
+      />
     </div>
   </div>
-  <Memo(Handle)
-    position="right"
-    style={
-      Object {
-        "backgroundColor": "#ccc",
-      }
-    }
-    type="source"
-  />
 </React.Fragment>
 `;

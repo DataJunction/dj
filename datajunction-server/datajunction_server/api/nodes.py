@@ -7,7 +7,7 @@ import os
 from collections import defaultdict
 from datetime import datetime
 from http import HTTPStatus
-from typing import Dict, List, Optional, Set, Union
+from typing import Dict, List, Optional, Set, Union, cast
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -86,6 +86,7 @@ from datajunction_server.models.node import (
     UpdateNode,
 )
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
@@ -1487,3 +1488,18 @@ def list_upstream_nodes(
     List all nodes that are upstream from the given node, filterable by type.
     """
     return get_upstream_nodes(session, name, node_type)  # type: ignore
+
+
+@router.get("/nodes/{name}/dag/", response_model=List[NodeOutput])
+def list_node_dag(
+    name: str, *, session: Session = Depends(get_session)
+) -> List[NodeOutput]:
+    """
+    List all nodes that are part of the DAG of the given node. This means getting all upstreams,
+    downstreams, and linked dimension nodes.
+    """
+    node = get_node_by_name(session, name)
+    dimension_nodes = get_dimensions(node, attributes=False)
+    downstreams = get_downstream_nodes(session, name)
+    upstreams = get_upstream_nodes(session, name)
+    return list(set(cast(List[Node], dimension_nodes) + downstreams + upstreams))  # type: ignore
