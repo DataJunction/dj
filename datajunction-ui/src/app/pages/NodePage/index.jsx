@@ -10,6 +10,7 @@ import NodeHistory from './NodeHistory';
 import DJClientContext from '../../providers/djclient';
 import NodeSQLTab from './NodeSQLTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
+import ClientCodePopover from './ClientCodePopover';
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -40,6 +41,7 @@ export function NodePage() {
   useEffect(() => {
     const fetchData = async () => {
       const data = await djClient.node(name);
+      data.createNodeClientCode = await djClient.clientCode(name);
       setNode(data);
       if (data.type === 'metric') {
         const metric = await djClient.metric(name);
@@ -114,17 +116,15 @@ export function NodePage() {
       <NamespaceHeader namespace={name.split('.').slice(0, -1).join('.')} />
       <div className="card">
         <div className="card-header">
-          <h3 className="card-title align-items-start flex-column">
+          <h3
+            className="card-title align-items-start flex-column"
+            style={{ display: 'inline-block' }}
+          >
             <span className="card-label fw-bold text-gray-800">
               {node?.display_name}
             </span>
           </h3>
-          <span
-            className="fs-6 fw-semibold text-gray-400"
-            style={{ marginTop: '-4rem' }}
-          >
-            Updated {new Date(node?.updated_at).toDateString()}
-          </span>
+          <ClientCodePopover code={node?.createNodeClientCode} />
           <div className="align-items-center row">
             {TabsJson.map(buildTabs)}
           </div>
