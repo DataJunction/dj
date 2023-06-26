@@ -1,6 +1,5 @@
 import React from 'react';
 import { DJNodeDimensions } from './DJNodeDimensions';
-import { Handle } from 'reactflow';
 import { DJNodeColumns } from './DJNodeColumns';
 
 export default function Collapse({ collapsed, text, data }) {
