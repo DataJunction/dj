@@ -36,13 +36,18 @@ const NodeLineage = djNode => {
       edges,
       direction = 'LR',
       nodeWidth = 800,
-      nodeHeight = 150,
     ) => {
       const isHorizontal = direction === 'TB';
       dagreGraph.setGraph({ rankdir: direction });
+      const nodeHeightTracker = {};
 
       nodes.forEach(node => {
-        dagreGraph.setNode(node.id, { width: nodeWidth, height: nodeHeight });
+        nodeHeightTracker[node.id] =
+          Math.min(node.data.column_names.length, 10) * 37 + 250;
+        dagreGraph.setNode(node.id, {
+          width: nodeWidth,
+          height: nodeHeightTracker[node.id],
+        });
       });
 
       edges.forEach(edge => {
@@ -57,21 +62,23 @@ const NodeLineage = djNode => {
         node.sourcePosition = isHorizontal ? 'right' : 'bottom';
         node.position = {
           x: nodeWithPosition.x - nodeWidth / 2,
-          y: nodeWithPosition.y - nodeHeight / 2,
+          y: nodeWithPosition.y - nodeHeightTracker[node.id] / 2,
         };
+        node.width = nodeWidth;
+        node.height = nodeHeightTracker[node.id];
         return node;
       });
-
       return { nodes, edges };
     };
 
     const dagFetch = async () => {
-      let upstreams = await djClient.upstreams(djNode.djNode.name);
-      let downstreams = await djClient.downstreams(djNode.djNode.name);
+      let related_nodes = await djClient.node_dag(djNode.djNode.name);
       var djNodes = [djNode.djNode];
-      for (const iterable of [upstreams, downstreams]) {
+      for (const iterable of [related_nodes]) {
         for (const item of iterable) {
-          djNodes.push(item);
+          if (item.type !== 'cube') {
+            djNodes.push(item);
+          }
         }
       }
       let edges = [];
@@ -80,11 +87,17 @@ const NodeLineage = djNode => {
           if (parent.name) {
             edges.push({
               id: obj.name + '-' + parent.name,
-              target: obj.name,
               source: parent.name,
+              sourceHandle: parent.name,
+              target: obj.name,
+              targetHandle: obj.name,
               animated: true,
               markerEnd: {
                 type: MarkerType.Arrow,
+              },
+              style: {
+                strokeWidth: 3,
+                stroke: '#b0b9c2',
               },
             });
           }
@@ -92,12 +105,25 @@ const NodeLineage = djNode => {
 
         obj.columns.forEach(col => {
           if (col.dimension) {
-            edges.push({
-              id: obj.name + '-' + col.dimension.name,
-              target: obj.name,
+            const edge = {
+              id: col.dimension.name + '->' + obj.name + '.' + col.name,
               source: col.dimension.name,
+              sourceHandle: col.dimension.name,
+              target: obj.name,
+              targetHandle: obj.name + '.' + col.name,
               draggable: true,
-            });
+              markerStart: {
+                type: MarkerType.Arrow,
+                width: 20,
+                height: 20,
+                color: '#b0b9c2',
+              },
+              style: {
+                strokeWidth: 3,
+                stroke: '#b0b9c2',
+              },
+            };
+            edges.push(edge);
           }
         });
       });
@@ -126,14 +152,14 @@ const NodeLineage = djNode => {
             type: node.type,
             primary_key: primary_key,
             column_names: column_names,
-            // dimensions: dimensions,
           },
-          // parentNode: [node.name.split(".").slice(-2, -1)],
-          // extent: 'parent',
         };
       });
       setNodes(nodes);
       setEdges(edges);
+
+      // use dagre to determine the position of the parents (the DJ nodes)
+      // the positions of the columns are relative to each DJ node
       setElementsLayout(nodes, edges);
     };
 
@@ -146,7 +172,7 @@ const NodeLineage = djNode => {
   );
 
   return (
-    <div style={{ height: '600px' }}>
+    <div style={{ height: '800px' }}>
       <ReactFlow
         nodes={nodes}
         edges={edges}

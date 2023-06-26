@@ -2483,6 +2483,31 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.long_events",
         }
 
+    def test_list_node_dag(self, client_with_examples: TestClient):
+        """
+        Test getting the DAG for a node
+        """
+        response = client_with_examples.get(
+            "/nodes/default.long_events_distinct_countries/dag",
+        )
+        data = response.json()
+        assert {node["name"] for node in data} == {
+            "default.event_source",
+            "default.long_events",
+            "default.long_events_distinct_countries",
+        }
+
+        response = client_with_examples.get("/nodes/default.num_repair_orders/dag")
+        data = response.json()
+        assert {node["name"] for node in data} == {
+            "default.dispatcher",
+            "default.hard_hat",
+            "default.municipality_dim",
+            "default.num_repair_orders",
+            "default.repair_orders",
+            "default.us_state",
+        }
+
 
 def test_node_similarity(session: Session, client: TestClient):
     """

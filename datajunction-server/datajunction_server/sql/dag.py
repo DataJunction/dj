@@ -3,7 +3,7 @@ DAG related functions.
 """
 import collections
 import itertools
-from typing import Deque, List, Set, Tuple
+from typing import Deque, List, Set, Tuple, Union
 
 from datajunction_server.models import Column
 from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
@@ -12,9 +12,14 @@ from datajunction_server.utils import get_settings
 settings = get_settings()
 
 
-def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
+def get_dimensions(
+    node: Node,
+    attributes: bool = True,
+) -> List[Union[DimensionAttributeOutput, Node]]:
     """
     Return all available dimensions for a given node.
+    * Setting `attributes` to True will return a list of dimension attributes,
+    * Setting `attributes` to False will return a list of dimension nodes
     """
     dimensions = []
 
@@ -70,7 +75,9 @@ def get_dimensions(node: Node) -> List[DimensionAttributeOutput]:
                 )
             if column.dimension and column.dimension not in processed:
                 to_process.append((column.dimension, join_path + [column]))
-    return sorted(dimensions, key=lambda x: x.name)
+    if attributes:
+        return sorted(dimensions, key=lambda x: x.name)
+    return sorted(list(processed), key=lambda x: x.name)
 
 
 def get_shared_dimensions(

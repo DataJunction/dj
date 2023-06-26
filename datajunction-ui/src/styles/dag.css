@@ -71,20 +71,24 @@
   font-family: 'nt-dapper', -apple-system, BlinkMacSystemFont, Segoe UI, Roboto,
     Oxygen, Ubuntu, Cantarell, Fira Sans, Droid Sans, Helvetica Neue, sans-serif;
   font-size: 1.7em;
+  border-radius: 0 0 8px 8px;
 }
 
+.react-flow__node {
+  z-index: -1 !important;
+}
+
+.react-flow__node-DJNode,
 .dj-node__full,
 .partition__full,
 .table__full {
   display: flex;
   flex-direction: column;
-  height: 100%;
   border-width: 1px;
   border-style: solid;
   border-image: initial;
   border-color: #b0b9c2;
   border-radius: 8px;
-  overflow: hidden;
   box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
     rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
 }
@@ -165,4 +169,52 @@
 .serif {
   font-family: 'jetbrains-mono', monospace;
   text-transform: lowercase;
+}
+
+.react-flow__handle-left {
+  transform: translate(-180%, -50%);
+}
+
+.custom-node-subheader {
+  --bs-badge-padding-x: 0.4em;
+  --bs-badge-padding-y: 0.3em;
+  --bs-badge-font-size: 18px;
+  --bs-badge-font-weight: 400;
+  --bs-badge-color: #fff;
+  --bs-badge-border-radius: 0.375rem;
+  display: flex;
+  flex-direction: column;
+  flex-grow: 1;
+  padding: var(--bs-badge-padding-y) var(--bs-badge-padding-x);
+  margin: 0.55rem;
+  font-size: var(--bs-badge-font-size);
+  font-weight: var(--bs-badge-font-weight);
+  line-height: 1;
+  color: var(--bs-badge-color);
+  text-align: center;
+  white-space: nowrap;
+  vertical-align: baseline;
+  border-radius: var(--bs-badge-border-radius);
+  position: relative;
+  justify-content: flex-start;
+}
+.custom-node-port {
+  color: #636776;
+  font-size: 20px;
+  text-align: center;
+}
+
+.white_badge {
+  background-color: #ffffff !important;
+  display: inline-block;
+  margin: 0.3rem 0.3rem 0.3rem 0.3rem;
+  margin-top: 0.7rem;
+  color: #636776;
+}
+
+.dimension_attributes {
+  max-width: 500px;
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: center;
 }

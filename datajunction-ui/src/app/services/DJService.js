@@ -24,6 +24,13 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  node_dag: async function (name) {
+    const data = await (
+      await fetch(DJ_URL + '/nodes/' + name + '/dag/')
+    ).json();
+    return data;
+  },
+
   metric: async function (name) {
     const data = await (await fetch(DJ_URL + '/metrics/' + name + '/')).json();
     return data;
@@ -69,7 +76,6 @@ export const DataJunctionAPI = {
   },
 
   sql: async function (metric_name, selection) {
-    console.log('selection', selection);
     const data = await (
       await fetch(
         DJ_URL + '/sql/' + metric_name + '?' + new URLSearchParams(selection),

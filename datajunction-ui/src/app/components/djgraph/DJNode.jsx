@@ -1,104 +1,54 @@
 import React, { memo } from 'react';
 import { Handle, Position } from 'reactflow';
-import DJClientContext from '../../providers/djclient';
-import { useContext, useEffect, useState } from 'react';
-
-function renderBasedOnDJNodeType(param) {
-  switch (param) {
-    case 'source':
-      return { backgroundColor: '#7EB46150', color: '#7EB461' };
-    case 'transform':
-      return { backgroundColor: '#6DAAA750', color: '#6DAAA7' };
-    case 'dimension':
-      return { backgroundColor: '#CF7D2950', color: '#CF7D29' };
-    case 'metric':
-      return { backgroundColor: '#A27E8650', color: '#A27E86' };
-    case 'cube':
-      return { backgroundColor: '#C2180750', color: '#C21807' };
-    default:
-      return {};
-  }
-}
+import { DJNodeDimensions } from './DJNodeDimensions';
+import Collapse from './Collapse';
 
 function capitalize(string) {
   return string.charAt(0).toUpperCase() + string.slice(1);
 }
 
-const Collapse = ({ collapsed, text, children }) => {
-  const [isCollapsed, setIsCollapsed] = React.useState(collapsed);
-
-  return (
-    <>
-      <div className="collapse">
-        <button
-          className="collapse-button"
-          onClick={() => setIsCollapsed(!isCollapsed)}
-        >
-          {isCollapsed ? '\u25B6 Show' : '\u25BC Hide'} {text}
-        </button>
-        <div
-          className={`collapse-content ${
-            isCollapsed ? 'collapsed' : 'expanded'
-          }`}
-          aria-expanded={isCollapsed}
-        >
-          {children}
-        </div>
-      </div>
-    </>
-  );
-};
-
 export function DJNode({ id, data }) {
-  const columnsRenderer = data =>
-    data.column_names.map(col => (
-      <tr>
-        <td>
-          {data.primary_key.includes(col.name) ? (
-            <b>{col.name} (PK)</b>
-          ) : (
-            <>{col.name}</>
-          )}
-        </td>
-        <td style={{ textAlign: 'right' }}>{col.type}</td>
-      </tr>
-    ));
+  const handleWrapperStyle = {
+    display: 'flex',
+    position: 'absolute',
+    height: '100%',
+    flexDirection: 'column',
+    top: '50%',
+    justifyContent: 'space-between',
+  };
+  const handleWrapperStyleRight = { ...handleWrapperStyle, ...{ right: 0 } };
 
-  const [dimensions, setDimensions] = useState([]);
-  const djClient = useContext(DJClientContext).DataJunctionAPI;
-  useEffect(() => {
-    if (data.type === 'metric') {
-      async function getDimensions() {
-        try {
-          const metricData = await djClient.metric(data.name);
-          setDimensions(metricData.dimensions);
-        } catch (err) {
-          console.log(err);
-        }
-      }
-      getDimensions();
-    }
-  }, [data, djClient]);
-
-  const dimensionsRenderer = dimensions =>
-    dimensions.map(dim => (
-      <tr>
-        <a href={`/nodes/${dim.name.substring(0, dim.name.lastIndexOf('.'))}`}>
-          <td>
-            {dim.name} &#8596; {dim.path.slice(-1)}
-          </td>
-        </a>
-      </tr>
-    ));
+  const handleStyle = {
+    width: '12px',
+    height: '12px',
+    borderRadius: '12px',
+    background: 'transparent',
+    border: '4px solid transparent',
+    cursor: 'pointer',
+    position: 'absolute',
+    top: '0px',
+    left: 0,
+  };
+  const handleStyleLeft = percentage => {
+    return {
+      ...handleStyle,
+      ...{
+        transform: 'translate(-' + percentage + '%, -50%)',
+      },
+    };
+  };
 
   return (
     <>
-      <Handle
-        type="target"
-        position={Position.Left}
-        style={{ backgroundColor: '#ccc' }}
-      />
-      <div className="dj-node__full" style={renderBasedOnDJNodeType(data.type)}>
+      <div className={'dj-node__full node_type__' + data.type}>
+        <div style={handleWrapperStyle}>
+          <Handle
+            type="target"
+            id={data.name}
+            position={Position.Left}
+            style={handleStyleLeft(100)}
+          />
+        </div>
         <div className="dj-node__header">
           <div className="serif">
             {data.name
@@ -115,20 +65,18 @@ export function DJNode({ id, data }) {
           <Collapse
             collapsed={true}
             text={data.type !== 'metric' ? 'columns' : 'dimensions'}
-          >
-            <div className="dj-node__metadata">
-              {data.type !== 'metric'
-                ? columnsRenderer(data)
-                : dimensionsRenderer(dimensions)}
-            </div>
-          </Collapse>
+            data={data}
+          />
+        </div>
+        <div style={handleWrapperStyleRight}>
+          <Handle
+            type="source"
+            id={data.name}
+            position={Position.Right}
+            style={handleStyleLeft(90)}
+          />
         </div>
       </div>
-      <Handle
-        type="source"
-        position={Position.Right}
-        style={{ backgroundColor: '#ccc' }}
-      />
     </>
   );
 }
