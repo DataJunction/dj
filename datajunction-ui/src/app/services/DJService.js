@@ -7,6 +7,13 @@ const DJ_URL = process.env.REACT_APP_DJ_URL
 export const DataJunctionAPI = {
   node: async function (name) {
     const data = await (await fetch(DJ_URL + '/nodes/' + name + '/')).json();
+    data.primary_key = data.columns
+      .filter(col =>
+        col.attributes.some(
+          attr => attr.attribute_type.name === 'primary_key',
+        ),
+      )
+      .map(col => col.name);
     return data;
   },
 
@@ -38,6 +45,13 @@ export const DataJunctionAPI = {
 
   cube: async function (name) {
     const data = await (await fetch(DJ_URL + '/cubes/' + name + '/')).json();
+    return data;
+  },
+
+  clientCode: async function (name) {
+    const data = await (
+      await fetch(DJ_URL + '/nodes/' + name + '/client/python/')
+    ).json();
     return data;
   },
 

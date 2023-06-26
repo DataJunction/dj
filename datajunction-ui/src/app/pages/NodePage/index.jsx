@@ -10,6 +10,7 @@ import NodeHistory from './NodeHistory';
 import DJClientContext from '../../providers/djclient';
 import NodeSQLTab from './NodeSQLTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
+import ClientCodePopover from './ClientCodePopover';
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -40,6 +41,7 @@ export function NodePage() {
   useEffect(() => {
     const fetchData = async () => {
       const data = await djClient.node(name);
+      data.createNodeClientCode = await djClient.clientCode(name);
       setNode(data);
       if (data.type === 'metric') {
         const metric = await djClient.metric(name);
@@ -107,6 +109,61 @@ export function NodePage() {
     default:
       tabToDisplay = <NodeInfoTab node={node} />;
   }
+  const createNodePythonClient = node => {
+    console.log(node);
+    const initClient = `dj = DJClient(DJ_URL)`;
+    const sourceNodeParams = `catalog="${node?.catalog.name}",
+    schema_="${node?.schema_}",
+    table="${node?.table}",`;
+    const queryParam = `query="""${node?.query}""",
+`;
+    const dimensionNodeParams = `primary_key=[${node?.primary_key
+      .map(key => `"${key}"`)
+      .join(',')}],
+      ${queryParam},
+`;
+    const cubeMetrics = cubeElements =>
+      cubeElements
+        .filter(e => e.type === 'metric')
+        .map(e => `"${e.node_name}"`)
+        .join(', ');
+    console.log('cube_elements', node?.cube_elements);
+    const cubeNodeParams = ``;
+    // metrics=[${cubeMetrics(node?.cube_elements)}],
+// `;
+    let nodeParams = '';
+    switch (node?.type) {
+      case 'source':
+        nodeParams = sourceNodeParams;
+        break;
+      case 'dimension':
+        nodeParams = dimensionNodeParams;
+        break;
+      case 'transform':
+        nodeParams = queryParam;
+        break;
+      case 'metric':
+        nodeParams = queryParam;
+        break;
+      case 'cube':
+        nodeParams = cubeNodeParams;
+        break;
+      default:
+        nodeParams = '';
+        break;
+    }
+
+    const sharedNodeParams = `
+${node?.name.split('.').slice(-1)} = dj.new_${node?.type}(
+    name="${node?.name}",
+    display_name="${node?.display_name}",
+    description="${node?.description}",
+    ${nodeParams}
+)
+${node?.name.split('.').slice(-1)}.save()
+`;
+    return `${initClient}${sharedNodeParams}`;
+  };
 
   // @ts-ignore
   return (
@@ -114,17 +171,12 @@ export function NodePage() {
       <NamespaceHeader namespace={name.split('.').slice(0, -1).join('.')} />
       <div className="card">
         <div className="card-header">
-          <h3 className="card-title align-items-start flex-column">
+          <h3 className="card-title align-items-start flex-column" style={{display: 'inline-block'}}>
             <span className="card-label fw-bold text-gray-800">
               {node?.display_name}
             </span>
           </h3>
-          <span
-            className="fs-6 fw-semibold text-gray-400"
-            style={{ marginTop: '-4rem' }}
-          >
-            Updated {new Date(node?.updated_at).toDateString()}
-          </span>
+          <ClientCodePopover code={node?.createNodeClientCode} />
           <div className="align-items-center row">
             {TabsJson.map(buildTabs)}
           </div>
