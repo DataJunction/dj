@@ -30,7 +30,52 @@ export default function NodeInfoTab({ node }) {
   function toggle(value) {
     return !value;
   }
-  const queryDiv = node?.query ? (
+  const queryDiv =
+    node?.type !== 'cube' && node?.query ? (
+      <div className="list-group-item d-flex">
+        <div className="d-flex gap-2 w-100 justify-content-between py-3">
+          <div
+            style={{
+              width: window.innerWidth * 0.8,
+            }}
+          >
+            <h6 className="mb-0 w-100">Query</h6>
+            {['metric', 'dimension', 'transform'].indexOf(node?.type) > -1 ? (
+              <ToggleSwitch
+                id="toggleSwitch"
+                checked={checked}
+                onChange={() => setChecked(toggle)}
+                toggleName="Show Compiled SQL"
+              />
+            ) : (
+              <></>
+            )}
+            <SyntaxHighlighter language="sql" style={foundation}>
+              {checked
+                ? format(compiledSQL, {
+                    language: 'spark',
+                    tabWidth: 2,
+                    keywordCase: 'upper',
+                    denseOperators: true,
+                    logicalOperatorNewline: 'before',
+                    expressionWidth: 10,
+                  })
+                : format(node?.query, {
+                    language: 'spark',
+                    tabWidth: 2,
+                    keywordCase: 'upper',
+                    denseOperators: true,
+                    logicalOperatorNewline: 'before',
+                    expressionWidth: 10,
+                  })}
+            </SyntaxHighlighter>
+          </div>
+        </div>
+      </div>
+    ) : (
+      <></>
+    );
+  const cubeElementsDiv = node?.cube_elements ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
         <div
@@ -38,36 +83,17 @@ export default function NodeInfoTab({ node }) {
             width: window.innerWidth * 0.8,
           }}
         >
-          <h6 className="mb-0 w-100">Query</h6>
-          {['metric', 'dimension', 'transform'].indexOf(node?.type) > -1 ? (
-            <ToggleSwitch
-              id="toggleSwitch"
-              checked={checked}
-              onChange={() => setChecked(toggle)}
-              toggleName="Show Compiled SQL"
-            />
-          ) : (
-            <></>
-          )}
-          <SyntaxHighlighter language="sql" style={foundation}>
-            {checked
-              ? format(compiledSQL, {
-                  language: 'spark',
-                  tabWidth: 2,
-                  keywordCase: 'upper',
-                  denseOperators: true,
-                  logicalOperatorNewline: 'before',
-                  expressionWidth: 10,
-                })
-              : format(node?.query, {
-                  language: 'spark',
-                  tabWidth: 2,
-                  keywordCase: 'upper',
-                  denseOperators: true,
-                  logicalOperatorNewline: 'before',
-                  expressionWidth: 10,
-                })}
-          </SyntaxHighlighter>
+          <h6 className="mb-0 w-100">Cube Elements</h6>
+          <div className={`list-group-item`}>
+            {node.cube_elements.map(cubeElem => (
+              <div className="button-3 cube-element">
+                <a href={`/nodes/${cubeElem.node_name}`}>{cubeElem.node_name}</a>
+                <span className={`badge node_type__${cubeElem.type}`}>
+                  {cubeElem.type}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
@@ -110,6 +136,7 @@ export default function NodeInfoTab({ node }) {
         </div>
       </div>
       {queryDiv}
+      {cubeElementsDiv}
       <div className="list-group-item d-flex">{node?.primary_key}</div>
     </div>
   );
