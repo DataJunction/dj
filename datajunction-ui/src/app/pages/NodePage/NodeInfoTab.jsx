@@ -74,6 +74,34 @@ export default function NodeInfoTab({ node }) {
   ) : (
     <></>
   );
+
+  const cubeElementsDiv = node?.cube_elements ? (
+    <div className="list-group-item d-flex">
+      <div className="d-flex gap-2 w-100 justify-content-between py-3">
+        <div
+          style={{
+            width: window.innerWidth * 0.8,
+          }}
+        >
+          <h6 className="mb-0 w-100">Cube Elements</h6>
+          <div className={`list-group-item`}>
+            {node.cube_elements.map(cubeElem => (
+              <div className="button-3 cube-element">
+                <a href={`/nodes/${cubeElem.node_name}`}>
+                  {cubeElem.node_name}
+                </a>
+                <span className={`badge node_type__${cubeElem.type}`}>
+                  {cubeElem.type}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  ) : (
+    <></>
+  );
   return (
     <div className="list-group align-items-center justify-content-between flex-md-row gap-2">
       <ListGroupItem label="Description" value={node?.description} />
@@ -109,7 +137,8 @@ export default function NodeInfoTab({ node }) {
           </div>
         </div>
       </div>
-      {queryDiv}
+      {node?.type !== 'cube' ? queryDiv : ''}
+      {cubeElementsDiv}
       <div className="list-group-item d-flex">{node?.primary_key}</div>
     </div>
   );
