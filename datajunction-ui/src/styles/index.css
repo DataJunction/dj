@@ -399,7 +399,7 @@ tbody th {
 }
 .react-flow__node .node_type__metric {
   background-color: #a27e8650 !important;
-  color: #a27e86 !important;
+  color: #a27e86;
 }
 
 .node_type__dimension {
