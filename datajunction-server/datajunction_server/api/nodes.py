@@ -282,6 +282,60 @@ def get_a_node(name: str, *, session: Session = Depends(get_session)) -> NodeOut
     return node  # type: ignore
 
 
+@router.get("/nodes/{name}/client/python/", response_model=str)
+def client_code_python(
+    name: str, *, action: str = "create", session: Session = Depends(get_session)
+) -> str:
+    """
+    Generate python client create node code
+    """
+    node_short_name = name.split(".")[-1]
+    node = get_node_by_name(session, name)
+    triple_quotes = '"""'
+    query = (
+        f"query={triple_quotes}{node.current.query.strip()}{triple_quotes},"
+        if node.type in (NodeType.DIMENSION, NodeType.TRANSFORM, NodeType.METRIC)
+        else ""
+    )
+    catalog = (
+        f"catalog=\"{node.current.catalog.name}\"," if node.type == NodeType.SOURCE else ""
+    )
+    schema_ = (
+        f"schema_=\"{node.current.schema_}\"," if node.type == NodeType.SOURCE else ""
+    )
+    table = (
+        f"table=\"{node.current.table}\"," if node.type == NodeType.SOURCE else ""
+    )
+    source_params = f"""{catalog}
+    {schema_}
+    {table}""" if node.type == NodeType.SOURCE else ""
+    cube_metrics = (
+        ", ".join(['"' + elem.node_revisions[-1].name + '"'
+                   for elem in node.current.cube_elements if elem.node_revisions[-1].type == NodeType.METRIC])
+        if node.type == NodeType.CUBE else ""
+    )
+    cube_dimensions = (
+        ", ".join(['"' + elem.node_revisions[-1].name + '.' + elem.name + '"'
+                   for elem in node.current.cube_elements if elem.node_revisions[-1].type == NodeType.DIMENSION])
+        if node.type == NodeType.CUBE else ""
+    )
+    cube_params = f"""metrics=[{cube_metrics}],
+    dimensions=[{cube_dimensions}],""" if node.type == NodeType.CUBE else ""
+    client_code = f"""from datajunction import DJClient, NodeMode
+
+dj = DJClient(DJ_URL)
+
+{node_short_name} = dj.new_{node.type}(
+    name="{node.name}",
+    display_name="{node.current.display_name}",
+    description="{node.current.description}",
+    tags=[{", ".join('"' + tag.name + '"' for tag in node.tags)}],
+    {query}{source_params}{cube_params}
+)
+{node_short_name}.save(NodeMode.{node.current.mode.upper()})"""
+    return client_code  # type: ignore
+
+
 @router.post("/nodes/{name}/deactivate/", status_code=201)
 def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
     """
