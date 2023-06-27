@@ -91,7 +91,7 @@ export function NodePage() {
       tabToDisplay = node ? <NodeInfoTab node={node} /> : '';
       break;
     case 1:
-      tabToDisplay = <NodeColumnTab node={node} />;
+      tabToDisplay = <NodeColumnTab node={node} djClient={djClient} />;
       break;
     case 2:
       tabToDisplay = <NodeLineage djNode={node} djClient={djClient} />;

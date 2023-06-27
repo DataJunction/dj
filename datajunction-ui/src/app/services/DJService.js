@@ -43,7 +43,7 @@ export const DataJunctionAPI = {
 
   clientCode: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/nodes/' + name + '/client/python/')
+      await fetch(DJ_URL + '/client/python/new_node/' + name)
     ).json();
     return data;
   },
@@ -105,8 +105,34 @@ export const DataJunctionAPI = {
     const data = await (
       await fetch(DJ_URL + `/nodes/${node}/materializations/`)
     ).json();
-    return data;
+
+    return await Promise.all(
+      data.map(async materialization => {
+        materialization.clientCode = await (
+          await fetch(
+            DJ_URL +
+              `/client/python/add_materialization/${node}/${materialization.name}`,
+          )
+        ).json();
+        return materialization;
+      }),
+    );
   },
+
+  columns: async function (node) {
+    return await Promise.all(
+      node.columns.map(async col => {
+        col.clientCode = await (
+          await fetch(
+            DJ_URL +
+              `/client/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
+          )
+        ).json();
+        return col;
+      }),
+    );
+  },
+
   sqls: async function (metricSelection, dimensionSelection) {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));

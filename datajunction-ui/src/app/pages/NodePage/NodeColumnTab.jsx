@@ -1,8 +1,17 @@
-import { Component } from 'react';
+import { Component, useEffect, useState } from 'react';
+import ClientCodePopover from './ClientCodePopover';
 
-export default class NodeColumnTab extends Component {
-  columnList = node => {
-    return node.columns.map(col => (
+export default function NodeColumnTab({ node, djClient }) {
+  const [columns, setColumns] = useState([]);
+  useEffect(() => {
+    const fetchData = async () => {
+      setColumns(await djClient.columns(node));
+    };
+    fetchData().catch(console.error);
+  }, [djClient, node]);
+
+  const columnList = columns => {
+    return columns.map(col => (
       <tr>
         <td className="text-start">{col.name}</td>
         <td>
@@ -10,7 +19,16 @@ export default class NodeColumnTab extends Component {
             {col.type}
           </span>
         </td>
-        <td>{col.dimension ? col.dimension.name : ''}</td>
+        <td>
+          {col.dimension ? (
+            <>
+              <a href={`/nodes/${col.dimension.name}`}>{col.dimension.name}</a>
+              <ClientCodePopover code={col.clientCode} />
+            </>
+          ) : (
+            ''
+          )}{' '}
+        </td>
         <td>
           {col.attributes.find(
             attr => attr.attribute_type.name === 'dimension',
@@ -26,19 +44,17 @@ export default class NodeColumnTab extends Component {
     ));
   };
 
-  render() {
-    return (
-      <div className="table-responsive">
-        <table className="card-inner-table table">
-          <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-            <th className="text-start">Column</th>
-            <th>Type</th>
-            <th>Dimension</th>
-            <th>Attributes</th>
-          </thead>
-          {this.columnList(this.props.node)}
-        </table>
-      </div>
-    );
-  }
+  return (
+    <div className="table-responsive">
+      <table className="card-inner-table table">
+        <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+          <th className="text-start">Column</th>
+          <th>Type</th>
+          <th>Dimension</th>
+          <th>Attributes</th>
+        </thead>
+        {columnList(columns)}
+      </table>
+    </div>
+  );
 }
