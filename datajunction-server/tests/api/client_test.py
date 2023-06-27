@@ -20,13 +20,13 @@ dj = DJClient(DJ_URL)
 
 num_repair_orders = dj.new_metric(
     description="Number of repair orders",
-    query=\"\"\"SELECT  count(repair_order_id) default_DOT_num_repair_orders
- FROM default.repair_orders
-
-\"\"\",
     display_name="Default: Num Repair Orders",
     name="default.num_repair_orders",
-    primary_key=[]
+    primary_key=[],
+    query=\"\"\"SELECT  count(repair_order_id) default_DOT_num_repair_orders 
+ FROM default.repair_orders
+
+\"\"\"
 )
 num_repair_orders.save(NodeMode.PUBLISHED)"""
     )
@@ -47,11 +47,11 @@ dj = DJClient(DJ_URL)
 
 repair_order_details = dj.new_source(
     description="Details on repair orders",
-    table="repair_order_details",
     display_name="Default: Repair Order Details",
     name="default.repair_order_details",
+    primary_key=[],
     schema_="roads",
-    primary_key=[]
+    table="repair_order_details"
 )
 repair_order_details.save(NodeMode.PUBLISHED)"""
     )
@@ -70,6 +70,9 @@ dj = DJClient(DJ_URL)
 
 repair_order = dj.new_dimension(
     description="Repair order dimension",
+    display_name="Default: Repair Order",
+    name="default.repair_order",
+    primary_key=['repair_order_id'],
     query=\"\"\"
                         SELECT
                         repair_order_id,
@@ -80,10 +83,7 @@ repair_order = dj.new_dimension(
                         dispatched_date,
                         dispatcher_id
                         FROM default.repair_orders
-                    \"\"\",
-    display_name="Default: Repair Order",
-    name="default.repair_order",
-    primary_key=['repair_order_id']
+                    \"\"\"
 )
 repair_order.save(NodeMode.PUBLISHED)"""
     )

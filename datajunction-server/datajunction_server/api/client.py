@@ -73,7 +73,7 @@ def client_code_for_creating_node(
         ]
 
     formatted_params = ",\n".join(
-        [f"    {k}={v}" for k, v in params.items()] + cube_params,
+        [f"    {k}={params[k]}" for k in sorted(params.keys())] + cube_params,
     )
 
     client_code = f"""from datajunction import DJClient, NodeMode
