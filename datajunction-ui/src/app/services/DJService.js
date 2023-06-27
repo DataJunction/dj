@@ -36,6 +36,11 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  cube: async function (name) {
+    const data = await (await fetch(DJ_URL + '/cubes/' + name + '/')).json();
+    return data;
+  },
+
   metrics: async function (name) {
     const data = await (await fetch(DJ_URL + '/metrics/')).json();
     return data;

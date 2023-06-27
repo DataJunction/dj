@@ -46,6 +46,11 @@ export function NodePage() {
         data.dimensions = metric.dimensions;
         setNode(data);
       }
+      if (data.type === 'cube') {
+        const cube = await djClient.cube(name);
+        data.cube_elements = cube.cube_elements;
+        setNode(data);
+      }
     };
     fetchData().catch(console.error);
   }, [djClient, name]);
