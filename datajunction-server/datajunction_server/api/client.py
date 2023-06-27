@@ -18,7 +18,7 @@ router = APIRouter()
 
 @router.get("/client/python/new_node/{node_name}", response_model=str)
 def client_code_for_creating_node(
-    node_name: str, *, session: Session = Depends(get_session)  
+    node_name: str, *, session: Session = Depends(get_session)
 ) -> str:
     """
     Generate the Python client code used for creating this node

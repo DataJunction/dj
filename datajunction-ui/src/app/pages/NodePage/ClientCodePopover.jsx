@@ -4,7 +4,7 @@ import { nightOwl } from 'react-syntax-highlighter/src/styles/hljs';
 
 export default function ClientCodePopover({ code }) {
   const [codeAnchor, setCodeAnchor] = useState(false);
-  const open = Boolean(codeAnchor);
+
   return (
     <>
       <button

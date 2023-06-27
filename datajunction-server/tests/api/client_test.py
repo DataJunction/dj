@@ -20,7 +20,7 @@ dj = DJClient(DJ_URL)
 
 num_repair_orders = dj.new_metric(
     description="Number of repair orders",
-    query=\"\"\"SELECT  count(repair_order_id) default_DOT_num_repair_orders 
+    query=\"\"\"SELECT  count(repair_order_id) default_DOT_num_repair_orders
  FROM default.repair_orders
 
 \"\"\",

@@ -73,6 +73,7 @@ const NodeLineage = djNode => {
 
     const dagFetch = async () => {
       let related_nodes = await djClient.node_dag(djNode.djNode.name);
+      // djNode.djNode.is_current = true;
       var djNodes = [djNode.djNode];
       for (const iterable of [related_nodes]) {
         for (const item of iterable) {
@@ -152,6 +153,7 @@ const NodeLineage = djNode => {
             type: node.type,
             primary_key: primary_key,
             column_names: column_names,
+            is_current: node.name === djNode.djNode.name,
           },
         };
       });
