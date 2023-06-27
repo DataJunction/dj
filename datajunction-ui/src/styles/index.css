@@ -791,3 +791,15 @@ pre {
 .text-black {
   color: #000000 !important;
 }
+
+.cube-element {
+  color: #757575;
+  font-size: 14px;
+  padding: 0.25rem;
+  flex-grow: 1;
+  line-height: 24px;
+  letter-spacing: normal;
+}
+.cube-element .badge {
+  margin-left: 0.4rem;
+}
