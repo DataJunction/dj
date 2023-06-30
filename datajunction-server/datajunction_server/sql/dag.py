@@ -90,7 +90,7 @@ def get_shared_dimensions(
         k: list(v)
         for k, v in itertools.groupby(
             get_dimensions(metric_nodes[0]),
-            key=lambda dim: dim.name,
+            key=lambda dim: (dim.name, tuple(dim.path)),
         )
     }
     for node in set(metric_nodes[1:]):
@@ -98,11 +98,11 @@ def get_shared_dimensions(
             k: list(v)
             for k, v in itertools.groupby(
                 get_dimensions(node),
-                key=lambda dim: dim.name,
+                key=lambda dim: (dim.name, tuple(dim.path)),
             )
         }
         common_dim_keys = common.keys() & list(node_dimensions.keys())
-        common = {dim: common[dim] + node_dimensions[dim] for dim in common_dim_keys}
+        common = {dim: common[dim] for dim in common_dim_keys}
     return sorted(
         [y for x in common.values() for y in x],
         key=lambda x: (x.name, x.path),
