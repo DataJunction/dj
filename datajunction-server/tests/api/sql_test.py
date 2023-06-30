@@ -610,7 +610,7 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
     response = client_with_examples.get(
         "/sql/",
         params={
-            "metrics": ["default.discounted_orders_rate", "default.num_repair_orders"],
+            "metrics": ["default.discounted_orders_rate", "default.avg_repair_price"],
             "dimensions": [
                 "default.hard_hat.country",
                 "default.hard_hat.postal_code",
@@ -622,7 +622,7 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
             "filters": [],
             "orderby": [
                 "default.hard_hat.country",
-                "default.num_repair_orders",
+                "default.avg_repair_price",
                 "default.dispatcher.company_name",
                 "default.discounted_orders_rate",
             ],
@@ -630,7 +630,7 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
         },
     )
     data = response.json()
-    print("data", data)
+    print("data", data["sql"])
     expected_sql = """
     WITH
     m0_default_DOT_discounted_orders_rate AS (SELECT  default_DOT_dispatcher.company_name,
@@ -664,46 +664,52 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
     AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
     GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
     ),
-    m1_default_DOT_num_repair_orders AS (SELECT  default_DOT_dispatcher.company_name,
+    m1_default_DOT_avg_repair_price AS (SELECT  default_DOT_dispatcher.company_name,
             default_DOT_hard_hat.city,
             default_DOT_hard_hat.country,
             default_DOT_hard_hat.postal_code,
             default_DOT_hard_hat.state,
             default_DOT_municipality_dim.local_region,
-            count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
-    FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
+            avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price
+         FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
+            default_DOT_repair_orders.hard_hat_id,
+            default_DOT_repair_orders.municipality_id,
+            default_DOT_repair_orders.repair_order_id
+         FROM roads.repair_orders AS default_DOT_repair_orders)
+         AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
+        LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
             default_DOT_dispatchers.dispatcher_id
-    FROM roads.dispatchers AS default_DOT_dispatchers)
-    AS default_DOT_dispatcher ON default_DOT_repair_orders.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
+         FROM roads.dispatchers AS default_DOT_dispatchers)
+         AS default_DOT_dispatcher ON default_DOT_repair_order.dispatcher_id = default_DOT_dispatcher.dispatcher_id
+        LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
             default_DOT_hard_hats.country,
             default_DOT_hard_hats.hard_hat_id,
             default_DOT_hard_hats.postal_code,
             default_DOT_hard_hats.state
-    FROM roads.hard_hats AS default_DOT_hard_hats)
-    AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-    LEFT OUTER JOIN (SELECT  default_DOT_municipality.local_region,
+         FROM roads.hard_hats AS default_DOT_hard_hats)
+         AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+        LEFT OUTER JOIN (SELECT  default_DOT_municipality.local_region,
             default_DOT_municipality.municipality_id AS municipality_id
-    FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
-    LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc)
-    AS default_DOT_municipality_dim ON default_DOT_repair_orders.municipality_id = default_DOT_municipality_dim.municipality_id
-    GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
-    )SELECT  m0_default_DOT_discounted_orders_rate.default_DOT_discounted_orders_rate,
-            m1_default_DOT_num_repair_orders.default_DOT_num_repair_orders,
-            COALESCE(m0_default_DOT_discounted_orders_rate.company_name, m1_default_DOT_num_repair_orders.company_name) company_name,
-            COALESCE(m0_default_DOT_discounted_orders_rate.city, m1_default_DOT_num_repair_orders.city) city,
-            COALESCE(m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_num_repair_orders.country) country,
-            COALESCE(m0_default_DOT_discounted_orders_rate.postal_code, m1_default_DOT_num_repair_orders.postal_code) postal_code,
-            COALESCE(m0_default_DOT_discounted_orders_rate.state, m1_default_DOT_num_repair_orders.state) state,
-            COALESCE(m0_default_DOT_discounted_orders_rate.local_region, m1_default_DOT_num_repair_orders.local_region) local_region
-    FROM m0_default_DOT_discounted_orders_rate FULL OUTER JOIN m1_default_DOT_num_repair_orders ON m0_default_DOT_discounted_orders_rate.company_name = m1_default_DOT_num_repair_orders.company_name AND m0_default_DOT_discounted_orders_rate.city = m1_default_DOT_num_repair_orders.city AND m0_default_DOT_discounted_orders_rate.country = m1_default_DOT_num_repair_orders.country AND m0_default_DOT_discounted_orders_rate.postal_code = m1_default_DOT_num_repair_orders.postal_code AND m0_default_DOT_discounted_orders_rate.state = m1_default_DOT_num_repair_orders.state AND m0_default_DOT_discounted_orders_rate.local_region = m1_default_DOT_num_repair_orders.local_region
-    ORDER BY m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_num_repair_orders.default_DOT_num_repair_orders, m0_default_DOT_discounted_orders_rate.company_name, m0_default_DOT_discounted_orders_rate.default_DOT_discounted_orders_rate
+         FROM roads.municipality AS default_DOT_municipality LEFT  JOIN roads.municipality_municipality_type AS default_DOT_municipality_municipality_type ON default_DOT_municipality.municipality_id = default_DOT_municipality_municipality_type.municipality_id
+        LEFT  JOIN roads.municipality_type AS default_DOT_municipality_type ON default_DOT_municipality_municipality_type.municipality_type_id = default_DOT_municipality_type.municipality_type_desc)
+         AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
+         GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
+        )SELECT  m0_default_DOT_discounted_orders_rate.default_DOT_discounted_orders_rate,
+            m1_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
+            COALESCE(m0_default_DOT_discounted_orders_rate.company_name, m1_default_DOT_avg_repair_price.company_name) company_name,
+            COALESCE(m0_default_DOT_discounted_orders_rate.city, m1_default_DOT_avg_repair_price.city) city,
+            COALESCE(m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_avg_repair_price.country) country,
+            COALESCE(m0_default_DOT_discounted_orders_rate.postal_code, m1_default_DOT_avg_repair_price.postal_code) postal_code,
+            COALESCE(m0_default_DOT_discounted_orders_rate.state, m1_default_DOT_avg_repair_price.state) state,
+            COALESCE(m0_default_DOT_discounted_orders_rate.local_region, m1_default_DOT_avg_repair_price.local_region) local_region
+         FROM m0_default_DOT_discounted_orders_rate FULL OUTER JOIN m1_default_DOT_avg_repair_price ON m0_default_DOT_discounted_orders_rate.company_name = m1_default_DOT_avg_repair_price.company_name AND m0_default_DOT_discounted_orders_rate.city = m1_default_DOT_avg_repair_price.city AND m0_default_DOT_discounted_orders_rate.country = m1_default_DOT_avg_repair_price.country AND m0_default_DOT_discounted_orders_rate.postal_code = m1_default_DOT_avg_repair_price.postal_code AND m0_default_DOT_discounted_orders_rate.state = m1_default_DOT_avg_repair_price.state AND m0_default_DOT_discounted_orders_rate.local_region = m1_default_DOT_avg_repair_price.local_region
+         ORDER BY m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_avg_repair_price.default_DOT_avg_repair_price, m0_default_DOT_discounted_orders_rate.company_name, m0_default_DOT_discounted_orders_rate.default_DOT_discounted_orders_rate
     LIMIT 100
     """
     assert compare_query_strings(data["sql"], expected_sql)
     assert data["columns"] == [
         {"name": "default_DOT_discounted_orders_rate", "type": "double"},
-        {"name": "default_DOT_num_repair_orders", "type": "bigint"},
+        {"name": "default_DOT_avg_repair_price", "type": "double"},
         {"name": "company_name", "type": "string"},
         {"name": "city", "type": "string"},
         {"name": "country", "type": "string"},
@@ -947,18 +953,18 @@ def test_get_sql_for_metrics_filters_validate_dimensions(
     response = client_with_examples.get(
         "/sql/",
         params={
-            "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
+            "metrics": ["default.discounted_orders_rate", "default.avg_repair_price"],
             "dimensions": [
-                "foo.bar.hard_hat.country",
+                "default.hard_hat.country",
             ],
-            "filters": ["default.hard_hat.city = 'Las Vegas'"],
+            "filters": ["foo.bar.hard_hat.city = 'Las Vegas'"],
             "limit": 10,
         },
     )
     data = response.json()
     assert data["message"] == (
-        "The filter `default.hard_hat.city = 'Las Vegas'` references the dimension "
-        "attribute `default.hard_hat.city`, which is not available on every metric and "
+        "The filter `foo.bar.hard_hat.city = 'Las Vegas'` references the dimension "
+        "attribute `foo.bar.hard_hat.city`, which is not available on every metric and "
         "thus cannot be included."
     )
 
