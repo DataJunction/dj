@@ -218,7 +218,7 @@ class TestDataForNode:
         Test getting multiple metrics and dimensions
         """
         response = client_with_query_service.get(
-            "/data?metrics=default.num_repair_orders&metrics="
+            "/data?metrics=default.discounted_orders_rate&metrics="
             "default.avg_repair_price&dimensions=default.dispatcher.company_name&limit=10",
         )
         data = response.json()
@@ -252,7 +252,10 @@ class TestDataForNode:
                 {
                     "sql": "",
                     "columns": [
-                        {"name": "default_DOT_num_repair_orders", "type": "bigint"},
+                        {
+                            "name": "default_DOT_discounted_orders_rate",
+                            "type": "double",
+                        },
                         {"name": "default_DOT_avg_repair_price", "type": "double"},
                         {"name": "company_name", "type": "string"},
                     ],
