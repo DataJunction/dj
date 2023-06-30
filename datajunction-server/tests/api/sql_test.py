@@ -630,7 +630,6 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
         },
     )
     data = response.json()
-    print("data", data["sql"])
     expected_sql = """
     WITH
     m0_default_DOT_discounted_orders_rate AS (SELECT  default_DOT_dispatcher.company_name,
