@@ -369,11 +369,6 @@ def test_common_dimensions(
             "type": "timestamp",
         },
         {
-            "name": "default.repair_order_details.repair_order_id",
-            "path": [],
-            "type": "int",
-        },
-        {
             "name": "default.us_state.state_id",
             "path": [
                 "default.repair_order_details.repair_order_id",
