@@ -571,9 +571,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             partitions: List[Dict] = None,
             categorical_partitions: List[str] = None,
         ):
-            print("categorical_partitions:!", categorical_partitions)
             if categorical_partitions is None:
-                print("REACHED")
                 categorical_partitions = ["country", "postal_code"]
             return client_with_examples.post(
                 "/data/default.local_hard_hats/availability/",
