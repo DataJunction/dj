@@ -523,13 +523,13 @@ EXAMPLES = (  # type: ignore
         ),
         {},
     ),
-    (
-        (
-            "/nodes/default.repair_orders/columns/municipality_id/"
-            "?dimension=default.municipality_dim&dimension_column=municipality_id"
-        ),
-        {},
-    ),
+    # (
+    #     (
+    #         "/nodes/default.repair_orders/columns/municipality_id/"
+    #         "?dimension=default.municipality_dim&dimension_column=municipality_id"
+    #     ),
+    #     {},
+    # ),
     (
         (
             "/nodes/default.repair_type/columns/contractor_id/"
@@ -537,17 +537,24 @@ EXAMPLES = (  # type: ignore
         ),
         {},
     ),
+    # (
+    #     (
+    #         "/nodes/default.repair_orders/columns/hard_hat_id/"
+    #         "?dimension=default.hard_hat&dimension_column=hard_hat_id"
+    #     ),
+    #     {},
+    # ),
+    # (
+    #     (
+    #         "/nodes/default.repair_orders/columns/dispatcher_id/"
+    #         "?dimension=default.dispatcher&dimension_column=dispatcher_id"
+    #     ),
+    #     {},
+    # ),
     (
         (
-            "/nodes/default.repair_orders/columns/hard_hat_id/"
-            "?dimension=default.hard_hat&dimension_column=hard_hat_id"
-        ),
-        {},
-    ),
-    (
-        (
-            "/nodes/default.repair_orders/columns/dispatcher_id/"
-            "?dimension=default.dispatcher&dimension_column=dispatcher_id"
+            "/nodes/default.repair_orders/columns/repair_order_id/"
+            "?dimension=default.repair_order&dimension_column=repair_order_id"
         ),
         {},
     ),
@@ -1043,13 +1050,13 @@ EXAMPLES = (  # type: ignore
         ),
         {},
     ),
-    (
-        (
-            "/nodes/foo.bar.repair_orders/columns/municipality_id/"
-            "?dimension=foo.bar.municipality_dim&dimension_column=municipality_id"
-        ),
-        {},
-    ),
+    # (
+    #     (
+    #         "/nodes/foo.bar.repair_orders/columns/municipality_id/"
+    #         "?dimension=foo.bar.municipality_dim&dimension_column=municipality_id"
+    #     ),
+    #     {},
+    # ),
     (
         (
             "/nodes/foo.bar.repair_type/columns/contractor_id/"
@@ -1057,17 +1064,24 @@ EXAMPLES = (  # type: ignore
         ),
         {},
     ),
+    # (
+    #     (
+    #         "/nodes/foo.bar.repair_orders/columns/hard_hat_id/"
+    #         "?dimension=foo.bar.hard_hat&dimension_column=hard_hat_id"
+    #     ),
+    #     {},
+    # ),
+    # (
+    #     (
+    #         "/nodes/foo.bar.repair_orders/columns/dispatcher_id/"
+    #         "?dimension=foo.bar.dispatcher&dimension_column=dispatcher_id"
+    #     ),
+    #     {},
+    # ),
     (
         (
-            "/nodes/foo.bar.repair_orders/columns/hard_hat_id/"
-            "?dimension=foo.bar.hard_hat&dimension_column=hard_hat_id"
-        ),
-        {},
-    ),
-    (
-        (
-            "/nodes/foo.bar.repair_orders/columns/dispatcher_id/"
-            "?dimension=foo.bar.dispatcher&dimension_column=dispatcher_id"
+            "/nodes/foo.bar.repair_orders/columns/repair_order_id/"
+            "?dimension=foo.bar.repair_order&dimension_column=repair_order_id"
         ),
         {},
     ),
