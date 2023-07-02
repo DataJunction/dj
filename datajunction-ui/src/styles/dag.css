@@ -74,6 +74,10 @@
   border-radius: 0 0 8px 8px;
 }
 
+.dj-node_highlight {
+  border: 10px solid #cccccc !important;
+}
+
 .react-flow__node {
   z-index: -1 !important;
 }

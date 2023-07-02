@@ -19,6 +19,7 @@ from datajunction_server import __version__
 from datajunction_server.api import (
     attributes,
     catalogs,
+    client,
     cubes,
     data,
     engines,
@@ -84,6 +85,7 @@ def get_dj_app(
     application.include_router(tags.router)
     application.include_router(attributes.router)
     application.include_router(sql.router)
+    application.include_router(client.router)
 
     @application.exception_handler(DJException)
     async def dj_exception_handler(  # pylint: disable=unused-argument
