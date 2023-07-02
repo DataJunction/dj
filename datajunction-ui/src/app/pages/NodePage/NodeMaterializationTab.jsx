@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import ClientCodePopover from './ClientCodePopover';
 
 const cronstrue = require('cronstrue');
 
@@ -36,6 +37,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
       <tr>
         <td className="text-start node_name">
           <a href={materialization.urls[0]}>{materialization.name}</a>
+          <ClientCodePopover code={materialization.clientCode} />
         </td>
         <td>
           <span className={`badge cron`}>{materialization.schedule}</span>

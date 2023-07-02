@@ -7,6 +7,7 @@ import NodeStatus from './NodeStatus';
 import ListGroupItem from '../../components/ListGroupItem';
 import ToggleSwitch from '../../components/ToggleSwitch';
 import DJClientContext from '../../providers/djclient';
+import * as React from 'react';
 
 SyntaxHighlighter.registerLanguage('sql', sql);
 foundation.hljs['padding'] = '2rem';
@@ -135,11 +136,21 @@ export default function NodeInfoTab({ node }) {
             <h6 className="mb-0 w-100">Tags</h6>
             <p className="mb-0 opacity-75">{nodeTags}</p>
           </div>
+          <div>
+            <h6 className="mb-0 w-100">Primary Key</h6>
+            <p className="mb-0 opacity-75">{node?.primary_key}</p>
+          </div>
+
+          <div>
+            <h6 className="mb-0 w-100">Last Updated</h6>
+            <p className="mb-0 opacity-75">
+              {new Date(node?.updated_at).toDateString()}
+            </p>
+          </div>
         </div>
       </div>
       {node?.type !== 'cube' ? queryDiv : ''}
       {cubeElementsDiv}
-      <div className="list-group-item d-flex">{node?.primary_key}</div>
     </div>
   );
 }

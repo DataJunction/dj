@@ -37,10 +37,13 @@ export function DJNode({ id, data }) {
       },
     };
   };
-
+  const highlightNodeClass =
+    data.is_current === true ? ' dj-node_highlight' : '';
   return (
     <>
-      <div className={'dj-node__full node_type__' + data.type}>
+      <div
+        className={'dj-node__full node_type__' + data.type + highlightNodeClass}
+      >
         <div style={handleWrapperStyle}>
           <Handle
             type="target"

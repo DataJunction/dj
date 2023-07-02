@@ -18,6 +18,8 @@ exports[`<App /> should render and match the snapshot 1`] = `
     value={
       Object {
         "DataJunctionAPI": Object {
+          "clientCode": [Function],
+          "columns": [Function],
           "commonDimensions": [Function],
           "compiledSql": [Function],
           "cube": [Function],
@@ -59,6 +61,8 @@ exports[`<App /> should render and match the snapshot 1`] = `
               <ListNamespacesPage
                 djClient={
                   Object {
+                    "clientCode": [Function],
+                    "columns": [Function],
                     "commonDimensions": [Function],
                     "compiledSql": [Function],
                     "cube": [Function],
