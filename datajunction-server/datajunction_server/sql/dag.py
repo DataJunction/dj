@@ -3,7 +3,7 @@ DAG related functions.
 """
 import collections
 import itertools
-from typing import Deque, List, Set, Tuple, Union
+from typing import Deque, Dict, List, Set, Tuple, Union
 
 from datajunction_server.models import Column
 from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
@@ -80,29 +80,60 @@ def get_dimensions(
     return sorted(list(processed), key=lambda x: x.name)
 
 
+def check_convergence(path1: List[str], path2: List[str]) -> bool:
+    """
+    Determines whether two join paths converge before we reach the
+    final element, the dimension attribute.
+    """
+    len1 = len(path1)
+    len2 = len(path2)
+    min_len = min(len1, len2)
+
+    for i in range(min_len):
+        partial1 = path1[len1 - i - 1 :]
+        partial2 = path2[len2 - i - 1 :]
+        if partial1 == partial2:
+            return True
+
+    return False
+
+
+def group_dimensions_by_name(node: Node) -> Dict[str, List[DimensionAttributeOutput]]:
+    """
+    Group the dimensions for the node by the dimension attribute name
+    """
+    return {
+        k: list(v)
+        for k, v in itertools.groupby(
+            get_dimensions(node),
+            key=lambda dim: dim.name,
+        )
+    }
+
+
 def get_shared_dimensions(
     metric_nodes: List[Node],
 ) -> List[DimensionAttributeOutput]:
     """
     Return a list of dimensions that are common between the nodes.
     """
-    common = {
-        k: list(v)
-        for k, v in itertools.groupby(
-            get_dimensions(metric_nodes[0]),
-            key=lambda dim: dim.name,
-        )
-    }
+    common = group_dimensions_by_name(metric_nodes[0])
     for node in set(metric_nodes[1:]):
-        node_dimensions = {
-            k: list(v)
-            for k, v in itertools.groupby(
-                get_dimensions(node),
-                key=lambda dim: dim.name,
-            )
-        }
+        node_dimensions = group_dimensions_by_name(node)
+
+        # Merge each set of dimensions based on the name and path
+        to_delete = set()
         common_dim_keys = common.keys() & list(node_dimensions.keys())
-        common = {dim: common[dim] + node_dimensions[dim] for dim in common_dim_keys}
+        for common_dim in common_dim_keys:
+            for existing_attr in common[common_dim]:
+                for new_attr in node_dimensions[common_dim]:
+                    converged = check_convergence(existing_attr.path, new_attr.path)
+                    if not converged:
+                        to_delete.add(common_dim)
+
+        for dim_key in to_delete:
+            del common[dim_key]
+
     return sorted(
         [y for x in common.values() for y in x],
         key=lambda x: (x.name, x.path),
