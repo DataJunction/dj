@@ -147,7 +147,12 @@ export default function NodeMaterializationTab({ node, djClient }) {
           <th>Backfills</th>
           <th>URLs</th>
         </thead>
-        {materializationRows(materializations)}
+        {materializationRows(
+          materializations.filter(
+            materialization =>
+              !(materialization.name === 'default' && node.type === 'cube'),
+          ),
+        )}
       </table>
     </div>
   );
