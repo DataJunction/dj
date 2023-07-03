@@ -2504,6 +2504,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.hard_hat",
             "default.municipality_dim",
             "default.num_repair_orders",
+            "default.repair_order",
             "default.repair_orders",
             "default.us_state",
         }

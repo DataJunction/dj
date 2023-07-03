@@ -440,7 +440,7 @@ class TestDJClient:
 
         # Retrieve SQL for multiple metrics using the client object
         result = client.sql(
-            metrics=["default.num_repair_orders", "default.avg_repair_price"],
+            metrics=["default.total_repair_cost", "default.avg_repair_price"],
             dimensions=[
                 "default.hard_hat.city",
                 "default.hard_hat.state",
