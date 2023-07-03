@@ -80,6 +80,13 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  revisions: async function (name) {
+    const data = await (
+      await fetch(DJ_URL + '/nodes/' + name + '/revisions/')
+    ).json();
+    return data;
+  },
+
   namespace: async function (nmspce) {
     const data = await (
       await fetch(DJ_URL + '/namespaces/' + nmspce + '/')
@@ -146,7 +153,7 @@ export const DataJunctionAPI = {
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
     const data = await (
-      await fetch(DJ_URL + '/data/?' + params + '&limit=100')
+      await fetch(DJ_URL + '/data/?' + params + '&limit=100&async_=true')
     ).json();
     return data;
   },
