@@ -3,7 +3,7 @@
 [build]
   base = "docs/"
   command = "./build-docs.sh 0.1.0 true $DEPLOY_URL"
-  publish = "docs/public"
+  publish = "public"
 
 [build.environment]
   HUGO_VERSION = "0.113.0"
