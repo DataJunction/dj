@@ -19,7 +19,7 @@ export default class NamespaceHeader extends Component {
     return (
       <ol className="breadcrumb breadcrumb-chevron p-3 bg-body-tertiary rounded-3">
         <li className="breadcrumb-item">
-          <a href="/namespaces/">
+          <a href="/">
             <svg
               xmlns="http://www.w3.org/2000/svg"
               width="16"

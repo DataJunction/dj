@@ -3,35 +3,37 @@ import { useContext, useEffect, useState } from 'react';
 import NamespaceHeader from '../../components/NamespaceHeader';
 import { DataJunctionAPI } from '../../services/DJService';
 import DJClientContext from '../../providers/djclient';
-// const datajunction = require('datajunction');
-// const dj = new datajunction.DJClient('http://localhost:8000');
+import Explorer from './Explorer';
 
 export function ListNamespacesPage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const [state, setState] = useState({
-    namespaces: [],
-  });
+  const [namespaces, setNamespaces] = useState({});
 
   useEffect(() => {
     const fetchData = async () => {
       const namespaces = await djClient.namespaces();
-      setState({
-        namespaces: namespaces,
+      var hierarchy = { namespace: 'r', children: [], path: '' };
+      namespaces.forEach(namespace => {
+        const parts = namespace.namespace.split('.');
+        let current = hierarchy;
+        parts.forEach(part => {
+          const found = current.children.find(
+            child => part === child.namespace,
+          );
+          if (found !== undefined) current = found;
+          else
+            current.children.push({
+              namespace: part,
+              children: [],
+              path: current.path === '' ? part : current.path + '.' + part,
+            });
+        });
       });
+      setNamespaces(hierarchy);
     };
     fetchData().catch(console.error);
   }, [djClient, djClient.namespaces]);
 
-  const namespacesList = state.namespaces.map(node => (
-    <tr>
-      <td>
-        <a href={'/namespaces/' + node.namespace}>{node.namespace}</a>
-      </td>
-      <td></td>
-    </tr>
-  ));
-
-  // @ts-ignore
   return (
     <>
       <div className="mid">
@@ -39,15 +41,7 @@ export function ListNamespacesPage() {
         <div className="card">
           <div className="card-header">
             <h2>Namespaces</h2>
-            <div className="table-responsive">
-              <table className="card-table table">
-                <thead>
-                  <th>Namespace</th>
-                  <th>Node Count</th>
-                </thead>
-                {namespacesList}
-              </table>
-            </div>
+            <Explorer parent={namespaces.children} />
           </div>
         </div>
       </div>
