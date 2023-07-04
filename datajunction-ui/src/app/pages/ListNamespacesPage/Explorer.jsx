@@ -2,15 +2,16 @@ import React, { Fragment, useEffect, useState } from 'react';
 
 const Explorer = ({
   parent = [],
+  current,
   onParentClick,
   onNameClick,
-  expandOnHover = false,
   defaultExpand = true,
 }) => {
   const [newData, setNewData] = useState([]);
   const [expand, setExpand] = useState(false);
 
   useEffect(() => {
+    console.log('namespaces', parent);
     setNewData(parent);
     setExpand(defaultExpand);
   }, [parent, defaultExpand]);
@@ -20,6 +21,7 @@ const Explorer = ({
     if (onParentClick && onParentClick instanceof Function) {
       onParentClick(data);
     }
+    console.log('handleClick', e, data, parent, expand);
     setExpand(prev => !prev);
   };
 
@@ -38,7 +40,6 @@ const Explorer = ({
             <Fragment key={index}>
               <div
                 className="select-name"
-                onMouseOver={() => (expandOnHover ? setExpand(true) : {})}
                 onClick={e => handleClickOnParent(e, item)}
               >
                 <span>
@@ -46,7 +47,7 @@ const Explorer = ({
                     <svg
                       stroke="currentColor"
                       fill="currentColor"
-                      stroke-width="0"
+                      strokeWidth="0"
                       viewBox="0 0 512 512"
                       height="1em"
                       width="1em"
@@ -58,7 +59,7 @@ const Explorer = ({
                     <svg
                       stroke="currentColor"
                       fill="currentColor"
-                      stroke-width="0"
+                      strokeWidth="0"
                       viewBox="0 0 512 512"
                       height="1em"
                       width="1em"
@@ -74,14 +75,15 @@ const Explorer = ({
               {expand ? (
                 <div
                   style={{
-                    paddingLeft: '2.4rem',
+                    paddingLeft: '1.4rem',
+                    marginLeft: '1rem',
+                    borderLeft: '1px solid rgb(218 233 255)',
                   }}
                 >
                   <Explorer
                     parent={item.children}
                     onParentClick={onParentClick}
                     onNameClick={onNameClick}
-                    expandOnHover={expandOnHover}
                   />
                 </div>
               ) : null}

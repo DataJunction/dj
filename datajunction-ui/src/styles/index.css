@@ -264,9 +264,24 @@ tr {
   padding: 1rem;
 }
 
+.sidebar {
+  /*height: 200px;*/
+  position: sticky;
+  top: 0;
+  left: 0;
+  /*padding-top: 40px;*/
+  /*background-color: lightblue;*/
+}
+
 .table-responsive {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
+  position: relative;
+  display: grid;
+
+  grid-template-columns: auto auto auto;
+  grid-gap: 8px;
+  padding: 8px;
 }
 .table > thead {
   vertical-align: bottom;
@@ -851,6 +866,13 @@ pre {
   font-weight: bolder;
   color: white;
   cursor: pointer;
+
+  background-color: #f9fbfd;
+  /*text-transform: uppercase;*/
+  font-size: 0.8125rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  color: #95aac9;
 }
 
 .select-name {
@@ -860,6 +882,13 @@ pre {
   border-radius: 4px;
   cursor: default;
   color: #777777;
+
+  /*background-color: #f9fbfd;*/
+  /*text-transform: uppercase;*/
+  font-size: 0.9125rem;
+  /*font-weight: 600;*/
+  /*letter-spacing: 0.08em;*/
+  color: #95aac9;
 }
 
 .select-name:hover {
