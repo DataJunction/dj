@@ -7,7 +7,7 @@ pyenv: .python-version
 	if [ ! -f .python-version ]; then\
 	    pyenv local djqs;\
 	fi
-	pdm install -G pandas
+	pdm install
 	touch .python-version
 
 docker-build:
