@@ -4,6 +4,7 @@ import { useContext, useEffect, useState } from 'react';
 import NamespaceHeader from '../../components/NamespaceHeader';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
+import Explorer from '../ListNamespacesPage/Explorer';
 
 export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -13,6 +14,33 @@ export function NamespacePage() {
     namespace: namespace,
     nodes: [],
   });
+
+  const [namespaces, setNamespaces] = useState({});
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const namespaces = await djClient.namespaces();
+      var hierarchy = { namespace: 'r', children: [], path: '' };
+      namespaces.forEach(namespace => {
+        const parts = namespace.namespace.split('.');
+        let current = hierarchy;
+        parts.forEach(part => {
+          const found = current.children.find(
+            child => part === child.namespace,
+          );
+          if (found !== undefined) current = found;
+          else
+            current.children.push({
+              namespace: part,
+              children: [],
+              path: current.path === '' ? part : current.path + '.' + part,
+            });
+        });
+      });
+      setNamespaces(hierarchy);
+    };
+    fetchData().catch(console.error);
+  }, [djClient, djClient.namespaces]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -31,9 +59,6 @@ export function NamespacePage() {
 
   const nodesList = state.nodes.map(node => (
     <tr>
-      <td>
-        <a href={'/namespaces/' + node.namespace}>{node.namespace}</a>
-      </td>
       <td>
         <a href={'/nodes/' + node.name} className="link-table">
           {node.display_name}
@@ -67,10 +92,12 @@ export function NamespacePage() {
         <div className="card-header">
           <h2>Nodes</h2>
           <div className="table-responsive">
+            <div className={`sidebar`}>
+              <Explorer parent={namespaces.children} />
+            </div>
             <table className="card-table table">
               <thead>
                 <tr>
-                  <th>Namespace</th>
                   <th>Name</th>
                   <th>Type</th>
                   <th>Status</th>
