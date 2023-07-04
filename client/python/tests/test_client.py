@@ -1,5 +1,4 @@
 """Tests DJ client"""
-import pandas
 import pytest
 
 from datajunction import DJClient
@@ -252,7 +251,7 @@ class TestDJClient:
 
     def test_deactivating_a_node(self, client):  # pylint: disable=unused-argument
         """
-        Verifies that deactivating a node works.
+        Verifies that deactivating and reactivating a node works.
         """
         length_metric = client.metric("default.avg_length_of_employment")
         response = length_metric.deactivate()
@@ -260,6 +259,11 @@ class TestDJClient:
         assert (
             "default.avg_length_of_employment"
             not in client.namespace("default").metrics()
+        )
+        response = length_metric.activate()
+        assert response == "Successfully activated `default.avg_length_of_employment`"
+        assert (
+            "default.avg_length_of_employment" in client.namespace("default").metrics()
         )
 
     def test_create_node(self, client):  # pylint: disable=unused-argument
@@ -330,9 +334,13 @@ class TestDJClient:
             ),
             primary_key=["id"],
         )
-        result = payment_type_dim.save(NodeMode.PUBLISHED)
+        payment_type_dim.check()  # Test validating the node
+        result = payment_type_dim.save(NodeMode.DRAFT)
         assert result["name"] == "default.payment_type"
         assert "default.payment_type" in client.namespace("default").dimensions()
+        payment_type_dim.publish()  # Test changing a draft node to published
+        payment_type_dim.sync()
+        assert payment_type_dim.mode == NodeMode.PUBLISHED
 
         account_type_dim = client.new_dimension(
             name="default.account_type",
@@ -630,10 +638,10 @@ class TestDJClient:
 
         # Retrieve data for a single metric
         result = metric.data(dimensions=["default.hard_hat.city"], filters=[])
-        expected_df = pandas.DataFrame.from_dict(
-            {"default_DOT_avg_repair_price": [1.0, 2.0], "city": ["Foo", "Bar"]},
-        )
-        pandas.testing.assert_frame_equal(result, expected_df)
+        assert result == {
+            "data": [[1.0, "Foo"], [2.0, "Bar"]],
+            "columns": ("default_DOT_avg_repair_price", "city"),
+        }
 
         # No data
         with pytest.raises(DJClientException) as exc_info:
