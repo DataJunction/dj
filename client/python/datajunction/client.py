@@ -615,7 +615,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
                     rows,
                     columns=[col["name"] for col in columns],
                 )
-            except NameError:
+            except NameError:  # pragma: no cover
                 return Results(
                     data=rows,
                     columns=tuple(col["name"] for col in columns),  # type: ignore
