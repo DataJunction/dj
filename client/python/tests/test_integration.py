@@ -128,222 +128,6 @@ def test_integration():  # pylint: disable=too-many-statements
     )
     assert common_dimensions == [
         {
-            "name": "default.date_dim.dateint",
-            "type": "timestamp",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.dateint",
-            "type": "timestamp",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.dateint",
-            "type": "timestamp",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.dateint",
-            "type": "timestamp",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.dateint",
-            "type": "timestamp",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.dateint",
-            "type": "timestamp",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.day",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.day",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.day",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.day",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.day",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.day",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.month",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.month",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.month",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.month",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.month",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.month",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.year",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.year",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.year",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.year",
-            "type": "int",
-            "path": [
-                "default.repair_order_details.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.year",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.birth_date",
-            ],
-        },
-        {
-            "name": "default.date_dim.year",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.hire_date",
-            ],
-        },
-        {
             "name": "default.dispatcher.company_name",
             "type": "string",
             "path": [
@@ -362,10 +146,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.dispatcher.company_name",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.dispatcher_id",
-            ],
+            "path": ["default.repair_orders.dispatcher_id"],
         },
         {
             "name": "default.dispatcher.dispatcher_id",
@@ -386,10 +167,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.dispatcher.dispatcher_id",
             "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.dispatcher_id",
-            ],
+            "path": ["default.repair_orders.dispatcher_id"],
         },
         {
             "name": "default.dispatcher.phone",
@@ -410,10 +188,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.dispatcher.phone",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.dispatcher_id",
-            ],
+            "path": ["default.repair_orders.dispatcher_id"],
         },
         {
             "name": "default.hard_hat.address",
@@ -434,10 +209,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.address",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.birth_date",
@@ -458,10 +230,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.birth_date",
             "type": "date",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.city",
@@ -482,10 +251,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.city",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.contractor_id",
@@ -506,10 +272,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.contractor_id",
             "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.country",
@@ -530,10 +293,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.country",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.first_name",
@@ -554,10 +314,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.first_name",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.hard_hat_id",
@@ -578,10 +335,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.hard_hat_id",
             "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.hire_date",
@@ -602,10 +356,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.hire_date",
             "type": "date",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.last_name",
@@ -626,10 +377,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.last_name",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.manager",
@@ -650,10 +398,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.manager",
             "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.postal_code",
@@ -674,10 +419,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.postal_code",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.state",
@@ -698,10 +440,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.state",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.hard_hat.title",
@@ -722,10 +461,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.hard_hat.title",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
+            "path": ["default.repair_orders.hard_hat_id"],
         },
         {
             "name": "default.municipality_dim.contact_name",
@@ -746,10 +482,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.municipality_dim.contact_name",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
+            "path": ["default.repair_orders.municipality_id"],
         },
         {
             "name": "default.municipality_dim.contact_title",
@@ -770,10 +503,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.municipality_dim.contact_title",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
+            "path": ["default.repair_orders.municipality_id"],
         },
         {
             "name": "default.municipality_dim.local_region",
@@ -794,10 +524,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.municipality_dim.local_region",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
+            "path": ["default.repair_orders.municipality_id"],
         },
         {
             "name": "default.municipality_dim.municipality_id",
@@ -818,10 +545,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.municipality_dim.municipality_id",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
+            "path": ["default.repair_orders.municipality_id"],
         },
         {
             "name": "default.municipality_dim.municipality_type_desc",
@@ -842,10 +566,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.municipality_dim.municipality_type_desc",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
+            "path": ["default.repair_orders.municipality_id"],
         },
         {
             "name": "default.municipality_dim.municipality_type_id",
@@ -866,10 +587,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.municipality_dim.municipality_type_id",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
+            "path": ["default.repair_orders.municipality_id"],
         },
         {
             "name": "default.municipality_dim.state_id",
@@ -890,70 +608,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.municipality_dim.state_id",
             "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
-        },
-        {
-            "name": "default.repair_order.dispatcher_id",
-            "type": "int",
-            "path": ["default.repair_order_details.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.dispatcher_id",
-            "type": "int",
-            "path": ["default.repair_order_details.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.dispatcher_id",
-            "type": "int",
-            "path": ["default.repair_orders.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.hard_hat_id",
-            "type": "int",
-            "path": ["default.repair_order_details.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.hard_hat_id",
-            "type": "int",
-            "path": ["default.repair_order_details.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.hard_hat_id",
-            "type": "int",
-            "path": ["default.repair_orders.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.municipality_id",
-            "type": "string",
-            "path": ["default.repair_order_details.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.municipality_id",
-            "type": "string",
-            "path": ["default.repair_order_details.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.municipality_id",
-            "type": "string",
-            "path": ["default.repair_orders.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.repair_order_id",
-            "type": "int",
-            "path": ["default.repair_order_details.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.repair_order_id",
-            "type": "int",
-            "path": ["default.repair_order_details.repair_order_id"],
-        },
-        {
-            "name": "default.repair_order.repair_order_id",
-            "type": "int",
-            "path": ["default.repair_orders.repair_order_id"],
+            "path": ["default.repair_orders.municipality_id"],
         },
         {
             "name": "default.us_state.state_abbr",
@@ -976,11 +631,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.us_state.state_abbr",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
+            "path": ["default.repair_orders.hard_hat_id", "default.hard_hat.state"],
         },
         {
             "name": "default.us_state.state_id",
@@ -1003,11 +654,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.us_state.state_id",
             "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
+            "path": ["default.repair_orders.hard_hat_id", "default.hard_hat.state"],
         },
         {
             "name": "default.us_state.state_name",
@@ -1030,11 +677,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.us_state.state_name",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
+            "path": ["default.repair_orders.hard_hat_id", "default.hard_hat.state"],
         },
         {
             "name": "default.us_state.state_region",
@@ -1057,11 +700,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.us_state.state_region",
             "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
+            "path": ["default.repair_orders.hard_hat_id", "default.hard_hat.state"],
         },
         {
             "name": "default.us_state.state_region_description",
@@ -1084,11 +723,7 @@ def test_integration():  # pylint: disable=too-many-statements
         {
             "name": "default.us_state.state_region_description",
             "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
+            "path": ["default.repair_orders.hard_hat_id", "default.hard_hat.state"],
         },
     ]
 
@@ -1112,18 +747,10 @@ def test_integration():  # pylint: disable=too-many-statements
             default_DOT_us_state.state_id,
             default_DOT_us_state.state_name,
             count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
-    FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
-            default_DOT_repair_orders.hard_hat_id,
-            default_DOT_repair_orders.municipality_id,
-            default_DOT_repair_orders.repair_order_id
-    FROM roads.repair_orders AS default_DOT_repair_orders)
-    AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
-    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,
-            default_DOT_hard_hats.hard_hat_id,
-            default_DOT_hard_hats.hire_date,
+    FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
             default_DOT_hard_hats.state
     FROM roads.hard_hats AS default_DOT_hard_hats)
-    AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+    AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
     LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_abbr,
             default_DOT_us_states.state_id,
             default_DOT_us_states.state_name
@@ -1141,9 +768,7 @@ def test_integration():  # pylint: disable=too-many-statements
             default_DOT_repair_orders.repair_order_id
     FROM roads.repair_orders AS default_DOT_repair_orders)
     AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,
-            default_DOT_hard_hats.hard_hat_id,
-            default_DOT_hard_hats.hire_date,
+    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
             default_DOT_hard_hats.state
     FROM roads.hard_hats AS default_DOT_hard_hats)
     AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
@@ -1164,9 +789,7 @@ def test_integration():  # pylint: disable=too-many-statements
             default_DOT_repair_orders.repair_order_id
     FROM roads.repair_orders AS default_DOT_repair_orders)
     AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,
-            default_DOT_hard_hats.hard_hat_id,
-            default_DOT_hard_hats.hire_date,
+    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
             default_DOT_hard_hats.state
     FROM roads.hard_hats AS default_DOT_hard_hats)
     AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
@@ -1213,15 +836,15 @@ def test_integration():  # pylint: disable=too-many-statements
             "state_name",
         ),
         "data": [
-            [486, 65682.0, 31921452.0, "AZ", 3, "Arizona"],
-            [486, 39301.5, 19100529.0, "CT", 7, "Connecticut"],
-            [729, 65595.66666666667, 47819241.0, "GA", 11, "Georgia"],
-            [729, 76555.33333333333, 55808838.0, "MA", 22, "Massachusetts"],
-            [1215, 64190.6, 77991579.0, "MI", 23, "Michigan"],
-            [972, 54672.75, 53141913.0, "NJ", 31, "New Jersey"],
-            [243, 53374.0, 12969882.0, "NY", 33, "New York"],
-            [243, 70418.0, 17111574.0, "OK", 37, "Oklahoma"],
-            [972, 54083.5, 52569162.0, "PA", 39, "Pennsylvania"],
+            [162, 65682.0, 31921452.0, "AZ", 3, "Arizona"],
+            [162, 39301.5, 19100529.0, "CT", 7, "Connecticut"],
+            [243, 65595.66666666667, 47819241.0, "GA", 11, "Georgia"],
+            [243, 76555.33333333333, 55808838.0, "MA", 22, "Massachusetts"],
+            [405, 64190.6, 77991579.0, "MI", 23, "Michigan"],
+            [324, 54672.75, 53141913.0, "NJ", 31, "New Jersey"],
+            [81, 53374.0, 12969882.0, "NY", 33, "New York"],
+            [81, 70418.0, 17111574.0, "OK", 37, "Oklahoma"],
+            [324, 54083.5, 52569162.0, "PA", 39, "Pennsylvania"],
         ],
     }
 
