@@ -1,4 +1,8 @@
 {
-  "presets": ["es2015"],
-  "plugins": ["transform-object-rest-spread"]
+  "presets": [
+    "@babel/preset-env"
+  ],
+  "test": [
+    "jest"
+  ]
 }
