@@ -134,238 +134,968 @@ test('should return something', async () => {
 
     expect(common_dimensions).toEqual([
         {
-            name: 'default.dispatcher.company_name',
+            name: "default.date_dim.dateint",
+            type: "timestamp",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.dispatcher_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.dispatcher.dispatcher_id',
+            name: "default.date_dim.dateint",
+            type: "timestamp",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.dispatcher_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'int',
         },
         {
-            name: 'default.dispatcher.phone',
+            name: "default.date_dim.dateint",
+            type: "timestamp",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.dispatcher_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.hard_hat.address',
+            name: "default.date_dim.dateint",
+            type: "timestamp",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.hard_hat.birth_date',
+            name: "default.date_dim.dateint",
+            type: "timestamp",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'date',
         },
         {
-            name: 'default.hard_hat.city',
+            name: "default.date_dim.dateint",
+            type: "timestamp",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.hard_hat.contractor_id',
+            name: "default.date_dim.day",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'int',
         },
         {
-            name: 'default.hard_hat.country',
+            name: "default.date_dim.day",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.hard_hat.first_name',
+            name: "default.date_dim.day",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.hard_hat.hard_hat_id',
+            name: "default.date_dim.day",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'int',
         },
         {
-            name: 'default.hard_hat.hire_date',
+            name: "default.date_dim.day",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'date',
         },
         {
-            name: 'default.hard_hat.last_name',
+            name: "default.date_dim.day",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.hard_hat.manager',
+            name: "default.date_dim.month",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'int',
         },
         {
-            name: 'default.hard_hat.postal_code',
+            name: "default.date_dim.month",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.hard_hat.state',
+            name: "default.date_dim.month",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.hard_hat.title',
+            name: "default.date_dim.month",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.municipality_dim.contact_name',
+            name: "default.date_dim.month",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.municipality_id',
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.municipality_dim.contact_title',
+            name: "default.date_dim.month",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.municipality_id',
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.municipality_dim.local_region',
+            name: "default.date_dim.year",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.municipality_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.municipality_dim.municipality_id',
+            name: "default.date_dim.year",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.municipality_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.municipality_dim.municipality_type_desc',
+            name: "default.date_dim.year",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.municipality_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.municipality_dim.municipality_type_id',
+            name: "default.date_dim.year",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.municipality_id',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
             ],
-            type: 'string',
         },
         {
-            name: 'default.municipality_dim.state_id',
+            name: "default.date_dim.year",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.municipality_id',
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.birth_date",
             ],
-            type: 'int',
         },
         {
-            name: 'default.repair_orders.repair_order_id',
-            path: [],
-            type: 'int',
+            name: "default.date_dim.year",
+            type: "int",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.hire_date",
+            ],
         },
         {
-            name: 'default.us_state.state_abbr',
+            name: "default.dispatcher.company_name",
+            type: "string",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
-                'default.hard_hat.state',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
             ],
-            type: 'string',
         },
         {
-            name: 'default.us_state.state_id',
+            name: "default.dispatcher.company_name",
+            type: "string",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
-                'default.hard_hat.state',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
             ],
-            type: 'int',
         },
         {
-            name: 'default.us_state.state_name',
+            name: "default.dispatcher.company_name",
+            type: "string",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
-                'default.hard_hat.state',
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.dispatcher_id",
             ],
-            type: 'string',
         },
         {
-            name: 'default.us_state.state_region',
+            name: "default.dispatcher.dispatcher_id",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
-                'default.hard_hat.state',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
             ],
-            type: 'int',
         },
         {
-            name: 'default.us_state.state_region_description',
+            name: "default.dispatcher.dispatcher_id",
+            type: "int",
             path: [
-                'default.repair_orders.repair_order_id',
-                'default.repair_order.hard_hat_id',
-                'default.hard_hat.state',
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
             ],
-            type: 'string',
+        },
+        {
+            name: "default.dispatcher.dispatcher_id",
+            type: "int",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+        },
+        {
+            name: "default.dispatcher.phone",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+        },
+        {
+            name: "default.dispatcher.phone",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+        },
+        {
+            name: "default.dispatcher.phone",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.dispatcher_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.address",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.address",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.address",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.birth_date",
+            type: "date",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.birth_date",
+            type: "date",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.birth_date",
+            type: "date",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.city",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.city",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.city",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.contractor_id",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.contractor_id",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.contractor_id",
+            type: "int",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.country",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.country",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.country",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.first_name",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.first_name",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.first_name",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.hard_hat_id",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.hard_hat_id",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.hard_hat_id",
+            type: "int",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.hire_date",
+            type: "date",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.hire_date",
+            type: "date",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.hire_date",
+            type: "date",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.last_name",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.last_name",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.last_name",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.manager",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.manager",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.manager",
+            type: "int",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.postal_code",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.postal_code",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.postal_code",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.state",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.state",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.state",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.title",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.title",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.hard_hat.title",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.contact_name",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.contact_name",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.contact_name",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.contact_title",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.contact_title",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.contact_title",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.local_region",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.local_region",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.local_region",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.municipality_id",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.municipality_id",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.municipality_id",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.municipality_type_desc",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.municipality_type_desc",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.municipality_type_desc",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.municipality_type_id",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.municipality_type_id",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.municipality_type_id",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.state_id",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.state_id",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.municipality_dim.state_id",
+            type: "int",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.municipality_id",
+            ],
+        },
+        {
+            name: "default.repair_order.dispatcher_id",
+            type: "int",
+            path: ["default.repair_order_details.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.dispatcher_id",
+            type: "int",
+            path: ["default.repair_order_details.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.dispatcher_id",
+            type: "int",
+            path: ["default.repair_orders.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.hard_hat_id",
+            type: "int",
+            path: ["default.repair_order_details.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.hard_hat_id",
+            type: "int",
+            path: ["default.repair_order_details.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.hard_hat_id",
+            type: "int",
+            path: ["default.repair_orders.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.municipality_id",
+            type: "string",
+            path: ["default.repair_order_details.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.municipality_id",
+            type: "string",
+            path: ["default.repair_order_details.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.municipality_id",
+            type: "string",
+            path: ["default.repair_orders.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.repair_order_id",
+            type: "int",
+            path: ["default.repair_order_details.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.repair_order_id",
+            type: "int",
+            path: ["default.repair_order_details.repair_order_id"],
+        },
+        {
+            name: "default.repair_order.repair_order_id",
+            type: "int",
+            path: ["default.repair_orders.repair_order_id"],
+        },
+        {
+            name: "default.us_state.state_abbr",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_abbr",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_abbr",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_id",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_id",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_id",
+            type: "int",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_name",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_name",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_name",
+            type: "string",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_region",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_region",
+            type: "int",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_region",
+            type: "int",
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_region_description",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_region_description",
+            type: "string",
+            path: [
+                "default.repair_order_details.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
+        },
+        {
+            name: "default.us_state.state_region_description",
+            type: "string",
+          
+            path: [
+                "default.repair_orders.repair_order_id",
+                "default.repair_order.hard_hat_id",
+                "default.hard_hat.state",
+            ],
         },
     ])
 
