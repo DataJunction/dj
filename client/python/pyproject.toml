@@ -30,6 +30,9 @@ classifiers = [
     "Operating System :: OS Independent",
 ]
 
+[project.optional-dependencies]
+pandas = ["pandas>=2.0.2"]
+
 [tool.hatch.version]
 path = "datajunction/__about__.py"
 

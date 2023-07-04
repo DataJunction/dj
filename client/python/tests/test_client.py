@@ -1,4 +1,5 @@
 """Tests DJ client"""
+import pandas
 import pytest
 
 from datajunction import DJClient
@@ -638,10 +639,10 @@ class TestDJClient:
 
         # Retrieve data for a single metric
         result = metric.data(dimensions=["default.hard_hat.city"], filters=[])
-        assert result == {
-            "data": [[1.0, "Foo"], [2.0, "Bar"]],
-            "columns": ("default_DOT_avg_repair_price", "city"),
-        }
+        expected_df = pandas.DataFrame.from_dict(
+            {"default_DOT_avg_repair_price": [1.0, 2.0], "city": ["Foo", "Bar"]},
+        )
+        pandas.testing.assert_frame_equal(result, expected_df)
 
         # No data
         with pytest.raises(DJClientException) as exc_info:
