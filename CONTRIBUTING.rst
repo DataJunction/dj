@@ -391,3 +391,35 @@ Creating a Diagram from the Grammar
 Use https://bottlecaps.de/convert/ to go from ANTLR4 -> EBNF
 
 Input the EBNF into https://bottlecaps.de/rr/ui
+
+Common Issues
+===================
+
+Alembic migration error
+----------------------------------------
+
+If during development your alembic migrations get into a spot where the automatic upgrade (or downgrade) is stuck you may see something
+similar to the following output in your `db_migration` agent log:
+
+.. code-block:: sh
+
+  db_migration  | sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) duplicate column name: categorical_partitions
+  db_migration  | [SQL: ALTER TABLE availabilitystate ADD COLUMN categorical_partitions JSON]
+  db_migration  | (Background on this error at: https://sqlalche.me/e/14/e3q8)
+  db_migration exited with code 1
+
+The easiest way to fix it is to reset your database state using these commands (in another terminal session):
+
+.. code-block:: sh
+
+  $ docker exec -it dj bash
+  root@...:/code#
+
+  root@...:/code# alembic downgrade base
+  ...
+  INFO  [alembic.runtime.migration] Running downgrade e41c021c19a6 -> , Initial migration
+
+  root@...:/code# alembic upgrade head
+  ...
+
+After this, the `docker compose up` command should start the db_migration agent without problems.
