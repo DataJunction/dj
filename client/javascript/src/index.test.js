@@ -133,18 +133,201 @@ test('should return something', async () => {
     ])
 
     expect(common_dimensions).toEqual([
-        { name: 'default.repair_orders.dispatcher_id', type: 'int', path: [] },
-        { name: 'default.repair_orders.hard_hat_id', type: 'int', path: [] },
         {
-            name: 'default.repair_orders.municipality_id',
+            name: 'default.dispatcher.company_name',
             type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.dispatcher_id',
+            ],
+        },
+        {
+            name: 'default.dispatcher.dispatcher_id',
+            type: 'int',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.dispatcher_id',
+            ],
+        },
+        {
+            name: 'default.dispatcher.phone',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.dispatcher_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.address',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.birth_date',
+            type: 'date',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.city',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.contractor_id',
+            type: 'int',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.country',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.first_name',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.hard_hat_id',
+            type: 'int',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.hire_date',
+            type: 'date',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.last_name',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.manager',
+            type: 'int',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.postal_code',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.state',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.hard_hat.title',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
+            ],
+        },
+        {
+            name: 'default.municipality_dim.contact_name',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.municipality_id',
+            ],
+        },
+        {
+            name: 'default.municipality_dim.contact_title',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.municipality_id',
+            ],
+        },
+        {
+            name: 'default.municipality_dim.local_region',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.municipality_id',
+            ],
+        },
+        {
+            name: 'default.municipality_dim.municipality_id',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.municipality_id',
+            ],
+        },
+        {
+            name: 'default.municipality_dim.municipality_type_desc',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.municipality_id',
+            ],
+        },
+        {
+            name: 'default.municipality_dim.municipality_type_id',
+            type: 'string',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.municipality_id',
+            ],
+        },
+        {
+            name: 'default.municipality_dim.state_id',
+            type: 'int',
+            path: [
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.municipality_id',
+            ],
+        },
+        {
+            name: 'default.repair_orders.repair_order_id',
+            type: 'int',
             path: [],
         },
         {
             name: 'default.us_state.state_abbr',
             type: 'string',
             path: [
-                'default.repair_orders.hard_hat_id',
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
                 'default.hard_hat.state',
             ],
         },
@@ -152,7 +335,8 @@ test('should return something', async () => {
             name: 'default.us_state.state_id',
             type: 'int',
             path: [
-                'default.repair_orders.hard_hat_id',
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
                 'default.hard_hat.state',
             ],
         },
@@ -160,7 +344,8 @@ test('should return something', async () => {
             name: 'default.us_state.state_name',
             type: 'string',
             path: [
-                'default.repair_orders.hard_hat_id',
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
                 'default.hard_hat.state',
             ],
         },
@@ -168,7 +353,8 @@ test('should return something', async () => {
             name: 'default.us_state.state_region',
             type: 'int',
             path: [
-                'default.repair_orders.hard_hat_id',
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
                 'default.hard_hat.state',
             ],
         },
@@ -176,7 +362,8 @@ test('should return something', async () => {
             name: 'default.us_state.state_region_description',
             type: 'string',
             path: [
-                'default.repair_orders.hard_hat_id',
+                'default.repair_orders.repair_order_id',
+                'default.repair_order.hard_hat_id',
                 'default.hard_hat.state',
             ],
         },
@@ -197,70 +384,82 @@ test('should return something', async () => {
     )
     const trimmedQuery = query.sql.replace(/\s+/g, '')
     expect(trimmedQuery).toBe(
-        `    WITH
+        `WITH
         m0_default_DOT_num_repair_orders AS (SELECT  default_DOT_us_state.state_abbr,
                 default_DOT_us_state.state_id,
                 default_DOT_us_state.state_name,
-                count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
-        FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-                default_DOT_hard_hats.state
-        FROM roads.hard_hats AS default_DOT_hard_hats)
-        AS default_DOT_hard_hat ON default_DOT_repair_orders.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+                count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders 
+         FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
+                default_DOT_repair_orders.hard_hat_id,
+                default_DOT_repair_orders.municipality_id,
+                default_DOT_repair_orders.repair_order_id 
+         FROM roads.repair_orders AS default_DOT_repair_orders)
+         AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
+        LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,
+                default_DOT_hard_hats.hard_hat_id,
+                default_DOT_hard_hats.hire_date,
+                default_DOT_hard_hats.state 
+         FROM roads.hard_hats AS default_DOT_hard_hats)
+         AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
         LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_abbr,
                 default_DOT_us_states.state_id,
-                default_DOT_us_states.state_name
-        FROM roads.us_states AS default_DOT_us_states LEFT  JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_description)
-        AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_abbr
-        GROUP BY  default_DOT_us_state.state_abbr, default_DOT_us_state.state_id, default_DOT_us_state.state_name
+                default_DOT_us_states.state_name 
+         FROM roads.us_states AS default_DOT_us_states LEFT  JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_description)
+         AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_abbr 
+         GROUP BY  default_DOT_us_state.state_abbr, default_DOT_us_state.state_id, default_DOT_us_state.state_name
         ),
         m1_default_DOT_avg_repair_price AS (SELECT  default_DOT_us_state.state_abbr,
                 default_DOT_us_state.state_id,
                 default_DOT_us_state.state_name,
-                avg(default_DOT_repair_order_details.price) default_DOT_avg_repair_price
-        FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
+                avg(default_DOT_repair_order_details.price) default_DOT_avg_repair_price 
+         FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
                 default_DOT_repair_orders.hard_hat_id,
                 default_DOT_repair_orders.municipality_id,
-                default_DOT_repair_orders.repair_order_id
-        FROM roads.repair_orders AS default_DOT_repair_orders)
-        AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-        LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-                default_DOT_hard_hats.state
-        FROM roads.hard_hats AS default_DOT_hard_hats)
-        AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+                default_DOT_repair_orders.repair_order_id 
+         FROM roads.repair_orders AS default_DOT_repair_orders)
+         AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
+        LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,
+                default_DOT_hard_hats.hard_hat_id,
+                default_DOT_hard_hats.hire_date,
+                default_DOT_hard_hats.state 
+         FROM roads.hard_hats AS default_DOT_hard_hats)
+         AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
         LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_abbr,
                 default_DOT_us_states.state_id,
-                default_DOT_us_states.state_name
-        FROM roads.us_states AS default_DOT_us_states LEFT  JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_description)
-        AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_abbr
-        GROUP BY  default_DOT_us_state.state_abbr, default_DOT_us_state.state_id, default_DOT_us_state.state_name
+                default_DOT_us_states.state_name 
+         FROM roads.us_states AS default_DOT_us_states LEFT  JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_description)
+         AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_abbr 
+         GROUP BY  default_DOT_us_state.state_abbr, default_DOT_us_state.state_id, default_DOT_us_state.state_name
         ),
         m2_default_DOT_total_repair_cost AS (SELECT  default_DOT_us_state.state_abbr,
                 default_DOT_us_state.state_id,
                 default_DOT_us_state.state_name,
-                sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost
-        FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
+                sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost 
+         FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
                 default_DOT_repair_orders.hard_hat_id,
                 default_DOT_repair_orders.municipality_id,
-                default_DOT_repair_orders.repair_order_id
-        FROM roads.repair_orders AS default_DOT_repair_orders)
-        AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-        LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-                default_DOT_hard_hats.state
-        FROM roads.hard_hats AS default_DOT_hard_hats)
-        AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+                default_DOT_repair_orders.repair_order_id 
+         FROM roads.repair_orders AS default_DOT_repair_orders)
+         AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
+        LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,
+                default_DOT_hard_hats.hard_hat_id,
+                default_DOT_hard_hats.hire_date,
+                default_DOT_hard_hats.state 
+         FROM roads.hard_hats AS default_DOT_hard_hats)
+         AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
         LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_abbr,
                 default_DOT_us_states.state_id,
-                default_DOT_us_states.state_name
-        FROM roads.us_states AS default_DOT_us_states LEFT  JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_description)
-        AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_abbr
-        GROUP BY  default_DOT_us_state.state_abbr, default_DOT_us_state.state_id, default_DOT_us_state.state_name
+                default_DOT_us_states.state_name 
+         FROM roads.us_states AS default_DOT_us_states LEFT  JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_description)
+         AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_abbr 
+         GROUP BY  default_DOT_us_state.state_abbr, default_DOT_us_state.state_id, default_DOT_us_state.state_name
         )SELECT  m0_default_DOT_num_repair_orders.default_DOT_num_repair_orders,
                 m1_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
                 m2_default_DOT_total_repair_cost.default_DOT_total_repair_cost,
                 COALESCE(m0_default_DOT_num_repair_orders.state_abbr, m1_default_DOT_avg_repair_price.state_abbr, m2_default_DOT_total_repair_cost.state_abbr) state_abbr,
                 COALESCE(m0_default_DOT_num_repair_orders.state_id, m1_default_DOT_avg_repair_price.state_id, m2_default_DOT_total_repair_cost.state_id) state_id,
-                COALESCE(m0_default_DOT_num_repair_orders.state_name, m1_default_DOT_avg_repair_price.state_name, m2_default_DOT_total_repair_cost.state_name) state_name
-        FROM m0_default_DOT_num_repair_orders FULL OUTER JOIN m1_default_DOT_avg_repair_price ON m0_default_DOT_num_repair_orders.state_abbr = m1_default_DOT_avg_repair_price.state_abbr AND m0_default_DOT_num_repair_orders.state_id = m1_default_DOT_avg_repair_price.state_id AND m0_default_DOT_num_repair_orders.state_name = m1_default_DOT_avg_repair_price.state_name
+                COALESCE(m0_default_DOT_num_repair_orders.state_name, m1_default_DOT_avg_repair_price.state_name, m2_default_DOT_total_repair_cost.state_name) state_name 
+         FROM m0_default_DOT_num_repair_orders FULL OUTER JOIN m1_default_DOT_avg_repair_price ON m0_default_DOT_num_repair_orders.state_abbr = m1_default_DOT_avg_repair_price.state_abbr AND m0_default_DOT_num_repair_orders.state_id = m1_default_DOT_avg_repair_price.state_id AND m0_default_DOT_num_repair_orders.state_name = m1_default_DOT_avg_repair_price.state_name
         FULL OUTER JOIN m2_default_DOT_total_repair_cost ON m0_default_DOT_num_repair_orders.state_abbr = m2_default_DOT_total_repair_cost.state_abbr AND m0_default_DOT_num_repair_orders.state_id = m2_default_DOT_total_repair_cost.state_id AND m0_default_DOT_num_repair_orders.state_name = m2_default_DOT_total_repair_cost.state_name
     `.replace(/\s+/g, '')
     )
@@ -307,15 +506,15 @@ test('should return something', async () => {
             },
         ],
         data: [
-            [162, 65682.0, 31921452.0, 'AZ', 3, 'Arizona'],
-            [162, 39301.5, 19100529.0, 'CT', 7, 'Connecticut'],
-            [243, 65595.66666666667, 47819241.0, 'GA', 11, 'Georgia'],
-            [243, 76555.33333333333, 55808838.0, 'MA', 22, 'Massachusetts'],
-            [405, 64190.6, 77991579.0, 'MI', 23, 'Michigan'],
-            [324, 54672.75, 53141913.0, 'NJ', 31, 'New Jersey'],
-            [81, 53374.0, 12969882.0, 'NY', 33, 'New York'],
-            [81, 70418.0, 17111574.0, 'OK', 37, 'Oklahoma'],
-            [324, 54083.5, 52569162.0, 'PA', 39, 'Pennsylvania'],
+            [486, 65682.0, 31921452.0, 'AZ', 3, 'Arizona'],
+            [486, 39301.5, 19100529.0, 'CT', 7, 'Connecticut'],
+            [729, 65595.66666666667, 47819241.0, 'GA', 11, 'Georgia'],
+            [729, 76555.33333333333, 55808838.0, 'MA', 22, 'Massachusetts'],
+            [1215, 64190.6, 77991579.0, 'MI', 23, 'Michigan'],
+            [972, 54672.75, 53141913.0, 'NJ', 31, 'New Jersey'],
+            [243, 53374.0, 12969882.0, 'NY', 33, 'New York'],
+            [243, 70418.0, 17111574.0, 'OK', 37, 'Oklahoma'],
+            [972, 54083.5, 52569162.0, 'PA', 39, 'Pennsylvania'],
         ],
     })
 
