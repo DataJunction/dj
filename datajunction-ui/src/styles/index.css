@@ -276,7 +276,7 @@ tr {
 .table-responsive {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  position: relative;
+  /*position: relative;*/
   display: grid;
 
   grid-template-columns: auto auto auto;
@@ -314,7 +314,7 @@ tr {
   padding-left: 1.5rem !important;
 }
 .table thead th {
-  background-color: #f9fbfd;
+  /*background-color: #f9fbfd;*/
   text-transform: uppercase;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -534,7 +534,6 @@ tbody th {
 }
 
 .cron {
-  /*border: solid #b34b00 0.025em;*/
   background-color: rgb(255 215 215) !important;
   color: #b34b00;
   font-size: 1rem;
@@ -546,6 +545,10 @@ tbody th {
 
 .status__valid {
   color: #00b368;
+}
+
+.status__invalid {
+  color: #b34b00;
 }
 
 .status {
@@ -703,6 +706,10 @@ pre {
   padding-bottom: 2rem;
 }
 
+.mid {
+  padding-top: 0.4rem;
+}
+
 .rounded-box {
   border-radius: 1rem !important;
   background-color: #ffffff;
@@ -857,40 +864,26 @@ pre {
   z-index: 1;
 }
 
-.select-parent {
-  padding: 7px 7px;
-  background-color: #cccccc;
-  width: max-content;
-  border-radius: 4px;
-  margin-top: 4px;
-  font-weight: bolder;
-  color: white;
-  cursor: pointer;
-
-  background-color: #f9fbfd;
-  /*text-transform: uppercase;*/
-  font-size: 0.8125rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  color: #95aac9;
-}
-
 .select-name {
   margin-top: 5px;
   padding: 7px 7px;
   width: fit-content;
   border-radius: 4px;
   cursor: default;
-  color: #777777;
-
-  /*background-color: #f9fbfd;*/
-  /*text-transform: uppercase;*/
   font-size: 0.9125rem;
-  /*font-weight: 600;*/
-  /*letter-spacing: 0.08em;*/
   color: #95aac9;
 }
 
 .select-name:hover {
   background-color: #bdbaba3c;
+}
+
+.select-name-highlight {
+  font-weight: 600;
+  background-color: #bdbaba3c;
+  border: 1px solid rgba(94, 94, 94, 0.24);
+}
+
+.inactive {
+  display: none;
 }
