@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: |
           pdm sync -d
-          cd ./client/python; pdm install -d
+          cd ./client/python; pdm install -d -G pandas
       - name: Python client integration tests
         run: cd client/python && make test PYTEST_ARGS="--integration -k test_integration"
 

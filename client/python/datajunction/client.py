@@ -5,9 +5,20 @@ import abc
 import logging
 import platform
 import time
+import warnings
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
 from urllib.parse import urlencode, urljoin
 
+try:
+    import pandas as pd
+except ImportError:  # pragma: no cover
+    warnings.warn(
+        (
+            "Optional dependency `pandas` not found, data retrieval"
+            "disabled. You can install pandas by running `pip install pandas`."
+        ),
+        ImportWarning,
+    )
 import requests
 from alive_progress import alive_bar
 from pydantic import BaseModel, Field, validator
@@ -592,17 +603,24 @@ class DJClient:  # pylint: disable=too-many-public-methods
         return response.json()
 
     @staticmethod
-    def process_results(results) -> Results:
+    def process_results(results) -> "pd.DataFrame":
         """
-        Return a typed dict with the column names enumerated
+        Return a pandas dataframe of the results if pandas is installed
         """
         if "results" in results and results["results"]:
             columns = results["results"][0]["columns"]
             rows = results["results"][0]["rows"]
-            return Results(
-                data=rows,
-                columns=tuple(col["name"] for col in columns),  # type: ignore
-            )
+            try:
+                return pd.DataFrame(
+                    rows,
+                    columns=[col["name"] for col in columns],
+                )
+            except NameError:
+                return Results(
+                    data=rows,
+                    columns=tuple(col["name"] for col in columns),  # type: ignore
+                )
+
         raise DJClientException("No data for query!")
 
     def data(  # pylint: disable=too-many-arguments,too-many-locals
