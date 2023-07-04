@@ -1,7 +1,6 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
 import { useContext, useEffect, useState } from 'react';
-import NamespaceHeader from '../../components/NamespaceHeader';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import Explorer from '../ListNamespacesPage/Explorer';
@@ -81,19 +80,44 @@ export function NamespacePage() {
       <td>
         <span className="status">{node.mode}</span>
       </td>
+      <td>
+        <span className="status">{node.tags}</span>
+      </td>
+      <td>
+        <span className="status">
+          {new Date(node.updated_at).toLocaleString('en-us')}
+        </span>
+      </td>
     </tr>
   ));
 
-  // @ts-ignore
   return (
     <div className="mid">
-      <NamespaceHeader namespace={namespace} />
       <div className="card">
         <div className="card-header">
-          <h2>Nodes</h2>
+          <h2>Explore</h2>
           <div className="table-responsive">
             <div className={`sidebar`}>
-              <Explorer parent={namespaces.children} />
+              <span
+                style={{
+                  textTransform: 'uppercase',
+                  fontSize: '0.8125rem',
+                  fontWeight: '600',
+                  color: '#95aac9',
+                  padding: '1rem 1rem 1rem 0',
+                }}
+              >
+                Namespaces
+              </span>
+              {namespaces.children
+                ? namespaces.children.map(child => (
+                    <Explorer
+                      parent={child}
+                      current={namespace}
+                      defaultExpand={true}
+                    />
+                  ))
+                : null}
             </div>
             <table className="card-table table">
               <thead>
@@ -102,6 +126,8 @@ export function NamespacePage() {
                   <th>Type</th>
                   <th>Status</th>
                   <th>Mode</th>
+                  <th>Tags</th>
+                  <th>Last Updated</th>
                 </tr>
               </thead>
               <tbody>{nodesList}</tbody>

@@ -41,7 +41,9 @@ export function ListNamespacesPage() {
         <div className="card">
           <div className="card-header">
             <h2>Namespaces</h2>
-            <Explorer parent={namespaces.children} />
+            {namespaces.map(namespace => (
+              <Explorer parent={namespace} defaultExpand={true} />
+            ))}
           </div>
         </div>
       </div>
