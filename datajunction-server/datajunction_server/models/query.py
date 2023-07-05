@@ -33,6 +33,9 @@ class QueryCreate(BaseQuery):
     Model for submitted queries.
     """
 
+    engine_name: str
+    engine_version: str
+    catalog_name: str
     submitted_query: str
     async_: bool = False
 

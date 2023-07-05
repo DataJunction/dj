@@ -12,6 +12,7 @@ from datajunction_server.models.column import Column
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import BuildCriteria, Node, NodeRevision, NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
+from datajunction_server.sql.parsing import types
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.utils import amenable_name
@@ -713,6 +714,60 @@ def build_metric_nodes(
     if limit is not None:
         combined_ast.select.limit = ast.Number(limit)
 
+    return combined_ast
+
+
+def build_cube_node(
+    selected_metrics: List[Column],
+    selected_dimensions: List[Column],
+    cube: NodeRevision,
+) -> ast.Query:
+    """
+    Build query for a cube node
+    """
+    combined_ast: ast.Query = ast.Query(
+        select=ast.Select(from_=ast.From(relations=[])),
+        ctes=[],
+    )
+    default_materialization_config = [
+        materialization
+        for materialization in cube.materializations
+        if materialization.name == "default"
+    ][0].config
+
+    selected_metric_keys = [col.name for col in selected_metrics]
+    metric_to_measures = {
+        key: value
+        for key, value in default_materialization_config["measures"].items()
+        if key in selected_metric_keys
+    }
+    for metric_key, measures in metric_to_measures.items():
+        if len(measures) == 2:
+            combined_ast.select.projection.append(
+                ast.BinaryOp(
+                    ast.BinaryOpKind.Divide,
+                    ast.Cast(
+                        expression=ast.Function(
+                            ast.Name("SUM"),
+                            args=[ast.Column(name=ast.Name(measures[0]["name"]))],
+                        ),
+                        data_type=types.DoubleType(),
+                    ),
+                    ast.Function(
+                        ast.Name("SUM"),
+                        args=[ast.Column(name=ast.Name(measures[1]["name"]))],
+                    ),
+                ).set_alias(ast.Name(metric_key)),
+            )
+
+    for selected_dim in selected_dimensions:
+        dimension_column = ast.Column(name=ast.Name(selected_dim.name))
+        combined_ast.select.projection.append(dimension_column)
+        combined_ast.select.group_by.append(dimension_column)
+
+    combined_ast.select.from_.relations.append(  # type: ignore
+        ast.Relation(primary=ast.Table(ast.Name(cube.availability.table))),  # type: ignore
+    )
     return combined_ast
 
 
