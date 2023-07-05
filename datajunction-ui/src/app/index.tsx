@@ -12,7 +12,6 @@ import { NodePage } from './pages/NodePage/Loadable';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { Root } from './pages/Root/Loadable';
-import { ListNamespacesPage } from './pages/ListNamespacesPage';
 import DJClientContext from './providers/djclient';
 import { DataJunctionAPI } from './services/DJService';
 
@@ -39,7 +38,7 @@ export function App() {
                   <Route path=":name" element={<NodePage />} />
                 </Route>
 
-                <Route path="/" element={<ListNamespacesPage />} key="index" />
+                <Route path="/" element={<NamespacePage />} key="index" />
                 <Route path="namespaces">
                   <Route
                     path=":namespace"
