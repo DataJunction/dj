@@ -14,7 +14,7 @@ export function NamespacePage() {
     nodes: [],
   });
 
-  const [namespaces, setNamespaces] = useState([]);
+  const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
 
   const createNamespaceHierarchy = namespaceList => {
     const hierarchy = [];
@@ -47,39 +47,16 @@ export function NamespacePage() {
   useEffect(() => {
     const fetchData = async () => {
       const namespaces = await djClient.namespaces();
-
-      // var hierarchy = { namespace: 'r', children: [], path: '' };
       const hierarchy = createNamespaceHierarchy(namespaces);
-      console.log('hierarchy', hierarchy);
-      //
-      // namespaces.forEach(namespace => {
-      //   const parts = namespace.namespace.split('.');
-      //   let current = hierarchy;
-      //   parts.forEach(part => {
-      //     const found = current.children.find(
-      //       child => part === child.namespace,
-      //     );
-      //     // console.log('current', current.namespace, 'part', part, 'found', found, 'children', current.children);
-      //     if (found !== undefined) current = found;
-      //     else {
-      //       current.children.push({
-      //         namespace: part,
-      //         children: [],
-      //         path: current.path === '' ? part : current.path + '.' + part,
-      //       });
-      //     }
-      //   });
-      // });
-      // console.log('hierarchy', hierarchy);
-      setNamespaces(hierarchy);
+      setNamespaceHierarchy(hierarchy);
     };
     fetchData().catch(console.error);
   }, [djClient, djClient.namespaces]);
 
   useEffect(() => {
     const fetchData = async () => {
-      if (namespace === undefined && namespaces !== undefined) {
-        namespace = namespaces.children[0].path;
+      if (namespace === undefined && namespaceHierarchy !== undefined) {
+        namespace = namespaceHierarchy.children[0].path;
       }
       const djNodes = await djClient.namespace(namespace);
       const nodes = djNodes.map(node => {
@@ -92,7 +69,7 @@ export function NamespacePage() {
       });
     };
     fetchData().catch(console.error);
-  }, [djClient, namespace, namespaces]);
+  }, [djClient, namespace, namespaceHierarchy]);
 
   const nodesList = state.nodes.map(node => (
     <tr>
@@ -147,9 +124,8 @@ export function NamespacePage() {
               >
                 Namespaces
               </span>
-              {console.log(namespaces)}
-              {namespaces
-                ? namespaces.map(child => (
+              {namespaceHierarchy
+                ? namespaceHierarchy.map(child => (
                     <Explorer
                       item={child}
                       current={state.namespace}
