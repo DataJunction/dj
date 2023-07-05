@@ -110,9 +110,7 @@ ul {
 
 .list-group {
   width: 100%;
-  /*min-width: fit-content;*/
   max-width: fit-content;
-  /*margin-inline: 1.5rem;*/
   border-radius: 0.375rem;
 }
 .list-group-item {
@@ -122,7 +120,6 @@ ul {
   color: #212529;
   text-decoration: none;
   background-color: #ffffff;
-  /*border: 1px solid #dee2e6;*/
   min-width: fit-content;
 }
 .list-group-item + .list-group-item {
@@ -156,7 +153,6 @@ ul {
 .h6,
 h6 {
   margin: 0;
-  /*background-color: #f9fbfd;*/
   text-transform: uppercase;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -253,7 +249,6 @@ tr {
   word-wrap: break-word;
   background-color: #fff;
   background-clip: border-box;
-  /*border: 1px solid #edf2f9;*/
   border-radius: 1rem;
   margin: 2rem;
 }
@@ -265,18 +260,14 @@ tr {
 }
 
 .sidebar {
-  /*height: 200px;*/
   position: sticky;
   top: 0;
   left: 0;
-  /*padding-top: 40px;*/
-  /*background-color: lightblue;*/
 }
 
 .table-responsive {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  /*position: relative;*/
   display: grid;
 
   grid-template-columns: auto auto auto;
@@ -314,7 +305,6 @@ tr {
   padding-left: 1.5rem !important;
 }
 .table thead th {
-  /*background-color: #f9fbfd;*/
   text-transform: uppercase;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -566,7 +556,6 @@ tbody th {
 }
 
 .col.active {
-  /*background-color: #f5fbff;*/
   padding-bottom: 1.15rem;
   color: #a1a5b7;
   border-bottom: solid 0.2em #2c7be5;
@@ -586,9 +575,6 @@ tbody th {
   --bs-gutter-y: 0;
   display: flex;
   flex-wrap: wrap;
-  /*margin-top: 3rem;*/
-  /*margin-bottom: calc(-.75*var(--bs-gutter-x));*/
-  /*margin-left: 3.4rem;*/
 }
 
 .header {
@@ -597,14 +583,11 @@ tbody th {
   --bs-header-body-border-width: 1px;
   --bs-header-body-border-color: #e3ebf6;
   --bs-header-body-border-color-dark: rgba(227, 235, 246, 0.1);
-  /*margin-bottom: var(--bs-header-margin-bottom);*/
   height: 90px;
   transition: none;
   display: flex;
   align-items: center;
   background-color: transparent;
-  /*box-shadow: 0px 10px 30px 0px rgba(82, 63, 105, 0.05);*/
-  /*border-bottom: var(--bs-app-header-base-border-bottom);*/
 }
 *,
 :after,
@@ -627,10 +610,6 @@ tbody th {
   color: #12263f;
   background-color: transparent;
   border-color: #2c7be5;
-}
-.header-tabs .nav-link {
-  /*padding-top: var(--bs-header-spacing-y);*/
-  /*padding-bottom: var(--bs-header-spacing-y);*/
 }
 .nav-link {
   display: block;
@@ -732,8 +711,6 @@ pre {
   display: block;
   margin: 0 3rem 3rem 3rem;
   float: left;
-  /*width:100%;*/
-  /*max-width: fit-content;*/
 }
 
 .switch {
