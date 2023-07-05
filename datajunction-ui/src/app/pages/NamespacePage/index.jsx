@@ -14,28 +14,63 @@ export function NamespacePage() {
     nodes: [],
   });
 
-  const [namespaces, setNamespaces] = useState({});
+  const [namespaces, setNamespaces] = useState([]);
+
+  const createNamespaceHierarchy = namespaceList => {
+    const hierarchy = [];
+
+    for (const item of namespaceList) {
+      const namespaces = item.namespace.split('.');
+      let currentLevel = hierarchy;
+
+      let path = '';
+      for (const ns of namespaces) {
+        path += ns;
+
+        let existingNamespace = currentLevel.find(el => el.namespace === ns);
+        if (!existingNamespace) {
+          existingNamespace = {
+            namespace: ns,
+            children: [],
+            path: path,
+          };
+          currentLevel.push(existingNamespace);
+        }
+
+        currentLevel = existingNamespace.children;
+        path += '.';
+      }
+    }
+    return hierarchy;
+  };
 
   useEffect(() => {
     const fetchData = async () => {
       const namespaces = await djClient.namespaces();
-      var hierarchy = { namespace: 'r', children: [], path: '' };
-      namespaces.forEach(namespace => {
-        const parts = namespace.namespace.split('.');
-        let current = hierarchy;
-        parts.forEach(part => {
-          const found = current.children.find(
-            child => part === child.namespace,
-          );
-          if (found !== undefined) current = found;
-          else
-            current.children.push({
-              namespace: part,
-              children: [],
-              path: current.path === '' ? part : current.path + '.' + part,
-            });
-        });
-      });
+
+      // var hierarchy = { namespace: 'r', children: [], path: '' };
+      const hierarchy = createNamespaceHierarchy(namespaces);
+      console.log('hierarchy', hierarchy);
+      //
+      // namespaces.forEach(namespace => {
+      //   const parts = namespace.namespace.split('.');
+      //   let current = hierarchy;
+      //   parts.forEach(part => {
+      //     const found = current.children.find(
+      //       child => part === child.namespace,
+      //     );
+      //     // console.log('current', current.namespace, 'part', part, 'found', found, 'children', current.children);
+      //     if (found !== undefined) current = found;
+      //     else {
+      //       current.children.push({
+      //         namespace: part,
+      //         children: [],
+      //         path: current.path === '' ? part : current.path + '.' + part,
+      //       });
+      //     }
+      //   });
+      // });
+      // console.log('hierarchy', hierarchy);
       setNamespaces(hierarchy);
     };
     fetchData().catch(console.error);
@@ -112,8 +147,9 @@ export function NamespacePage() {
               >
                 Namespaces
               </span>
-              {namespaces.children
-                ? namespaces.children.map(child => (
+              {console.log(namespaces)}
+              {namespaces
+                ? namespaces.map(child => (
                     <Explorer
                       item={child}
                       current={state.namespace}
