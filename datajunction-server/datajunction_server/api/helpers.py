@@ -12,7 +12,11 @@ from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
-from datajunction_server.construction.build import build_node
+from datajunction_server.construction.build import (
+    build_cube_node,
+    build_metric_nodes,
+    build_node,
+)
 from datajunction_server.construction.dj_query import build_dj_metric_query
 from datajunction_server.errors import (
     DJError,
@@ -24,6 +28,7 @@ from datajunction_server.models import AttributeType, Catalog, Column, Engine
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import EntityType, History
+from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import (
     BuildCriteria,
     MissingParent,
@@ -37,6 +42,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
@@ -616,3 +622,109 @@ def validate_orderby(
                 "specified in the metrics or dimensions"
             ),
         )
+
+
+def find_existing_cube(
+    session: Session,
+    metric_columns: List[Column],
+    dimension_columns: List[Column],
+) -> Optional[NodeRevision]:
+    """
+    Find an existing cube with these metrics and dimensions, if any
+    """
+    element_names = [col.name for col in (metric_columns + dimension_columns)]
+    statement = select(NodeRevision)
+    for name in element_names:
+        statement = statement.filter(
+            NodeRevision.cube_elements.any(Column.name == name),  # type: ignore  # pylint: disable=no-member
+        )
+
+    existing_cubes = session.exec(statement).unique().all()
+    for cube in existing_cubes:
+        return cube
+    return None
+
+
+def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-many-locals
+    session: Session,
+    metrics: List[str],
+    dimensions: List[str],
+    filters: List[str] = None,
+    orderby: List[str] = None,
+    limit: Optional[int] = None,
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+) -> Tuple[TranslatedSQL, Engine, Catalog]:
+    """
+    Build SQL for multiple metrics. Used by both /sql and /data endpoints
+    """
+    if not filters:
+        filters = []
+    if not orderby:
+        orderby = []
+    leading_metric_node = get_node_by_name(session, metrics[0])
+    available_engines = leading_metric_node.current.catalog.engines
+    metric_columns, metric_nodes, _, dimension_columns, _ = validate_cube(
+        session,
+        metrics,
+        dimensions,
+    )
+
+    # Try to find a built cube that already has the given metrics and dimensions
+    # The cube needs to have a materialization configured and an availability state
+    # posted in order for us to use the materialized datasource directly
+    cube = find_existing_cube(session, metric_columns, dimension_columns)
+    if cube and cube.materializations and cube.availability:
+        catalog = get_catalog(session, cube.availability.catalog)
+        available_engines = catalog.engines + available_engines
+
+    # Check if selected engine is available, or if none is provided, select the fastest
+    engine = (
+        get_engine(session, engine_name, engine_version)  # type: ignore
+        if engine_name
+        else available_engines[0]
+    )
+    if engine not in available_engines:
+        raise DJInvalidInputException(  # pragma: no cover
+            f"The selected engine is not available for the node {metrics[0]}. "
+            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
+        )
+
+    validate_orderby(orderby, metrics, dimensions)
+
+    if cube and cube.materializations and cube.availability:
+        query_ast = build_cube_node(metric_columns, dimension_columns, cube)
+        return (
+            TranslatedSQL(
+                sql=str(query_ast),
+                columns=[
+                    ColumnMetadata(name=col.name, type=str(col.type))
+                    for col in (metric_columns + dimension_columns)
+                ],
+                dialect=engine.dialect,
+            ),
+            engine,
+            cube.catalog,
+        )
+
+    query_ast = build_metric_nodes(
+        session,
+        metric_nodes,
+        filters=filters or [],
+        dimensions=dimensions or [],
+        orderby=orderby or [],
+        limit=limit,
+    )
+    columns = [
+        ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
+        for col in query_ast.select.projection
+    ]
+    return (
+        TranslatedSQL(
+            sql=str(query_ast),
+            columns=columns,
+            dialect=engine.dialect if engine else None,
+        ),
+        engine,
+        leading_metric_node.current.catalog,
+    )

@@ -10,13 +10,12 @@ from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import (
+    build_sql_for_multiple_metrics,
     get_engine,
     get_node_by_name,
     get_query,
-    validate_cube,
     validate_orderby,
 )
-from datajunction_server.construction.build import build_metric_nodes
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import (
@@ -172,52 +171,26 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     """
     Return data for a set of metrics with dimensions and filters
     """
-    leading_metric_node = get_node_by_name(session, metrics[0])
-    available_engines = leading_metric_node.current.catalog.engines
-    engine = (
-        get_engine(session, engine_name, engine_version)  # type: ignore
-        if engine_name
-        else available_engines[0]
-    )
-    if engine not in available_engines:
-        raise DJInvalidInputException(  # pragma: no cover
-            f"The selected engine is not available for the node {metrics[0]}. "
-            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
-        )
-
-    _, metric_nodes, _, _, _ = validate_cube(
+    translated_sql, engine, catalog = build_sql_for_multiple_metrics(
         session,
         metrics,
         dimensions,
-    )
-    validate_orderby(orderby, metrics, dimensions)
-    query_ast = build_metric_nodes(
-        session,
-        metric_nodes,
-        filters=filters or [],
-        dimensions=dimensions or [],
-        orderby=orderby or [],
-        limit=limit,
-    )
-    columns = [
-        ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
-        for col in query_ast.select.projection
-    ]
-    query = TranslatedSQL(
-        sql=str(query_ast),
-        columns=columns,
-        dialect=engine.dialect if engine else None,
+        filters,
+        orderby,
+        limit,
+        engine_name,
+        engine_version,
     )
 
     query_create = QueryCreate(
         engine_name=engine.name,
-        catalog_name=leading_metric_node.current.catalog.name,
+        catalog_name=catalog.name,
         engine_version=engine.version,
-        submitted_query=query.sql,
+        submitted_query=translated_sql.sql,
         async_=async_,
     )
     result = query_service_client.submit_query(query_create)
     # Inject column info if there are results
     if result.results.__root__:  # pragma: no cover
-        result.results.__root__[0].columns = columns
+        result.results.__root__[0].columns = translated_sql.columns or []
     return result
