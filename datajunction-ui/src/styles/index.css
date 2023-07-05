@@ -861,6 +861,7 @@ pre {
   overflow: scroll;
   text-align: left;
   position: absolute;
+  max-width: 75%;
   z-index: 1;
 }
 

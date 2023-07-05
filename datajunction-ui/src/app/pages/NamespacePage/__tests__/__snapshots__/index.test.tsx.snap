@@ -4,7 +4,6 @@ exports[`<NamespacePage /> should render and match the snapshot 1`] = `
 <div
   className="mid"
 >
-  <NamespaceHeader />
   <div
     className="card"
   >
@@ -12,19 +11,33 @@ exports[`<NamespacePage /> should render and match the snapshot 1`] = `
       className="card-header"
     >
       <h2>
-        Nodes
+        Explore
       </h2>
       <div
         className="table-responsive"
       >
+        <div
+          className="sidebar"
+        >
+          <span
+            style={
+              Object {
+                "color": "#95aac9",
+                "fontSize": "0.8125rem",
+                "fontWeight": "600",
+                "padding": "1rem 1rem 1rem 0",
+                "textTransform": "uppercase",
+              }
+            }
+          >
+            Namespaces
+          </span>
+        </div>
         <table
           className="card-table table"
         >
           <thead>
             <tr>
-              <th>
-                Namespace
-              </th>
               <th>
                 Name
               </th>
@@ -36,6 +49,12 @@ exports[`<NamespacePage /> should render and match the snapshot 1`] = `
               </th>
               <th>
                 Mode
+              </th>
+              <th>
+                Tags
+              </th>
+              <th>
+                Last Updated
               </th>
             </tr>
           </thead>

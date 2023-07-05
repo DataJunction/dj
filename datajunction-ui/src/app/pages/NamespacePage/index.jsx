@@ -3,11 +3,11 @@ import { useParams } from 'react-router-dom';
 import { useContext, useEffect, useState } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
-import Explorer from '../ListNamespacesPage/Explorer';
+import Explorer from '../NamespacePage/Explorer';
 
 export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const { namespace } = useParams();
+  var { namespace } = useParams();
 
   const [state, setState] = useState({
     namespace: namespace,
@@ -43,6 +43,9 @@ export function NamespacePage() {
 
   useEffect(() => {
     const fetchData = async () => {
+      if (namespace === undefined && namespaces !== undefined) {
+        namespace = namespaces.children[0].path;
+      }
       const djNodes = await djClient.namespace(namespace);
       const nodes = djNodes.map(node => {
         return djClient.node(node);
@@ -54,7 +57,7 @@ export function NamespacePage() {
       });
     };
     fetchData().catch(console.error);
-  }, [djClient, namespace]);
+  }, [djClient, namespace, namespaces]);
 
   const nodesList = state.nodes.map(node => (
     <tr>
@@ -112,8 +115,8 @@ export function NamespacePage() {
               {namespaces.children
                 ? namespaces.children.map(child => (
                     <Explorer
-                      parent={child}
-                      current={namespace}
+                      item={child}
+                      current={state.namespace}
                       defaultExpand={true}
                     />
                   ))
