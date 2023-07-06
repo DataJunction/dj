@@ -1,21 +1,63 @@
 import * as React from 'react';
 import { useParams } from 'react-router-dom';
 import { useContext, useEffect, useState } from 'react';
-import NamespaceHeader from '../../components/NamespaceHeader';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
+import Explorer from '../NamespacePage/Explorer';
 
 export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
-  const { namespace } = useParams();
+  var { namespace } = useParams();
 
   const [state, setState] = useState({
     namespace: namespace,
     nodes: [],
   });
 
+  const [namespaceHierarchy, setNamespaceHierarchy] = useState([]);
+
+  const createNamespaceHierarchy = namespaceList => {
+    const hierarchy = [];
+
+    for (const item of namespaceList) {
+      const namespaces = item.namespace.split('.');
+      let currentLevel = hierarchy;
+
+      let path = '';
+      for (const ns of namespaces) {
+        path += ns;
+
+        let existingNamespace = currentLevel.find(el => el.namespace === ns);
+        if (!existingNamespace) {
+          existingNamespace = {
+            namespace: ns,
+            children: [],
+            path: path,
+          };
+          currentLevel.push(existingNamespace);
+        }
+
+        currentLevel = existingNamespace.children;
+        path += '.';
+      }
+    }
+    return hierarchy;
+  };
+
   useEffect(() => {
     const fetchData = async () => {
+      const namespaces = await djClient.namespaces();
+      const hierarchy = createNamespaceHierarchy(namespaces);
+      setNamespaceHierarchy(hierarchy);
+    };
+    fetchData().catch(console.error);
+  }, [djClient, djClient.namespaces]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (namespace === undefined && namespaceHierarchy !== undefined) {
+        namespace = namespaceHierarchy.children[0].path;
+      }
       const djNodes = await djClient.namespace(namespace);
       const nodes = djNodes.map(node => {
         return djClient.node(node);
@@ -27,13 +69,10 @@ export function NamespacePage() {
       });
     };
     fetchData().catch(console.error);
-  }, [djClient, namespace]);
+  }, [djClient, namespace, namespaceHierarchy]);
 
   const nodesList = state.nodes.map(node => (
     <tr>
-      <td>
-        <a href={'/namespaces/' + node.namespace}>{node.namespace}</a>
-      </td>
       <td>
         <a href={'/nodes/' + node.name} className="link-table">
           {node.display_name}
@@ -56,25 +95,54 @@ export function NamespacePage() {
       <td>
         <span className="status">{node.mode}</span>
       </td>
+      <td>
+        <span className="status">{node.tags}</span>
+      </td>
+      <td>
+        <span className="status">
+          {new Date(node.updated_at).toLocaleString('en-us')}
+        </span>
+      </td>
     </tr>
   ));
 
-  // @ts-ignore
   return (
     <div className="mid">
-      <NamespaceHeader namespace={namespace} />
       <div className="card">
         <div className="card-header">
-          <h2>Nodes</h2>
+          <h2>Explore</h2>
           <div className="table-responsive">
+            <div className={`sidebar`}>
+              <span
+                style={{
+                  textTransform: 'uppercase',
+                  fontSize: '0.8125rem',
+                  fontWeight: '600',
+                  color: '#95aac9',
+                  padding: '1rem 1rem 1rem 0',
+                }}
+              >
+                Namespaces
+              </span>
+              {namespaceHierarchy
+                ? namespaceHierarchy.map(child => (
+                    <Explorer
+                      item={child}
+                      current={state.namespace}
+                      defaultExpand={true}
+                    />
+                  ))
+                : null}
+            </div>
             <table className="card-table table">
               <thead>
                 <tr>
-                  <th>Namespace</th>
                   <th>Name</th>
                   <th>Type</th>
                   <th>Status</th>
                   <th>Mode</th>
+                  <th>Tags</th>
+                  <th>Last Updated</th>
                 </tr>
               </thead>
               <tbody>{nodesList}</tbody>

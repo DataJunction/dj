@@ -25,7 +25,10 @@ export default function QueryInfo({
         </svg>
       </span>
     ) : (
-      <span className="status__valid status" style={{ alignContent: 'center' }}>
+      <span
+        className="status__invalid status"
+        style={{ alignContent: 'center' }}
+      >
         <svg
           xmlns="http://www.w3.org/2000/svg"
           width="16"
