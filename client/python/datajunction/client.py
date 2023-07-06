@@ -1,13 +1,13 @@
 """DataJunction client setup."""
 import abc
 
-# pylint: disable=redefined-outer-name, import-outside-toplevel
+# pylint: disable=redefined-outer-name, import-outside-toplevel, too-many-lines
 import logging
 import platform
 import time
 import warnings
-from typing import Any, Dict, List, Optional, Union
-from urllib.parse import urljoin
+from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
+from urllib.parse import urlencode, urljoin
 
 try:
     import pandas as pd
@@ -29,6 +29,15 @@ from datajunction.exceptions import DJClientException
 
 DEFAULT_NAMESPACE = "default"
 _logger = logging.getLogger(__name__)
+
+
+class Results(TypedDict):
+    """
+    Results in a completed DJ Query
+    """
+
+    data: Tuple[Tuple]
+    columns: Tuple[str]
 
 
 class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
@@ -65,6 +74,8 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
             return response
         except requests.exceptions.RequestException as exc:
             error_message = None
+            if not exc.response:
+                raise DJClientException(exc) from exc
             if exc.response.headers.get("Content-Type") == "application/json":
                 error_message = exc.response.json().get("message")
             if not error_message:
@@ -403,6 +414,29 @@ class DJClient:  # pylint: disable=too-many-public-methods
         )
         return response
 
+    def activate_node(self, node: "Node"):
+        """
+        Activate this node
+        """
+        response = self._session.post(
+            f"/nodes/{node.name}/activate/",
+            timeout=self._timeout,
+        )
+        return response
+
+    def validate_node(self, node: "Node"):
+        """
+        Check if a locally defined node is valid
+        """
+        node_copy = node.dict().copy()
+        node_copy["mode"] = models.NodeMode.PUBLISHED
+        response = self._session.post(
+            "/nodes/validate/",
+            json=node_copy,
+            timeout=self._timeout,
+        )
+        return response.json()
+
     def create_node(self, node: "Node", mode: models.NodeMode):
         """
         Helper function to create a node.
@@ -443,6 +477,13 @@ class DJClient:  # pylint: disable=too-many-public-methods
         return response.json()
 
     def update_node(self, node_name: str, update_input: models.UpdateNode):
+        """
+        Retrieves a node.
+        """
+        response = self._session.patch(f"/nodes/{node_name}/", json=update_input.dict())
+        return response.json()
+
+    def publish_node(self, node_name: str, update_input: models.UpdateNode):
         """
         Retrieves a node.
         """
@@ -497,6 +538,21 @@ class DJClient:  # pylint: disable=too-many-public-methods
         response = self._session.get(f"/metrics/{node_name}/")
         return response.json()
 
+    def common_dimensions(
+        self,
+        metrics: List[str],
+    ):  # pragma: no cover # Tested in integration tests
+        """
+        Return common dimensions for a set of metrics
+        """
+        query_params = []
+        for metric in metrics:
+            query_params.append(("metric", metric))
+        response = self._session.get(
+            f"/metrics/common/dimensions/?{urlencode(query_params)}",
+        )
+        return response.json()
+
     def sql_for_metric(  # pylint: disable=too-many-arguments
         self,
         node_name: str,
@@ -547,17 +603,24 @@ class DJClient:  # pylint: disable=too-many-public-methods
         return response.json()
 
     @staticmethod
-    def results_to_dataframe(results) -> pd.DataFrame:
+    def process_results(results) -> "pd.DataFrame":
         """
-        Return a pandas dataframe of the results.
+        Return a pandas dataframe of the results if pandas is installed
         """
         if "results" in results and results["results"]:
             columns = results["results"][0]["columns"]
             rows = results["results"][0]["rows"]
-            return pd.DataFrame(
-                rows,
-                columns=[col["name"] for col in columns],
-            )
+            try:
+                return pd.DataFrame(
+                    rows,
+                    columns=[col["name"] for col in columns],
+                )
+            except NameError:  # pragma: no cover
+                return Results(
+                    data=rows,
+                    columns=tuple(col["name"] for col in columns),  # type: ignore
+                )
+
         raise DJClientException("No data for query!")
 
     def data(  # pylint: disable=too-many-arguments,too-many-locals
@@ -567,6 +630,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         filters: List[str],
         engine_name: Optional[str] = None,
         engine_version: Optional[str] = None,
+        async_: bool = True,
     ):
         """
         Retrieves the data for the node with the provided dimensions and filters.
@@ -592,7 +656,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
                         "filters": filters,
                         "engine_name": engine_name or self.engine_name,
                         "engine_version": engine_version or self.engine_version,
-                        "async_": True,
+                        "async_": async_,
                     },
                 )
                 results = response.json()
@@ -623,7 +687,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
 
             # Return results if the job has finished
             if job_state == models.QueryState.FINISHED:
-                return self.results_to_dataframe(results)
+                return self.process_results(results)
             if job_state == models.QueryState.CANCELED:  # pragma: no cover
                 raise DJClientException("Query execution was canceled!")
             raise DJClientException(  # pragma: no cover
@@ -671,12 +735,14 @@ class Node(ClientEntity):
     description: Optional[str]
     type: str
     mode: Optional[models.NodeMode]
+    status: Optional[str] = None
     display_name: Optional[str]
     availability: Optional[Dict]
     tags: Optional[List[models.Tag]]
     primary_key: Optional[List[str]]
     materializations: Optional[List[Dict[str, Any]]]
     version: Optional[str]
+    deactivated_at: Optional[int]
 
     def save(self, mode: models.NodeMode = models.NodeMode.PUBLISHED):
         """
@@ -774,7 +840,7 @@ class Node(ClientEntity):
             engine_version,
         )
 
-    def deactivate(self):
+    def deactivate(self) -> str:
         """
         Deactivates the node
         """
@@ -784,6 +850,17 @@ class Node(ClientEntity):
                 f"Error deactivating node `{self.name}`: {response.text}",
             )
         return f"Successfully deactivated `{self.name}`"
+
+    def activate(self) -> str:
+        """
+        Activates the node
+        """
+        response = self.dj_client.activate_node(self)
+        if not response.ok:  # pragma: no cover
+            raise DJClientException(
+                f"Error activating node `{self.name}`: {response.text}",
+            )
+        return f"Successfully activated `{self.name}`"
 
     def revisions(self):
         """
@@ -852,6 +929,23 @@ class NodeWithQuery(Node):
             query=self.query,
         )
         return self.dj_client.update_node(self.name, update_node)
+
+    def check(self) -> str:
+        """
+        Check if the node is valid by calling the /validate endpoint
+        """
+        validation = self.dj_client.validate_node(self)
+        return validation["status"]
+
+    def publish(self) -> bool:
+        """
+        Change a node's mode to published
+        """
+        self.dj_client.publish_node(
+            self.name,
+            models.UpdateNode(mode=models.NodeMode.PUBLISHED),
+        )
+        return True
 
 
 class Transform(NodeWithQuery):

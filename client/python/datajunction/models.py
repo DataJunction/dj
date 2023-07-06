@@ -33,6 +33,15 @@ class NodeMode(str, enum.Enum):
     PUBLISHED = "published"
 
 
+class NodeStatus(str, enum.Enum):
+    """
+    DJ node's status
+    """
+
+    VALID = "valid"
+    INVALID = "invalid"
+
+
 class SourceColumn(BaseModel):
     """
     A column used in creation of a source node

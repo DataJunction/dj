@@ -170,3 +170,16 @@ def session_with_examples(server: TestClient) -> TestClient:
     for endpoint, json in EXAMPLES:
         post_and_raise_if_error(server=server, endpoint=endpoint, json=json)  # type: ignore
     return server
+
+
+def pytest_addoption(parser):
+    """
+    Add flags
+    """
+    parser.addoption(
+        "--integration",
+        action="store_true",
+        dest="integration",
+        default=False,
+        help="Run integration tests",
+    )
