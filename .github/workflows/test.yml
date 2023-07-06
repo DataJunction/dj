@@ -45,7 +45,7 @@ jobs:
         run: |
           pdm sync -d
           export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
-          cd $tests_dir; pdm install -d
+          cd $tests_dir; pdm install -d -G pandas
 
       - name: Python Linters
         run: |

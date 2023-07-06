@@ -1,0 +1,53 @@
+name: Client Integration Tests
+on:
+  schedule:
+    - cron:  '0 12 * * *'
+  workflow_dispatch:
+jobs:
+  python-client-integration:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.8', '3.9', '3.10']
+    steps:
+      - uses: actions/checkout@v2
+      - name: Build and launch DJ demo environment
+        run: docker-compose --profile demo up -d
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: pdm-project/setup-pdm@v3
+        name: Setup PDM
+        with:
+          python-version: ${{ matrix.python-version }}
+          architecture: x64
+          prerelease: true
+          enable-pep582: true
+      - name: Install dependencies
+        run: |
+          pdm sync -d
+          cd ./client/python; pdm install -d -G pandas
+      - name: Python client integration tests
+        run: cd client/python && make test PYTEST_ARGS="--integration -k test_integration"
+
+  javascript-client-integration:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node-version: [18.x]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build and launch DJ demo environment
+        run: docker-compose --profile demo up -d
+      - name: Use Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v3
+        with:
+          node-version: ${{ matrix.node-version }}
+      - name: Install Dev Dependencies
+        run: npm install --only=dev
+        working-directory: ./client/javascript
+      - name: Javascript client integration tests
+        run: npm test
+        working-directory: ./client/javascript
