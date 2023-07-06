@@ -628,9 +628,11 @@ def find_existing_cube(
     session: Session,
     metric_columns: List[Column],
     dimension_columns: List[Column],
+    materialized: bool = True,
 ) -> Optional[NodeRevision]:
     """
-    Find an existing cube with these metrics and dimensions, if any
+    Find an existing cube with these metrics and dimensions, if any.
+    If `materialized` is set, it will only look for materialized cubes.
     """
     element_names = [col.name for col in (metric_columns + dimension_columns)]
     statement = select(NodeRevision)
@@ -641,7 +643,10 @@ def find_existing_cube(
 
     existing_cubes = session.exec(statement).unique().all()
     for cube in existing_cubes:
-        return cube
+        if not materialized or (  # pragma: no cover
+            materialized and cube.materializations and cube.availability
+        ):
+            return cube
     return None
 
 
@@ -673,10 +678,15 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
 
     # Try to find a built cube that already has the given metrics and dimensions
     # The cube needs to have a materialization configured and an availability state
-    # posted in order for us to use the materialized datasource directly
-    cube = find_existing_cube(session, metric_columns, dimension_columns)
-    if cube and cube.materializations and cube.availability:
-        catalog = get_catalog(session, cube.availability.catalog)
+    # posted in order for us to use the materialized datasource
+    cube = find_existing_cube(
+        session,
+        metric_columns,
+        dimension_columns,
+        materialized=True,
+    )
+    if cube:
+        catalog = get_catalog(session, cube.availability.catalog)  # type: ignore
         available_engines = catalog.engines + available_engines
 
     # Check if selected engine is available, or if none is provided, select the fastest
