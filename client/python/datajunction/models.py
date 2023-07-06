@@ -133,7 +133,7 @@ class Column(BaseModel):
 
     name: str
     type: str
-    attributes: List
+    attributes: Optional[List]
 
 
 END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]
