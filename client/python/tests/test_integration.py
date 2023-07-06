@@ -8,7 +8,7 @@ import pytest
 
 from datajunction import DJClient
 from datajunction.exceptions import DJClientException
-from datajunction.models import NodeMode, NodeStatus
+from datajunction.models import AvailabilityState, ColumnAttribute, NodeMode, NodeStatus
 
 
 @pytest.mark.skipif("not config.getoption('integration')")
@@ -551,6 +551,37 @@ def test_integration():  # pylint: disable=too-many-statements
     # Get transform 2 that's downstream from transform 1 and make sure it's valid
     transform_2 = dj.transform(f"{namespace}.repair_orders_w_hard_hats")
     assert transform_2.status == NodeStatus.VALID
+
+    # Add an availability state to the transform
+    response = transform_2.add_availability(
+        AvailabilityState(
+            catalog="default",
+            schema_="materialized",
+            table="contractor",
+            valid_through_ts=1688660209,
+        ),
+    )
+    assert response == {"message": "Availability state successfully posted"}
+
+    # Add an availability state to the transform
+    response = transform_2.set_column_attributes(
+        [
+            ColumnAttribute(
+                attribute_type_name="dimension",
+                column_name="hard_hat_id",
+            ),
+        ],
+    )
+    assert response == [
+        {
+            "attributes": [
+                {"attribute_type": {"name": "dimension", "namespace": "system"}},
+            ],
+            "dimension": None,
+            "name": "hard_hat_id",
+            "type": "int",
+        },
+    ]
 
     # Create a draft transform 4 that's downstream from a not yet created transform 3
     dj.new_transform(
