@@ -13,7 +13,13 @@ from datajunction.client import (
     Source,
     Transform,
 )
-from datajunction.models import Engine, MaterializationConfig, NodeMode
+from datajunction.models import (
+    AvailabilityState,
+    ColumnAttribute,
+    Engine,
+    MaterializationConfig,
+    NodeMode,
+)
 
 try:
     # Change here if project is renamed and does not equal the package name
@@ -26,6 +32,8 @@ finally:
 
 
 __all__ = [
+    "AvailabilityState",
+    "ColumnAttribute",
     "DJClient",
     "Source",
     "Dimension",

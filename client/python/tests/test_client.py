@@ -4,7 +4,14 @@ import pytest
 
 from datajunction import DJClient
 from datajunction.exceptions import DJClientException
-from datajunction.models import Column, Engine, MaterializationConfig, NodeMode
+from datajunction.models import (
+    AvailabilityState,
+    Column,
+    ColumnAttribute,
+    Engine,
+    MaterializationConfig,
+    NodeMode,
+)
 
 
 class TestDJClient:
@@ -449,7 +456,7 @@ class TestDJClient:
 
         # Retrieve SQL for multiple metrics using the client object
         result = client.sql(
-            metrics=["default.total_repair_cost", "default.avg_repair_price"],
+            metrics=["default.num_repair_orders", "default.avg_repair_price"],
             dimensions=[
                 "default.hard_hat.city",
                 "default.hard_hat.state",
@@ -653,3 +660,42 @@ class TestDJClient:
         with pytest.raises(DJClientException) as exc_info:
             metric.data(dimensions=["default.hard_hat.postal_code"], filters=[])
         assert "Error response from query service" in str(exc_info)
+
+    def test_add_availability(self, client):
+        """
+        Verify adding an availability state to a node
+        """
+        dim = client.dimension(node_name="default.contractor")
+        response = dim.add_availability(
+            AvailabilityState(
+                catalog="default",
+                schema_="materialized",
+                table="contractor",
+                valid_through_ts=1688660209,
+            ),
+        )
+        assert response == {"message": "Availability state successfully posted"}
+
+    def test_set_column_attributes(self, client):
+        """
+        Verify setting column attributes on a node
+        """
+        dim = client.source(node_name="default.contractors")
+        response = dim.set_column_attributes(
+            [
+                ColumnAttribute(
+                    attribute_type_name="dimension",
+                    column_name="contact_title",
+                ),
+            ],
+        )
+        assert response == [
+            {
+                "attributes": [
+                    {"attribute_type": {"name": "dimension", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "name": "contact_title",
+                "type": "string",
+            },
+        ]
