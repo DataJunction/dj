@@ -13,7 +13,7 @@ from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from datajunction_server.construction.build import (
-    build_cube_node,
+    build_materialized_cube_node,
     build_metric_nodes,
     build_node,
 )
@@ -662,13 +662,14 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         filters = []
     if not orderby:
         orderby = []
-    leading_metric_node = get_node_by_name(session, metrics[0])
-    available_engines = leading_metric_node.current.catalog.engines
+
     metric_columns, metric_nodes, _, dimension_columns, _ = validate_cube(
         session,
         metrics,
         dimensions,
     )
+    leading_metric_node = get_node_by_name(session, metrics[0])
+    available_engines = leading_metric_node.current.catalog.engines
 
     # Try to find a built cube that already has the given metrics and dimensions
     # The cube needs to have a materialization configured and an availability state
@@ -693,7 +694,11 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     validate_orderby(orderby, metrics, dimensions)
 
     if cube and cube.materializations and cube.availability:
-        query_ast = build_cube_node(metric_columns, dimension_columns, cube)
+        query_ast = build_materialized_cube_node(
+            metric_columns,
+            dimension_columns,
+            cube,
+        )
         return (
             TranslatedSQL(
                 sql=str(query_ast),

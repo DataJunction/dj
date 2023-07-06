@@ -190,6 +190,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
         async_=async_,
     )
     result = query_service_client.submit_query(query_create)
+
     # Inject column info if there are results
     if result.results.__root__:  # pragma: no cover
         result.results.__root__[0].columns = translated_sql.columns or []

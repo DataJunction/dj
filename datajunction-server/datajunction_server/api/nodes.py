@@ -7,7 +7,7 @@ import os
 from collections import defaultdict
 from datetime import datetime
 from http import HTTPStatus
-from typing import Dict, List, Optional, Set, Union, cast
+from typing import Dict, List, Optional, Set, Tuple, Union, cast
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
@@ -51,7 +51,6 @@ from datajunction_server.models import ColumnAttribute
 from datajunction_server.models.attribute import AttributeType, UniquenessScope
 from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column, ColumnAttributeInput
-from datajunction_server.models.cube import Measure
 from datajunction_server.models.engine import Dialect, Engine
 from datajunction_server.models.history import ActivityType, EntityType, History
 from datajunction_server.models.materialization import (
@@ -62,6 +61,8 @@ from datajunction_server.models.materialization import (
     Materialization,
     MaterializationConfigInfoUnified,
     MaterializationInfo,
+    Measure,
+    MetricMeasures,
     Partition,
     PartitionType,
     UpsertMaterialization,
@@ -370,17 +371,25 @@ def build_cube_config(  # pylint: disable=too-many-locals
         dim.name for dim in cube_node.columns if dim.has_dimension_attribute()
     }
     metrics_to_measures = {}
-    measures_tracker = defaultdict(list)
+    measures_tracker = {}
     for cte in combined_ast.ctes:
         metrics_to_measures.update(decompose_metrics(cte, dimensions_set))
         new_select_projection: Set[Union[ast.Aliasable, ast.Expression]] = set()
         for expr in cte.select.projection:
             if expr in metrics_to_measures:
+                combiner, measures = metrics_to_measures[expr]  # type: ignore
                 new_select_projection = set(new_select_projection).union(
-                    metrics_to_measures[expr],
+                    measures,
                 )
-                for measure in metrics_to_measures[expr]:
-                    measures_tracker[expr.alias_or_name.name].append(  # type: ignore
+                metric_key = expr.alias_or_name.name  # type: ignore
+                if metric_key not in measures_tracker:
+                    measures_tracker[metric_key] = MetricMeasures(
+                        metric=metric_key,
+                        measures=[],
+                        combiner=str(combiner),
+                    )
+                for measure in measures:
+                    measures_tracker[metric_key].measures.append(  # type: ignore
                         Measure(
                             name=measure.alias_or_name.name,
                             field_name=str(
@@ -393,8 +402,11 @@ def build_cube_config(  # pylint: disable=too-many-locals
             else:
                 new_select_projection.add(expr)
         cte.select.projection = list(new_select_projection)
-    for metric, all_measures in measures_tracker.items():
-        measures_tracker[metric] = sorted(all_measures, key=lambda x: x.name)
+    for _, metric_measures in measures_tracker.items():
+        metric_measures.measures = sorted(
+            metric_measures.measures,
+            key=lambda x: x.name,
+        )
     combined_ast.select.projection = [
         (
             ast.Column(name=col.alias_or_name, _table=cte).set_alias(  # type: ignore
@@ -740,8 +752,27 @@ def create_node_revision(
     return node_revision
 
 
-def decompose_expression(expr: Union[ast.Aliasable, ast.Expression]) -> List[ast.Alias]:
+def _get_readable_name(expr):
     """
+    Returns a readable name based on the columns in the expression. This is used
+    if we want to represent the expression as a single measure, which needs a name
+    """
+    columns = [col for arg in expr.args for col in arg.find_all(ast.Column)]
+    return (
+        "_".join(str(col.alias_or_name).rsplit(".", maxsplit=1)[-1] for col in columns)
+        if columns
+        else "placeholder"
+    )
+
+
+def decompose_expression(  # pylint: disable=too-many-return-statements
+    expr: Union[ast.Aliasable, ast.Expression],
+) -> Tuple[ast.Expression, List[ast.Alias]]:
+    """
+    Takes a metric expression and (a) determines the measures needed to evaluate
+    the metric and (b) includes the query expression needed to recombine these
+    measures into the metric, given a materialized cube.
+
     Simple aggregations are operations that can be computed incrementally as new
     data is ingested, without relying on the results of other aggregations.
     Examples include SUM, COUNT, MIN, MAX.
@@ -752,29 +783,58 @@ def decompose_expression(expr: Union[ast.Aliasable, ast.Expression]) -> List[ast
     if isinstance(expr, ast.Alias):
         expr = expr.child
 
+    if isinstance(expr, ast.Number):
+        return expr, []  # type: ignore
+
+    if not expr.is_aggregation():  # type: ignore
+        return expr, [expr]  # type: ignore
+
     simple_aggregations = {"sum", "count", "min", "max"}
     if isinstance(expr, ast.Function):
         function_name = expr.alias_or_name.name.lower()
-        columns = [col for arg in expr.args for col in arg.find_all(ast.Column)]
-        readable_name = (
-            "_".join(
-                str(col.alias_or_name).rsplit(".", maxsplit=1)[-1] for col in columns
-            )
-            if columns
-            else "placeholder"
-        )
+        readable_name = _get_readable_name(expr)
+
         if function_name in simple_aggregations:
-            return [expr.set_alias(ast.Name(f"{readable_name}_{function_name}"))]
+            measure_name = ast.Name(f"{readable_name}_{function_name}")
+            if not expr.args[0].is_aggregation():
+                combiner: ast.Expression = ast.Function(
+                    name=ast.Name(function_name),
+                    args=[ast.Column(name=measure_name)],
+                )
+                return combiner, [expr.set_alias(measure_name)]
+
+            combiner, measures = decompose_expression(expr.args[0])
+            return (
+                ast.Function(
+                    name=ast.Name(function_name),
+                    args=[combiner],
+                ),
+                measures,
+            )
+
         if function_name == "avg":  # pragma: no cover
-            return [
+            numerator_measure_name = ast.Name(f"{readable_name}_sum")
+            denominator_measure_name = ast.Name(f"{readable_name}_count")
+            combiner = ast.BinaryOp(
+                left=ast.Function(
+                    ast.Name("sum"),
+                    args=[ast.Column(name=numerator_measure_name)],
+                ),
+                right=ast.Function(
+                    ast.Name("count"),
+                    args=[ast.Column(name=denominator_measure_name)],
+                ),
+                op=ast.BinaryOpKind.Divide,
+            )
+            return combiner, [
                 (
                     ast.Function(ast.Name("sum"), args=expr.args).set_alias(
-                        ast.Name(f"{readable_name}_sum"),
+                        numerator_measure_name,
                     )
                 ),
                 (
                     ast.Function(ast.Name("count"), args=expr.args).set_alias(
-                        ast.Name(f"{readable_name}_count"),
+                        denominator_measure_name,
                     )
                 ),
             ]
@@ -786,9 +846,15 @@ def decompose_expression(expr: Union[ast.Aliasable, ast.Expression]) -> List[ast
     }
     if isinstance(expr, ast.BinaryOp):
         if expr.op in acceptable_binary_ops:  # pragma: no cover
-            measures_left = decompose_expression(expr.left)
-            measures_right = decompose_expression(expr.right)
-            return measures_left + measures_right
+            measures_combiner_left, measures_left = decompose_expression(expr.left)
+            measures_combiner_right, measures_right = decompose_expression(expr.right)
+            combiner = ast.BinaryOp(
+                left=measures_combiner_left,
+                right=measures_combiner_right,
+                op=expr.op,
+            )
+            return combiner, measures_left + measures_right
+
     if isinstance(expr, ast.Cast):
         return decompose_expression(expr.expression)
 
@@ -797,7 +863,10 @@ def decompose_expression(expr: Union[ast.Aliasable, ast.Expression]) -> List[ast
     )
 
 
-def decompose_metrics(combined_ast: ast.Query, dimensions_set: Set[str]):
+def decompose_metrics(
+    combined_ast: ast.Query,
+    dimensions_set: Set[str],
+) -> Dict[Union[ast.Aliasable, ast.Expression], Tuple[ast.Expression, List[ast.Alias]]]:
     """
     Decompose each metric into simple constituent measures and return a dict
     that maps each metric to its measures.
@@ -805,8 +874,7 @@ def decompose_metrics(combined_ast: ast.Query, dimensions_set: Set[str]):
     metrics_to_measures = {}
     for expr in combined_ast.select.projection:
         if expr.alias_or_name.name not in dimensions_set:  # type: ignore
-            measure_expressions = decompose_expression(expr)
-            metrics_to_measures[expr] = measure_expressions
+            metrics_to_measures[expr] = decompose_expression(expr)
     return metrics_to_measures
 
 
@@ -877,7 +945,8 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         catalog=catalog,
     )
 
-    # Set up a default materialization for the cube
+    # Set up a default materialization for the cube. Note that this does not get used
+    # for any actual materialization, but is for storing info needed for materialization
     node_revision.materializations = []
     default_materialization = UpsertMaterialization(
         name="placeholder",

@@ -32,25 +32,6 @@ class CubeElementMetadata(SQLModel):
         return values
 
 
-class Measure(SQLModel):
-    """
-    A measure with a simple aggregation
-    """
-
-    name: str
-    field_name: str
-    agg: str
-    type: str
-
-    def __eq__(self, other):
-        return tuple(self.__dict__.items()) == tuple(
-            other.__dict__.items(),
-        )  # pragma: no cover
-
-    def __hash__(self):
-        return hash(tuple(self.__dict__.items()))  # pragma: no cover
-
-
 class CubeRevisionMetadata(SQLModel):
     """
     Metadata for a cube node

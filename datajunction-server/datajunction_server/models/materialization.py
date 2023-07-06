@@ -174,13 +174,43 @@ class DruidConf(BaseSQLModel):
     parse_spec_format: Optional[str]
 
 
+class Measure(SQLModel):
+    """
+    A measure with a simple aggregation
+    """
+
+    name: str
+    field_name: str
+    agg: str
+    type: str
+
+    def __eq__(self, other):
+        return tuple(self.__dict__.items()) == tuple(
+            other.__dict__.items(),
+        )  # pragma: no cover
+
+    def __hash__(self):
+        return hash(tuple(self.__dict__.items()))  # pragma: no cover
+
+
+class MetricMeasures(SQLModel):
+    """
+    Represent a metric as a set of measures, along with the expression for
+    combining the measures to make the metric.
+    """
+
+    metric: str
+    measures: List[Measure]  #
+    combiner: str
+
+
 class GenericCubeConfigInput(GenericMaterializationConfigInput):
     """
     Generic cube materialization config fields that require user input
     """
 
     dimensions: Optional[List[str]]
-    measures: Optional[Dict[str, List[Dict[str, str]]]]
+    measures: Optional[Dict[str, MetricMeasures]]
 
 
 class GenericCubeConfig(GenericCubeConfigInput, GenericMaterializationConfig):
