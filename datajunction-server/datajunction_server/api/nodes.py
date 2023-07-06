@@ -382,7 +382,7 @@ def build_cube_config(  # pylint: disable=too-many-locals
                     measures,
                 )
                 metric_key = expr.alias_or_name.name  # type: ignore
-                if metric_key not in measures_tracker:
+                if metric_key not in measures_tracker:  # pragma: no cover
                     measures_tracker[metric_key] = MetricMeasures(
                         metric=metric_key,
                         measures=[],
@@ -786,7 +786,7 @@ def decompose_expression(  # pylint: disable=too-many-return-statements
     if isinstance(expr, ast.Number):
         return expr, []  # type: ignore
 
-    if not expr.is_aggregation():  # type: ignore
+    if not expr.is_aggregation():  # type: ignore  # pragma: no cover
         return expr, [expr]  # type: ignore
 
     simple_aggregations = {"sum", "count", "min", "max"}

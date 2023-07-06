@@ -8,9 +8,11 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
+from datajunction_server.api.nodes import decompose_expression
 from datajunction_server.models import Database, Table
 from datajunction_server.models.column import Column
 from datajunction_server.models.node import Node, NodeRevision, NodeStatus, NodeType
+from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from tests.sql.utils import compare_query_strings
 
@@ -2737,3 +2739,127 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
         assert data["name"] == node["name"]
         assert data["mode"] == node["mode"]  # make sure the mode hasn't been changed
         assert data["status"] == "invalid"
+
+
+def test_decompose_expression():
+    """
+    Verify metric expression decomposition into measures for cubes
+    """
+    res = decompose_expression(ast.Number(value=5.5))
+    assert res == (ast.Number(value=5.5), [])
+
+    # Decompose `avg(orders)`
+    res = decompose_expression(
+        ast.Function(ast.Name("avg"), args=[ast.Column(ast.Name("orders"))]),
+    )
+    assert str(res[0]) == "sum(orders_sum) / count(orders_count)"
+    assert [measure.alias_or_name.name for measure in res[1]] == [
+        "orders_sum",
+        "orders_count",
+    ]
+
+    # Decompose `avg(orders) + 5.5`
+    res = decompose_expression(
+        ast.BinaryOp(
+            left=ast.Function(ast.Name("avg"), args=[ast.Column(ast.Name("orders"))]),
+            right=ast.Number(value=5.5),
+            op=ast.BinaryOpKind.Plus,
+        ),
+    )
+    assert str(res[0]) == "sum(orders_sum) / count(orders_count) + 5.5"
+    assert [measure.alias_or_name.name for measure in res[1]] == [
+        "orders_sum",
+        "orders_count",
+    ]
+
+    # Decompose `max(avg(orders_a) + avg(orders_b))`
+    res = decompose_expression(
+        ast.Function(
+            ast.Name("max"),
+            args=[
+                ast.BinaryOp(
+                    op=ast.BinaryOpKind.Plus,
+                    left=ast.Function(
+                        ast.Name("avg"),
+                        args=[ast.Column(ast.Name("orders_a"))],
+                    ),
+                    right=ast.Function(
+                        ast.Name("avg"),
+                        args=[ast.Column(ast.Name("orders_b"))],
+                    ),
+                ),
+            ],
+        ),
+    )
+    assert (
+        str(res[0]) == "max(sum(orders_a_sum) / count(orders_a_count) "
+        "+ sum(orders_b_sum) / count(orders_b_count))"
+    )
+
+    # Decompose `sum(max(orders))`
+    res = decompose_expression(
+        ast.Function(
+            ast.Name("sum"),
+            args=[
+                ast.Function(
+                    ast.Name("max"),
+                    args=[ast.Column(ast.Name("orders"))],
+                ),
+            ],
+        ),
+    )
+    assert str(res[0]) == "sum(max(orders_max))"
+    assert [measure.alias_or_name.name for measure in res[1]] == ["orders_max"]
+
+    # Decompose `(max(orders) + min(validations))/sum(total)`
+    res = decompose_expression(
+        ast.BinaryOp(
+            left=ast.BinaryOp(
+                left=ast.Function(
+                    ast.Name("max"),
+                    args=[ast.Column(ast.Name("orders"))],
+                ),
+                right=ast.Function(
+                    ast.Name("min"),
+                    args=[ast.Column(ast.Name("validations"))],
+                ),
+                op=ast.BinaryOpKind.Plus,
+            ),
+            right=ast.Function(ast.Name("sum"), args=[ast.Column(ast.Name("total"))]),
+            op=ast.BinaryOpKind.Divide,
+        ),
+    )
+    assert str(res[0]) == "max(orders_max) + min(validations_min) / sum(total_sum)"
+    assert [measure.alias_or_name.name for measure in res[1]] == [
+        "orders_max",
+        "validations_min",
+        "total_sum",
+    ]
+
+    # Decompose `cast(sum(coalesce(has_ordered, 0.0)) as double)/count(total)`
+    res = decompose_expression(
+        ast.BinaryOp(
+            left=ast.Cast(
+                expression=ast.Function(
+                    name=ast.Name("sum"),
+                    args=[
+                        ast.Function(
+                            ast.Name("coalesce"),
+                            args=[ast.Column(ast.Name("has_ordered")), ast.Number(0.0)],
+                        ),
+                    ],
+                ),
+                data_type=types.DoubleType(),
+            ),
+            right=ast.Function(
+                name=ast.Name("sum"),
+                args=[ast.Column(ast.Name("total"))],
+            ),
+            op=ast.BinaryOpKind.Divide,
+        ),
+    )
+    assert str(res[0]) == "sum(has_ordered_sum) / sum(total_sum)"
+    assert [measure.alias_or_name.name for measure in res[1]] == [
+        "has_ordered_sum",
+        "total_sum",
+    ]
