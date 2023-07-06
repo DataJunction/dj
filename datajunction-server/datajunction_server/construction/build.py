@@ -10,11 +10,12 @@ from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.models.column import Column
 from datajunction_server.models.engine import Dialect
+from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria, Node, NodeRevision, NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
-from datajunction_server.sql.parsing import types
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
+from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.utils import amenable_name
 
 
@@ -717,13 +718,13 @@ def build_metric_nodes(
     return combined_ast
 
 
-def build_cube_node(
+def build_materialized_cube_node(
     selected_metrics: List[Column],
     selected_dimensions: List[Column],
     cube: NodeRevision,
 ) -> ast.Query:
     """
-    Build query for a cube node
+    Build query for a materialized cube node
     """
     combined_ast: ast.Query = ast.Query(
         select=ast.Select(from_=ast.From(relations=[])),
@@ -734,32 +735,32 @@ def build_cube_node(
         for materialization in cube.materializations
         if materialization.name == "default"
     ][0].config
+    cube_config = GenericCubeConfig.parse_obj(default_materialization_config)
 
     selected_metric_keys = [col.name for col in selected_metrics]
-    metric_to_measures = {
-        key: value
-        for key, value in default_materialization_config["measures"].items()
-        if key in selected_metric_keys
-    }
-    for metric_key, measures in metric_to_measures.items():
-        if len(measures) == 2:
-            combined_ast.select.projection.append(
-                ast.BinaryOp(
-                    ast.BinaryOpKind.Divide,
-                    ast.Cast(
-                        expression=ast.Function(
-                            ast.Name("SUM"),
-                            args=[ast.Column(name=ast.Name(measures[0]["name"]))],
-                        ),
-                        data_type=types.DoubleType(),
+
+    # Assemble query for materialized cube based on the previously saved measures
+    # combiner expression for each metric
+    for metric_key, metric_measures in cube_config.measures.items():
+        if metric_key in selected_metric_keys:
+            measures_combiner_ast = parse(f"SELECT {metric_measures.combiner}")
+            measures_type_lookup = {
+                measure.name: measure.type for measure in metric_measures.measures
+            }
+            for col in measures_combiner_ast.find_all(ast.Column):
+                col.add_type(
+                    ColumnType(
+                        measures_type_lookup[col.alias_or_name.name],  # type: ignore
                     ),
-                    ast.Function(
-                        ast.Name("SUM"),
-                        args=[ast.Column(name=ast.Name(measures[1]["name"]))],
-                    ),
-                ).set_alias(ast.Name(metric_key)),
+                )
+            combined_ast.select.projection.extend(
+                [
+                    proj.set_alias(ast.Name(metric_key))
+                    for proj in measures_combiner_ast.select.projection
+                ],
             )
 
+    # Add in selected dimension attributes to the query
     for selected_dim in selected_dimensions:
         dimension_column = ast.Column(name=ast.Name(selected_dim.name))
         combined_ast.select.projection.append(dimension_column)

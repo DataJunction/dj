@@ -85,6 +85,8 @@ def check_convergence(path1: List[str], path2: List[str]) -> bool:
     Determines whether two join paths converge before we reach the
     final element, the dimension attribute.
     """
+    if path1 == path2:
+        return True
     len1 = len(path1)
     len2 = len(path2)
     min_len = min(len1, len2)
