@@ -35,6 +35,7 @@ exports[`<App /> should render and match the snapshot 1`] = `
           "namespaces": [Function],
           "node": [Function],
           "node_dag": [Function],
+          "revisions": [Function],
           "sql": [Function],
           "sqls": [Function],
           "upstreams": [Function],
@@ -57,34 +58,7 @@ exports[`<App /> should render and match the snapshot 1`] = `
             />
           </Route>
           <Route
-            element={
-              <ListNamespacesPage
-                djClient={
-                  Object {
-                    "clientCode": [Function],
-                    "columns": [Function],
-                    "commonDimensions": [Function],
-                    "compiledSql": [Function],
-                    "cube": [Function],
-                    "dag": [Function],
-                    "data": [Function],
-                    "downstreams": [Function],
-                    "history": [Function],
-                    "lineage": [Function],
-                    "materializations": [Function],
-                    "metric": [Function],
-                    "metrics": [Function],
-                    "namespace": [Function],
-                    "namespaces": [Function],
-                    "node": [Function],
-                    "node_dag": [Function],
-                    "sql": [Function],
-                    "sqls": [Function],
-                    "upstreams": [Function],
-                  }
-                }
-              />
-            }
+            element={<NamespacePage />}
             path="/"
           />
           <Route
