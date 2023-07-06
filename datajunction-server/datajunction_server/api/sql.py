@@ -1,7 +1,6 @@
 """
 SQL related APIs.
 """
-
 import logging
 from typing import List, Optional
 
@@ -9,12 +8,11 @@ from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import (
+    build_sql_for_multiple_metrics,
     get_engine,
     get_query,
-    validate_cube,
     validate_orderby,
 )
-from datajunction_server.construction.build import build_metric_nodes
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.utils import get_session
@@ -79,31 +77,14 @@ def get_sql_for_metrics(
     """
     Return SQL for a set of metrics with dimensions and filters
     """
-    engine = (
-        get_engine(session, engine_name, engine_version)  # type: ignore
-        if engine_name
-        else None
-    )
-    _, metric_nodes, _, _, _ = validate_cube(
+    translated_sql, _, _ = build_sql_for_multiple_metrics(
         session,
         metrics,
         dimensions,
+        filters,
+        orderby,
+        limit,
+        engine_name,
+        engine_version,
     )
-    validate_orderby(orderby, metrics, dimensions)
-    query_ast = build_metric_nodes(
-        session,
-        metric_nodes,
-        filters=filters or [],
-        dimensions=dimensions or [],
-        orderby=orderby or [],
-        limit=limit,
-    )
-    columns = [
-        ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
-        for col in query_ast.select.projection
-    ]
-    return TranslatedSQL(
-        sql=str(query_ast),
-        columns=columns,
-        dialect=engine.dialect if engine else None,
-    )
+    return translated_sql

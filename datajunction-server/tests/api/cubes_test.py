@@ -2,7 +2,7 @@
 """
 Tests for the cubes API.
 """
-from typing import Iterator
+from typing import Dict, Iterator
 
 import pytest
 from fastapi.testclient import TestClient
@@ -251,6 +251,105 @@ def client_with_repairs_cube(client_with_query_service: TestClient):
     return client_with_query_service
 
 
+@pytest.fixture
+def repair_orders_cube_measures() -> Dict:
+    """
+    Fixture for repair orders cube metrics to measures mapping.
+    """
+    return {
+        "default_DOT_avg_repair_price": {
+            "combiner": "sum(price_sum) / count(price_count)",
+            "measures": [
+                {
+                    "agg": "count",
+                    "field_name": "m2_default_DOT_avg_repair_price_price_count",
+                    "name": "price_count",
+                    "type": "bigint",
+                },
+                {
+                    "agg": "sum",
+                    "field_name": "m2_default_DOT_avg_repair_price_price_sum",
+                    "name": "price_sum",
+                    "type": "double",
+                },
+            ],
+            "metric": "default_DOT_avg_repair_price",
+        },
+        "default_DOT_discounted_orders_rate": {
+            "combiner": "sum(discount_sum) / " "count(placeholder_count)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "m0_default_DOT_discounted_orders_rate_discount_sum",
+                    "name": "discount_sum",
+                    "type": "bigint",
+                },
+                {
+                    "agg": "count",
+                    "field_name": "m0_default_DOT_discounted_orders_rate_placeholder_count",
+                    "name": "placeholder_count",
+                    "type": "bigint",
+                },
+            ],
+            "metric": "default_DOT_discounted_orders_rate",
+        },
+        "default_DOT_double_total_repair_cost": {
+            "combiner": "sum(price_sum) + " "sum(price_sum)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
+                    "name": "price_sum",
+                    "type": "double",
+                },
+                {
+                    "agg": "sum",
+                    "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
+                    "name": "price_sum",
+                    "type": "double",
+                },
+            ],
+            "metric": "default_DOT_double_total_repair_cost",
+        },
+        "default_DOT_num_repair_orders": {
+            "combiner": "count(repair_order_id_count)",
+            "measures": [
+                {
+                    "agg": "count",
+                    "field_name": "m1_default_DOT_num_repair_orders_repair_order_id_count",
+                    "name": "repair_order_id_count",
+                    "type": "bigint",
+                },
+            ],
+            "metric": "default_DOT_num_repair_orders",
+        },
+        "default_DOT_total_repair_cost": {
+            "combiner": "sum(price_sum)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "m3_default_DOT_total_repair_cost_price_sum",
+                    "name": "price_sum",
+                    "type": "double",
+                },
+            ],
+            "metric": "default_DOT_total_repair_cost",
+        },
+        "default_DOT_total_repair_order_discounts": {
+            "combiner": "sum(price_discount_sum)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "m4_default_DOT_total_repair_order_discounts_price_discount_sum",
+                    "name": "price_discount_sum",
+                    "type": "double",
+                },
+            ],
+            "metric": "default_DOT_total_repair_order_discounts",
+        },
+    }
+
+
 def test_invalid_cube(client_with_examples: TestClient):
     """
     Test that creating a cube without valid dimensions fails
@@ -283,6 +382,7 @@ def test_invalid_cube(client_with_examples: TestClient):
 
 def test_create_cube(  # pylint: disable=redefined-outer-name
     client_with_repairs_cube: TestClient,
+    repair_orders_cube_measures,
 ):
     """
     Tests cube creation and the generated cube SQL
@@ -316,74 +416,7 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
         "postal_code",
         "state",
     ]
-    assert default_materialization["config"]["measures"] == {
-        "default_DOT_discounted_orders_rate": [
-            {
-                "name": "discount_sum",
-                "agg": "sum",
-                "field_name": "m0_default_DOT_discounted_orders_rate_discount_sum",
-                "type": "bigint",
-            },
-            {
-                "name": "placeholder_count",
-                "field_name": "m0_default_DOT_discounted_orders_rate_placeholder_count",
-                "agg": "count",
-                "type": "bigint",
-            },
-        ],
-        "default_DOT_num_repair_orders": [
-            {
-                "name": "repair_order_id_count",
-                "field_name": "m1_default_DOT_num_repair_orders_repair_order_id_count",
-                "agg": "count",
-                "type": "bigint",
-            },
-        ],
-        "default_DOT_avg_repair_price": [
-            {
-                "name": "price_count",
-                "field_name": "m2_default_DOT_avg_repair_price_price_count",
-                "agg": "count",
-                "type": "bigint",
-            },
-            {
-                "name": "price_sum",
-                "field_name": "m2_default_DOT_avg_repair_price_price_sum",
-                "agg": "sum",
-                "type": "double",
-            },
-        ],
-        "default_DOT_total_repair_cost": [
-            {
-                "name": "price_sum",
-                "field_name": "m3_default_DOT_total_repair_cost_price_sum",
-                "agg": "sum",
-                "type": "double",
-            },
-        ],
-        "default_DOT_total_repair_order_discounts": [
-            {
-                "name": "price_discount_sum",
-                "field_name": "m4_default_DOT_total_repair_order_discounts_price_discount_sum",
-                "agg": "sum",
-                "type": "double",
-            },
-        ],
-        "default_DOT_double_total_repair_cost": [
-            {
-                "name": "price_sum",
-                "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
-                "agg": "sum",
-                "type": "double",
-            },
-            {
-                "name": "price_sum",
-                "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
-                "agg": "sum",
-                "type": "double",
-            },
-        ],
-    }
+    assert default_materialization["config"]["measures"] == repair_orders_cube_measures
 
     expected_query = """
     WITH
@@ -601,6 +634,7 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
 
 def test_cube_materialization_sql_and_measures(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+    repair_orders_cube_measures,  # pylint: disable=redefined-outer-name
 ):
     """
     Verifies a cube's materialization SQL + measures
@@ -873,74 +907,9 @@ def test_cube_materialization_sql_and_measures(
         expected_materialization_query,
     )
     assert data["materializations"][0]["job"] == "DefaultCubeMaterialization"
-    assert data["materializations"][0]["config"]["measures"] == {
-        "default_DOT_avg_repair_price": [
-            {
-                "name": "price_count",
-                "field_name": "m2_default_DOT_avg_repair_price_price_count",
-                "agg": "count",
-                "type": "bigint",
-            },
-            {
-                "name": "price_sum",
-                "field_name": "m2_default_DOT_avg_repair_price_price_sum",
-                "agg": "sum",
-                "type": "double",
-            },
-        ],
-        "default_DOT_double_total_repair_cost": [
-            {
-                "agg": "sum",
-                "type": "double",
-                "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
-                "name": "price_sum",
-            },
-            {
-                "agg": "sum",
-                "type": "double",
-                "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
-                "name": "price_sum",
-            },
-        ],
-        "default_DOT_discounted_orders_rate": [
-            {
-                "agg": "sum",
-                "type": "bigint",
-                "name": "discount_sum",
-                "field_name": "m0_default_DOT_discounted_orders_rate_discount_sum",
-            },
-            {
-                "agg": "count",
-                "type": "bigint",
-                "name": "placeholder_count",
-                "field_name": "m0_default_DOT_discounted_orders_rate_placeholder_count",
-            },
-        ],
-        "default_DOT_num_repair_orders": [
-            {
-                "name": "repair_order_id_count",
-                "agg": "count",
-                "field_name": "m1_default_DOT_num_repair_orders_repair_order_id_count",
-                "type": "bigint",
-            },
-        ],
-        "default_DOT_total_repair_order_discounts": [
-            {
-                "agg": "sum",
-                "type": "double",
-                "field_name": "m4_default_DOT_total_repair_order_discounts_price_discount_sum",
-                "name": "price_discount_sum",
-            },
-        ],
-        "default_DOT_total_repair_cost": [
-            {
-                "name": "price_sum",
-                "agg": "sum",
-                "field_name": "m3_default_DOT_total_repair_cost_price_sum",
-                "type": "double",
-            },
-        ],
-    }
+    assert (
+        data["materializations"][0]["config"]["measures"] == repair_orders_cube_measures
+    )
 
 
 def test_add_materialization_cube_failures(
@@ -1066,21 +1035,10 @@ def test_add_materialization_config_to_cube(
     assert called_kwargs.druid_spec == {
         "dataSchema": {
             "dataSource": "default_DOT_repairs_cube",
-            "parser": {
-                "parseSpec": {
-                    "format": "parquet",
-                    "dimensionsSpec": {
-                        "dimensions": [
-                            "city",
-                            "company_name",
-                            "country",
-                            "local_region",
-                            "postal_code",
-                            "state",
-                        ],
-                    },
-                    "timestampSpec": {"column": "date_int", "format": "yyyyMMdd"},
-                },
+            "granularitySpec": {
+                "intervals": ["2021-01-01/2022-01-01"],
+                "segmentGranularity": "DAY",
+                "type": "uniform",
             },
             "metricsSpec": [
                 {
@@ -1114,10 +1072,21 @@ def test_add_materialization_config_to_cube(
                     "type": "doubleSum",
                 },
             ],
-            "granularitySpec": {
-                "type": "uniform",
-                "segmentGranularity": "DAY",
-                "intervals": ["2021-01-01/2022-01-01"],
+            "parser": {
+                "parseSpec": {
+                    "dimensionsSpec": {
+                        "dimensions": [
+                            "city",
+                            "company_name",
+                            "country",
+                            "local_region",
+                            "postal_code",
+                            "state",
+                        ],
+                    },
+                    "format": "parquet",
+                    "timestampSpec": {"column": "date_int", "format": "yyyyMMdd"},
+                },
             },
         },
     }
@@ -1153,3 +1122,55 @@ def test_add_materialization_config_to_cube(
         },
     ]
     assert druid_materialization["schedule"] == "@daily"
+
+
+def test_add_availability_to_cube(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Test generating SQL for metrics + dimensions in a cube after adding a cube materialization
+    """
+    client_with_repairs_cube.post(
+        "/data/default.repairs_cube/availability/",
+        json={
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "repairs_cube",
+            "valid_through_ts": 1010129120,
+        },
+    )
+    response = client_with_repairs_cube.get(
+        "/sql/",
+        params={
+            "metrics": [
+                "default.discounted_orders_rate",
+                "default.num_repair_orders",
+                "default.avg_repair_price",
+            ],
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.hard_hat.postal_code",
+            ],
+            "filters": [],
+            "orderby": [],
+            "limit": 100,
+        },
+    )
+    assert response.json() == {
+        "columns": [
+            {"name": "default_DOT_discounted_orders_rate", "type": "double"},
+            {"name": "default_DOT_num_repair_orders", "type": "bigint"},
+            {"name": "default_DOT_avg_repair_price", "type": "double"},
+            {"name": "country", "type": "string"},
+            {"name": "postal_code", "type": "string"},
+        ],
+        "dialect": "spark",
+        "sql": "SELECT  sum(discount_sum) / count(placeholder_count) "
+        "default_DOT_discounted_orders_rate,\n"
+        "\tcount(repair_order_id_count) default_DOT_num_repair_orders,\n"
+        "\tsum(price_sum) / count(price_count) default_DOT_avg_repair_price,\n"
+        "\tcountry,\n"
+        "\tpostal_code \n"
+        " FROM repairs_cube \n"
+        " GROUP BY  country, postal_code\n",
+    }

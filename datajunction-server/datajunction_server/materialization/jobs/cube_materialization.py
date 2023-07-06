@@ -72,15 +72,13 @@ class DruidCubeMaterializationJob(MaterializationJob):
             + cube_config.suffix  # type: ignore
         )
         _metrics_spec = {
-            measure["name"]: {
-                "fieldName": measure["field_name"],
-                "name": measure["name"],
-                "type": DRUID_AGG_MAPPING[
-                    (measure["type"].lower(), measure["agg"].lower())
-                ],
+            measure.name: {
+                "fieldName": measure.field_name,
+                "name": measure.name,
+                "type": DRUID_AGG_MAPPING[(measure.type.lower(), measure.agg.lower())],
             }
             for measure_group in cube_config.measures.values()  # type: ignore
-            for measure in measure_group
+            for measure in measure_group.measures
         }
 
         metrics_spec = list(_metrics_spec.values())
