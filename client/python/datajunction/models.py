@@ -92,15 +92,6 @@ class QueryState(str, enum.Enum):
         return list(map(lambda c: c.value, cls))  # type: ignore
 
 
-class Column(BaseModel):
-    """
-    Represents a column
-    """
-
-    name: str
-    type: str
-
-
 class Tag(BaseModel):
     """
     Node tags
@@ -109,6 +100,40 @@ class Tag(BaseModel):
     name: str
     display_name: str
     tag_type: str
+
+
+class AvailabilityState(BaseModel):
+    """
+    Represents the availability state for a node.
+    """
+
+    min_temporal_partition: Optional[List[str]] = None
+    max_temporal_partition: Optional[List[str]] = None
+
+    catalog: str
+    schema_: Optional[str]
+    table: str
+    valid_through_ts: int
+
+
+class ColumnAttribute(BaseModel):
+    """
+    Represents a column attribute
+    """
+
+    attribute_type_namespace: Optional[str] = "system"
+    attribute_type_name: str
+    column_name: str
+
+
+class Column(BaseModel):
+    """
+    Represents a column
+    """
+
+    name: str
+    type: str
+    attributes: Optional[List]
 
 
 END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]

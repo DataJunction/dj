@@ -708,6 +708,34 @@ class DJClient:  # pylint: disable=too-many-public-methods
         )
         return response.json()
 
+    def add_availability_state(
+        self,
+        node_name: str,
+        availability: models.AvailabilityState,
+    ):
+        """
+        Adds an availability state for the node
+        """
+        response = self._session.post(
+            f"/data/{node_name}/availability/",
+            json=availability.dict(),
+        )
+        return response.json()
+
+    def set_column_attributes(
+        self,
+        node_name,
+        attributes: List[models.ColumnAttribute],
+    ):
+        """
+        Sets attributes for columns on the node
+        """
+        response = self._session.post(
+            f"/nodes/{node_name}/attributes/",
+            json=[attribute.dict() for attribute in attributes],
+        )
+        return response.json()
+
 
 class ClientEntity(BaseModel):
     """
@@ -737,7 +765,7 @@ class Node(ClientEntity):
     mode: Optional[models.NodeMode]
     status: Optional[str] = None
     display_name: Optional[str]
-    availability: Optional[Dict]
+    availability: Optional[models.AvailabilityState]
     tags: Optional[List[models.Tag]]
     primary_key: Optional[List[str]]
     materializations: Optional[List[Dict[str, Any]]]
@@ -867,6 +895,18 @@ class Node(ClientEntity):
         List all revisions of this node
         """
         return self.dj_client.get_node_revisions(self.name)
+
+    def add_availability(self, availability: models.AvailabilityState):
+        """
+        Adds an availability state to the node
+        """
+        return self.dj_client.add_availability_state(self.name, availability)
+
+    def set_column_attributes(self, attributes: List[models.ColumnAttribute]):
+        """
+        Sets attributes for columns on the node
+        """
+        return self.dj_client.set_column_attributes(self.name, attributes)
 
 
 class Source(Node):
