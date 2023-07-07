@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field, validator
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
 from datajunction import models
-from datajunction.exceptions import DJClientException
+from datajunction.exceptions import DJClientException, DJNamespaceAlreadyExists
 
 DEFAULT_NAMESPACE = "default"
 _logger = logging.getLogger(__name__)
@@ -401,7 +401,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         )
         json_response = response.json()
         if response.status_code == 409:
-            raise DJClientException(json_response["message"])
+            raise DJNamespaceAlreadyExists(json_response["message"])
         return json_response
 
     def deactivate_node(self, node: "Node"):
