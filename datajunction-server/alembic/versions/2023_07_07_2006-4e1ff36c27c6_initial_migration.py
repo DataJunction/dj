@@ -1,8 +1,8 @@
 """Initial migration
 
-Revision ID: e41c021c19a6
+Revision ID: 4e1ff36c27c6
 Revises:
-Create Date: 2023-04-19 00:48:51.504389+00:00
+Create Date: 2023-07-07 20:06:39.764410+00:00
 
 """
 # pylint: disable=no-member, invalid-name, missing-function-docstring, unused-import, no-name-in-module
@@ -14,7 +14,7 @@ import sqlmodel
 from alembic import op
 
 # revision identifiers, used by Alembic.
-revision = "e41c021c19a6"
+revision = "4e1ff36c27c6"
 down_revision = None
 branch_labels = None
 depends_on = None
@@ -38,8 +38,11 @@ def upgrade():
     )
     op.create_table(
         "availabilitystate",
-        sa.Column("max_partition", sa.JSON(), nullable=True),
-        sa.Column("min_partition", sa.JSON(), nullable=True),
+        sa.Column("categorical_partitions", sa.JSON(), nullable=True),
+        sa.Column("temporal_partitions", sa.JSON(), nullable=True),
+        sa.Column("min_temporal_partition", sa.JSON(), nullable=True),
+        sa.Column("max_temporal_partition", sa.JSON(), nullable=True),
+        sa.Column("partitions", sa.JSON(), nullable=True),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("catalog", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("schema_", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
@@ -76,20 +79,29 @@ def upgrade():
     )
     op.create_table(
         "engine",
+        sa.Column(
+            "dialect",
+            sa.Enum("SPARK", "TRINO", "DRUID", name="dialect"),
+            nullable=True,
+        ),
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("version", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("uri", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
-        sa.Column(
-            "dialect",
-            sa.Enum(
-                "SPARK",
-                "TRINO",
-                name="dialect",
-            ),
-            nullable=True,
-        ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_engine")),
+    )
+    op.create_table(
+        "history",
+        sa.Column("pre", sa.JSON(), nullable=True),
+        sa.Column("post", sa.JSON(), nullable=True),
+        sa.Column("details", sa.JSON(), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("entity_type", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("entity_name", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("activity_type", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("user", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_history")),
     )
     op.create_table(
         "missingparent",
@@ -115,6 +127,7 @@ def upgrade():
         ),
         sa.Column("display_name", sa.String(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("deactivated_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("namespace", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column(
@@ -294,26 +307,29 @@ def upgrade():
         sa.PrimaryKeyConstraint("cube_id", "cube_element_id", name=op.f("pk_cube")),
     )
     op.create_table(
-        "materializationconfig",
+        "materialization",
+        sa.Column("config", sa.JSON(), nullable=True),
+        sa.Column("job", sa.String(), nullable=True),
         sa.Column("node_revision_id", sa.Integer(), nullable=False),
         sa.Column("engine_id", sa.Integer(), nullable=False),
-        sa.Column("config", sa.JSON(), nullable=True),
+        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("schedule", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.ForeignKeyConstraint(
             ["engine_id"],
             ["engine.id"],
-            name=op.f("fk_materializationconfig_engine_id_engine"),
+            name=op.f("fk_materialization_engine_id_engine"),
         ),
         sa.ForeignKeyConstraint(
             ["node_revision_id"],
             ["noderevision.id"],
-            name=op.f("fk_materializationconfig_node_revision_id_noderevision"),
+            name=op.f("fk_materialization_node_revision_id_noderevision"),
         ),
         sa.PrimaryKeyConstraint(
             "node_revision_id",
             "engine_id",
-            name=op.f("pk_materializationconfig"),
+            "name",
+            name=op.f("pk_materialization"),
         ),
-        sa.Column("schedule", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
     )
     op.create_table(
         "nodeavailabilitystate",
@@ -416,7 +432,7 @@ def downgrade():
     op.drop_table("nodemissingparents")
     op.drop_table("nodecolumns")
     op.drop_table("nodeavailabilitystate")
-    op.drop_table("materializationconfig")
+    op.drop_table("materialization")
     op.drop_table("cube")
     op.drop_table("columnattribute")
     op.drop_table("tagnoderelationship")
@@ -428,6 +444,7 @@ def downgrade():
     op.drop_table("nodenamespace")
     op.drop_table("node")
     op.drop_table("missingparent")
+    op.drop_table("history")
     op.drop_table("engine")
     op.drop_table("database")
     op.drop_table("catalog")

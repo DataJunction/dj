@@ -1,7 +1,7 @@
+# pylint: disable=too-many-instance-attributes,too-many-lines
 """
 Model for nodes.
 """
-# pylint: disable=too-many-instance-attributes,too-many-lines
 import enum
 import sys
 from dataclasses import dataclass
