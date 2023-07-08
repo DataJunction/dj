@@ -1,7 +1,7 @@
+# pylint: disable=too-many-lines
 """
 Tests for the metrics API.
 """
-# pylint: disable=too-many-lines
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
