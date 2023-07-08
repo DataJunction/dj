@@ -31,7 +31,9 @@ def upgrade():
         sa.Column("id", sa.Integer(), nullable=False),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_attributetype")),
         sa.UniqueConstraint(
-            "namespace", "name", name=op.f("uq_attributetype_namespace"),
+            "namespace",
+            "name",
+            name=op.f("uq_attributetype_namespace"),
         ),
     )
     op.create_table(
@@ -78,7 +80,9 @@ def upgrade():
     op.create_table(
         "engine",
         sa.Column(
-            "dialect", sa.Enum("SPARK", "TRINO", "DRUID", name="dialect"), nullable=True,
+            "dialect",
+            sa.Enum("SPARK", "TRINO", "DRUID", name="dialect"),
+            nullable=True,
         ),
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
@@ -112,7 +116,12 @@ def upgrade():
         sa.Column(
             "type",
             sa.Enum(
-                "SOURCE", "TRANSFORM", "METRIC", "DIMENSION", "CUBE", name="nodetype",
+                "SOURCE",
+                "TRANSFORM",
+                "METRIC",
+                "DIMENSION",
+                "CUBE",
+                name="nodetype",
             ),
             nullable=True,
         ),
@@ -122,7 +131,9 @@ def upgrade():
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("namespace", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column(
-            "current_version", sqlmodel.sql.sqltypes.AutoString(), nullable=False,
+            "current_version",
+            sqlmodel.sql.sqltypes.AutoString(),
+            nullable=False,
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_node")),
         sa.UniqueConstraint("name", "namespace", name="unique_node_namespace_name"),
@@ -160,7 +171,9 @@ def upgrade():
             name=op.f("fk_catalogengines_engine_id_engine"),
         ),
         sa.PrimaryKeyConstraint(
-            "catalog_id", "engine_id", name=op.f("pk_catalogengines"),
+            "catalog_id",
+            "engine_id",
+            name=op.f("pk_catalogengines"),
         ),
     )
     op.create_table(
@@ -170,10 +183,14 @@ def upgrade():
         sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column("dimension_id", sa.Integer(), nullable=True),
         sa.Column(
-            "dimension_column", sqlmodel.sql.sqltypes.AutoString(), nullable=True,
+            "dimension_column",
+            sqlmodel.sql.sqltypes.AutoString(),
+            nullable=True,
         ),
         sa.ForeignKeyConstraint(
-            ["dimension_id"], ["node.id"], name=op.f("fk_column_dimension_id_node"),
+            ["dimension_id"],
+            ["node.id"],
+            name=op.f("fk_column_dimension_id_node"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_column")),
     )
@@ -184,7 +201,12 @@ def upgrade():
         sa.Column(
             "type",
             sa.Enum(
-                "SOURCE", "TRANSFORM", "METRIC", "DIMENSION", "CUBE", name="nodetype",
+                "SOURCE",
+                "TRANSFORM",
+                "METRIC",
+                "DIMENSION",
+                "CUBE",
+                name="nodetype",
             ),
             nullable=True,
         ),
@@ -205,7 +227,9 @@ def upgrade():
             name=op.f("fk_noderevision_catalog_id_catalog"),
         ),
         sa.ForeignKeyConstraint(
-            ["node_id"], ["node.id"], name=op.f("fk_noderevision_node_id_node"),
+            ["node_id"],
+            ["node.id"],
+            name=op.f("fk_noderevision_node_id_node"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_noderevision")),
         sa.UniqueConstraint("version", "node_id", name=op.f("uq_noderevision_version")),
@@ -218,7 +242,9 @@ def upgrade():
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("database_id", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(
-            ["database_id"], ["database.id"], name=op.f("fk_table_database_id_database"),
+            ["database_id"],
+            ["database.id"],
+            name=op.f("fk_table_database_id_database"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_table")),
     )
@@ -227,13 +253,19 @@ def upgrade():
         sa.Column("tag_id", sa.Integer(), nullable=False),
         sa.Column("node_id", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(
-            ["node_id"], ["node.id"], name=op.f("fk_tagnoderelationship_node_id_node"),
+            ["node_id"],
+            ["node.id"],
+            name=op.f("fk_tagnoderelationship_node_id_node"),
         ),
         sa.ForeignKeyConstraint(
-            ["tag_id"], ["tag.id"], name=op.f("fk_tagnoderelationship_tag_id_tag"),
+            ["tag_id"],
+            ["tag.id"],
+            name=op.f("fk_tagnoderelationship_tag_id_tag"),
         ),
         sa.PrimaryKeyConstraint(
-            "tag_id", "node_id", name=op.f("pk_tagnoderelationship"),
+            "tag_id",
+            "node_id",
+            name=op.f("pk_tagnoderelationship"),
         ),
     )
     op.create_table(
@@ -268,7 +300,9 @@ def upgrade():
             name=op.f("fk_cube_cube_element_id_column"),
         ),
         sa.ForeignKeyConstraint(
-            ["cube_id"], ["noderevision.id"], name=op.f("fk_cube_cube_id_noderevision"),
+            ["cube_id"],
+            ["noderevision.id"],
+            name=op.f("fk_cube_cube_id_noderevision"),
         ),
         sa.PrimaryKeyConstraint("cube_id", "cube_element_id", name=op.f("pk_cube")),
     )
@@ -291,7 +325,10 @@ def upgrade():
             name=op.f("fk_materialization_node_revision_id_noderevision"),
         ),
         sa.PrimaryKeyConstraint(
-            "node_revision_id", "engine_id", "name", name=op.f("pk_materialization"),
+            "node_revision_id",
+            "engine_id",
+            "name",
+            name=op.f("pk_materialization"),
         ),
     )
     op.create_table(
@@ -309,7 +346,9 @@ def upgrade():
             name=op.f("fk_nodeavailabilitystate_node_id_noderevision"),
         ),
         sa.PrimaryKeyConstraint(
-            "availability_id", "node_id", name=op.f("pk_nodeavailabilitystate"),
+            "availability_id",
+            "node_id",
+            name=op.f("pk_nodeavailabilitystate"),
         ),
     )
     op.create_table(
@@ -317,7 +356,9 @@ def upgrade():
         sa.Column("node_id", sa.Integer(), nullable=False),
         sa.Column("column_id", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(
-            ["column_id"], ["column.id"], name=op.f("fk_nodecolumns_column_id_column"),
+            ["column_id"],
+            ["column.id"],
+            name=op.f("fk_nodecolumns_column_id_column"),
         ),
         sa.ForeignKeyConstraint(
             ["node_id"],
@@ -357,10 +398,14 @@ def upgrade():
             name=op.f("fk_noderelationship_child_id_noderevision"),
         ),
         sa.ForeignKeyConstraint(
-            ["parent_id"], ["node.id"], name=op.f("fk_noderelationship_parent_id_node"),
+            ["parent_id"],
+            ["node.id"],
+            name=op.f("fk_noderelationship_parent_id_node"),
         ),
         sa.PrimaryKeyConstraint(
-            "parent_id", "child_id", name=op.f("pk_noderelationship"),
+            "parent_id",
+            "child_id",
+            name=op.f("pk_noderelationship"),
         ),
     )
     op.create_table(
@@ -368,10 +413,14 @@ def upgrade():
         sa.Column("table_id", sa.Integer(), nullable=False),
         sa.Column("column_id", sa.Integer(), nullable=False),
         sa.ForeignKeyConstraint(
-            ["column_id"], ["column.id"], name=op.f("fk_tablecolumns_column_id_column"),
+            ["column_id"],
+            ["column.id"],
+            name=op.f("fk_tablecolumns_column_id_column"),
         ),
         sa.ForeignKeyConstraint(
-            ["table_id"], ["table.id"], name=op.f("fk_tablecolumns_table_id_table"),
+            ["table_id"],
+            ["table.id"],
+            name=op.f("fk_tablecolumns_table_id_table"),
         ),
         sa.PrimaryKeyConstraint("table_id", "column_id", name=op.f("pk_tablecolumns")),
     )
