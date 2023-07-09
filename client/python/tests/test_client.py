@@ -3,7 +3,7 @@ import pandas
 import pytest
 
 from datajunction import DJClient
-from datajunction.exceptions import DJClientException
+from datajunction.exceptions import DJClientException, DJNamespaceAlreadyExists
 from datajunction.models import (
     AvailabilityState,
     Column,
@@ -541,7 +541,7 @@ class TestDJClient:
         """
         namespace = client.new_namespace(namespace="roads.demo")
         assert namespace.namespace == "roads.demo"
-        with pytest.raises(DJClientException) as exc_info:
+        with pytest.raises(DJNamespaceAlreadyExists) as exc_info:
             client.new_namespace(namespace="roads.demo")
         assert "Node namespace `roads.demo` already exists" in str(exc_info.value)
 
