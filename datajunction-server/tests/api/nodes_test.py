@@ -1060,6 +1060,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             data["query"]
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
+        assert data["status"] == "valid"
         assert data["columns"] == [
             {"name": "country", "type": "string", "attributes": [], "dimension": None},
             {
@@ -1089,6 +1090,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             data["query"]
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
+        assert data["status"] == "valid"
 
         # Try to update with a new query that references a non-existent source
         response = client.patch(
@@ -1132,6 +1134,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "dimension": None,
             },
         ]
+        assert data["status"] == "valid"
 
         # Verify that asking for revisions for a non-existent transform fails
         response = client.get("/nodes/random_transform/revisions/")

@@ -1389,9 +1389,10 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         parents=[],
         mode=data.mode if data and data.mode else old_revision.mode,
         materializations=[],
+        status=old_revision.status,
     )
 
-    # Link the new revision to its parents if the query has changed
+    # Link the new revision to its parents if the query has changed and update its status
     if new_revision.type != NodeType.SOURCE and (query_changes or pk_changes):
         (
             validated_node,
