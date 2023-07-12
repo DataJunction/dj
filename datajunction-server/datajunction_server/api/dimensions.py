@@ -1,5 +1,5 @@
 """
-Cube related APIs.
+Dimensions related APIs.
 """
 import logging
 from typing import List, Optional
