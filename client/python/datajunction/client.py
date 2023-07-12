@@ -398,7 +398,6 @@ class DJClient:  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
-        print(json_response)
         if response.status_code == 409:
             raise DJNamespaceAlreadyExists(json_response["message"])
         return json_response
