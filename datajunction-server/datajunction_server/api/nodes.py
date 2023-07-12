@@ -87,7 +87,7 @@ from datajunction_server.models.node import (
     UpdateNode,
 )
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.sql.dag import get_dimensions
+from datajunction_server.sql.dag import get_dimensions, get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
@@ -1359,6 +1359,18 @@ def delete_dimension_link(
                 ),
             },
         )
+
+    # Find cubes that are affected by this dimension link removal and update their statuses
+    affected_cubes = get_nodes_with_dimension(
+        session,
+        target_column.dimension,
+        [NodeType.CUBE],
+    )
+    if affected_cubes:
+        for cube in affected_cubes:
+            print("affected", cube.name)
+            cube.status = NodeStatus.INVALID
+            session.add(cube)
 
     target_column.dimension = None  # type: ignore
     target_column.dimension_id = None
