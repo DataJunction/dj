@@ -47,6 +47,11 @@ jobs:
           export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
           cd $tests_dir; pdm install -d -G pandas
 
+      - uses: pre-commit/action@v3.0.0
+        name: Force check of all pdm.lock files
+        with:
+          extra_args: pdm-lock-check --all-files
+
       - name: Python Linters
         run: |
           export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
