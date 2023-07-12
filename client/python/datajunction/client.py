@@ -846,7 +846,7 @@ class Node(ClientEntity):
         """
         Removes the dimension link on the node's `column` to the dimension.
         """
-        link_response = self.dj_client._unlink_dimension_from_node(
+        link_response = self.dj_client._unlink_dimension_from_node(  # pylint: disable=protected-access
             self.name,
             column,
             dimension,
