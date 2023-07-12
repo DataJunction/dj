@@ -22,6 +22,7 @@ from datajunction_server.api import (
     client,
     cubes,
     data,
+    dimensions,
     engines,
     health,
     history,
@@ -86,6 +87,7 @@ def get_dj_app(
     application.include_router(attributes.router)
     application.include_router(sql.router)
     application.include_router(client.router)
+    application.include_router(dimensions.router)
 
     @application.exception_handler(DJException)
     async def dj_exception_handler(  # pylint: disable=unused-argument
