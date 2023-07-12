@@ -445,7 +445,6 @@ class TestDJClient:
             "foo.bar.contractor",
             "contractor_id",
         )
-        print("result", result)
         assert result["message"] == (
             "The dimension link on the node foo.bar.repair_type's contractor_id to "
             "foo.bar.contractor has been successfully removed."
