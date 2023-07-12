@@ -115,6 +115,16 @@ def test_integration():  # pylint: disable=too-many-statements
         dimension=f"{namespace}.all_dispatchers",
         dimension_column="dispatcher_id",
     )
+    source.unlink_dimension(
+        column="dispatcher_id",
+        dimension=f"{namespace}.all_dispatchers",
+        dimension_column="dispatcher_id",
+    )
+    source.link_dimension(
+        column="dispatcher_id",
+        dimension=f"{namespace}.all_dispatchers",
+        dimension_column="dispatcher_id",
+    )
 
     # List dimensions for a metric
     dj.metric(f"{namespace}.num_repair_orders").dimensions()

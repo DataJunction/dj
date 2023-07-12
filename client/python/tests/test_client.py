@@ -424,9 +424,9 @@ class TestDJClient:
             "default.number_of_account_types" in client.namespace("default").metrics()
         )
 
-    def test_link_dimension(self, client):  # pylint: disable=unused-argument
+    def test_link_unlink_dimension(self, client):  # pylint: disable=unused-argument
         """
-        Check linking dimensions works
+        Check that linking and unlinking dimensions to a node's column works
         """
         repair_type = client.source("foo.bar.repair_type")
         result = repair_type.link_dimension(
@@ -437,6 +437,18 @@ class TestDJClient:
         assert result["message"] == (
             "Dimension node foo.bar.contractor has been successfully linked to "
             "column contractor_id on node foo.bar.repair_type"
+        )
+
+        # Unlink the dimension
+        result = repair_type.unlink_dimension(
+            "contractor_id",
+            "foo.bar.contractor",
+            "contractor_id",
+        )
+        print("result", result)
+        assert result["message"] == (
+            "The dimension link on the node foo.bar.repair_type's contractor_id to "
+            "foo.bar.contractor has been successfully removed."
         )
 
     def test_sql(self, client):  # pylint: disable=unused-argument
