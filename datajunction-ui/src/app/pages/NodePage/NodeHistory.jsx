@@ -45,7 +45,7 @@ export default function NodeHistory({ node, djClient }) {
     ));
   };
   return (
-    <div className="table-responsive">
+    <div className="table-vertical">
       <table className="card-inner-table table">
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
           <th className="text-start">Version</th>
