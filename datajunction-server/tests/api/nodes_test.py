@@ -2345,7 +2345,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         }
         response = client_with_examples.get("/nodes/default.revenue")
         data = response.json()
-        assert all([col["dimension"] is None for col in data["columns"]])
+        assert all(col["dimension"] is None for col in data["columns"])
 
         # Removing the dimension link again will result in no change
         response = client_with_examples.delete(

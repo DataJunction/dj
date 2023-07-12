@@ -1345,9 +1345,9 @@ def delete_dimension_link(
     """
     node = get_node_by_name(session=session, name=name)
     target_column = get_column(node.current, column)
-    if (
-        target_column.dimension.name != dimension
-        and target_column.dimension_column != dimension_column
+    if (not target_column.dimension or target_column.dimension.name != dimension) and (
+        not target_column.dimension_column
+        or target_column.dimension_column != dimension_column
     ):
         return JSONResponse(
             status_code=304,
