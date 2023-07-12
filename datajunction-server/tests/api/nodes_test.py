@@ -2514,6 +2514,19 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.us_state",
         }
 
+    def test_revalidating_existing_nodes(self, client_with_examples: TestClient):
+        """
+        Test revalidating all example nodes and confirm that they are set to valid
+        """
+        for node in client_with_examples.get("/nodes/").json():
+            status = client_with_examples.post(
+                f"/nodes/{node['name']}/validate/",
+            ).json()["status"]
+            assert status == "valid"
+        # Confirm that they still show as valid server-side
+        for node in client_with_examples.get("/nodes/").json():
+            assert node["status"] == "valid"
+
 
 def test_node_similarity(session: Session, client: TestClient):
     """
