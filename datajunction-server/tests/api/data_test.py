@@ -299,6 +299,38 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         assert response.status_code == 200
         assert data == {"message": "Availability state successfully posted"}
 
+        # Check that the history tracker has been updated
+        response = client_with_examples.get(
+            "/history/node/default.large_revenue_payments_and_business_only/",
+        )
+        data = response.json()
+        availability_activities = [
+            activity for activity in data if activity["activity_type"] == "availability"
+        ]
+        assert availability_activities == [
+            {
+                "activity_type": "availability",
+                "created_at": mock.ANY,
+                "details": {},
+                "entity_name": "default.large_revenue_payments_and_business_only",
+                "entity_type": "node",
+                "id": mock.ANY,
+                "post": {
+                    "catalog": "default",
+                    "categorical_partitions": [],
+                    "max_temporal_partition": ["2023", "01", "25"],
+                    "min_temporal_partition": ["2022", "01", "01"],
+                    "partitions": [],
+                    "schema_": "accounting",
+                    "table": "pmts",
+                    "temporal_partitions": [],
+                    "valid_through_ts": 20230125,
+                },
+                "pre": {},
+                "user": None,
+            },
+        ]
+
         statement = select(Node).where(
             Node.name == "default.large_revenue_payments_and_business_only",
         )
