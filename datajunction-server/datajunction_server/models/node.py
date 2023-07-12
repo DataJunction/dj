@@ -944,13 +944,18 @@ class CubeNodeFields(BaseSQLModel):
     description: str
     mode: NodeMode
 
+class MetricNodeFields(BaseSQLModel):
+    """
+    Metric node fields that can be changed
+    """
 
+    bound_dimensions: Optional[List[str]]
 #
 # Create and Update objects
 #
 
 
-class CreateNode(ImmutableNodeFields, MutableNodeFields, MutableNodeQueryField):
+class CreateNode(ImmutableNodeFields, MutableNodeFields, MutableNodeQueryField, MetricNodeFields):
     """
     Create non-source node object.
     """

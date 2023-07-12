@@ -555,6 +555,19 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         assert response.ok
+        
+        # Create a metric on the source node w/ bound dimensions
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of user messages by id",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
+                "mode": "published",
+                "name": "default.num_messages_id",
+                "bound_dimensions": ["default.messages.id"], 
+            },
+        )
+        assert response.ok
         # Link the dimension to a column on the source node
         response = client.post(
             "/nodes/default.messages/columns/user_id/"

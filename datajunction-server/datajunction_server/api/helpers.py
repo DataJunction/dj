@@ -358,19 +358,16 @@ def validate_node_data(
         raise DJException(message=str(raised_exceptions)) from raised_exceptions
 
     # Only raise on missing parents if the node mode is set to published
-    if missing_parents_map:
-        if validated_node.mode == NodeMode.DRAFT:
-            validated_node.status = NodeStatus.INVALID
-        else:
-            raise DJException(
-                errors=[
-                    DJError(
-                        code=ErrorCode.MISSING_PARENT,
-                        message="Node definition contains references to nodes that do not exist",
-                        debug={"missing_parents": list(missing_parents_map.keys())},
-                    ),
-                ],
-            )
+    if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
+        raise DJException(
+            errors=[
+                DJError(
+                    code=ErrorCode.MISSING_PARENT,
+                    message="Node definition contains references to nodes that do not exist",
+                    debug={"missing_parents": list(missing_parents_map.keys())},
+                ),
+            ],
+        )
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
@@ -385,10 +382,28 @@ def validate_node_data(
             )
         except DJParseException as parse_exc:
             type_inference_failures[col.alias_or_name.name] = parse_exc.message  # type: ignore
-            validated_node.status = NodeStatus.INVALID
+            
+    # check that bound dimensions are from parent nodes
+    invalid_bound_dimensions = set()
+    for col in validated_node.bound_dimensions:
+        names = col.split('.')
+        parent_name, column_name = ".".join(names[:-1]), names[-1]
+        
+        found_parent_col = False
+        for parent in validated_node.parents:
+            if found_parent_col:
+                break
+            if (parent.namespace+"."+parent.name)!=parent_name:
+                continue
+            for parent_col in parent.current.columns:
+                if parent_col.name==column_name:
+                    found_parent_col = True
+                    break
+        if not found_parent_col:
+            invalid_bound_dimensions.add(col)
 
     # Only raise on missing parents or type inference if the node mode is set to published
-    if missing_parents_map or type_inference_failures:
+    if missing_parents_map or type_inference_failures or invalid_bound_dimensions:
         if validated_node.mode == NodeMode.DRAFT:
             validated_node.status = NodeStatus.INVALID
         else:
@@ -401,6 +416,17 @@ def validate_node_data(
                     ),
                 ]
                 if missing_parents_map
+                else []
+            )
+            invalid_bound_dimensions_error = (
+                [
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message="Node definition contains references to columns as bound dimensions that are not on parent nodes.",
+                        debug={"invalid_bound_dimensions": list(invalid_bound_dimensions)},
+                    ),
+                ]
+                if invalid_bound_dimensions
                 else []
             )
             type_inference_error = (
@@ -420,7 +446,7 @@ def validate_node_data(
                 else []
             )
             raise DJException(
-                errors=missing_parents_error + type_inference_error,
+                errors=missing_parents_error + type_inference_error+invalid_bound_dimensions_error,
             )
 
     return (
