@@ -17,6 +17,8 @@ from datajunction_server.api.helpers import (
     validate_orderby,
 )
 from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.models import History
+from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import (
     AvailabilityState,
@@ -71,6 +73,7 @@ def add_an_availability_state(
             )
 
     # Merge the new availability state with the current availability state if one exists
+    old_availability = node_revision.availability
     if (
         node_revision.availability
         and node_revision.availability.catalog == node.current.catalog.name
@@ -84,6 +87,17 @@ def add_an_availability_state(
     if node_revision.availability and not node_revision.availability.partitions:
         node_revision.availability.partitions = []
     session.add(node_revision)
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            activity_type=ActivityType.AVAILABILITY,
+            pre=AvailabilityStateBase.parse_obj(old_availability).dict()
+            if old_availability
+            else {},
+            post=AvailabilityStateBase.parse_obj(node_revision.availability).dict(),
+        ),
+    )
     session.commit()
     return JSONResponse(
         status_code=200,
