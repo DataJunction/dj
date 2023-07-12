@@ -385,23 +385,26 @@ def validate_node_data(
             
     # check that bound dimensions are from parent nodes
     invalid_bound_dimensions = set()
+    matched_bound_columns = []
     for col in validated_node.bound_dimensions:
         names = col.split('.')
         parent_name, column_name = ".".join(names[:-1]), names[-1]
         
         found_parent_col = False
-        for parent in validated_node.parents:
+        for parent in dependencies_map.keys():
             if found_parent_col:
                 break
-            if (parent.namespace+"."+parent.name)!=parent_name:
+            if (parent.name)!=parent_name:
                 continue
-            for parent_col in parent.current.columns:
+            for parent_col in parent.columns:
                 if parent_col.name==column_name:
                     found_parent_col = True
+                    matched_bound_columns.append(parent_col)
                     break
         if not found_parent_col:
             invalid_bound_dimensions.add(col)
-
+    validated_node.bound_dimensions=matched_bound_columns
+    
     # Only raise on missing parents or type inference if the node mode is set to published
     if missing_parents_map or type_inference_failures or invalid_bound_dimensions:
         if validated_node.mode == NodeMode.DRAFT:
