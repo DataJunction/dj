@@ -531,6 +531,23 @@ class DJClient:  # pylint: disable=too-many-public-methods
         )
         return response.json()
 
+    def _unlink_dimension_from_node(
+        self,
+        node_name: str,
+        column_name: str,
+        dimension_name: str,
+        dimension_column: Optional[str] = None,
+    ):
+        """
+        Helper function to link a dimension to the node.
+        """
+        response = self._session.delete(
+            f"/nodes/{node_name}/columns/{column_name}/"
+            f"?dimension={dimension_name}&dimension_column={dimension_column}",
+            timeout=self._timeout,
+        )
+        return response.json()
+
     def get_metric(self, node_name: str):
         """
         Helper function to retrieve metadata for the given metric node.
@@ -812,6 +829,24 @@ class Node(ClientEntity):
         primary key will be used automatically.
         """
         link_response = self.dj_client.link_dimension_to_node(
+            self.name,
+            column,
+            dimension,
+            dimension_column,
+        )
+        self.sync()
+        return link_response
+
+    def unlink_dimension(
+        self,
+        column: str,
+        dimension: str,
+        dimension_column: Optional[str],
+    ):
+        """
+        Removes the dimension link on the node's `column` to the dimension.
+        """
+        link_response = self.dj_client._unlink_dimension_from_node(  # pylint: disable=protected-access
             self.name,
             column,
             dimension,
