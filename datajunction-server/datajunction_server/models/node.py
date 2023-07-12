@@ -97,6 +97,27 @@ class CubeRelationship(BaseSQLModel, table=True):  # type: ignore
     )
 
 
+class BoundDimensionsRelationship(BaseSQLModel, table=True):  # type: ignore
+    """
+    Join table for many-to-many relationships between metric nodes
+    and parent nodes for dimensions that are required.
+    """
+
+    __tablename__ = "metric_bound_dimensions"
+
+    metric_id: Optional[int] = Field(
+        default=None,
+        foreign_key="noderevision.id",
+        primary_key=True,
+    )
+
+    bound_dimension_id: Optional[int] = Field(
+        default=None,
+        foreign_key="column.id",
+        primary_key=True,
+    )
+
+
 class NodeType(str, enum.Enum):
     """
     Node type.
@@ -574,6 +595,16 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     schema_: Optional[str] = None
     table: Optional[str] = None
 
+    # A list of columns from the metric's parent that
+    # are required for grouping when using the metric
+    bound_dimensions: List["Column"] = Relationship(
+        link_model=BoundDimensionsRelationship,
+        sa_relationship_kwargs={
+            "primaryjoin": "NodeRevision.id==BoundDimensionsRelationship.metric_id",
+            "secondaryjoin": "Column.id==BoundDimensionsRelationship.bound_dimension_id",
+        },
+    )
+
     # A list of metric columns and dimension columns, only used by cube nodes
     cube_elements: List["Column"] = Relationship(
         link_model=CubeRelationship,
@@ -609,7 +640,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         },
     )
 
-    columns: List[Column] = Relationship(
+    columns: List["Column"] = Relationship(
         link_model=NodeColumns,
         sa_relationship_kwargs={
             "primaryjoin": "NodeRevision.id==NodeColumns.node_id",
@@ -737,6 +768,12 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 raise DJInvalidInputException(
                     f"Node {self.name} of type {self.type} needs a query",
                 )
+
+        if self.type != NodeType.METRIC and self.bound_dimensions:
+            raise DJInvalidInputException(
+                f"Node {self.name} of type {self.type} cannot have "
+                "bound dimensions which are only for metrics.",
+            )
 
         if self.type == NodeType.METRIC:
             self.check_metric()

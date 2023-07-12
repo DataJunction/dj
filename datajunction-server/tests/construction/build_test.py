@@ -85,6 +85,42 @@ async def test_build_metric_with_dimensions_aggs(request):
     assert compare_query_strings(str(query), expected)
 
 
+def test_build_metric_with_bound_dimensions(request):
+    """
+    Test building metric with bound dimensions
+    """
+    construction_session: Session = request.getfixturevalue("construction_session")
+    num_comments_mtc: Node = next(
+        construction_session.exec(
+            select(Node).filter(Node.name == "basic.num_comments_bnd"),
+        ),
+    )[0]
+    query = build_node(
+        construction_session,
+        num_comments_mtc.current,
+        dimensions=["basic.dimension.users.country", "basic.dimension.users.gender"],
+    )
+    expected = """
+        SELECT
+          basic_DOT_dimension_DOT_users.country,
+          basic_DOT_dimension_DOT_users.gender,
+          COUNT(1) AS cnt,
+          basic_DOT_source_DOT_comments.id,
+          basic_DOT_source_DOT_comments.text
+        FROM basic.source.comments AS basic_DOT_source_DOT_comments
+        LEFT OUTER JOIN (
+          SELECT
+            basic_DOT_source_DOT_users.country,
+            basic_DOT_source_DOT_users.gender,
+            basic_DOT_source_DOT_users.id
+          FROM basic.source.users AS basic_DOT_source_DOT_users
+        ) AS basic_DOT_dimension_DOT_users ON basic_DOT_source_DOT_comments.user_id = basic_DOT_dimension_DOT_users.id
+         GROUP BY
+           basic_DOT_source_DOT_comments.id, basic_DOT_source_DOT_comments.text, basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
+    """
+    assert compare_query_strings(str(query), expected)
+
+
 @pytest.mark.asyncio
 async def test_raise_on_build_without_required_dimension_column(request):
     """

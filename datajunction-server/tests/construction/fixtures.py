@@ -436,6 +436,29 @@ def construction_session(  # pylint: disable=too-many-locals
         ],
     )
 
+    num_comments_mtc_bnd_dims_ref = Node(
+        name="basic.num_comments_bnd",
+        type=NodeType.METRIC,
+        current_version="1",
+    )
+    num_comments_mtc_bnd_dims = NodeRevision(
+        name=num_comments_mtc_bnd_dims_ref.name,
+        type=num_comments_mtc_bnd_dims_ref.type,
+        node=num_comments_mtc_bnd_dims_ref,
+        version="1",
+        query="""
+        SELECT COUNT(1) AS cnt
+        FROM basic.source.comments
+        """,
+        columns=[
+            Column(name="cnt", type=IntegerType()),
+        ],
+        bound_dimensions=[
+            comments_src.columns[0],  # pylint: disable=E1136
+            comments_src.columns[-1],  # pylint: disable=E1136
+        ],
+    )
+
     num_users_mtc_ref = Node(
         name="basic.num_users",
         type=NodeType.METRIC,
@@ -616,6 +639,7 @@ def construction_session(  # pylint: disable=too-many-locals
     session.add(comments_src)
     session.add(num_users_us_join_mtc)
     session.add(num_comments_mtc)
+    session.add(num_comments_mtc_bnd_dims)
     session.add(num_users_mtc)
     session.add(customers_dim)
     session.add(customers_agg_tfm)
