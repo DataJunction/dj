@@ -28,10 +28,12 @@ def list_history(
     """
     List history for an entity type (i.e. Node) and entity name
     """
-    return get_history(
+    hist = get_history(
         session=session,
         entity_name=entity_name,
         entity_type=entity_type,
         offset=offset,
         limit=limit,
     )
+    print(hist)
+    return hist
