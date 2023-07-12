@@ -136,6 +136,54 @@ def validate_a_node(
     )
 
 
+@router.post("/nodes/{name}/validate/", response_model=NodeValidation)
+def revalidate_a_node(
+    name: str,
+    session: Session = Depends(get_session),
+) -> NodeValidation:
+    """
+    Revalidate a single existing node and update its status appropriately
+    """
+    node = get_node_by_name(session, name)
+    current_node_revision = node.current
+    if current_node_revision.type == NodeType.SOURCE:
+        current_node_revision.status = NodeStatus.VALID
+        session.add(current_node_revision)
+        session.commit()
+        return JSONResponse(
+            status_code=HTTPStatus.OK,
+            content={
+                "message": f"source node `{current_node_revision.name}` has been set to valid",
+                "status": NodeStatus.VALID,
+            },
+        )
+
+    (
+        _,
+        _,
+        missing_parents_map,
+        type_inference_failed_columns,
+    ) = validate_node_data(current_node_revision, session)
+    if missing_parents_map or type_inference_failed_columns:
+        status = NodeStatus.INVALID  # pragma: no cover
+    else:
+        status = NodeStatus.VALID
+
+    if current_node_revision.status != status:  # pragma: no cover
+        session.add(current_node_revision)
+        session.commit()
+    return JSONResponse(
+        status_code=HTTPStatus.OK,
+        content={
+            "message": (
+                f"{current_node_revision.type} node `{current_node_revision.name}` "
+                "has been set to {status}"
+            ),
+            "status": status,
+        },
+    )
+
+
 def validate_and_build_attribute(
     session: Session,
     attribute_input: ColumnAttributeInput,
