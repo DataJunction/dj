@@ -1341,7 +1341,7 @@ def delete_dimension_link(
     session: Session = Depends(get_session),
 ) -> JSONResponse:
     """
-    Add information to a node column
+    Remove the link between a node column and a dimension node
     """
     node = get_node_by_name(session=session, name=name)
     target_column = get_column(node.current, column)

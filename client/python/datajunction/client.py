@@ -531,7 +531,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
         )
         return response.json()
 
-    def unlink_dimension_to_node(
+    def _unlink_dimension_from_node(
         self,
         node_name: str,
         column_name: str,
@@ -846,7 +846,7 @@ class Node(ClientEntity):
         """
         Removes the dimension link on the node's `column` to the dimension.
         """
-        link_response = self.dj_client.unlink_dimension_to_node(
+        link_response = self.dj_client._unlink_dimension_from_node(
             self.name,
             column,
             dimension,
