@@ -1332,6 +1332,52 @@ def link_a_dimension(
     )
 
 
+@router.delete("/nodes/{name}/columns/{column}/", status_code=201)
+def delete_dimension_link(
+    name: str,
+    column: str,
+    dimension: str,
+    dimension_column: Optional[str] = None,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
+    """
+    Add information to a node column
+    """
+    node = get_node_by_name(session=session, name=name)
+    target_column = get_column(node.current, column)
+    if (
+        target_column.dimension.name != dimension
+        and target_column.dimension_column != dimension_column
+    ):
+        return JSONResponse(
+            status_code=304,
+            content={
+                "message": (
+                    f"No change was made to {column} on node {name} as the "
+                    f"specified dimension link to {dimension} on "
+                    f"{dimension_column} was not found."
+                ),
+            },
+        )
+
+    target_column.dimension = None  # type: ignore
+    target_column.dimension_id = None
+    target_column.dimension_column = None
+    session.add(node)
+    session.commit()
+    session.refresh(node)
+
+    return JSONResponse(
+        status_code=201,
+        content={
+            "message": (
+                f"The dimension link on the node {name}'s {column} to "
+                f"{dimension} has been successfully removed."
+            ),
+        },
+    )
+
+
 @router.post("/nodes/{name}/tag/", status_code=201)
 def tag_a_node(
     name: str, tag_name: str, *, session: Session = Depends(get_session)

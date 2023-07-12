@@ -74,8 +74,6 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
             return response
         except requests.exceptions.RequestException as exc:
             error_message = None
-            if not exc.response:
-                raise DJClientException(exc) from exc
             if exc.response.headers.get("Content-Type") == "application/json":
                 error_message = exc.response.json().get("message")
             if not error_message:
@@ -400,6 +398,7 @@ class DJClient:  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
         )
         json_response = response.json()
+        print(json_response)
         if response.status_code == 409:
             raise DJNamespaceAlreadyExists(json_response["message"])
         return json_response
@@ -525,6 +524,23 @@ class DJClient:  # pylint: disable=too-many-public-methods
         Helper function to link a dimension to the node.
         """
         response = self._session.post(
+            f"/nodes/{node_name}/columns/{column_name}/"
+            f"?dimension={dimension_name}&dimension_column={dimension_column}",
+            timeout=self._timeout,
+        )
+        return response.json()
+
+    def unlink_dimension_to_node(
+        self,
+        node_name: str,
+        column_name: str,
+        dimension_name: str,
+        dimension_column: Optional[str] = None,
+    ):
+        """
+        Helper function to link a dimension to the node.
+        """
+        response = self._session.delete(
             f"/nodes/{node_name}/columns/{column_name}/"
             f"?dimension={dimension_name}&dimension_column={dimension_column}",
             timeout=self._timeout,
@@ -812,6 +828,24 @@ class Node(ClientEntity):
         primary key will be used automatically.
         """
         link_response = self.dj_client.link_dimension_to_node(
+            self.name,
+            column,
+            dimension,
+            dimension_column,
+        )
+        self.sync()
+        return link_response
+
+    def unlink_dimension(
+        self,
+        column: str,
+        dimension: str,
+        dimension_column: Optional[str],
+    ):
+        """
+        Removes the dimension link on the node's `column` to the dimension.
+        """
+        link_response = self.dj_client.unlink_dimension_to_node(
             self.name,
             column,
             dimension,
