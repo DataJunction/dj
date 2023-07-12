@@ -555,7 +555,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         assert response.ok
-        
+
         # Create a metric on the source node w/ bound dimensions
         response = client.post(
             "/nodes/metric/",
@@ -564,7 +564,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
                 "mode": "published",
                 "name": "default.num_messages_id",
-                "bound_dimensions": ["default.messages.id"], 
+                "bound_dimensions": ["default.messages.id"],
             },
         )
         assert response.ok

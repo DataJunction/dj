@@ -758,7 +758,7 @@ def create_node_revision(
         status=NodeStatus.VALID,
         query=data.query,
         mode=data.mode,
-        bound_dimensions = data.bound_dimensions or [],
+        bound_dimensions=data.bound_dimensions or [],
     )
     (
         validated_node,
