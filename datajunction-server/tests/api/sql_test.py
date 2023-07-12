@@ -1,5 +1,6 @@
 """Tests for the /sql/ endpoint"""
 # pylint: disable=line-too-long,too-many-lines
+# pylint: disable=C0302
 import pytest
 from sqlmodel import Session
 from starlette.testclient import TestClient

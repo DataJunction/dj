@@ -489,6 +489,13 @@ def build_node(  # pylint: disable=too-many-arguments
             ),
         )
 
+    # get dimension columns which are required
+    # in the stated bound dimensions on the metric node
+    dimensions = dimensions or []
+    dimensions = [
+        col.name for col in node.bound_dimensions if col.name not in dimensions
+    ] + dimensions
+
     # if no dimensions need to be added then we can see if the node is directly materialized
     if not (filters or dimensions):
         if select := cast(
