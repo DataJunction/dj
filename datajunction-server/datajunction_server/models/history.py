@@ -18,13 +18,25 @@ class ActivityType(str, Enum):
     An activity type
     """
 
+    AVAILABILITY = "availability"
     CREATE = "create"
     DEACTIVATE = "deactivate"
     ACTIVATE = "activate"
     UPDATE = "modify"
+
+    # Link columns to dimensions
     LINK = "link"
+    UNLINK = "unlink"
+
     TAG = "tag"
+
+    # Set column attributes
     SET_ATTRIBUTE = "set_attribute"
+
+    # Node materialization
+    ADD_MATERIALIZATION = "add_materialization"
+    UPDATE_MATERIALIZATION = "update_materialization"
+    DELETE_MATERIALIZATION = "delete_materialization"
 
 
 class EntityType(str, Enum):
@@ -51,9 +63,9 @@ class History(SQLModel, table=True):  # type: ignore
     entity_name: Optional[str] = Field(default=None)
     activity_type: Optional[ActivityType] = Field(default=None)
     user: Optional[str] = Field(default=None)
-    pre: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
-    post: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
-    details: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
+    pre: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
+    post: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
+    details: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
     created_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
