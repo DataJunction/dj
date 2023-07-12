@@ -2313,7 +2313,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
 
     def test_adding_dimensions_to_node_columns(self, client_with_examples: TestClient):
         """
-        Test adding tables to existing nodes
+        Test linking dimensions to node columns
         """
         # Attach the payment_type dimension to the payment_type column on the revenue node
         response = client_with_examples.post(
@@ -2325,6 +2325,37 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "Dimension node default.payment_type has been successfully "
                 "linked to column payment_type on node default.revenue"
             ),
+        }
+        response = client_with_examples.get("/nodes/default.revenue")
+        data = response.json()
+        assert [
+            col["dimension"]["name"] for col in data["columns"] if col["dimension"]
+        ] == ["default.payment_type"]
+
+        # Check that after deleting the dimension link, none of the columns have links
+        response = client_with_examples.delete(
+            "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
+        )
+        data = response.json()
+        assert data == {
+            "message": (
+                "The dimension link on the node default.revenue's payment_type to "
+                "default.payment_type has been successfully removed."
+            ),
+        }
+        response = client_with_examples.get("/nodes/default.revenue")
+        data = response.json()
+        assert all(col["dimension"] is None for col in data["columns"])
+
+        # Removing the dimension link again will result in no change
+        response = client_with_examples.delete(
+            "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
+        )
+        data = response.json()
+        assert response.status_code == 304
+        assert data == {
+            "message": "No change was made to payment_type on node default.revenue as the"
+            " specified dimension link to default.payment_type on None was not found.",
         }
 
         # Check that the proper error is raised when the column doesn't exist
