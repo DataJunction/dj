@@ -171,6 +171,13 @@ def get_nodes_with_dimension(
             statement = (
                 select(NodeRevision)
                 .join(
+                    Node,
+                    onclause=(
+                        (NodeRevision.node_id == Node.id)
+                        & (Node.current_version == NodeRevision.version)
+                    ),  # pylint: disable=superfluous-parens
+                )
+                .join(
                     NodeColumns,
                     onclause=(
                         NodeRevision.id == NodeColumns.node_id
