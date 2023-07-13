@@ -454,6 +454,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
                 else []
             )
             raise DJException(
+                http_status_code=HTTPStatus.BAD_REQUEST,
                 errors=missing_parents_error
                 + type_inference_error
                 + invalid_bound_dimensions_error,

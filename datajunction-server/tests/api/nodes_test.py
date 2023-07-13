@@ -568,6 +568,38 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         assert response.ok
+
+        # Create a metric on the source node w/ an invalid bound dimension
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of user messages by id",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
+                "mode": "published",
+                "name": "default.num_messages_id_invalid_dimension",
+                "bound_dimensions": ["default.messages.foo"],
+            },
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "message": (
+                "Node definition contains references to columns as "
+                "bound dimensions that are not on parent nodes."
+            ),
+            "errors": [
+                {
+                    "code": 206,
+                    "message": (
+                        "Node definition contains references to columns as "
+                        "bound dimensions that are not on parent nodes."
+                    ),
+                    "debug": {"invalid_bound_dimensions": ["default.messages.foo"]},
+                    "context": "",
+                },
+            ],
+            "warnings": [],
+        }
+
         # Link the dimension to a column on the source node
         response = client.post(
             "/nodes/default.messages/columns/user_id/"
