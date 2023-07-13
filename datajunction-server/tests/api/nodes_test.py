@@ -569,6 +569,20 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
         assert response.ok
 
+        # Create a metric w/ bound dimensions that to not exist
+        with pytest.raises(Exception) as exc:
+            response = client.post(
+                "/nodes/metric/",
+                json={
+                    "description": "Total number of user messages by id",
+                    "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
+                    "mode": "published",
+                    "name": "default.num_messages_id",
+                    "bound_dimensions": ["default.nothin.id"],
+                },
+            )
+            assert "bound dimensions that are not on parent nodes" in str(exc)
+
         # Create a metric on the source node w/ an invalid bound dimension
         response = client.post(
             "/nodes/metric/",

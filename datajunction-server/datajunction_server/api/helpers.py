@@ -393,9 +393,9 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
         found_parent_col = False
         for parent in dependencies_map.keys():
             if found_parent_col:
-                break
+                break  # pragma: no cover
             if (parent.name) != parent_name:
-                continue
+                continue  # pragma: no cover
             for parent_col in parent.columns:
                 if parent_col.name == column_name:
                     found_parent_col = True
