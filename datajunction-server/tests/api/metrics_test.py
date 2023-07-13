@@ -1133,8 +1133,8 @@ def test_raise_on_joins(client_with_examples: TestClient):
     assert response.status_code == 400
     assert response.json() == {
         "message": (
-            "Metric basic.day_dreams selects from more than one table, "
-            "should only select from a single table"
+            "Metric basic.day_dreams selects from more than one node, "
+            "should only select from a single node"
         ),
         "errors": [],
         "warnings": [],

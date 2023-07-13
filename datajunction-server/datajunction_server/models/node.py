@@ -764,8 +764,8 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         ):
             raise DJInvalidInputException(
                 http_status_code=HTTPStatus.BAD_REQUEST,
-                message=f"Metric {self.name} selects from more than one table, "
-                "should only select from a single table",
+                message=f"Metric {self.name} selects from more than one node, "
+                "should only select from a single node",
             )
 
     def extra_validation(self) -> None:
