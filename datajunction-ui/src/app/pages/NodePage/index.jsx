@@ -92,7 +92,7 @@ export function NodePage() {
       },
       {
         id: 6,
-        name: 'Available Nodes',
+        name: 'Available',
         display: node?.type === 'dimension',
       },
     ];

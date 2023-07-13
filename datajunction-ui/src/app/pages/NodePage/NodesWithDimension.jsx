@@ -18,18 +18,22 @@ export default function NodesWithDimension({ node, djClient }) {
           <th className="text-start">Name</th>
           <th>Type</th>
         </thead>
-        {availableNodes.map(node => (
-          <tr>
-            <td>
-              <a href={`/nodes/${node.name}`}>{node.display_name}</a>
-            </td>
-            <td>
-              <span className={'node_type__' + node.type + ' badge node_type'}>
-                {node.type}
-              </span>
-            </td>
-          </tr>
-        ))}
+        <tbody>
+          {availableNodes.map(node => (
+            <tr>
+              <td>
+                <a href={`/nodes/${node.name}`}>{node.display_name}</a>
+              </td>
+              <td>
+                <span
+                  className={'node_type__' + node.type + ' badge node_type'}
+                >
+                  {node.type}
+                </span>
+              </td>
+            </tr>
+          ))}
+        </tbody>
       </table>
     </div>
   );
