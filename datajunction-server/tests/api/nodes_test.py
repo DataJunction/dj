@@ -1038,7 +1038,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             json=create_invalid_transform_node_payload,
         )
         data = response.json()
-        assert response.status_code == 500
+        assert response.status_code == 400
         assert (
             data["message"]
             == "Node definition contains references to nodes that do not exist"
@@ -2285,7 +2285,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 500
+        assert response.status_code == 400
         assert data == {
             "message": "Node definition contains references to nodes that do not exist",
             "errors": [
