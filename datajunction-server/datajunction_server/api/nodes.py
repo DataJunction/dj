@@ -1368,7 +1368,6 @@ def delete_dimension_link(
     )
     if affected_cubes:
         for cube in affected_cubes:
-            print("affected", cube.name)
             cube.status = NodeStatus.INVALID
             session.add(cube)
 
