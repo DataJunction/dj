@@ -596,17 +596,13 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
         assert response.status_code == 400
         assert response.json() == {
-            "message": (
-                "Node definition contains references to columns as "
-                "bound dimensions that are not on parent nodes."
-            ),
+            "message": "Node definition contains references to "
+            "columns as required dimensions that are not on parent nodes.",
             "errors": [
                 {
                     "code": 206,
-                    "message": (
-                        "Node definition contains references to columns as "
-                        "bound dimensions that are not on parent nodes."
-                    ),
+                    "message": "Node definition contains references to columns "
+                    "as required dimensions that are not on parent nodes.",
                     "debug": {"invalid_bound_dimensions": ["default.messages.foo"]},
                     "context": "",
                 },
