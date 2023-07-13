@@ -11,6 +11,7 @@ import DJClientContext from '../../providers/djclient';
 import NodeSQLTab from './NodeSQLTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
 import ClientCodePopover from './ClientCodePopover';
+import NodesWithDimension from './NodesWithDimension';
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -25,7 +26,7 @@ export function NodePage() {
   };
 
   const buildTabs = tab => {
-    return (
+    return tab.display ? (
       <Tab
         key={tab.id}
         id={tab.id}
@@ -33,7 +34,7 @@ export function NodePage() {
         onClick={onClickTab(tab.id)}
         selectedTab={state.selectedTab}
       />
-    );
+    ) : null;
   };
 
   const { name } = useParams();
@@ -57,32 +58,46 @@ export function NodePage() {
     fetchData().catch(console.error);
   }, [djClient, name]);
 
-  const TabsJson = [
-    {
-      id: 0,
-      name: 'Info',
-    },
-    {
-      id: 1,
-      name: 'Columns',
-    },
-    {
-      id: 2,
-      name: 'Graph',
-    },
-    {
-      id: 3,
-      name: 'History',
-    },
-    {
-      id: 4,
-      name: 'SQL',
-    },
-    {
-      id: 5,
-      name: 'Materializations',
-    },
-  ];
+  const tabsList = node => {
+    return [
+      {
+        id: 0,
+        name: 'Info',
+        display: true,
+      },
+      {
+        id: 1,
+        name: 'Columns',
+        display: true,
+      },
+      {
+        id: 2,
+        name: 'Graph',
+        display: true,
+      },
+      {
+        id: 3,
+        name: 'History',
+        display: true,
+      },
+      {
+        id: 4,
+        name: 'SQL',
+        display: node?.type !== 'dimension' && node?.type !== 'source',
+      },
+      {
+        id: 5,
+        name: 'Materializations',
+        display: node?.type !== 'source',
+      },
+      {
+        id: 6,
+        name: 'Available Nodes',
+        display: node?.type === 'dimension',
+      },
+    ];
+  };
+
   //
   //
   let tabToDisplay = null;
@@ -106,6 +121,9 @@ export function NodePage() {
     case 5:
       tabToDisplay = <NodeMaterializationTab node={node} djClient={djClient} />;
       break;
+    case 6:
+      tabToDisplay = <NodesWithDimension node={node} djClient={djClient} />;
+      break;
     default:
       tabToDisplay = <NodeInfoTab node={node} />;
   }
@@ -126,7 +144,7 @@ export function NodePage() {
           </h3>
           <ClientCodePopover code={node?.createNodeClientCode} />
           <div className="align-items-center row">
-            {TabsJson.map(buildTabs)}
+            {tabsList(node).map(buildTabs)}
           </div>
           {tabToDisplay}
         </div>

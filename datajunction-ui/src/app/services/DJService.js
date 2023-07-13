@@ -108,6 +108,13 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  nodesWithDimension: async function (name) {
+    const data = await (
+      await fetch(DJ_URL + '/dimensions/' + name + '/nodes/')
+    ).json();
+    return data;
+  },
+
   materializations: async function (node) {
     const data = await (
       await fetch(DJ_URL + `/nodes/${node}/materializations/`)
