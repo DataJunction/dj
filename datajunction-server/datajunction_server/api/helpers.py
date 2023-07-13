@@ -360,6 +360,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
     # Only raise on missing parents if the node mode is set to published
     if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
         raise DJException(
+            http_status_code=HTTPStatus.BAD_REQUEST,
             errors=[
                 DJError(
                     code=ErrorCode.MISSING_PARENT,
