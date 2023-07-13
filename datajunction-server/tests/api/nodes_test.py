@@ -581,7 +581,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                     "bound_dimensions": ["default.nothin.id"],
                 },
             )
-            assert "bound dimensions that are not on parent nodes" in str(exc)
+            assert "required dimensions that are not on parent nodes" in str(exc)
 
         # Create a metric on the source node w/ an invalid bound dimension
         response = client.post(

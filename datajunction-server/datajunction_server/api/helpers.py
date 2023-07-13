@@ -428,7 +428,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
                         code=ErrorCode.INVALID_COLUMN,
                         message=(
                             "Node definition contains references to columns as "
-                            "bound dimensions that are not on parent nodes."
+                            "required dimensions that are not on parent nodes."
                         ),
                         debug={
                             "invalid_bound_dimensions": list(invalid_bound_dimensions),
