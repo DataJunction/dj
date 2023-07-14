@@ -279,8 +279,8 @@ def set_column_attributes_on_node(
     session.add_all(modified_columns)
     session.add(
         History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
+            entity_type=EntityType.COLUMN_ATTRIBUTE,
+            context_node=node.name,
             activity_type=ActivityType.SET_ATTRIBUTE,
             details={
                 "attributes": [attr.dict() for attr in attributes],
@@ -368,7 +368,8 @@ def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
         History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
-            activity_type=ActivityType.DEACTIVATE,
+            context_node=node.name,
+            activity_type=ActivityType.DELETE,
         ),
     )
     session.commit()
@@ -409,7 +410,8 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
         History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
-            activity_type=ActivityType.ACTIVATE,
+            context_node=node.name,
+            activity_type=ActivityType.RESTORE,
         ),
     )
     session.commit()
@@ -709,12 +711,13 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
 
     session.add(
         History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
+            entity_type=EntityType.MATERIALIZATION,
+            context_node=node.name,
+            entity_name=new_materialization.name,
             activity_type=(
-                ActivityType.ADD_MATERIALIZATION
+                ActivityType.CREATE
                 if new_materialization.name in existing_materialization_names
-                else ActivityType.UPDATE_MATERIALIZATION
+                else ActivityType.UPDATE
             ),
             details={
                 "node": node.name,
@@ -1364,9 +1367,9 @@ def link_a_dimension(
     session.add(node)
     session.add(
         History(
-            entity_type=EntityType.NODE,
+            entity_type=EntityType.LINK,
             entity_name=node.name,
-            activity_type=ActivityType.LINK,
+            activity_type=ActivityType.CREATE,
             details={
                 "column": target_column.name,
                 "dimension": dimension_node.name,

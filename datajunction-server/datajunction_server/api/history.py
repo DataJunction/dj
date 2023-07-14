@@ -6,7 +6,7 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_history
 from datajunction_server.models.history import EntityType, History
@@ -35,5 +35,21 @@ def list_history(
         offset=offset,
         limit=limit,
     )
-    print(hist)
+    return hist
+
+
+@router.get("/history/", response_model=List[History])
+def list_history_by_node_context(
+    node: str,
+    offset: int = 0,
+    limit: int = Query(default=100, lte=100),
+    *,
+    session: Session = Depends(get_session)
+) -> List[History]:
+    """
+    List all activity history for a node context
+    """
+    hist = session.exec(
+        select(History).where(History.context_node == node).offset(offset).limit(limit),
+    ).all()
     return hist
