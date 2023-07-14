@@ -385,9 +385,9 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
             type_inference_failures[col.alias_or_name.name] = parse_exc.message  # type: ignore
 
     # check that bound dimensions are from parent nodes
-    invalid_bound_dimensions = set()
+    invalid_required_dimensions = set()
     matched_bound_columns = []
-    for col in validated_node.bound_dimensions:
+    for col in validated_node.required_dimensions:
         names = col.split(".")
         parent_name, column_name = ".".join(names[:-1]), names[-1]
 
@@ -403,11 +403,11 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
                     matched_bound_columns.append(parent_col)
                     break
         if not found_parent_col:
-            invalid_bound_dimensions.add(col)
-    validated_node.bound_dimensions = matched_bound_columns
+            invalid_required_dimensions.add(col)
+    validated_node.required_dimensions = matched_bound_columns
 
     # Only raise on missing parents or type inference if the node mode is set to published
-    if missing_parents_map or type_inference_failures or invalid_bound_dimensions:
+    if missing_parents_map or type_inference_failures or invalid_required_dimensions:
         if validated_node.mode == NodeMode.DRAFT:
             validated_node.status = NodeStatus.INVALID
         else:
@@ -422,7 +422,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
                 if missing_parents_map
                 else []
             )
-            invalid_bound_dimensions_error = (
+            invalid_required_dimensions_error = (
                 [
                     DJError(
                         code=ErrorCode.INVALID_COLUMN,
@@ -431,11 +431,13 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
                             "required dimensions that are not on parent nodes."
                         ),
                         debug={
-                            "invalid_bound_dimensions": list(invalid_bound_dimensions),
+                            "invalid_required_dimensions": list(
+                                invalid_required_dimensions,
+                            ),
                         },
                     ),
                 ]
-                if invalid_bound_dimensions
+                if invalid_required_dimensions
                 else []
             )
             type_inference_error = (
@@ -458,7 +460,7 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
                 http_status_code=HTTPStatus.BAD_REQUEST,
                 errors=missing_parents_error
                 + type_inference_error
-                + invalid_bound_dimensions_error,
+                + invalid_required_dimensions_error,
             )
 
     return (

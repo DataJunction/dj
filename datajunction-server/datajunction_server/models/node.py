@@ -103,7 +103,7 @@ class BoundDimensionsRelationship(BaseSQLModel, table=True):  # type: ignore
     and parent nodes for dimensions that are required.
     """
 
-    __tablename__ = "metric_bound_dimensions"
+    __tablename__ = "metric_required_dimensions"
 
     metric_id: Optional[int] = Field(
         default=None,
@@ -597,7 +597,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
 
     # A list of columns from the metric's parent that
     # are required for grouping when using the metric
-    bound_dimensions: List["Column"] = Relationship(
+    required_dimensions: List["Column"] = Relationship(
         link_model=BoundDimensionsRelationship,
         sa_relationship_kwargs={
             "primaryjoin": "NodeRevision.id==BoundDimensionsRelationship.metric_id",
@@ -769,7 +769,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                     f"Node {self.name} of type {self.type} needs a query",
                 )
 
-        if self.type != NodeType.METRIC and self.bound_dimensions:
+        if self.type != NodeType.METRIC and self.required_dimensions:
             raise DJInvalidInputException(
                 f"Node {self.name} of type {self.type} cannot have "
                 "bound dimensions which are only for metrics.",
@@ -950,7 +950,7 @@ class MetricNodeFields(BaseSQLModel):
     Metric node fields that can be changed
     """
 
-    bound_dimensions: Optional[List[str]]
+    required_dimensions: Optional[List[str]]
 
 
 #

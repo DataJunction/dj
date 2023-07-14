@@ -128,7 +128,7 @@ def test_extra_validation() -> None:
         node=node,
         version="1",
         query="SELECT * FROM B",
-        bound_dimensions=["B.x"],
+        required_dimensions=["B.x"],
     )
     with pytest.raises(Exception) as excinfo:
         node_revision.extra_validation()

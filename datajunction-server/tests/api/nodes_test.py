@@ -564,7 +564,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
                 "mode": "published",
                 "name": "default.num_messages_id",
-                "bound_dimensions": ["default.messages.id"],
+                "required_dimensions": ["default.messages.id"],
             },
         )
         assert response.ok
@@ -578,7 +578,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                     "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
                     "mode": "published",
                     "name": "default.num_messages_id",
-                    "bound_dimensions": ["default.nothin.id"],
+                    "required_dimensions": ["default.nothin.id"],
                 },
             )
             assert "required dimensions that are not on parent nodes" in str(exc)
@@ -591,7 +591,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
                 "mode": "published",
                 "name": "default.num_messages_id_invalid_dimension",
-                "bound_dimensions": ["default.messages.foo"],
+                "required_dimensions": ["default.messages.foo"],
             },
         )
         assert response.status_code == 400
@@ -603,7 +603,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                     "code": 206,
                     "message": "Node definition contains references to columns "
                     "as required dimensions that are not on parent nodes.",
-                    "debug": {"invalid_bound_dimensions": ["default.messages.foo"]},
+                    "debug": {"invalid_required_dimensions": ["default.messages.foo"]},
                     "context": "",
                 },
             ],

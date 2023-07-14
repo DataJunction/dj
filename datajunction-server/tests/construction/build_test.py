@@ -85,7 +85,7 @@ async def test_build_metric_with_dimensions_aggs(request):
     assert compare_query_strings(str(query), expected)
 
 
-def test_build_metric_with_bound_dimensions(request):
+def test_build_metric_with_required_dimensions(request):
     """
     Test building metric with bound dimensions
     """

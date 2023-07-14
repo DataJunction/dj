@@ -453,7 +453,7 @@ def construction_session(  # pylint: disable=too-many-locals
         columns=[
             Column(name="cnt", type=IntegerType()),
         ],
-        bound_dimensions=[
+        required_dimensions=[
             comments_src.columns[0],  # pylint: disable=E1136
             comments_src.columns[-1],  # pylint: disable=E1136
         ],
