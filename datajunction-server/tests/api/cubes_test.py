@@ -1174,3 +1174,22 @@ def test_add_availability_to_cube(
         " FROM repairs_cube \n"
         " GROUP BY  country, postal_code\n",
     }
+
+
+def test_unlink_node_column_dimension(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    When a node column link to a dimension is removed, the cube should be invalidated
+    """
+    response = client_with_repairs_cube.delete(
+        "/nodes/default.repair_order/columns/hard_hat_id/"
+        "?dimension=default.hard_hat&dimension_column=hard_hat_id",
+    )
+    assert response.json() == {
+        "message": "The dimension link on the node default.repair_order's hard_hat_id "
+        "to default.hard_hat has been successfully removed.",
+    }
+    response = client_with_repairs_cube.get("/nodes/default.repairs_cube")
+    data = response.json()
+    assert data["status"] == "invalid"

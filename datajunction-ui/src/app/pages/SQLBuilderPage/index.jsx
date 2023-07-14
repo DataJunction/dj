@@ -175,7 +175,7 @@ export function SQLBuilderPage() {
               onChange={handleMetricSelect}
               onMenuClose={handleMetricSelectorClose}
             />
-            <h4>Shared Dimensions</h4>
+            <h4>Group By</h4>
             <Select
               name="dimensions"
               formatOptionLabel={formatOptionLabel}
