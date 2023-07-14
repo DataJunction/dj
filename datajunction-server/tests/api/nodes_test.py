@@ -555,6 +555,61 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         assert response.ok
+
+        # Create a metric on the source node w/ bound dimensions
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of user messages by id",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
+                "mode": "published",
+                "name": "default.num_messages_id",
+                "required_dimensions": ["default.messages.id"],
+            },
+        )
+        assert response.ok
+
+        # Create a metric w/ bound dimensions that to not exist
+        with pytest.raises(Exception) as exc:
+            response = client.post(
+                "/nodes/metric/",
+                json={
+                    "description": "Total number of user messages by id",
+                    "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
+                    "mode": "published",
+                    "name": "default.num_messages_id",
+                    "required_dimensions": ["default.nothin.id"],
+                },
+            )
+            assert "required dimensions that are not on parent nodes" in str(exc)
+
+        # Create a metric on the source node w/ an invalid bound dimension
+        response = client.post(
+            "/nodes/metric/",
+            json={
+                "description": "Total number of user messages by id",
+                "query": "SELECT COUNT(DISTINCT id) FROM default.messages",
+                "mode": "published",
+                "name": "default.num_messages_id_invalid_dimension",
+                "required_dimensions": ["default.messages.foo"],
+            },
+        )
+        assert response.status_code == 400
+        assert response.json() == {
+            "message": "Node definition contains references to "
+            "columns as required dimensions that are not on parent nodes.",
+            "errors": [
+                {
+                    "code": 206,
+                    "message": "Node definition contains references to columns "
+                    "as required dimensions that are not on parent nodes.",
+                    "debug": {"invalid_required_dimensions": ["default.messages.foo"]},
+                    "context": "",
+                },
+            ],
+            "warnings": [],
+        }
+
         # Link the dimension to a column on the source node
         response = client.post(
             "/nodes/default.messages/columns/user_id/"
@@ -979,7 +1034,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             json=create_invalid_transform_node_payload,
         )
         data = response.json()
-        assert response.status_code == 500
+        assert response.status_code == 400
         assert (
             data["message"]
             == "Node definition contains references to nodes that do not exist"
@@ -2226,7 +2281,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 500
+        assert response.status_code == 400
         assert data == {
             "message": "Node definition contains references to nodes that do not exist",
             "errors": [
