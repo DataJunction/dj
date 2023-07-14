@@ -3,6 +3,7 @@
 Tests for the nodes API.
 """
 from typing import Any, Dict
+from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -294,6 +295,36 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             "warnings": [],
         }
 
+        # The deletion action should be recorded in the node's history
+        response = client_with_examples.get("/history?node=basic.source.users")
+        history = response.json()
+        assert history == [
+            {
+                "activity_type": "create",
+                "context_node": "basic.source.users",
+                "created_at": mock.ANY,
+                "details": {},
+                "entity_name": "basic.source.users",
+                "entity_type": "node",
+                "id": mock.ANY,
+                "post": {},
+                "pre": {},
+                "user": None,
+            },
+            {
+                "activity_type": "delete",
+                "context_node": "basic.source.users",
+                "created_at": mock.ANY,
+                "details": {},
+                "entity_name": "basic.source.users",
+                "entity_type": "node",
+                "id": mock.ANY,
+                "post": {},
+                "pre": {},
+                "user": None,
+            },
+        ]
+
     def test_deactivating_source_upstream_from_metric(
         self,
         client: TestClient,
@@ -461,6 +492,13 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # Retrieving the reactivated node should work
         response = client.get("/nodes/default.us_users/")
         assert response.ok
+        # Check history of the reactivated node
+        response = client.get("/history?node=default.us_users")
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [("create", "node"), ("delete", "node"), ("restore", "node")]
+
         # This downstream metric should have been changed to valid
         response = client.get("/nodes/default.num_us_users/")
         assert response.json()["status"] == NodeStatus.VALID
@@ -1603,6 +1641,13 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             data["message"] == "Successfully updated materialization config named "
             "`country_3491792861` for node `basic.transform.country_agg`"
         )
+
+        # Check history of the node with materialization
+        response = client_with_query_service.get("/history?node=basic.transform.country_agg")
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [("create", "node"), ("create", "materialization")]
 
         # Setting it again should inform that it already exists
         response = client_with_query_service.post(
