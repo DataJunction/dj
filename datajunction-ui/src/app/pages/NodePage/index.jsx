@@ -92,7 +92,7 @@ export function NodePage() {
       },
       {
         id: 6,
-        name: 'Available',
+        name: 'Linked Nodes',
         display: node?.type === 'dimension',
       },
     ];
@@ -139,7 +139,10 @@ export function NodePage() {
             style={{ display: 'inline-block' }}
           >
             <span className="card-label fw-bold text-gray-800">
-              {node?.display_name}
+              {node?.display_name}{' '}
+              <span className={'node_type__' + node?.type + ' badge node_type'}>
+                {node?.type}
+              </span>
             </span>
           </h3>
           <ClientCodePopover code={node?.createNodeClientCode} />
