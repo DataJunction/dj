@@ -1096,6 +1096,7 @@ def save_node(
     session.add(node)
     session.add(
         History(
+            context_node=node.name,
             entity_type=EntityType.NODE,
             entity_name=node.name,
             activity_type=ActivityType.CREATE,

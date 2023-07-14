@@ -1,6 +1,8 @@
 """
 Tests for the history endpoint
 """
+from unittest import mock
+
 from fastapi.testclient import TestClient
 
 from datajunction_server.models.history import ActivityType, EntityType, History
@@ -25,7 +27,7 @@ def test_history_hash():
     assert hash(foo1) == hash(foo2)
 
 
-def test_get_history(client_with_examples: TestClient):
+def test_get_history_node(client_with_examples: TestClient):
     """
     Test getting history for a node
     """
@@ -37,13 +39,84 @@ def test_get_history(client_with_examples: TestClient):
     entity.pop("created_at")
     assert history == [
         {
-            "id": 1,
+            "id": mock.ANY,
             "pre": {},
             "post": {},
+            "context_node": "default.repair_orders",
             "entity_type": "node",
             "entity_name": "default.repair_orders",
             "activity_type": "create",
             "user": None,
             "details": {},
+        },
+    ]
+
+
+def test_get_history_context_node(client_with_examples: TestClient):
+    """
+    Test getting history for a node context
+    """
+
+    response = client_with_examples.get("/history?node=default.repair_order")
+    assert response.ok
+    history = response.json()
+    assert len(history) == 2
+    assert history == [
+        {
+            "activity_type": "create",
+            "context_node": "default.repair_order",
+            "created_at": mock.ANY,
+            "details": {},
+            "entity_name": "default.repair_order",
+            "entity_type": "node",
+            "id": mock.ANY,
+            "post": {},
+            "pre": {},
+            "user": None,
+        },
+        {
+            "activity_type": "set_attribute",
+            "context_node": "default.repair_order",
+            "created_at": mock.ANY,
+            "details": {
+                "attributes": [
+                    {
+                        "attribute_type_name": "primary_key",
+                        "attribute_type_namespace": "system",
+                        "column_name": "repair_order_id",
+                    },
+                ],
+            },
+            "entity_name": None,
+            "entity_type": "column_attribute",
+            "id": mock.ANY,
+            "post": {},
+            "pre": {},
+            "user": None,
+        },
+    ]
+
+
+def test_get_history_namespace(client_with_examples: TestClient):
+    """
+    Test getting history for a node context
+    """
+
+    response = client_with_examples.get("/history/namespace/default")
+    assert response.ok
+    history = response.json()
+    assert len(history) == 1
+    assert history == [
+        {
+            "activity_type": "create",
+            "context_node": None,
+            "created_at": mock.ANY,
+            "details": {},
+            "entity_name": "default",
+            "entity_type": "namespace",
+            "id": mock.ANY,
+            "post": {},
+            "pre": {},
+            "user": None,
         },
     ]
