@@ -3,10 +3,18 @@ DAG related functions.
 """
 import collections
 import itertools
-from typing import Deque, Dict, List, Set, Tuple, Union
+from typing import Deque, Dict, List, Optional, Set, Tuple, Union
+
+from sqlmodel import Session, select
 
 from datajunction_server.models import Column
-from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
+from datajunction_server.models.base import NodeColumns
+from datajunction_server.models.node import (
+    DimensionAttributeOutput,
+    Node,
+    NodeRevision,
+    NodeType,
+)
 from datajunction_server.utils import get_settings
 
 settings = get_settings()
@@ -140,3 +148,62 @@ def get_shared_dimensions(
         [y for x in common.values() for y in x],
         key=lambda x: (x.name, x.path),
     )
+
+
+def get_nodes_with_dimension(
+    session: Session,
+    dimension_node: Node,
+    node_types: Optional[List[NodeType]] = None,
+) -> List[NodeRevision]:
+    """
+    Find all nodes that can be joined to a given dimension
+    """
+    to_process = [dimension_node]
+    processed: Set[str] = set()
+    final_set: Set[NodeRevision] = set()
+    while to_process:
+        current_node = to_process.pop()
+        processed.add(current_node.name)
+
+        # Dimension nodes are used to expand the searchable graph by finding
+        # the next layer of nodes that are linked to this dimension
+        if current_node.type == NodeType.DIMENSION:
+            statement = (
+                select(NodeRevision)
+                .join(
+                    Node,
+                    onclause=(
+                        (NodeRevision.node_id == Node.id)
+                        & (Node.current_version == NodeRevision.version)
+                    ),  # pylint: disable=superfluous-parens
+                )
+                .join(
+                    NodeColumns,
+                    onclause=(
+                        NodeRevision.id == NodeColumns.node_id
+                    ),  # pylint: disable=superfluous-parens
+                )
+                .join(
+                    Column,
+                    onclause=(
+                        NodeColumns.column_id == Column.id
+                    ),  # pylint: disable=superfluous-parens
+                )
+                .where(
+                    Column.dimension_id.in_(  # type: ignore  # pylint: disable=no-member
+                        [current_node.id],
+                    ),
+                )
+            )
+            node_revisions = session.exec(statement).unique().all()
+            for node_rev in node_revisions:
+                to_process.append(node_rev.node)
+        else:
+            # All other nodes are added to the result set
+            final_set.add(current_node.current)
+            for child in current_node.children:
+                if child.name not in processed:
+                    to_process.append(child.node)
+    if node_types:
+        return [node for node in final_set if node.type in node_types]
+    return list(final_set)
