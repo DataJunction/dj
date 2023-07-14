@@ -3,16 +3,17 @@ A DataJunction client for connecting to a DataJunction server
 """
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
-from datajunction.client import (
+from datajunction.base import (
     Cube,
     Dimension,
-    DJClient,
     Metric,
     Namespace,
     Node,
     Source,
     Transform,
+    _DJClient,
 )
+from datajunction.client import DJReader, DJWriter
 from datajunction.models import (
     AvailabilityState,
     ColumnAttribute,
@@ -32,9 +33,11 @@ finally:
 
 
 __all__ = [
+    "_DJClient",
+    "DJReader",
+    "DJWriter",
     "AvailabilityState",
     "ColumnAttribute",
-    "DJClient",
     "Source",
     "Dimension",
     "Transform",

@@ -6,7 +6,7 @@ import namesgenerator
 import pandas
 import pytest
 
-from datajunction import DJClient
+from datajunction import DJReader
 from datajunction.exceptions import DJClientException
 from datajunction.models import AvailabilityState, ColumnAttribute, NodeMode, NodeStatus
 
@@ -16,7 +16,7 @@ def test_integration():  # pylint: disable=too-many-statements
     """
     Integration test
     """
-    dj = DJClient()  # pylint: disable=invalid-name
+    dj = DJReader()  # pylint: disable=invalid-name
 
     # Create a namespace
     namespace = f"integration.python.{namesgenerator.get_random_name()}"

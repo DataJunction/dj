@@ -2,7 +2,7 @@
 import pandas
 import pytest
 
-from datajunction import DJClient
+from datajunction import DJReader
 from datajunction.exceptions import DJClientException, DJNamespaceAlreadyExists
 from datajunction.models import (
     AvailabilityState,
@@ -14,7 +14,7 @@ from datajunction.models import (
 )
 
 
-class TestDJClient:
+class TestDJReader:
     """
     Tests for DJ client functionality.
     """
@@ -24,7 +24,7 @@ class TestDJClient:
         """
         Returns a DJ client instance
         """
-        return DJClient(requests_session=session_with_examples)  # type: ignore
+        return DJReader(requests_session=session_with_examples)  # type: ignore
 
     def test_namespaces(self, client):
         """
