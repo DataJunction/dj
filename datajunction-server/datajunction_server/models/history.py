@@ -18,25 +18,12 @@ class ActivityType(str, Enum):
     An activity type
     """
 
-    AVAILABILITY = "availability"
     CREATE = "create"
-    DEACTIVATE = "deactivate"
-    ACTIVATE = "activate"
-    UPDATE = "modify"
-
-    # Link columns to dimensions
-    LINK = "link"
-    UNLINK = "unlink"
-
+    DELETE = "delete"
+    RESTORE = "restore"
+    UPDATE = "update"
     TAG = "tag"
-
-    # Set column attributes
     SET_ATTRIBUTE = "set_attribute"
-
-    # Node materialization
-    ADD_MATERIALIZATION = "add_materialization"
-    UPDATE_MATERIALIZATION = "update_materialization"
-    DELETE_MATERIALIZATION = "delete_materialization"
 
 
 class EntityType(str, Enum):
@@ -45,8 +32,12 @@ class EntityType(str, Enum):
     """
 
     ATTRIBUTE = "attribute"
+    AVAILABILITY = "availability"
     CATALOG = "catalog"
+    COLUMN_ATTRIBUTE = "column_attribute"
     ENGINE = "engine"
+    LINK = "link"
+    MATERIALIZATION = "materialization"
     NAMESPACE = "namespace"
     NODE = "node"
     QUERY = "query"
@@ -61,6 +52,7 @@ class History(SQLModel, table=True):  # type: ignore
     id: Optional[int] = Field(default=None, primary_key=True)
     entity_type: Optional[EntityType] = Field(default=None)
     entity_name: Optional[str] = Field(default=None)
+    context_node: Optional[str] = Field(default=None)
     activity_type: Optional[ActivityType] = Field(default=None)
     user: Optional[str] = Field(default=None)
     pre: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))

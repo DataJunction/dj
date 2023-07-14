@@ -301,19 +301,20 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
         # Check that the history tracker has been updated
         response = client_with_examples.get(
-            "/history/node/default.large_revenue_payments_and_business_only/",
+            "/history?node=default.large_revenue_payments_and_business_only",
         )
         data = response.json()
         availability_activities = [
-            activity for activity in data if activity["activity_type"] == "availability"
+            activity for activity in data if activity["entity_type"] == "availability"
         ]
         assert availability_activities == [
             {
-                "activity_type": "availability",
+                "activity_type": "create",
                 "created_at": mock.ANY,
                 "details": {},
-                "entity_name": "default.large_revenue_payments_and_business_only",
-                "entity_type": "node",
+                "entity_name": None,
+                "context_node": "default.large_revenue_payments_and_business_only",
+                "entity_type": "availability",
                 "id": mock.ANY,
                 "post": {
                     "catalog": "default",
@@ -433,19 +434,20 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
 
         # Check that the history tracker has been updated
         response = client_with_examples.get(
-            "/history/node/default.large_revenue_payments_and_business_only/",
+            "/history/?node=default.large_revenue_payments_and_business_only",
         )
         data = response.json()
         availability_activities = [
-            activity for activity in data if activity["activity_type"] == "availability"
+            activity for activity in data if activity["entity_type"] == "availability"
         ]
         assert availability_activities == [
             {
-                "activity_type": "availability",
+                "activity_type": "create",
                 "created_at": mock.ANY,
                 "details": {},
-                "entity_name": "default.large_revenue_payments_and_business_only",
-                "entity_type": "node",
+                "entity_name": None,
+                "context_node": "default.large_revenue_payments_and_business_only",
+                "entity_type": "availability",
                 "id": mock.ANY,
                 "post": {
                     "catalog": "default",
@@ -462,11 +464,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "user": None,
             },
             {
-                "activity_type": "availability",
+                "activity_type": "create",
                 "created_at": mock.ANY,
                 "details": {},
-                "entity_name": "default.large_revenue_payments_and_business_only",
-                "entity_type": "node",
+                "entity_name": None,
+                "context_node": "default.large_revenue_payments_and_business_only",
+                "entity_type": "availability",
                 "id": mock.ANY,
                 "post": {
                     "catalog": "default",
@@ -493,11 +496,12 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "user": None,
             },
             {
-                "activity_type": "availability",
+                "activity_type": "create",
                 "created_at": mock.ANY,
                 "details": {},
-                "entity_name": "default.large_revenue_payments_and_business_only",
-                "entity_type": "node",
+                "entity_name": None,
+                "context_node": "default.large_revenue_payments_and_business_only",
+                "entity_type": "availability",
                 "id": mock.ANY,
                 "post": {
                     "catalog": "default",
