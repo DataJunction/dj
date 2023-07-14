@@ -1465,7 +1465,7 @@ def tag_a_node(
         History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
-            content_node=node.name,
+            context_node=node.name,
             activity_type=ActivityType.TAG,
             details={
                 "tag": tag_name,

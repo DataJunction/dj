@@ -1,6 +1,7 @@
 """
 Tests for tags.
 """
+from unittest import mock
 
 from fastapi.testclient import TestClient
 
@@ -45,6 +46,23 @@ class TestTags:
         response = client_with_examples.get("/tags/sales_report/")
         assert response.status_code == 200
         assert response.json() == expected_tag_output
+
+        # Check history
+        response = client_with_examples.get("/history/tag/sales_report/")
+        assert response.json() == [
+            {
+                "activity_type": "create",
+                "context_node": None,
+                "created_at": mock.ANY,
+                "details": {},
+                "entity_name": "sales_report",
+                "entity_type": "tag",
+                "id": mock.ANY,
+                "post": {},
+                "pre": {},
+                "user": None,
+            },
+        ]
 
         # Creating it again should raise an exception
         response = self.create_tag(client_with_examples)
@@ -92,6 +110,13 @@ class TestTags:
             "name": "sales_report",
             "tag_type": "group",
         }
+
+        # Check history
+        response = client_with_examples.get("/history/tag/sales_report/")
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [("create", "tag"), ("update", "tag")]
 
     def test_list_tags(self, client_with_examples: TestClient) -> None:
         """
@@ -218,6 +243,13 @@ class TestTags:
             response_data["message"]
             == "Node `default.total_profit` has been successfully tagged with tag `sales_report`"
         )
+
+        # Check history
+        response = client_with_examples.get("/history?node=default.total_profit")
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [("create", "node"), ("tag", "node")]
 
         # Check finding nodes for tag
         response = client_with_examples.get(
