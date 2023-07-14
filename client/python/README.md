@@ -16,6 +16,10 @@ from datajunction import DJClient
 dj = DJClient("http://dj-endpoint:8000")
 ```
 
+!!! tip
+    `dj-endpoint` should represent the DJ server you want to connect to, so if you are trying a local DJ demo installation
+    you can use `http://localhost:8000`.
+
 ### Catalogs and Engines
 
 To list available catalogs for the DJ host:
