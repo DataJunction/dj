@@ -327,7 +327,7 @@ def get_upstream_nodes(
     ]
 
 
-def validate_node_data(
+def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
     data: Union[NodeRevisionBase, NodeRevision],
     session: Session,
 ) -> Tuple[
@@ -358,19 +358,17 @@ def validate_node_data(
         raise DJException(message=str(raised_exceptions)) from raised_exceptions
 
     # Only raise on missing parents if the node mode is set to published
-    if missing_parents_map:
-        if validated_node.mode == NodeMode.DRAFT:
-            validated_node.status = NodeStatus.INVALID
-        else:
-            raise DJException(
-                errors=[
-                    DJError(
-                        code=ErrorCode.MISSING_PARENT,
-                        message="Node definition contains references to nodes that do not exist",
-                        debug={"missing_parents": list(missing_parents_map.keys())},
-                    ),
-                ],
-            )
+    if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
+        raise DJException(
+            http_status_code=HTTPStatus.BAD_REQUEST,
+            errors=[
+                DJError(
+                    code=ErrorCode.MISSING_PARENT,
+                    message="Node definition contains references to nodes that do not exist",
+                    debug={"missing_parents": list(missing_parents_map.keys())},
+                ),
+            ],
+        )
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
@@ -385,10 +383,31 @@ def validate_node_data(
             )
         except DJParseException as parse_exc:
             type_inference_failures[col.alias_or_name.name] = parse_exc.message  # type: ignore
-            validated_node.status = NodeStatus.INVALID
+
+    # check that bound dimensions are from parent nodes
+    invalid_required_dimensions = set()
+    matched_bound_columns = []
+    for col in validated_node.required_dimensions:
+        names = col.split(".")
+        parent_name, column_name = ".".join(names[:-1]), names[-1]
+
+        found_parent_col = False
+        for parent in dependencies_map.keys():
+            if found_parent_col:
+                break  # pragma: no cover
+            if (parent.name) != parent_name:
+                continue  # pragma: no cover
+            for parent_col in parent.columns:
+                if parent_col.name == column_name:
+                    found_parent_col = True
+                    matched_bound_columns.append(parent_col)
+                    break
+        if not found_parent_col:
+            invalid_required_dimensions.add(col)
+    validated_node.required_dimensions = matched_bound_columns
 
     # Only raise on missing parents or type inference if the node mode is set to published
-    if missing_parents_map or type_inference_failures:
+    if missing_parents_map or type_inference_failures or invalid_required_dimensions:
         if validated_node.mode == NodeMode.DRAFT:
             validated_node.status = NodeStatus.INVALID
         else:
@@ -401,6 +420,24 @@ def validate_node_data(
                     ),
                 ]
                 if missing_parents_map
+                else []
+            )
+            invalid_required_dimensions_error = (
+                [
+                    DJError(
+                        code=ErrorCode.INVALID_COLUMN,
+                        message=(
+                            "Node definition contains references to columns as "
+                            "required dimensions that are not on parent nodes."
+                        ),
+                        debug={
+                            "invalid_required_dimensions": list(
+                                invalid_required_dimensions,
+                            ),
+                        },
+                    ),
+                ]
+                if invalid_required_dimensions
                 else []
             )
             type_inference_error = (
@@ -420,7 +457,10 @@ def validate_node_data(
                 else []
             )
             raise DJException(
-                errors=missing_parents_error + type_inference_error,
+                http_status_code=HTTPStatus.BAD_REQUEST,
+                errors=missing_parents_error
+                + type_inference_error
+                + invalid_required_dimensions_error,
             )
 
     return (
