@@ -60,7 +60,7 @@ def test_get_history_context_node(client_with_examples: TestClient):
     response = client_with_examples.get("/history?node=default.repair_order")
     assert response.ok
     history = response.json()
-    assert len(history) == 2
+    assert len(history) == 5
     assert history == [
         {
             "activity_type": "create",
@@ -89,6 +89,54 @@ def test_get_history_context_node(client_with_examples: TestClient):
             },
             "entity_name": None,
             "entity_type": "column_attribute",
+            "id": mock.ANY,
+            "post": {},
+            "pre": {},
+            "user": None,
+        },
+        {
+            "activity_type": "create",
+            "context_node": "default.repair_order",
+            "created_at": mock.ANY,
+            "details": {
+                "column": "dispatcher_id",
+                "dimension": "default.dispatcher",
+                "dimension_column": "dispatcher_id",
+            },
+            "entity_name": "default.repair_order",
+            "entity_type": "link",
+            "id": mock.ANY,
+            "post": {},
+            "pre": {},
+            "user": None,
+        },
+        {
+            "activity_type": "create",
+            "context_node": "default.repair_order",
+            "created_at": mock.ANY,
+            "details": {
+                "column": "hard_hat_id",
+                "dimension": "default.hard_hat",
+                "dimension_column": "hard_hat_id",
+            },
+            "entity_name": "default.repair_order",
+            "entity_type": "link",
+            "id": mock.ANY,
+            "post": {},
+            "pre": {},
+            "user": None,
+        },
+        {
+            "activity_type": "create",
+            "context_node": "default.repair_order",
+            "created_at": mock.ANY,
+            "details": {
+                "column": "municipality_id",
+                "dimension": "default.municipality_dim",
+                "dimension_column": "municipality_id",
+            },
+            "entity_name": "default.repair_order",
+            "entity_type": "link",
             "id": mock.ANY,
             "post": {},
             "pre": {},

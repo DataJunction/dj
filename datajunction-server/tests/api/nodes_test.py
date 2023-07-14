@@ -705,6 +705,16 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "type": "float",
             },
         ]
+
+        # Check history of the node with column dimension link
+        response = client.get(
+            "/history?node=default.messages",
+        )
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [("create", "node"), ("create", "link")]
+
         # Deactivate the dimension node
         response = client.post("/nodes/default.us_users/deactivate/")
         assert response.ok
@@ -1643,7 +1653,9 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
 
         # Check history of the node with materialization
-        response = client_with_query_service.get("/history?node=basic.transform.country_agg")
+        response = client_with_query_service.get(
+            "/history?node=basic.transform.country_agg",
+        )
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
@@ -2509,6 +2521,17 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 """,
             },
         )
+        response = client_with_examples.get("/history?node=default.hard_hat")
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [
+            ("create", "node"),
+            ("set_attribute", "column_attribute"),
+            ("create", "link"),
+            ("update", "node"),
+        ]
+
         response = client_with_examples.get("/nodes/default.hard_hat").json()
         assert response["columns"] == [
             {
@@ -2526,6 +2549,20 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "attributes": [],
                 "dimension": {"name": "default.us_state"},
             },
+        ]
+
+        # Check history of the node with column attribute set
+        response = client_with_examples.get(
+            "/history?node=default.hard_hat",
+        )
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [
+            ("create", "node"),
+            ("set_attribute", "column_attribute"),
+            ("create", "link"),
+            ("update", "node"),
         ]
 
     def test_update_dimension_remove_pk_column(self, client_with_examples: TestClient):
