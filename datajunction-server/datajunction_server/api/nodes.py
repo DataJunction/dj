@@ -1370,6 +1370,7 @@ def link_a_dimension(
         History(
             entity_type=EntityType.LINK,
             entity_name=node.name,
+            context_node=node.name,
             activity_type=ActivityType.CREATE,
             details={
                 "column": target_column.name,
@@ -1464,6 +1465,7 @@ def tag_a_node(
         History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
+            content_node=node.name,
             activity_type=ActivityType.TAG,
             details={
                 "tag": tag_name,
@@ -1694,6 +1696,7 @@ def update_a_node(
         History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
+            context_node=node.name,
             activity_type=ActivityType.UPDATE,
             details={
                 "version": new_revision.version,
