@@ -1073,7 +1073,69 @@ def test_raise_on_multiple_expressions(client_with_examples: TestClient):
             "name": "basic.dream_count",
         },
     )
-    assert response.status_code == 422
+    assert response.status_code == 400
     assert (
         "Metric queries can only have a single expression, found 2"
     ) in response.json()["message"]
+
+
+def test_raise_on_joins(client_with_examples: TestClient):
+    """
+    Testing raising when a metric selects from more than a single table
+    """
+    response = client_with_examples.post(
+        "/nodes/source/",
+        json={
+            "columns": [
+                {
+                    "name": "counts",
+                    "type": "struct<a string, b bigint>",
+                },
+            ],
+            "description": "Collection of dreams",
+            "mode": "published",
+            "name": "basic.dreams",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "dreams",
+        },
+    )
+    assert response.ok
+
+    response = client_with_examples.post(
+        "/nodes/source/",
+        json={
+            "columns": [
+                {
+                    "name": "counts",
+                    "type": "struct<a string, b bigint>",
+                },
+            ],
+            "description": "Collection of day dreams",
+            "mode": "published",
+            "name": "basic.daydreams",
+            "catalog": "public",
+            "schema_": "basic",
+            "table": "daydreams",
+        },
+    )
+    assert response.ok
+
+    response = client_with_examples.post(
+        "/nodes/metric/",
+        json={
+            "query": "SELECT SUM(counts.b) FROM basic.dreams LEFT JOIN basic.daydreams on id",
+            "description": "Day Dream Counts",
+            "mode": "published",
+            "name": "basic.day_dreams",
+        },
+    )
+    assert response.status_code == 400
+    assert response.json() == {
+        "message": (
+            "Metric basic.day_dreams selects from more than one node, "
+            "should only select from a single node"
+        ),
+        "errors": [],
+        "warnings": [],
+    }
