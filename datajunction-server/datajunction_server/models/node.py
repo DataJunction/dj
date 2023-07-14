@@ -7,6 +7,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
+from http import HTTPStatus
 from typing import Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Extra
@@ -739,18 +740,32 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         tree = parse(self.query)
         if len(tree.select.projection) != 1:
             raise DJInvalidInputException(
-                "Metric queries can only have a single "
+                http_status_code=HTTPStatus.BAD_REQUEST,
+                message="Metric queries can only have a single "
                 f"expression, found {len(tree.select.projection)}",
             )
         projection_0 = tree.select.projection[0]
 
+        # must have an aggregation
         if (
             not hasattr(projection_0, "is_aggregation")
             or not projection_0.is_aggregation()  # type: ignore
         ):
             raise DJInvalidInputException(
-                f"Metric {self.name} has an invalid query, "
+                http_status_code=HTTPStatus.BAD_REQUEST,
+                message=f"Metric {self.name} has an invalid query, "
                 "should have a single aggregation",
+            )
+
+        # must query from a single table
+        if (
+            len(tree.select.from_.relations) != 1
+            or tree.select.from_.relations[0].extensions
+        ):
+            raise DJInvalidInputException(
+                http_status_code=HTTPStatus.BAD_REQUEST,
+                message=f"Metric {self.name} selects from more than one node, "
+                "should only select from a single node",
             )
 
     def extra_validation(self) -> None:
