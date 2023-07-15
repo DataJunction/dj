@@ -50,6 +50,6 @@ def list_history_by_node_context(
     List all activity history for a node context
     """
     hist = session.exec(
-        select(History).where(History.context_node == node).offset(offset).limit(limit),
+        select(History).where(History.node == node).offset(offset).limit(limit),
     ).all()
     return hist

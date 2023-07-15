@@ -52,7 +52,7 @@ class History(SQLModel, table=True):  # type: ignore
     id: Optional[int] = Field(default=None, primary_key=True)
     entity_type: Optional[EntityType] = Field(default=None)
     entity_name: Optional[str] = Field(default=None)
-    context_node: Optional[str] = Field(default=None)
+    node: Optional[str] = Field(default=None)
     activity_type: Optional[ActivityType] = Field(default=None)
     user: Optional[str] = Field(default=None)
     pre: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))

@@ -52,7 +52,7 @@ class TestTags:
         assert response.json() == [
             {
                 "activity_type": "create",
-                "context_node": None,
+                "node": None,
                 "created_at": mock.ANY,
                 "details": {},
                 "entity_name": "sales_report",

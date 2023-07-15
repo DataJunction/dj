@@ -45,6 +45,7 @@ def create_a_node_namespace(
         History(
             entity_type=EntityType.NAMESPACE,
             entity_name=namespace,
+            node=None,
             activity_type=ActivityType.CREATE,
         ),
     )

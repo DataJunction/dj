@@ -90,7 +90,7 @@ def add_an_availability_state(
     session.add(
         History(
             entity_type=EntityType.AVAILABILITY,
-            context_node=node.name,
+            node=node.name,
             activity_type=ActivityType.CREATE,
             pre=AvailabilityStateBase.parse_obj(old_availability).dict()
             if old_availability

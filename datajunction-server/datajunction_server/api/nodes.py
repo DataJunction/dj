@@ -280,7 +280,7 @@ def set_column_attributes_on_node(
     session.add(
         History(
             entity_type=EntityType.COLUMN_ATTRIBUTE,
-            context_node=node.name,
+            node=node.name,
             activity_type=ActivityType.SET_ATTRIBUTE,
             details={
                 "attributes": [attr.dict() for attr in attributes],
@@ -368,7 +368,7 @@ def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
         History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
-            context_node=node.name,
+            node=node.name,
             activity_type=ActivityType.DELETE,
         ),
     )
@@ -410,7 +410,7 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
         History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
-            context_node=node.name,
+            node=node.name,
             activity_type=ActivityType.RESTORE,
         ),
     )
@@ -712,7 +712,7 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
     session.add(
         History(
             entity_type=EntityType.MATERIALIZATION,
-            context_node=node.name,
+            node=node.name,
             entity_name=new_materialization.name,
             activity_type=(
                 ActivityType.CREATE
@@ -1096,7 +1096,7 @@ def save_node(
     session.add(node)
     session.add(
         History(
-            context_node=node.name,
+            node=node.name,
             entity_type=EntityType.NODE,
             entity_name=node.name,
             activity_type=ActivityType.CREATE,
@@ -1370,7 +1370,7 @@ def link_a_dimension(
         History(
             entity_type=EntityType.LINK,
             entity_name=node.name,
-            context_node=node.name,
+            node=node.name,
             activity_type=ActivityType.CREATE,
             details={
                 "column": target_column.name,
@@ -1465,7 +1465,7 @@ def tag_a_node(
         History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
-            context_node=node.name,
+            node=node.name,
             activity_type=ActivityType.TAG,
             details={
                 "tag": tag_name,
@@ -1696,7 +1696,7 @@ def update_a_node(
         History(
             entity_type=EntityType.NODE,
             entity_name=node.name,
-            context_node=node.name,
+            node=node.name,
             activity_type=ActivityType.UPDATE,
             details={
                 "version": new_revision.version,
