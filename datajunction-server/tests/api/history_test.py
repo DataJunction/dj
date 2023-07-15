@@ -27,9 +27,9 @@ def test_history_hash():
     assert hash(foo1) == hash(foo2)
 
 
-def test_get_history_node(client_with_examples: TestClient):
+def test_get_history_entity(client_with_examples: TestClient):
     """
-    Test getting history for a node
+    Test getting history for an entity
     """
     response = client_with_examples.get("/history/node/default.repair_orders/")
     assert response.ok
@@ -42,7 +42,7 @@ def test_get_history_node(client_with_examples: TestClient):
             "id": mock.ANY,
             "pre": {},
             "post": {},
-            "context_node": "default.repair_orders",
+            "node": "default.repair_orders",
             "entity_type": "node",
             "entity_name": "default.repair_orders",
             "activity_type": "create",
@@ -52,9 +52,9 @@ def test_get_history_node(client_with_examples: TestClient):
     ]
 
 
-def test_get_history_context_node(client_with_examples: TestClient):
+def test_get_history_node(client_with_examples: TestClient):
     """
-    Test getting history for a node context
+    Test getting history for a node
     """
 
     response = client_with_examples.get("/history?node=default.repair_order")
@@ -64,7 +64,7 @@ def test_get_history_context_node(client_with_examples: TestClient):
     assert history == [
         {
             "activity_type": "create",
-            "context_node": "default.repair_order",
+            "node": "default.repair_order",
             "created_at": mock.ANY,
             "details": {},
             "entity_name": "default.repair_order",
@@ -76,7 +76,7 @@ def test_get_history_context_node(client_with_examples: TestClient):
         },
         {
             "activity_type": "set_attribute",
-            "context_node": "default.repair_order",
+            "node": "default.repair_order",
             "created_at": mock.ANY,
             "details": {
                 "attributes": [
@@ -96,7 +96,7 @@ def test_get_history_context_node(client_with_examples: TestClient):
         },
         {
             "activity_type": "create",
-            "context_node": "default.repair_order",
+            "node": "default.repair_order",
             "created_at": mock.ANY,
             "details": {
                 "column": "dispatcher_id",
@@ -112,7 +112,7 @@ def test_get_history_context_node(client_with_examples: TestClient):
         },
         {
             "activity_type": "create",
-            "context_node": "default.repair_order",
+            "node": "default.repair_order",
             "created_at": mock.ANY,
             "details": {
                 "column": "hard_hat_id",
@@ -128,7 +128,7 @@ def test_get_history_context_node(client_with_examples: TestClient):
         },
         {
             "activity_type": "create",
-            "context_node": "default.repair_order",
+            "node": "default.repair_order",
             "created_at": mock.ANY,
             "details": {
                 "column": "municipality_id",
@@ -157,7 +157,7 @@ def test_get_history_namespace(client_with_examples: TestClient):
     assert history == [
         {
             "activity_type": "create",
-            "context_node": None,
+            "node": None,
             "created_at": mock.ANY,
             "details": {},
             "entity_name": "default",

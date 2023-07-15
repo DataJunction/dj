@@ -301,7 +301,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert history == [
             {
                 "activity_type": "create",
-                "context_node": "basic.source.users",
+                "node": "basic.source.users",
                 "created_at": mock.ANY,
                 "details": {},
                 "entity_name": "basic.source.users",
@@ -313,7 +313,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
             {
                 "activity_type": "delete",
-                "context_node": "basic.source.users",
+                "node": "basic.source.users",
                 "created_at": mock.ANY,
                 "details": {},
                 "entity_name": "basic.source.users",

@@ -313,7 +313,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "created_at": mock.ANY,
                 "details": {},
                 "entity_name": None,
-                "context_node": "default.large_revenue_payments_and_business_only",
+                "node": "default.large_revenue_payments_and_business_only",
                 "entity_type": "availability",
                 "id": mock.ANY,
                 "post": {
@@ -446,7 +446,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "created_at": mock.ANY,
                 "details": {},
                 "entity_name": None,
-                "context_node": "default.large_revenue_payments_and_business_only",
+                "node": "default.large_revenue_payments_and_business_only",
                 "entity_type": "availability",
                 "id": mock.ANY,
                 "post": {
@@ -468,7 +468,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "created_at": mock.ANY,
                 "details": {},
                 "entity_name": None,
-                "context_node": "default.large_revenue_payments_and_business_only",
+                "node": "default.large_revenue_payments_and_business_only",
                 "entity_type": "availability",
                 "id": mock.ANY,
                 "post": {
@@ -500,7 +500,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "created_at": mock.ANY,
                 "details": {},
                 "entity_name": None,
-                "context_node": "default.large_revenue_payments_and_business_only",
+                "node": "default.large_revenue_payments_and_business_only",
                 "entity_type": "availability",
                 "id": mock.ANY,
                 "post": {

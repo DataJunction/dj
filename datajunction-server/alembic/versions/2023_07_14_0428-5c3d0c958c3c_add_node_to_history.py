@@ -1,4 +1,4 @@
-"""Add context node to history
+"""Add node to history
 
 Revision ID: 5c3d0c958c3c
 Revises: 4e1ff36c27c6
@@ -22,9 +22,9 @@ depends_on = None
 def upgrade():
     op.add_column(
         "history",
-        sa.Column("context_node", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("node", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
     )
 
 
 def downgrade():
-    op.drop_column("history", "context_node")
+    op.drop_column("history", "node")
