@@ -70,11 +70,9 @@ export const DataJunctionAPI = {
     const data = await (
       await fetch(
         DJ_URL +
-          '/history/' +
-          type +
-          '/' +
+          '/history?node=' +
           name +
-          `/?offset=${offset ? offset : 0}&limit=${limit ? limit : 100}`,
+          `&offset=${offset ? offset : 0}&limit=${limit ? limit : 100}`,
       )
     ).json();
     return data;

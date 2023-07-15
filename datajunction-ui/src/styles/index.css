@@ -265,14 +265,17 @@ tr {
   left: 0;
 }
 
-.table-responsive {
+.table-responsive,
+.table-vertical {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   display: grid;
-
   grid-template-columns: auto auto auto;
   grid-gap: 8px;
   padding: 8px;
+}
+.table-vertical {
+  display: contents;
 }
 .table > thead {
   vertical-align: bottom;
@@ -456,7 +459,7 @@ tbody th {
 }
 
 .history_type__set_attribute {
-  background-color: #a8a8a8 !important;
+  background-color: #ffe6e6 !important;
   color: #855e5e;
 }
 

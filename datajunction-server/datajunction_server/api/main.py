@@ -97,6 +97,7 @@ def get_dj_app(
         """
         Capture errors and return JSON.
         """
+        _logger.exception(exc)
         return JSONResponse(
             status_code=exc.http_status_code,
             content=exc.to_dict(),

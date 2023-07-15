@@ -277,6 +277,16 @@ def set_column_attributes_on_node(
             )
 
     session.add_all(modified_columns)
+    session.add(
+        History(
+            entity_type=EntityType.COLUMN_ATTRIBUTE,
+            node=node.name,
+            activity_type=ActivityType.SET_ATTRIBUTE,
+            details={
+                "attributes": [attr.dict() for attr in attributes],
+            },
+        ),
+    )
     session.commit()
     for col in modified_columns:
         session.refresh(col)
@@ -354,6 +364,14 @@ def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
         second=now.second,
     )
     session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.DELETE,
+        ),
+    )
     session.commit()
     return JSONResponse(
         status_code=HTTPStatus.NO_CONTENT,
@@ -388,6 +406,14 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
             session.add(downstream)
 
     session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.RESTORE,
+        ),
+    )
     session.commit()
     return JSONResponse(
         status_code=HTTPStatus.NO_CONTENT,
@@ -667,6 +693,9 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
             },
         )
     # If changes are detected, save the new materialization
+    existing_materialization_names = {
+        mat.name for mat in current_revision.materializations
+    }
     unchanged_existing_materializations = [
         config
         for config in current_revision.materializations
@@ -679,6 +708,23 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
     # This will add the materialization config, the new node rev, and update the node's version.
     session.add(current_revision)
     session.add(node)
+
+    session.add(
+        History(
+            entity_type=EntityType.MATERIALIZATION,
+            node=node.name,
+            entity_name=new_materialization.name,
+            activity_type=(
+                ActivityType.CREATE
+                if new_materialization.name in existing_materialization_names
+                else ActivityType.UPDATE
+            ),
+            details={
+                "node": node.name,
+                "materialization": new_materialization.name,
+            },
+        ),
+    )
     session.commit()
 
     materialization_response = schedule_materialization_jobs(
@@ -1048,6 +1094,14 @@ def save_node(
     node_revision.extra_validation()
 
     session.add(node)
+    session.add(
+        History(
+            node=node.name,
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            activity_type=ActivityType.CREATE,
+        ),
+    )
     session.commit()
 
     newly_valid_nodes = resolve_downstream_references(
@@ -1138,14 +1192,6 @@ def create_a_source(
         table=data.table,
         columns=columns,
         parents=[],
-    )
-
-    session.add(
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=data.name,
-            activity_type=ActivityType.CREATE,
-        ),
     )
 
     # Point the node to the new node revision.
@@ -1320,6 +1366,19 @@ def link_a_dimension(
     target_column.dimension_column = dimension_column
 
     session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.CREATE,
+            details={
+                "column": target_column.name,
+                "dimension": dimension_node.name,
+                "dimension_column": dimension_column or "",
+            },
+        ),
+    )
     session.commit()
     session.refresh(node)
     return JSONResponse(
@@ -1402,6 +1461,17 @@ def tag_a_node(
     node.tags.append(tag)
 
     session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.TAG,
+            details={
+                "tag": tag_name,
+            },
+        ),
+    )
     session.commit()
     session.refresh(node)
     session.refresh(tag)
@@ -1621,6 +1691,18 @@ def update_a_node(
 
     session.add(new_revision)
     session.add(node)
+
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.UPDATE,
+            details={
+                "version": new_revision.version,
+            },
+        ),
+    )
     session.commit()
     session.refresh(node.current)
     return node  # type: ignore

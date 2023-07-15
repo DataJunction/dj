@@ -9,6 +9,8 @@ from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJException
+from datajunction_server.models import History
+from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeType
 from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
 from datajunction_server.utils import get_session
@@ -77,6 +79,13 @@ def create_a_tag(
         )
     tag = Tag.from_orm(data)
     session.add(tag)
+    session.add(
+        History(
+            entity_type=EntityType.TAG,
+            entity_name=tag.name,
+            activity_type=ActivityType.CREATE,
+        ),
+    )
     session.commit()
     session.refresh(tag)
     return tag
@@ -98,6 +107,14 @@ def update_a_tag(
     if data.tag_metadata:
         tag.tag_metadata = data.tag_metadata
     session.add(tag)
+    session.add(
+        History(
+            entity_type=EntityType.TAG,
+            entity_name=tag.name,
+            activity_type=ActivityType.UPDATE,
+            details=data,
+        ),
+    )
     session.commit()
     session.refresh(tag)
     return tag

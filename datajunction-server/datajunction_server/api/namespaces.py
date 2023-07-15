@@ -11,6 +11,8 @@ from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_node_namespace
+from datajunction_server.models import History
+from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import Node, NodeNameList, NodeNamespace, NodeType
 from datajunction_server.utils import get_session
 
@@ -39,6 +41,14 @@ def create_a_node_namespace(
         )
     node_namespace = NodeNamespace(namespace=namespace)
     session.add(node_namespace)
+    session.add(
+        History(
+            entity_type=EntityType.NAMESPACE,
+            entity_name=namespace,
+            node=None,
+            activity_type=ActivityType.CREATE,
+        ),
+    )
     session.commit()
     return JSONResponse(
         status_code=201,
