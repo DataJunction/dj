@@ -116,7 +116,7 @@ class TestTags:
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("create", "tag"), ("update", "tag")]
+        ] == [("create", "tag"), ("update", "tag"), ("update", "tag")]
 
     def test_list_tags(self, client_with_examples: TestClient) -> None:
         """
