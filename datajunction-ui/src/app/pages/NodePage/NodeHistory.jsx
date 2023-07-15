@@ -13,6 +13,81 @@ export default function NodeHistory({ node, djClient }) {
     };
     fetchData().catch(console.error);
   }, [djClient, node]);
+
+  const eventData = event => {
+    console.log('event', event);
+    if (
+      event.activity_type === 'set_attribute' &&
+      event.entity_type === 'column_attribute'
+    ) {
+      return event.details.attributes
+        .map(attr => (
+          <div>
+            Set{' '}
+            <span className={`badge partition_value`}>{attr.column_name}</span>{' '}
+            as{' '}
+            <span className={`badge partition_value_highlight`}>
+              {attr.attribute_type_name}
+            </span>
+          </div>
+        ))
+        .reduce((prev, curr) => [prev, <br />, curr]);
+    }
+    if (event.activity_type === 'create' && event.entity_type === 'link') {
+      return (
+        <div>
+          Linked{' '}
+          <span className={`badge partition_value`}>
+            {event.details.column}
+          </span>{' '}
+          to
+          <span className={`badge partition_value_highlight`}>
+            {event.details.dimension}
+          </span>{' '}
+          via
+          <span className={`badge partition_value`}>
+            {event.details.dimension_column}
+          </span>
+        </div>
+      );
+    }
+    if (
+      event.activity_type === 'create' &&
+      event.entity_type === 'materialization'
+    ) {
+      return (
+        <div>
+          Initialized materialization{' '}
+          <span className={`badge partition_value`}>
+            {event.details.materialization}
+          </span>
+        </div>
+      );
+    }
+    if (
+      event.activity_type === 'create' &&
+      event.entity_type === 'availability'
+    ) {
+      return (
+        <div>
+          Materialized at{' '}
+          <span className={`badge partition_value_highlight`}>
+            {event.post.catalog}.{event.post.schema_}.{event.post.table}
+          </span>
+          from{' '}
+          <span className={`badge partition_value`}>
+            {event.post.min_temporal_partition}
+          </span>{' '}
+          to
+          <span className={`badge partition_value`}>
+            {event.post.max_temporal_partition}
+          </span>
+        </div>
+      );
+    }
+    return '';
+  };
+
   const tableData = history => {
     return history.map(event => (
       <tr>
@@ -24,9 +99,9 @@ export default function NodeHistory({ node, djClient }) {
           </span>
         </td>
         <td>{event.entity_type}</td>
-        <td>{event.entity_name}</td>
         <td>{event.user ? event.user : 'unknown'}</td>
         <td>{event.created_at}</td>
+        <td>{eventData(event)}</td>
       </tr>
     ));
   };
@@ -45,7 +120,7 @@ export default function NodeHistory({ node, djClient }) {
     ));
   };
   return (
-    <div className="table-responsive">
+    <div className="table-vertical">
       <table className="card-inner-table table">
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
           <th className="text-start">Version</th>
@@ -60,9 +135,9 @@ export default function NodeHistory({ node, djClient }) {
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
           <th className="text-start">Activity</th>
           <th>Type</th>
-          <th>Name</th>
           <th>User</th>
           <th>Timestamp</th>
+          <th>Details</th>
         </thead>
         {tableData(history)}
       </table>

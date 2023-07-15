@@ -19,10 +19,9 @@ class ActivityType(str, Enum):
     """
 
     CREATE = "create"
-    DEACTIVATE = "deactivate"
-    ACTIVATE = "activate"
-    UPDATE = "modify"
-    LINK = "link"
+    DELETE = "delete"
+    RESTORE = "restore"
+    UPDATE = "update"
     TAG = "tag"
     SET_ATTRIBUTE = "set_attribute"
 
@@ -33,8 +32,12 @@ class EntityType(str, Enum):
     """
 
     ATTRIBUTE = "attribute"
+    AVAILABILITY = "availability"
     CATALOG = "catalog"
+    COLUMN_ATTRIBUTE = "column_attribute"
     ENGINE = "engine"
+    LINK = "link"
+    MATERIALIZATION = "materialization"
     NAMESPACE = "namespace"
     NODE = "node"
     QUERY = "query"
@@ -49,11 +52,12 @@ class History(SQLModel, table=True):  # type: ignore
     id: Optional[int] = Field(default=None, primary_key=True)
     entity_type: Optional[EntityType] = Field(default=None)
     entity_name: Optional[str] = Field(default=None)
+    node: Optional[str] = Field(default=None)
     activity_type: Optional[ActivityType] = Field(default=None)
     user: Optional[str] = Field(default=None)
-    pre: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
-    post: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
-    details: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
+    pre: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
+    post: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
+    details: Dict[str, Any] = Field(default_factory=dict, sa_column=SqlaColumn(JSON))
     created_at: UTCDatetime = Field(
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default_factory=partial(datetime.now, timezone.utc),
