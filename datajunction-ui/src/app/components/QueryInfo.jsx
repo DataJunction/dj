@@ -74,7 +74,7 @@ export default function QueryInfo({
             <td>{scheduled}</td>
             <td>{started}</td>
             <td>
-              {errors.length ? (
+              {errors?.length ? (
                 errors.map(e => (
                   <p>
                     <span className="rounded-pill badge bg-secondary-error">
