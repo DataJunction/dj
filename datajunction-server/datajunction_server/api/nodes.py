@@ -1493,7 +1493,6 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     node: Node,
     data: UpdateNode = None,
     version_upgrade: VersionUpgrade = None,
-    refresh: bool = True,
 ) -> Optional[NodeRevision]:
     """
     Creates a new revision from an existing node revision.
@@ -1518,7 +1517,6 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         data is not None
         and data.columns is not None
         and ({col.identifier() for col in old_revision.columns} != data.columns)
-        or refresh
     )
     pk_changes = (
         data is not None
@@ -1568,8 +1566,8 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         if data and data.columns
         else old_revision.columns,
         catalog=old_revision.catalog,
-        schema_=old_revision.schema_,
-        table=old_revision.table,
+        schema_=data.schema_ or old_revision.schema_,  # type: ignore
+        table=data.table or old_revision.table,  # type: ignore
         parents=[],
         mode=data.mode if data and data.mode else old_revision.mode,
         materializations=[],
@@ -1614,17 +1612,15 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
     # Refresh the columns of the source node using the query service if no
     # columns were specified in the update object
-    if (
-        refresh
-        and old_revision.type == NodeType.SOURCE
-        and (data and not data.columns or not data)
+    if old_revision.type == NodeType.SOURCE and (
+        not data or (data and not data.columns)
     ):
         new_revision.columns = [
             Column(name=col.name, type=col.type)
             for col in query_service_client.get_columns_for_table(
-                old_revision.catalog.name,
-                old_revision.schema_,  # type: ignore
-                old_revision.table,  # type: ignore
+                new_revision.catalog.name,  # pylint: disable=no-member
+                new_revision.schema_,  # type: ignore
+                new_revision.table,  # type: ignore
             )
         ]
 
@@ -1674,7 +1670,6 @@ def update_a_node(
     name: str,
     data: UpdateNode,
     *,
-    refresh: bool = False,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
@@ -1703,7 +1698,6 @@ def update_a_node(
         old_revision,
         node,
         data,
-        refresh=refresh,
     )
 
     if not new_revision:

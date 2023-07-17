@@ -988,6 +988,9 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                     {"name": "timestamp", "type": "timestamp"},
                     {"name": "text_v2", "type": "string"},
                 ],
+                "catalog": "public",
+                "schema_": "basic",
+                "table": "comments_v2",
             },
         )
         data = response.json()
@@ -1011,7 +1014,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
 
         # Try to update node with no changes but refresh
         response = client_with_query_service.patch(
-            f"/nodes/{basic_source_comments['name']}/?refresh=true",
+            f"/nodes/{basic_source_comments['name']}/",
             json={"description": "New description", "display_name": "Comments facts"},
         )
         new_data = response.json()
@@ -1029,7 +1032,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "name": "timestamp",
                 "type": "timestamp",
             },
-            {"attributes": [], "dimension": None, "name": "text", "type": "string"},
+            {"attributes": [], "dimension": None, "name": "text_v2", "type": "string"},
         ]
 
         # Updating node with a new primary key
@@ -1061,7 +1064,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "name": "timestamp",
                 "type": "timestamp",
             },
-            {"attributes": [], "dimension": None, "name": "text", "type": "string"},
+            {"attributes": [], "dimension": None, "name": "text_v2", "type": "string"},
         ]
 
     def test_update_nonexistent_node(

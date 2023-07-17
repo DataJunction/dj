@@ -1789,6 +1789,12 @@ COLUMN_MAPPINGS = {
         Column(name="timestamp", type=TimestampType()),
         Column(name="text", type=StringType()),
     ],
+    "public.basic.comments_v2": [
+        Column(name="id", type=IntegerType()),
+        Column(name="user_id", type=IntegerType()),
+        Column(name="timestamp", type=TimestampType()),
+        Column(name="text_v2", type=StringType()),
+    ],
 }
 
 QUERY_DATA_MAPPINGS = {
