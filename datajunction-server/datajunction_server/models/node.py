@@ -685,6 +685,17 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 primary_key_columns.append(col)
         return primary_key_columns
 
+    def copy_dimension_links_from_revision(self, old_revision: "NodeRevision"):
+        """
+        Copy dimension links from another node revision if the column names match
+        """
+        old_columns_mapping = {col.name: col for col in old_revision.columns}
+        for col in self.columns:  # pylint: disable=not-an-iterable
+            if col.name in old_columns_mapping:
+                col.dimension_id = old_columns_mapping[col.name].dimension_id
+                col.attributes = old_columns_mapping[col.name].attributes or []
+        return self
+
     @staticmethod
     def format_metric_alias(query: str, name: str) -> str:
         """

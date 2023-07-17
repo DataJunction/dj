@@ -1493,7 +1493,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     node: Node,
     data: UpdateNode = None,
     version_upgrade: VersionUpgrade = None,
-    refresh_if_source: bool = True,
+    refresh: bool = True,
 ) -> Optional[NodeRevision]:
     """
     Creates a new revision from an existing node revision.
@@ -1518,7 +1518,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         data is not None
         and data.columns is not None
         and ({col.identifier() for col in old_revision.columns} != data.columns)
-        or refresh_if_source
+        or refresh
     )
     pk_changes = (
         data is not None
@@ -1615,7 +1615,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     # Refresh the columns of the source node using the query service if no
     # columns were specified in the update object
     if (
-        refresh_if_source
+        refresh
         and old_revision.type == NodeType.SOURCE
         and (data and not data.columns or not data)
     ):
@@ -1630,11 +1630,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
     # Keep the dimension links and attributes on the columns from the node's
     # last revision if any existed
-    old_columns_mapping = {col.name: col for col in old_revision.columns}
-    for col in new_revision.columns:
-        if col.name in old_columns_mapping:
-            col.dimension_id = old_columns_mapping[col.name].dimension_id
-            col.attributes = old_columns_mapping[col.name].attributes or []
+    new_revision.copy_dimension_links_from_revision(old_revision)
 
     # Update the primary key if one was set in the input
     if data is not None and data.primary_key:
@@ -1648,7 +1644,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
                 )
 
     # Set the node's validity status
-    valid_primary_key = (
+    valid_primary_key = new_revision.type != NodeType.DIMENSION or (
         new_revision.type == NodeType.DIMENSION and new_revision.primary_key()
     )
     if not valid_primary_key:
@@ -1678,7 +1674,7 @@ def update_a_node(
     name: str,
     data: UpdateNode,
     *,
-    refresh_if_source: bool = False,
+    refresh: bool = False,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
@@ -1707,7 +1703,7 @@ def update_a_node(
         old_revision,
         node,
         data,
-        refresh_if_source=refresh_if_source,
+        refresh=refresh,
     )
 
     if not new_revision:
