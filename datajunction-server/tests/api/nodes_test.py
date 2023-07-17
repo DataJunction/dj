@@ -1011,7 +1011,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
 
         # Try to update node with no changes but refresh
         response = client_with_query_service.patch(
-            f"/nodes/{basic_source_comments['name']}/?refresh_if_source=true",
+            f"/nodes/{basic_source_comments['name']}/?refresh=true",
             json={"description": "New description", "display_name": "Comments facts"},
         )
         new_data = response.json()
