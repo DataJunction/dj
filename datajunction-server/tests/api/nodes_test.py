@@ -914,7 +914,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
 
     def test_create_update_source_node(
         self,
-        client_with_examples: TestClient,
+        client_with_query_service: TestClient,
     ) -> None:
         """
         Test creating and updating a source node
@@ -939,7 +939,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         }
 
         # Trying to create it again should fail
-        response = client_with_examples.post(
+        response = client_with_query_service.post(
             "/nodes/source/",
             json=basic_source_comments,
         )
@@ -951,7 +951,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert response.status_code == 409
 
         # Update node with a new description should create a new revision
-        response = client_with_examples.patch(
+        response = client_with_query_service.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={
                 "description": "New description",
@@ -967,7 +967,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert data["description"] == "New description"
 
         # Try to update node with no changes
-        response = client_with_examples.patch(
+        response = client_with_query_service.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={"description": "New description", "display_name": "Comments facts"},
         )
@@ -975,7 +975,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert data == new_data
 
         # Try to update a node with a table that has different columns
-        response = client_with_examples.patch(
+        response = client_with_query_service.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={
                 "columns": [
@@ -994,7 +994,12 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert data["version"] == "v2.0"
         assert data["columns"] == [
             {"name": "id", "type": "int", "attributes": [], "dimension": None},
-            {"name": "user_id", "type": "int", "attributes": [], "dimension": None},
+            {
+                "name": "user_id",
+                "type": "int",
+                "attributes": [],
+                "dimension": {"name": "basic.dimension.users"},
+            },
             {
                 "name": "timestamp",
                 "type": "timestamp",
@@ -1002,6 +1007,29 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "dimension": None,
             },
             {"name": "text_v2", "type": "string", "attributes": [], "dimension": None},
+        ]
+
+        # Try to update node with no changes but refresh
+        response = client_with_query_service.patch(
+            f"/nodes/{basic_source_comments['name']}/?refresh_if_source=true",
+            json={"description": "New description", "display_name": "Comments facts"},
+        )
+        new_data = response.json()
+        assert new_data["columns"] == [
+            {"attributes": [], "dimension": None, "name": "id", "type": "int"},
+            {
+                "attributes": [],
+                "dimension": {"name": "basic.dimension.users"},
+                "name": "user_id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "timestamp",
+                "type": "timestamp",
+            },
+            {"attributes": [], "dimension": None, "name": "text", "type": "string"},
         ]
 
     def test_update_nonexistent_node(
