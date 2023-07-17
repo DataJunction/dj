@@ -1486,7 +1486,7 @@ def tag_a_node(
     )
 
 
-def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-arguments
+def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-arguments,too-many-branches
     session: Session,
     query_service_client: QueryServiceClient,
     old_revision: NodeRevision,
@@ -1554,7 +1554,13 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             Column(
                 name=column_data.name,
                 type=column_data.type,
-                dimension_id=column_data.dimension,
+                dimension=get_node_by_name(
+                    session,
+                    column_data.dimension,
+                    NodeType.DIMENSION,
+                )
+                if column_data.dimension
+                else None,
                 attributes=column_data.attributes or [],
             )
             for column_data in data.columns
@@ -1590,23 +1596,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         ).all()
         new_revision.parents = list(parent_refs)
         new_revision.columns = validated_node.columns or []
-
-        # Update the primary key if one was set in the input
-        if data is not None and data.primary_key:
-            pk_attribute = session.exec(
-                select(AttributeType).where(AttributeType.name == "primary_key"),
-            ).one()
-            for col in new_revision.columns:
-                if col.name in data.primary_key and not col.has_primary_key_attribute():
-                    col.attributes.append(
-                        ColumnAttribute(column=col, attribute_type=pk_attribute),
-                    )
-
-        # Set the node's validity status
-        valid_primary_key = (
-            new_revision.type == NodeType.DIMENSION and not new_revision.primary_key()
-        )
-        if missing_parents_map or type_inference_failed_columns or valid_primary_key:
+        if missing_parents_map or type_inference_failed_columns:
             new_revision.status = NodeStatus.INVALID
         else:
             new_revision.status = NodeStatus.VALID
@@ -1627,13 +1617,16 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     if (
         refresh_if_source
         and old_revision.type == NodeType.SOURCE
-        and (data and not data.columns)
+        and (data and not data.columns or not data)
     ):
-        new_revision.columns = query_service_client.get_columns_for_table(
-            old_revision.catalog.name,
-            old_revision.schema_,  # type: ignore
-            old_revision.table,  # type: ignore
-        )
+        new_revision.columns = [
+            Column(name=col.name, type=col.type)
+            for col in query_service_client.get_columns_for_table(
+                old_revision.catalog.name,
+                old_revision.schema_,  # type: ignore
+                old_revision.table,  # type: ignore
+            )
+        ]
 
     # Keep the dimension links and attributes on the columns from the node's
     # last revision if any existed
@@ -1642,6 +1635,24 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         if col.name in old_columns_mapping:
             col.dimension_id = old_columns_mapping[col.name].dimension_id
             col.attributes = old_columns_mapping[col.name].attributes or []
+
+    # Update the primary key if one was set in the input
+    if data is not None and data.primary_key:
+        pk_attribute = session.exec(
+            select(AttributeType).where(AttributeType.name == "primary_key"),
+        ).one()
+        for col in new_revision.columns:
+            if col.name in data.primary_key and not col.has_primary_key_attribute():
+                col.attributes.append(
+                    ColumnAttribute(column=col, attribute_type=pk_attribute),
+                )
+
+    # Set the node's validity status
+    valid_primary_key = (
+        new_revision.type == NodeType.DIMENSION and new_revision.primary_key()
+    )
+    if not valid_primary_key:
+        new_revision.status = NodeStatus.INVALID
 
     # Handle materializations
     if old_revision.materializations and query_changes:

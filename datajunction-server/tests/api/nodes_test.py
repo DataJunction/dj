@@ -1032,6 +1032,38 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             {"attributes": [], "dimension": None, "name": "text", "type": "string"},
         ]
 
+        # Updating node with a new primary key
+        response = client_with_query_service.patch(
+            f"/nodes/{basic_source_comments['name']}/",
+            json={
+                "primary_key": ["id"],
+            },
+        )
+        data = response.json()
+        assert data["columns"] == [
+            {
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "name": "id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": {"name": "basic.dimension.users"},
+                "name": "user_id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "timestamp",
+                "type": "timestamp",
+            },
+            {"attributes": [], "dimension": None, "name": "text", "type": "string"},
+        ]
+
     def test_update_nonexistent_node(
         self,
         client: TestClient,
