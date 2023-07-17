@@ -1493,6 +1493,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     node: Node,
     data: UpdateNode = None,
     version_upgrade: VersionUpgrade = None,
+    refresh_if_source: bool = True,
 ) -> Optional[NodeRevision]:
     """
     Creates a new revision from an existing node revision.
@@ -1512,11 +1513,12 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         and data.query
         and old_revision.query != data.query
     )
-    column_changes = (
-        old_revision.type == NodeType.SOURCE
-        and data is not None
+
+    column_changes = old_revision.type == NodeType.SOURCE and (
+        data is not None
         and data.columns is not None
         and ({col.identifier() for col in old_revision.columns} != data.columns)
+        or refresh_if_source
     )
     pk_changes = (
         data is not None
@@ -1552,7 +1554,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             Column(
                 name=column_data.name,
                 type=column_data.type,
-                dimension_column=column_data.dimension,
+                dimension_id=column_data.dimension,
                 attributes=column_data.attributes or [],
             )
             for column_data in data.columns
@@ -1576,14 +1578,6 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             missing_parents_map,
             type_inference_failed_columns,
         ) = validate_node_data(new_revision, session)
-
-        # Keep the dimension links and attributes on the columns from the node's
-        # last revision if any existed
-        old_columns_mapping = {col.name: col for col in old_revision.columns}
-        for col in validated_node.columns:
-            if col.name in old_columns_mapping:
-                col.dimension_id = old_columns_mapping[col.name].dimension_id
-                col.attributes = old_columns_mapping[col.name].attributes or []
 
         new_parents = [n.name for n in dependencies_map]
         parent_refs = session.exec(
@@ -1628,6 +1622,27 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         )
         new_revision.columns = validated_node.columns or []
 
+    # Refresh the columns of the source node using the query service if no
+    # columns were specified in the update object
+    if (
+        refresh_if_source
+        and old_revision.type == NodeType.SOURCE
+        and (data and not data.columns)
+    ):
+        new_revision.columns = query_service_client.get_columns_for_table(
+            old_revision.catalog.name,
+            old_revision.schema_,  # type: ignore
+            old_revision.table,  # type: ignore
+        )
+
+    # Keep the dimension links and attributes on the columns from the node's
+    # last revision if any existed
+    old_columns_mapping = {col.name: col for col in old_revision.columns}
+    for col in new_revision.columns:
+        if col.name in old_columns_mapping:
+            col.dimension_id = old_columns_mapping[col.name].dimension_id
+            col.attributes = old_columns_mapping[col.name].attributes or []
+
     # Handle materializations
     if old_revision.materializations and query_changes:
         for old in old_revision.materializations:
@@ -1652,6 +1667,7 @@ def update_a_node(
     name: str,
     data: UpdateNode,
     *,
+    refresh_if_source: bool = False,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
@@ -1680,6 +1696,7 @@ def update_a_node(
         old_revision,
         node,
         data,
+        refresh_if_source=refresh_if_source,
     )
 
     if not new_revision:
