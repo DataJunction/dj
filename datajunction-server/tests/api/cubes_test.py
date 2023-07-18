@@ -1193,3 +1193,69 @@ def test_unlink_node_column_dimension(
     response = client_with_repairs_cube.get("/nodes/default.repairs_cube")
     data = response.json()
     assert data["status"] == "invalid"
+
+
+def test_deactivating_node_upstream_from_cube(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+):
+    """
+    Verify deactivating and activating a node upstream from a cube
+    """
+    client_with_repairs_cube.post("/nodes/default.repair_orders/deactivate/")
+    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
+    data = response.json()
+    assert data["status"] == "invalid"
+
+    client_with_repairs_cube.post("/nodes/default.repair_orders/activate/")
+    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
+    data = response.json()
+    assert data["status"] == "valid"
+
+    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    data = response.json()
+    assert data["cube_elements"] == [
+        {
+            "name": "default_DOT_discounted_orders_rate",
+            "node_name": "default.discounted_orders_rate",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_num_repair_orders",
+            "node_name": "default.num_repair_orders",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_avg_repair_price",
+            "node_name": "default.avg_repair_price",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_total_repair_cost",
+            "node_name": "default.total_repair_cost",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_total_repair_order_discounts",
+            "node_name": "default.total_repair_order_discounts",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_double_total_repair_cost",
+            "node_name": "default.double_total_repair_cost",
+            "type": "metric",
+        },
+        {"name": "country", "node_name": "default.hard_hat", "type": "dimension"},
+        {"name": "postal_code", "node_name": "default.hard_hat", "type": "dimension"},
+        {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
+        {"name": "state", "node_name": "default.hard_hat", "type": "dimension"},
+        {
+            "name": "company_name",
+            "node_name": "default.dispatcher",
+            "type": "dimension",
+        },
+        {
+            "name": "local_region",
+            "node_name": "default.municipality_dim",
+            "type": "dimension",
+        },
+    ]
