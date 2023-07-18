@@ -327,7 +327,7 @@ def get_upstream_nodes(
     ]
 
 
-def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
+def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
     data: Union[NodeRevisionBase, NodeRevision],
     session: Session,
 ) -> Tuple[
