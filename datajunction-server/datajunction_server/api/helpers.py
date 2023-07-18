@@ -373,16 +373,22 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
 
-    validated_node.columns = []
+    new_columns = []
+    column_mapping = {col.name: col for col in validated_node.columns}
     type_inference_failures = {}
     for col in query_ast.select.projection:
-        try:
-            column_type = col.type  # type: ignore
-            validated_node.columns.append(
-                Column(name=col.alias_or_name.name, type=column_type),  # type: ignore
-            )
-        except DJParseException as parse_exc:
-            type_inference_failures[col.alias_or_name.name] = parse_exc.message  # type: ignore
+        column_name = col.alias_or_name.name  # type: ignore
+        if column_name in column_mapping:
+            new_columns.append(column_mapping[column_name])
+        else:
+            try:
+                column_type = col.type  # type: ignore
+                new_columns.append(
+                    Column(name=column_name, type=column_type),
+                )
+            except DJParseException as parse_exc:
+                type_inference_failures[column_name] = parse_exc.message
+    validated_node.columns = new_columns
 
     # check that bound dimensions are from parent nodes
     invalid_required_dimensions = set()

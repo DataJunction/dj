@@ -395,15 +395,24 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
     # Find all downstream nodes and revalidate them
     downstreams = get_downstream_nodes(session, node.name)
     for downstream in downstreams:
-        (
-            _,
-            _,
-            missing_parents_map,
-            type_inference_failed_columns,
-        ) = validate_node_data(downstream.current, session)
-        if missing_parents_map or type_inference_failed_columns:
-            downstream.current.status = NodeStatus.INVALID
-            session.add(downstream)
+        if downstream.type == NodeType.CUBE:
+            downstream.current.status = NodeStatus.VALID
+            for element in downstream.current.cube_elements:
+                if (
+                    element.node_revisions
+                    and element.node_revisions[-1].status == NodeStatus.INVALID
+                ):  # pragma: no cover
+                    downstream.current.status = NodeStatus.INVALID
+        else:
+            (
+                _,
+                _,
+                missing_parents_map,
+                type_inference_failed_columns,
+            ) = validate_node_data(downstream.current, session)
+            if missing_parents_map or type_inference_failed_columns:
+                downstream.current.status = NodeStatus.INVALID
+        session.add(downstream)
 
     session.add(node)
     session.add(
