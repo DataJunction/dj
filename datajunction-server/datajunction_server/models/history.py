@@ -10,6 +10,7 @@ from sqlalchemy import DateTime
 from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import JSON, Field, SQLModel
 
+from datajunction_server.models.node import NodeRevision, NodeStatus
 from datajunction_server.typing import UTCDatetime
 
 
@@ -24,6 +25,7 @@ class ActivityType(str, Enum):
     UPDATE = "update"
     TAG = "tag"
     SET_ATTRIBUTE = "set_attribute"
+    STATUS_CHANGE = "status_change"
 
 
 class EntityType(str, Enum):
@@ -65,3 +67,21 @@ class History(SQLModel, table=True):  # type: ignore
 
     def __hash__(self) -> int:
         return hash(self.id)
+
+
+def status_change_history(
+    node_revision: NodeRevision,
+    start_status: NodeStatus,
+    end_status: NodeStatus,
+) -> History:
+    """
+    Returns a status change history activity entry
+    """
+    return History(
+        entity_type=EntityType.NODE,
+        entity_name=node_revision.name,
+        node=node_revision.name,
+        activity_type=ActivityType.STATUS_CHANGE,
+        pre={"status": start_status},
+        post={"status": end_status},
+    )

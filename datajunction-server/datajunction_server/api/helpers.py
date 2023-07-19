@@ -27,7 +27,11 @@ from datajunction_server.errors import (
 from datajunction_server.models import AttributeType, Catalog, Column, Engine
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.engine import Dialect
-from datajunction_server.models.history import EntityType, History
+from datajunction_server.models.history import (
+    EntityType,
+    History,
+    status_change_history,
+)
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import (
     BuildCriteria,
@@ -566,6 +570,13 @@ def propagate_valid_status(
                     node.current.columns = validated_node.columns or []
                     node.current.status = NodeStatus.VALID
                     node.current.catalog_id = catalog_id
+                    session.add(
+                        status_change_history(
+                            node.current,
+                            NodeStatus.INVALID,
+                            NodeStatus.VALID,
+                        ),
+                    )
                     session.add(node.current)
                     session.commit()
                     newly_valid_nodes.append(node.current)

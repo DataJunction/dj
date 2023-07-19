@@ -52,7 +52,12 @@ from datajunction_server.models.attribute import AttributeType, UniquenessScope
 from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column, ColumnAttributeInput
 from datajunction_server.models.engine import Dialect, Engine
-from datajunction_server.models.history import ActivityType, EntityType, History
+from datajunction_server.models.history import (
+    ActivityType,
+    EntityType,
+    History,
+    status_change_history,
+)
 from datajunction_server.models.materialization import (
     DruidConf,
     DruidCubeConfig,
@@ -147,7 +152,15 @@ def revalidate_a_node(
     node = get_node_by_name(session, name)
     current_node_revision = node.current
     if current_node_revision.type == NodeType.SOURCE:
-        current_node_revision.status = NodeStatus.VALID
+        if current_node_revision.status != NodeStatus.VALID:  # pragma: no cover
+            current_node_revision.status = NodeStatus.VALID
+            session.add(
+                status_change_history(
+                    current_node_revision,
+                    NodeStatus.INVALID,
+                    NodeStatus.VALID,
+                ),
+            )
         session.add(current_node_revision)
         session.commit()
         return JSONResponse(
@@ -170,14 +183,23 @@ def revalidate_a_node(
         status = NodeStatus.VALID
 
     if current_node_revision.status != status:  # pragma: no cover
+        old_status = current_node_revision.status
+        current_node_revision.status = status
         session.add(current_node_revision)
+        session.add(
+            status_change_history(
+                current_node_revision,
+                old_status,
+                current_node_revision.status,
+            ),
+        )
         session.commit()
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
             "message": (
                 f"{current_node_revision.type} node `{current_node_revision.name}` "
-                "has been set to {status}"
+                f"has been set to {status}"
             ),
             "status": status,
         },
@@ -351,8 +373,16 @@ def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
     # Find all downstream nodes and mark them as invalid
     downstreams = get_downstream_nodes(session, node.name)
     for downstream in downstreams:
-        downstream.current.status = NodeStatus.INVALID
-        session.add(downstream)
+        if downstream.current.status != NodeStatus.INVALID:
+            downstream.current.status = NodeStatus.INVALID
+            session.add(
+                status_change_history(
+                    downstream.current,
+                    NodeStatus.VALID,
+                    NodeStatus.INVALID,
+                ),
+            )
+            session.add(downstream)
 
     now = datetime.utcnow()
     node.deactivated_at = UTCDatetime(
@@ -395,6 +425,7 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
     # Find all downstream nodes and revalidate them
     downstreams = get_downstream_nodes(session, node.name)
     for downstream in downstreams:
+        old_status = downstream.current.status
         if downstream.type == NodeType.CUBE:
             downstream.current.status = NodeStatus.VALID
             for element in downstream.current.cube_elements:
@@ -413,6 +444,14 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
             if missing_parents_map or type_inference_failed_columns:
                 downstream.current.status = NodeStatus.INVALID
         session.add(downstream)
+        if old_status != downstream.current.status:
+            session.add(
+                status_change_history(
+                    downstream.current,
+                    old_status,
+                    downstream.current.status,
+                ),
+            )
 
     session.add(node)
     session.add(
@@ -1437,13 +1476,34 @@ def delete_dimension_link(
     )
     if affected_cubes:
         for cube in affected_cubes:
-            cube.status = NodeStatus.INVALID
-            session.add(cube)
+            if cube.status != NodeStatus.INVALID:  # pragma: no cover
+                cube.status = NodeStatus.INVALID
+                session.add(cube)
+                session.add(
+                    status_change_history(
+                        node,
+                        NodeStatus.VALID,
+                        NodeStatus.INVALID,
+                    ),
+                )
 
     target_column.dimension = None  # type: ignore
     target_column.dimension_id = None
     target_column.dimension_column = None
     session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.LINK,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.DELETE,
+            details={
+                "column": column,
+                "dimension": dimension,
+                "dimension_column": dimension_column or "",
+            },
+        ),
+    )
     session.commit()
     session.refresh(node)
 
@@ -1712,6 +1772,15 @@ def update_a_node(
             },
         ),
     )
+
+    if new_revision.status != old_revision.status:
+        session.add(
+            status_change_history(
+                new_revision,
+                old_revision.status,
+                new_revision.status,
+            ),
+        )
     session.commit()
     session.refresh(node.current)
     return node  # type: ignore
