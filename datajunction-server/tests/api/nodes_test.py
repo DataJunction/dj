@@ -843,11 +843,9 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         """
         response = client.post("/register/table/foo/bar/baz/")
         data = response.json()
-        assert (
-            data["message"] == (
-                "Registering tables requires that a query "
-                "service is configured for table columns inference"
-            )
+        assert data["message"] == (
+            "Registering tables requires that a query "
+            "service is configured for table columns inference"
         )
         assert response.status_code == 500
 
