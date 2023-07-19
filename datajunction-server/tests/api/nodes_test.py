@@ -400,7 +400,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             (
                 {"status": "valid"},
                 {"status": "invalid"},
-                {"upstream_node": "basic.source.users"},
+                {"upstream_node": "default.users"},
             ),
         ]
 
@@ -423,12 +423,12 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             (
                 {"status": "valid"},
                 {"status": "invalid"},
-                {"upstream_node": "basic.source.users"},
+                {"upstream_node": "default.users"},
             ),
             (
                 {"status": "invalid"},
                 {"status": "valid"},
-                {"upstream_node": "basic.source.users"},
+                {"upstream_node": "default.users"},
             ),
         ]
 
