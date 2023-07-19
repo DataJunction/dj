@@ -73,6 +73,7 @@ def status_change_history(
     node_revision: NodeRevision,
     start_status: NodeStatus,
     end_status: NodeStatus,
+    parent_node: str = None,
 ) -> History:
     """
     Returns a status change history activity entry
@@ -84,4 +85,5 @@ def status_change_history(
         activity_type=ActivityType.STATUS_CHANGE,
         pre={"status": start_status},
         post={"status": end_status},
+        details={"upstream_node": parent_node if parent_node else None},
     )

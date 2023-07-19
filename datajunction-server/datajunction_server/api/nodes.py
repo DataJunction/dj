@@ -380,6 +380,7 @@ def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
                     downstream.current,
                     NodeStatus.VALID,
                     NodeStatus.INVALID,
+                    parent_node=node.name,
                 ),
             )
             session.add(downstream)
@@ -450,6 +451,7 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
                     downstream.current,
                     old_status,
                     downstream.current.status,
+                    parent_node=node.name,
                 ),
             )
 
