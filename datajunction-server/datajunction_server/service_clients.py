@@ -86,7 +86,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         Retrieves columns for a table.
         """
         response = self.requests_session.get(
-            f"/table/{catalog}.{schema}.{table}/columns/",
+            f"table/{catalog}.{schema}.{table}/columns/",
             params={
                 "engine": engine.name,
                 "engine_version": engine.version,
@@ -108,7 +108,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         Submit a query to the query service
         """
         response = self.requests_session.post(
-            "/queries/",
+            "queries/",
             json=query_create.dict(),
         )
         response_data = response.json()
@@ -126,7 +126,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         """
         Get a previously submitted query
         """
-        response = self.requests_session.get(f"/queries/{query_id}/")
+        response = self.requests_session.get(f"queries/{query_id}/")
         if not response.ok:
             raise DJQueryServiceClientException(
                 message=f"Error response from query service: {response.text}",
@@ -147,7 +147,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         that this functionality may be moved to the materialization service at a later point.
         """
         response = self.requests_session.post(
-            "/materialization/",
+            "materialization/",
             json=materialization_input.dict(),
         )
         if not response.ok:  # pragma: no cover
@@ -185,7 +185,7 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         Gets materialization info for the node and materialization config name.
         """
         response = self.requests_session.get(
-            f"/materialization/{node_name}/{node_version}/{materialization_name}/",
+            f"materialization/{node_name}/{node_version}/{materialization_name}/",
             timeout=3,
         )
         if not response.ok:
