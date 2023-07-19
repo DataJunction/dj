@@ -85,6 +85,32 @@ export default function NodeHistory({ node, djClient }) {
         </div>
       );
     }
+    if (
+      event.activity_type === 'status_change' &&
+      event.entity_type === 'node'
+    ) {
+      const expr = (
+        <div>
+          Caused by a change in upstream{' '}
+          <a href={`/nodes/${event.details['upstream_node']}`}>
+            {event.details['upstream_node']}
+          </a>
+        </div>
+      );
+      return (
+        <div>
+          Status changed from{' '}
+          <span className={`status__${event.pre['status']}`}>
+            {event.pre['status']}
+          </span>{' '}
+          to{' '}
+          <span className={`status__${event.post['status']}`}>
+            {event.post['status']}
+          </span>{' '}
+          {event.details['upstream_node'] !== undefined ? expr : ''}
+        </div>
+      );
+    }
     return '';
   };
 
