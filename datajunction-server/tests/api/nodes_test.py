@@ -269,10 +269,16 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             # The downstreams' status change should be recorded in their histories
             response = client_with_examples.get(f"/history?node={downstream}")
             assert [
-                (activity["pre"], activity["post"])
+                (activity["pre"], activity["post"], activity["details"])
                 for activity in response.json()
                 if activity["activity_type"] == "status_change"
-            ] == [({"status": "valid"}, {"status": "invalid"})]
+            ] == [
+                (
+                    {"status": "valid"},
+                    {"status": "invalid"},
+                    {"upstream_node": "basic.source.users"},
+                ),
+            ]
 
         # Trying to create the node again should reveal that the node exists but is deactivated
         response = client_with_examples.post(
@@ -387,10 +393,16 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
         response = client.get("/history?node=default.num_users")
         assert [
-            (activity["pre"], activity["post"])
+            (activity["pre"], activity["post"], activity["details"])
             for activity in response.json()
             if activity["activity_type"] == "status_change"
-        ] == [({"status": "valid"}, {"status": "invalid"})]
+        ] == [
+            (
+                {"status": "valid"},
+                {"status": "invalid"},
+                {"upstream_node": "basic.source.users"},
+            ),
+        ]
 
         # Reactivate the source node
         response = client.post("/nodes/default.users/activate/")
@@ -404,12 +416,20 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # Check activity history of downstream metric
         response = client.get("/history?node=default.num_users")
         assert [
-            (activity["pre"], activity["post"])
+            (activity["pre"], activity["post"], activity["details"])
             for activity in response.json()
             if activity["activity_type"] == "status_change"
         ] == [
-            ({"status": "valid"}, {"status": "invalid"}),
-            ({"status": "invalid"}, {"status": "valid"}),
+            (
+                {"status": "valid"},
+                {"status": "invalid"},
+                {"upstream_node": "basic.source.users"},
+            ),
+            (
+                {"status": "invalid"},
+                {"status": "valid"},
+                {"upstream_node": "basic.source.users"},
+            ),
         ]
 
     def test_deactivating_transform_upstream_from_metric(
@@ -515,10 +535,16 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # Check history of downstream metrics
         response = client.get("/history?node=default.num_us_users")
         assert [
-            (activity["pre"], activity["post"])
+            (activity["pre"], activity["post"], activity["details"])
             for activity in response.json()
             if activity["activity_type"] == "status_change"
-        ] == [({"status": "valid"}, {"status": "invalid"})]
+        ] == [
+            (
+                {"status": "valid"},
+                {"status": "invalid"},
+                {"upstream_node": "default.us_users"},
+            ),
+        ]
         # No change recorded here because the metric was already invalid
         response = client.get("/history?node=default.invalid_metric")
         assert [
@@ -546,12 +572,20 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # Check history of downstream metric
         response = client.get("/history?node=default.num_us_users")
         assert [
-            (activity["pre"], activity["post"])
+            (activity["pre"], activity["post"], activity["details"])
             for activity in response.json()
             if activity["activity_type"] == "status_change"
         ] == [
-            ({"status": "valid"}, {"status": "invalid"}),
-            ({"status": "invalid"}, {"status": "valid"}),
+            (
+                {"status": "valid"},
+                {"status": "invalid"},
+                {"upstream_node": "default.us_users"},
+            ),
+            (
+                {"status": "invalid"},
+                {"status": "valid"},
+                {"upstream_node": "default.us_users"},
+            ),
         ]
 
         # The other downstream metric should have remained invalid
