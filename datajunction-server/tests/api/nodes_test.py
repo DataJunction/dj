@@ -266,6 +266,14 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             response = client_with_examples.get(f"/nodes/{downstream}/")
             assert response.json()["status"] == NodeStatus.INVALID
 
+            # The downstreams' status change should be recorded in their histories
+            response = client_with_examples.get(f"/history?node={downstream}")
+            assert [
+                (activity["pre"], activity["post"])
+                for activity in response.json()
+                if activity["activity_type"] == "status_change"
+            ] == [({"status": "valid"}, {"status": "invalid"})]
+
         # Trying to create the node again should reveal that the node exists but is deactivated
         response = client_with_examples.post(
             "/nodes/source/",
@@ -377,6 +385,13 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             client.get("/nodes/default.num_users/").json()["status"]
             == NodeStatus.INVALID
         )
+        response = client.get("/history?node=default.num_users")
+        assert [
+            (activity["pre"], activity["post"])
+            for activity in response.json()
+            if activity["activity_type"] == "status_change"
+        ] == [({"status": "valid"}, {"status": "invalid"})]
+
         # Reactivate the source node
         response = client.post("/nodes/default.users/activate/")
         assert response.ok
@@ -386,6 +401,16 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # The downstream metric should have been changed to valid
         response = client.get("/nodes/default.num_users/")
         assert response.json()["status"] == NodeStatus.VALID
+        # Check activity history of downstream metric
+        response = client.get("/history?node=default.num_users")
+        assert [
+            (activity["pre"], activity["post"])
+            for activity in response.json()
+            if activity["activity_type"] == "status_change"
+        ] == [
+            ({"status": "valid"}, {"status": "invalid"}),
+            ({"status": "invalid"}, {"status": "valid"}),
+        ]
 
     def test_deactivating_transform_upstream_from_metric(
         self,
@@ -486,6 +511,22 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             client.get("/nodes/default.invalid_metric/").json()["status"]
             == NodeStatus.INVALID
         )
+
+        # Check history of downstream metrics
+        response = client.get("/history?node=default.num_us_users")
+        assert [
+            (activity["pre"], activity["post"])
+            for activity in response.json()
+            if activity["activity_type"] == "status_change"
+        ] == [({"status": "valid"}, {"status": "invalid"})]
+        # No change recorded here because the metric was already invalid
+        response = client.get("/history?node=default.invalid_metric")
+        assert [
+            (activity["pre"], activity["post"])
+            for activity in response.json()
+            if activity["activity_type"] == "status_change"
+        ] == []
+
         # Reactivate the transform node
         response = client.post("/nodes/default.us_users/activate/")
         assert response.ok
@@ -502,9 +543,27 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # This downstream metric should have been changed to valid
         response = client.get("/nodes/default.num_us_users/")
         assert response.json()["status"] == NodeStatus.VALID
+        # Check history of downstream metric
+        response = client.get("/history?node=default.num_us_users")
+        assert [
+            (activity["pre"], activity["post"])
+            for activity in response.json()
+            if activity["activity_type"] == "status_change"
+        ] == [
+            ({"status": "valid"}, {"status": "invalid"}),
+            ({"status": "invalid"}, {"status": "valid"}),
+        ]
+
         # The other downstream metric should have remained invalid
         response = client.get("/nodes/default.invalid_metric/")
         assert response.json()["status"] == NodeStatus.INVALID
+        # Check history of downstream metric
+        response = client.get("/history?node=default.invalid_metric")
+        assert [
+            (activity["pre"], activity["post"])
+            for activity in response.json()
+            if activity["activity_type"] == "status_change"
+        ] == []
 
     def test_deactivating_linked_dimension(
         self,
