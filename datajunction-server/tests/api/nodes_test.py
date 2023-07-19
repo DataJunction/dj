@@ -834,34 +834,20 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             "warnings": [],
         }
 
-    def test_create_source_node_without_cols_or_query_service(
+    def test_register_table_without_query_service(
         self,
-        client_with_examples: TestClient,
+        client: TestClient,
     ):
         """
-        Trying to create a source node without columns and without
-        a query service set up should fail.
+        Trying to register a table without a query service set up should fail.
         """
-        basic_source_comments = {
-            "name": "default.comments",
-            "description": "A fact table with comments",
-            "columns": [],
-            "mode": "published",
-            "catalog": "public",
-            "schema_": "basic",
-            "table": "comments",
-        }
-
-        # Trying to create a source node without columns and without
-        # a query service set up should fail
-        response = client_with_examples.post(
-            "/nodes/source/",
-            json=basic_source_comments,
-        )
+        response = client.post("/register/table/foo/bar/baz/")
         data = response.json()
         assert (
-            data["message"] == "No table columns were provided and no query "
-            "service is configured for table columns inference!"
+            data["message"] == (
+                "Registering tables requires that a query "
+                "service is configured for table columns inference"
+            )
         )
         assert response.status_code == 500
 
@@ -873,26 +859,13 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         Creating a source node without columns but with a query service set should
         result in the source node columns being inferred via the query service.
         """
-        basic_source_comments = {
-            "name": "default.comments",
-            "description": "A fact table with comments",
-            "columns": [],
-            "mode": "published",
-            "catalog": "public",
-            "schema_": "basic",
-            "table": "comments",
-        }
-
-        # Trying to create a source node without columns and without
-        # a query service set up should fail
         response = client_with_query_service.post(
-            "/nodes/source/",
-            json=basic_source_comments,
+            "/register/table/public/basic/comments/",
         )
         data = response.json()
-        assert data["name"] == "default.comments"
+        assert data["name"] == "source.public.basic.comments"
         assert data["type"] == "source"
-        assert data["display_name"] == "Default: Comments"
+        assert data["display_name"] == "source.public.basic.comments"
         assert data["version"] == "v1.0"
         assert data["status"] == "valid"
         assert data["mode"] == "published"

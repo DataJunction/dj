@@ -1123,7 +1123,6 @@ def save_node(
 def create_a_source(
     data: CreateSourceNode,
     session: Session = Depends(get_session),
-    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
     """
     Create a source node. If columns are not provided, the source node's schema
@@ -1147,39 +1146,21 @@ def create_a_source(
     )
     catalog = get_catalog(session=session, name=data.catalog)
 
-    # When no columns are provided, attempt to find actual table columns
-    # if a query service is set
-    columns = (
-        [
-            Column(
-                name=column_data.name,
-                type=column_data.type,
-                dimension=(
-                    get_node_by_name(
-                        session,
-                        name=column_data.dimension,
-                        node_type=NodeType.DIMENSION,
-                        raise_if_not_exists=False,
-                    )
-                ),
-            )
-            for column_data in data.columns
-        ]
-        if data.columns
-        else None
-    )
-    if not columns:
-        if not query_service_client:
-            raise DJException(
-                message="No table columns were provided and no query "
-                "service is configured for table columns inference",
-            )
-        columns = query_service_client.get_columns_for_table(
-            data.catalog,
-            data.schema_,  # type: ignore
-            data.table,
-            catalog.engines[0] if len(catalog.engines) >= 1 else None,
+    columns = [
+        Column(
+            name=column_data.name,
+            type=column_data.type,
+            dimension=(
+                get_node_by_name(
+                    session,
+                    name=column_data.dimension,
+                    node_type=NodeType.DIMENSION,
+                    raise_if_not_exists=False,
+                )
+            ),
         )
+        for column_data in data.columns
+    ]
 
     node_revision = NodeRevision(
         name=data.name,
@@ -1328,18 +1309,31 @@ def register_a_table(  # pylint: disable=too-many-arguments
         )
     namespace = f"{settings.source_node_namespace}.{catalog}.{schema_}"
     name = f"{namespace}.{table}"
+
+    # Create the namespace if required (idempotent)
     create_a_node_namespace(namespace=namespace, session=session)
+
+    # Use reflection to get column names and types
+    _catalog = get_catalog(session=session, name=catalog)
+    columns = query_service_client.get_columns_for_table(
+        _catalog,
+        schema_,
+        table,
+        _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
+    )
+
     return create_a_source(
         data=CreateSourceNode(
             catalog=catalog,
             schema_=schema_,
             table=table,
             name=name,
+            display_name=name,
+            columns=columns,
             description="This source node was automatically created as a registered table.",
             mode=NodeMode.PUBLISHED,
         ),
         session=session,
-        query_service_client=query_service_client,
     )
 
 
