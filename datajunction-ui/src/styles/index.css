@@ -433,12 +433,12 @@ tbody th {
   color: #00b368;
 }
 
-.history_type__deactvate {
-  background-color: #a8a8a8 !important;
-  color: #855e5e;
+.history_type__delete {
+  background-color: #ffc8c8 !important;
+  color: #9b5a5a;
 }
 
-.history_type__activate {
+.history_type__restore {
   background-color: #ccf7e5 !important;
   color: #00b368;
 }
@@ -459,8 +459,13 @@ tbody th {
 }
 
 .history_type__set_attribute {
-  background-color: #ffe6e6 !important;
-  color: #855e5e;
+  background-color: #e6f5ff !important;
+  color: #487c8c;
+}
+
+.history_type__status_change {
+  background-color: #ffe9db !important;
+  color: #573d3d;
 }
 
 .partition_value {
