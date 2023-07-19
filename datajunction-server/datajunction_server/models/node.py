@@ -942,7 +942,7 @@ class SourceNodeFields(BaseSQLModel):
     catalog: str
     schema_: str
     table: str
-    columns: Optional[List["SourceColumnOutput"]] = []
+    columns: List["SourceColumnOutput"]
 
 
 class CubeNodeFields(BaseSQLModel):

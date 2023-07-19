@@ -51,6 +51,9 @@ class Settings(
     # Query service
     query_service: Optional[str] = None
 
+    # The namespace where source nodes for registered tables should exist
+    source_node_namespace: Optional[str] = "source"
+
     @property
     def celery(self) -> Celery:
         """
