@@ -2517,6 +2517,11 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_examples.get("/nodes/default.revenue")
         data = response.json()
         assert all(col["dimension"] is None for col in data["columns"])
+        response = client_with_examples.get("/history?node=default.revenue")
+        assert [
+            (activity["activity_type"], activity["entity_type"])
+            for activity in response.json()
+        ] == [("create", "node"), ("create", "link"), ("delete", "link")]
 
         # Removing the dimension link again will result in no change
         response = client_with_examples.delete(
@@ -2528,6 +2533,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "message": "No change was made to payment_type on node default.revenue as the"
             " specified dimension link to default.payment_type on None was not found.",
         }
+        # Check history again, no change
+        response = client_with_examples.get("/history?node=default.revenue")
+        assert [
+            (activity["activity_type"], activity["entity_type"])
+            for activity in response.json()
+        ] == [("create", "node"), ("create", "link"), ("delete", "link")]
 
         # Check that the proper error is raised when the column doesn't exist
         response = client_with_examples.post(
