@@ -4,7 +4,7 @@ Helpers for API endpoints
 import collections
 import http.client
 from http import HTTPStatus
-from typing import Dict, List, Optional, Tuple, Union
+from typing import Dict, List, Optional, Set, Tuple, Union
 
 from fastapi import HTTPException
 from sqlalchemy.exc import NoResultFound
@@ -327,7 +327,36 @@ def get_upstream_nodes(
     ]
 
 
-def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches,too-many-statements
+def find_bound_dimensions(
+    validated_node: NodeRevision,
+    dependencies_map: Dict[NodeRevision, List[ast.Table]],
+) -> Tuple[Set, List[Column]]:
+    """
+    Finds the matched bound dimensions
+    """
+    invalid_required_dimensions = set()
+    matched_bound_columns = []
+    for col in validated_node.required_dimensions:
+        names = col.split(".")
+        parent_name, column_name = ".".join(names[:-1]), names[-1]
+
+        found_parent_col = False
+        for parent in dependencies_map.keys():
+            if found_parent_col:
+                break  # pragma: no cover
+            if (parent.name) != parent_name:
+                continue  # pragma: no cover
+            for parent_col in parent.columns:
+                if parent_col.name == column_name:
+                    found_parent_col = True
+                    matched_bound_columns.append(parent_col)
+                    break
+        if not found_parent_col:
+            invalid_required_dimensions.add(col)
+    return invalid_required_dimensions, matched_bound_columns
+
+
+def validate_node_data(  # pylint: disable=too-many-locals
     data: Union[NodeRevisionBase, NodeRevision],
     session: Session,
 ) -> Tuple[
@@ -373,43 +402,27 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-branches,too
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
 
-    new_columns = []
     column_mapping = {col.name: col for col in validated_node.columns}
+    validated_node.columns = []
     type_inference_failures = {}
     for col in query_ast.select.projection:
         column_name = col.alias_or_name.name  # type: ignore
-        if column_name in column_mapping:
-            new_columns.append(column_mapping[column_name])
-        else:
-            try:
-                column_type = col.type  # type: ignore
-                new_columns.append(
-                    Column(name=column_name, type=column_type),
-                )
-            except DJParseException as parse_exc:
-                type_inference_failures[column_name] = parse_exc.message
-    validated_node.columns = new_columns
+        column = column_mapping.get(column_name)
+        try:
+            column_type = str(col.type)  # type: ignore
+            if column is None:
+                column = Column(name=column_name, type=column_type)
+            column.type = column_type  # type: ignore
+        except DJParseException as parse_exc:
+            type_inference_failures[column_name] = parse_exc.message
+        if column:
+            validated_node.columns.append(column)
 
     # check that bound dimensions are from parent nodes
-    invalid_required_dimensions = set()
-    matched_bound_columns = []
-    for col in validated_node.required_dimensions:
-        names = col.split(".")
-        parent_name, column_name = ".".join(names[:-1]), names[-1]
-
-        found_parent_col = False
-        for parent in dependencies_map.keys():
-            if found_parent_col:
-                break  # pragma: no cover
-            if (parent.name) != parent_name:
-                continue  # pragma: no cover
-            for parent_col in parent.columns:
-                if parent_col.name == column_name:
-                    found_parent_col = True
-                    matched_bound_columns.append(parent_col)
-                    break
-        if not found_parent_col:
-            invalid_required_dimensions.add(col)
+    invalid_required_dimensions, matched_bound_columns = find_bound_dimensions(
+        validated_node,
+        dependencies_map,
+    )
     validated_node.required_dimensions = matched_bound_columns
 
     # Only raise on missing parents or type inference if the node mode is set to published
