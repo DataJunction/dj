@@ -33,7 +33,9 @@ from datajunction_server.api.helpers import (
     validate_cube,
     validate_node_data,
 )
+from datajunction_server.api.namespaces import create_a_node_namespace
 from datajunction_server.api.tags import get_tag_by_name
+from datajunction_server.config import Settings
 from datajunction_server.construction.build import build_metric_nodes, build_node
 from datajunction_server.errors import (
     DJDoesNotExistException,
@@ -103,6 +105,7 @@ from datajunction_server.utils import (
     get_namespace_from_name,
     get_query_service_client,
     get_session,
+    get_settings,
 )
 
 _logger = logging.getLogger(__name__)
@@ -1170,7 +1173,6 @@ def save_node(
 def create_a_source(
     data: CreateSourceNode,
     session: Session = Depends(get_session),
-    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
     """
     Create a source node. If columns are not provided, the source node's schema
@@ -1194,39 +1196,21 @@ def create_a_source(
     )
     catalog = get_catalog(session=session, name=data.catalog)
 
-    # When no columns are provided, attempt to find actual table columns
-    # if a query service is set
-    columns = (
-        [
-            Column(
-                name=column_data.name,
-                type=column_data.type,
-                dimension=(
-                    get_node_by_name(
-                        session,
-                        name=column_data.dimension,
-                        node_type=NodeType.DIMENSION,
-                        raise_if_not_exists=False,
-                    )
-                ),
-            )
-            for column_data in data.columns
-        ]
-        if data.columns
-        else None
-    )
-    if not columns:
-        if not query_service_client:
-            raise DJException(
-                message="No table columns were provided and no query "
-                "service is configured for table columns inference!",
-            )
-        columns = query_service_client.get_columns_for_table(
-            data.catalog,
-            data.schema_,  # type: ignore
-            data.table,
-            catalog.engines[0] if len(catalog.engines) >= 1 else None,
+    columns = [
+        Column(
+            name=column_data.name,
+            type=column_data.type,
+            dimension=(
+                get_node_by_name(
+                    session,
+                    name=column_data.dimension,
+                    node_type=NodeType.DIMENSION,
+                    raise_if_not_exists=False,
+                )
+            ),
         )
+        for column_data in data.columns
+    ]
 
     node_revision = NodeRevision(
         name=data.name,
@@ -1349,6 +1333,58 @@ def create_a_cube(
         query_service_client,
     )
     return node  # type: ignore
+
+
+@router.post(
+    "/register/table/{catalog}/{schema_}/{table}/",
+    response_model=NodeOutput,
+    status_code=201,
+)
+def register_a_table(  # pylint: disable=too-many-arguments
+    catalog: str,
+    schema_: str,
+    table: str,
+    session: Session = Depends(get_session),
+    settings: Settings = Depends(get_settings),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> NodeOutput:
+    """
+    Register a table. This creates a source node in the SOURCE_NODE_NAMESPACE and
+    the source node's schema will be inferred using the configured query service.
+    """
+    if not query_service_client:
+        raise DJException(
+            message="Registering tables requires that a query "
+            "service is configured for table columns inference",
+        )
+    namespace = f"{settings.source_node_namespace}.{catalog}.{schema_}"
+    name = f"{namespace}.{table}"
+
+    # Create the namespace if required (idempotent)
+    create_a_node_namespace(namespace=namespace, session=session)
+
+    # Use reflection to get column names and types
+    _catalog = get_catalog(session=session, name=catalog)
+    columns = query_service_client.get_columns_for_table(
+        _catalog,
+        schema_,
+        table,
+        _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
+    )
+
+    return create_a_source(
+        data=CreateSourceNode(
+            catalog=catalog,
+            schema_=schema_,
+            table=table,
+            name=name,
+            display_name=name,
+            columns=columns,
+            description="This source node was automatically created as a registered table.",
+            mode=NodeMode.PUBLISHED,
+        ),
+        session=session,
+    )
 
 
 def schedule_materialization_jobs(
