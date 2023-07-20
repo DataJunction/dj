@@ -662,6 +662,7 @@ def test_first_and_first_value(session: Session):
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[2].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[3].type == ct.IntegerType()  # type: ignore
 
 
 def test_flatten(session: Session):
