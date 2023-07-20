@@ -684,7 +684,7 @@ class Column(Aliasable, Named, Expression):
             self.add_type(self.expression.type)
             return self.expression.type
 
-        raise DJParseException(f"Cannot resolve type of column {self} in {self.parent}")
+        raise DJParseException(f"Cannot resolve type of column {self}.")
 
     def add_type(self, type_: ColumnType) -> "Column":
         """
@@ -856,7 +856,7 @@ class Column(Aliasable, Named, Expression):
         Compile a column.
         Determines the table from which a column is from.
         """
-        print("col", self.name, self._type)
+
         if self.is_compiled():
             return
 
