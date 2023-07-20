@@ -21,7 +21,6 @@ export function SQLBuilderPage() {
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
   const [viewData, setViewData] = useState(false);
-  const [showHelp, setShowHelp] = useState(true);
   const [showNumRows, setShowNumRows] = useState(100);
   const [displayedRows, setDisplayedRows] = useState(<></>);
   const numRowsOptions = [
@@ -129,11 +128,9 @@ export function SQLBuilderPage() {
     const fetchData = async () => {
       if (selectedMetrics.length && selectedDimensions.length) {
         const query = await djClient.sqls(selectedMetrics, selectedDimensions);
-        setShowHelp(false);
         setQuery(query.sql);
       } else {
         resetView();
-        setShowHelp(true);
       }
     };
     fetchData().catch(console.error);
@@ -196,7 +193,7 @@ export function SQLBuilderPage() {
             />
           </div>
           <div className="card-header">
-            {showHelp ? (
+            {!viewData && !query ? (
               <div className="card-light-shadow">
                 <h6>Using the SQL Builder</h6>
                 <p>

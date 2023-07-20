@@ -41,8 +41,8 @@ from datajunction_server.utils import get_query_service_client, get_session
 _logger = logging.getLogger(__name__)
 router = APIRouter()
 
-STREAM_DELAY = 0.1  # second
-RETRY_TIMEOUT = 15000  # miliseconds
+STREAM_DELAY = 0.5  # second
+RETRY_TIMEOUT = 5000  # miliseconds
 
 @router.post("/data/{node_name}/availability/")
 def add_an_availability_state(
@@ -192,6 +192,7 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     """
     Return data for a set of metrics with dimensions and filters
     """
+    raise DJException()
     translated_sql, engine, catalog = build_sql_for_multiple_metrics(
         session,
         metrics,
@@ -253,45 +254,43 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
         submitted_query=translated_sql.sql,
         async_=True,
     )
-    result = query_service_client.submit_query(query_create)
-
     # Submits the query, equivalent to calling POST /data/ directly
-    query_with_results = query_service_client.submit_query(query_create)
+    initial_query_info = query_service_client.submit_query(query_create)
     async def check_query():
         # Start with query and query_next as the initial state of the query
-        query = query_next = query_with_results
+        query = query_next = initial_query_info
         query_id = query.id
-        _logger.error("Sending an initial event to the client")
+        _logger.info("sending initial event to the client for query %s", query_id)
         yield {
                 "event": "message",
-                "id": uuid.uuid4().hex,
+                "id": uuid.uuid4(),
                 "retry": RETRY_TIMEOUT,
                 "data": json.dumps(query.json())
         }
         while True:  # Continuously check the query until it's complete
             if await request.is_disconnected():  # Check if the client closed the connection
-                _logger.error("The client has closed the connection")
+                _logger.error("connection closed by the client")
                 break
 
             # Check the current state of the query
             query_next = query_service_client.get_query(query_id=query_id)
             if query_next.state in END_JOB_STATES:
-                _logger.error(f"Query state detected as {query_next.state}, sending final event to the client")
+                _logger.info("query end state detected (%s), sending final event to the client", query_next.state)
                 if query_next.results.__root__:  # pragma: no cover
                     query_next.results.__root__[0].columns = translated_sql.columns or []
                 yield {
                         "event": "message",
-                        "id": uuid.uuid4().hex,
+                        "id": uuid.uuid4(),
                         "retry": RETRY_TIMEOUT,
                         "data": json.dumps(query_next.json())
                 }
-                _logger.error("closing connection")
+                _logger.info("connection closed by the server")
                 break
             if query != query_next:
-                _logger.error("Query information has changed, sending an event to the client")
+                _logger.info("query information has changed, sending an event to the client")
                 yield {
                         "event": "message",
-                        "id": uuid.uuid4().hex,
+                        "id": uuid.uuid4(),
                         "retry": RETRY_TIMEOUT,
                         "data": json.dumps(query_next.json())
                 }
