@@ -192,7 +192,6 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     """
     Return data for a set of metrics with dimensions and filters
     """
-    raise DJException()
     translated_sql, engine, catalog = build_sql_for_multiple_metrics(
         session,
         metrics,

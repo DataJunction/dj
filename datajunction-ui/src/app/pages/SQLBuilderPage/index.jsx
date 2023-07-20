@@ -45,7 +45,7 @@ export function SQLBuilderPage() {
   // Get data for the current selection of metrics and dimensions
   const getData = () => {
     setLoadingData(true);
-    setQueryInfo({})
+    setQueryInfo({});
     const fetchData = async () => {
       // setData(null);
       const sse = await djClient.stream(selectedMetrics, selectedDimensions);
@@ -56,7 +56,9 @@ export function SQLBuilderPage() {
           setLoadingData(false);
           setQueryInfo(messageData);
           setData(messageData.results);
-          messageData.numRows = messageData.results?.length ? messageData.results[0].rows.length : []
+          messageData.numRows = messageData.results?.length
+            ? messageData.results[0].rows.length
+            : [];
           setViewData(true);
           setShowNumRows(10);
         }
@@ -70,7 +72,7 @@ export function SQLBuilderPage() {
     setQuery('');
     setData(null);
     setViewData(false);
-    setQueryInfo({})
+    setQueryInfo({});
   };
 
   // Get metrics
@@ -148,21 +150,24 @@ export function SQLBuilderPage() {
             <Select
               name="metrics"
               options={metrics}
-              isDisabled={selectedDimensions ? true : false}
+              isDisabled={
+                selectedMetrics.length && selectedDimensions.length
+                  ? true
+                  : false
+              }
               noOptionsMessage={() => 'No metrics found.'}
               placeholder={`${metrics.length} Available Metrics`}
               isMulti
               isClearable
               closeMenuOnSelect={false}
               onChange={e => {
-                setSelectedDimensions([])
-                const metrics = e.map(m => m.value);
+                setSelectedDimensions([]);
                 resetView();
-                setStagedMetrics(metrics);
+                setStagedMetrics(e.map(m => m.value));
               }}
               onMenuClose={() => {
                 resetView();
-                setSelectedDimensions([])
+                setSelectedDimensions([]);
                 setSelectedMetrics(stagedMetrics);
               }}
             />
@@ -268,7 +273,7 @@ export function SQLBuilderPage() {
             ) : (
               <></>
             )}
-            {queryInfo && queryInfo.id? <QueryInfo {...queryInfo} /> : <></>}
+            {queryInfo && queryInfo.id ? <QueryInfo {...queryInfo} /> : <></>}
             <div>
               {query && !viewData ? (
                 <SyntaxHighlighter language="sql" style={foundation}>
