@@ -168,7 +168,7 @@ def test_raising_when_expression_has_no_parent():
     with pytest.raises(DJParseException) as exc_info:
         col.type  # pylint: disable=pointless-statement
 
-    assert "Cannot resolve type of column status." in str(exc_info.value)
+    assert "Cannot resolve type of column status in None" in str(exc_info.value)
 
 
 def test_infer_map_subscripts(construction_session: Session):
