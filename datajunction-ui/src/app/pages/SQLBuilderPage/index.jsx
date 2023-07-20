@@ -17,7 +17,7 @@ export function SQLBuilderPage() {
   const [stagedDimensions, setStagedDimensions] = useState([]);
   const [selectedMetrics, setSelectedMetrics] = useState([]);
   const [query, setQuery] = useState('');
-  const [submittedQueryInfo, setSubmittedQueryInfo] = useState(null);
+  const [queryInfo, setQueryInfo] = useState({});
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
   const [viewData, setViewData] = useState(false);
@@ -46,21 +46,23 @@ export function SQLBuilderPage() {
   // Get data for the current selection of metrics and dimensions
   const getData = () => {
     setLoadingData(true);
+    setQueryInfo({})
     const fetchData = async () => {
-      setData(null);
-      const queryInfo = await djClient.data(
-        selectedMetrics,
-        selectedDimensions,
-      );
-      setLoadingData(false);
-      setSubmittedQueryInfo(queryInfo);
-      queryInfo.numRows = 0;
-      if (queryInfo.results && queryInfo.results?.length) {
-        setData(queryInfo.results);
-        queryInfo.numRows = queryInfo.results[0].rows.length;
-        setViewData(true);
-        setShowNumRows(10);
-      }
+      // setData(null);
+      const sse = await djClient.stream(selectedMetrics, selectedDimensions);
+      sse.onmessage = e => {
+        const messageData = JSON.parse(JSON.parse(e.data));
+        setQueryInfo(messageData);
+        if (messageData.results) {
+          setLoadingData(false);
+          setQueryInfo(messageData);
+          setData(messageData.results);
+          messageData.numRows = messageData.results?.length ? messageData.results[0].rows.length : []
+          setViewData(true);
+          setShowNumRows(10);
+        }
+      };
+      sse.onerror = () => sse.close();
     };
     fetchData().catch(console.error);
   };
@@ -69,6 +71,7 @@ export function SQLBuilderPage() {
     setQuery('');
     setData(null);
     setViewData(false);
+    setQueryInfo({})
   };
   const handleMetricSelect = event => {
     const metrics = event.map(m => m.value);
@@ -77,6 +80,7 @@ export function SQLBuilderPage() {
   };
 
   const handleMetricSelectorClose = () => {
+    resetView();
     setSelectedMetrics(stagedMetrics);
   };
 
@@ -139,7 +143,7 @@ export function SQLBuilderPage() {
   useEffect(() => {
     if (data) {
       setDisplayedRows(
-        data[0].rows.slice(0, showNumRows).map((rowData, index) => (
+        data[0]?.rows.slice(0, showNumRows).map((rowData, index) => (
           <tr key={`data-row:${index}`}>
             {rowData.map(rowValue => (
               <td key={rowValue}>{rowValue}</td>
@@ -272,7 +276,7 @@ export function SQLBuilderPage() {
             ) : (
               <></>
             )}
-            {submittedQueryInfo ? <QueryInfo {...submittedQueryInfo} /> : <></>}
+            {queryInfo && queryInfo.id? <QueryInfo {...queryInfo} /> : <></>}
             <div>
               {query && !viewData ? (
                 <SyntaxHighlighter language="sql" style={foundation}>
@@ -294,7 +298,7 @@ export function SQLBuilderPage() {
                 <table className="card-inner-table table">
                   <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
                     <tr>
-                      {data[0].columns.map(columnName => (
+                      {data[0]?.columns.map(columnName => (
                         <th key={columnName.name}>{columnName.name}</th>
                       ))}
                     </tr>

@@ -2,12 +2,16 @@
 Data related APIs.
 """
 
+import asyncio
+import json
 import logging
 from typing import List, Optional
+import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
+from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import (
     build_sql_for_multiple_metrics,
@@ -31,11 +35,14 @@ from datajunction_server.models.query import (
     QueryWithResults,
 )
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.typing import END_JOB_STATES
 from datajunction_server.utils import get_query_service_client, get_session
 
 _logger = logging.getLogger(__name__)
 router = APIRouter()
 
+STREAM_DELAY = 0.1  # second
+RETRY_TIMEOUT = 15000  # miliseconds
 
 @router.post("/data/{node_name}/availability/")
 def add_an_availability_state(
@@ -209,3 +216,87 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     if result.results.__root__:  # pragma: no cover
         result.results.__root__[0].columns = translated_sql.columns or []
     return result
+
+
+@router.get("/stream/", response_model=QueryWithResults)
+async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
+    metrics: List[str] = Query([]),
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
+    orderby: List[str] = Query([]),
+    limit: Optional[int] = None,
+    *,
+    session: Session = Depends(get_session),
+    request: Request,
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+) -> QueryWithResults:
+    """
+    Return data for a set of metrics with dimensions and filters using server side events
+    """
+    translated_sql, engine, catalog = build_sql_for_multiple_metrics(
+        session,
+        metrics,
+        dimensions,
+        filters,
+        orderby,
+        limit,
+        engine_name,
+        engine_version,
+    )
+
+    query_create = QueryCreate(
+        engine_name=engine.name,
+        catalog_name=catalog.name,
+        engine_version=engine.version,
+        submitted_query=translated_sql.sql,
+        async_=True,
+    )
+    result = query_service_client.submit_query(query_create)
+
+    # Submits the query, equivalent to calling POST /data/ directly
+    query_with_results = query_service_client.submit_query(query_create)
+    async def check_query():
+        # Start with query and query_next as the initial state of the query
+        query = query_next = query_with_results
+        query_id = query.id
+        _logger.error("Sending an initial event to the client")
+        yield {
+                "event": "message",
+                "id": uuid.uuid4().hex,
+                "retry": RETRY_TIMEOUT,
+                "data": json.dumps(query.json())
+        }
+        while True:  # Continuously check the query until it's complete
+            if await request.is_disconnected():  # Check if the client closed the connection
+                _logger.error("The client has closed the connection")
+                break
+
+            # Check the current state of the query
+            query_next = query_service_client.get_query(query_id=query_id)
+            if query_next.state in END_JOB_STATES:
+                _logger.error(f"Query state detected as {query_next.state}, sending final event to the client")
+                if query_next.results.__root__:  # pragma: no cover
+                    query_next.results.__root__[0].columns = translated_sql.columns or []
+                yield {
+                        "event": "message",
+                        "id": uuid.uuid4().hex,
+                        "retry": RETRY_TIMEOUT,
+                        "data": json.dumps(query_next.json())
+                }
+                _logger.error("closing connection")
+                break
+            if query != query_next:
+                _logger.error("Query information has changed, sending an event to the client")
+                yield {
+                        "event": "message",
+                        "id": uuid.uuid4().hex,
+                        "retry": RETRY_TIMEOUT,
+                        "data": json.dumps(query_next.json())
+                }
+
+                query = query_next
+            await asyncio.sleep(STREAM_DELAY)
+
+    return EventSourceResponse(check_query())

@@ -158,9 +158,16 @@ export const DataJunctionAPI = {
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
     const data = await (
-      await fetch(DJ_URL + '/data/?' + params + '&limit=100&async_=true')
+      await fetch(DJ_URL + '/data/?' + params + '&limit=10000&async_=true')
     ).json();
     return data;
+  },
+
+  stream: async function (metricSelection, dimensionSelection) {
+    const params = new URLSearchParams();
+    metricSelection.map(metric => params.append('metrics', metric));
+    dimensionSelection.map(dimension => params.append('dimensions', dimension));
+    return new EventSource(DJ_URL + '/stream/?' + params + '&limit=10000&async_=true');
   },
 
   lineage: async function (node) {},
