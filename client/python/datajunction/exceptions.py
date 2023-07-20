@@ -3,7 +3,7 @@
 
 class DJClientException(Exception):
     """
-    Base class for errors.
+    Base class for client errors.
     """
 
 
