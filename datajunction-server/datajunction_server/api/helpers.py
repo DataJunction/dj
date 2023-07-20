@@ -3,6 +3,7 @@ Helpers for API endpoints
 """
 import collections
 import http.client
+import logging
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
@@ -50,6 +51,8 @@ from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+
+logger = logging.getLogger(__name__)
 
 
 def get_node_namespace(  # pylint: disable=too-many-arguments
@@ -392,6 +395,11 @@ def validate_node_data(  # pylint: disable=too-many-locals
 
     # Only raise on missing parents if the node mode is set to published
     if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
+        logger.error(
+            "Node %s missing parents %s",
+            validated_node.name,
+            list(missing_parents_map.keys()),
+        )
         raise DJException(
             http_status_code=HTTPStatus.BAD_REQUEST,
             errors=[
