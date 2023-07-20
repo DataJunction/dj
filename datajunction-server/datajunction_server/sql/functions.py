@@ -869,17 +869,6 @@ class ElementAt(Function):
     """
 
 
-class DjCurrentDate(Function):
-    """
-    A special function that returns the current date, used for incrementally materializing nodes.
-    """
-
-
-@DjCurrentDate.register  # type: ignore
-def infer_type() -> ct.IntegerType:
-    return ct.IntegerType()
-
-
 @ElementAt.register
 def infer_type(
     array: ct.ListType,
