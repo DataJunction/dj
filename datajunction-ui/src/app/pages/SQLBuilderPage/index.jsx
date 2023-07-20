@@ -72,26 +72,6 @@ export function SQLBuilderPage() {
     setViewData(false);
     setQueryInfo({})
   };
-  const handleMetricSelect = event => {
-    const metrics = event.map(m => m.value);
-    resetView();
-    setStagedMetrics(metrics);
-  };
-
-  const handleMetricSelectorClose = () => {
-    resetView();
-    setSelectedMetrics(stagedMetrics);
-  };
-
-  const handleDimensionSelect = event => {
-    const dimensions = event.map(d => d.value);
-    resetView();
-    setStagedDimensions(dimensions);
-  };
-
-  const handleDimensionSelectorClose = () => {
-    setSelectedDimensions(stagedDimensions);
-  };
 
   // Get metrics
   useEffect(() => {
@@ -168,13 +148,23 @@ export function SQLBuilderPage() {
             <Select
               name="metrics"
               options={metrics}
+              isDisabled={selectedDimensions ? true : false}
               noOptionsMessage={() => 'No metrics found.'}
               placeholder={`${metrics.length} Available Metrics`}
               isMulti
               isClearable
               closeMenuOnSelect={false}
-              onChange={handleMetricSelect}
-              onMenuClose={handleMetricSelectorClose}
+              onChange={e => {
+                setSelectedDimensions([])
+                const metrics = e.map(m => m.value);
+                resetView();
+                setStagedMetrics(metrics);
+              }}
+              onMenuClose={() => {
+                resetView();
+                setSelectedDimensions([])
+                setSelectedMetrics(stagedMetrics);
+              }}
             />
             <h4>Group By</h4>
             <Select
@@ -188,8 +178,13 @@ export function SQLBuilderPage() {
               isMulti
               isClearable
               closeMenuOnSelect={false}
-              onChange={handleDimensionSelect}
-              onMenuClose={handleDimensionSelectorClose}
+              onChange={e => {
+                resetView();
+                setStagedDimensions(e.map(d => d.value));
+              }}
+              onMenuClose={() => {
+                setSelectedDimensions(stagedDimensions);
+              }}
             />
           </div>
           <div className="card-header">
