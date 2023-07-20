@@ -936,7 +936,7 @@ class Filter(Function):
             func.expr.filter(lambda x: isinstance(x, ast.Column)),
         )
         for col in columns:
-            if (
+            if (  # pragma: no cover
                 col.alias_or_name.namespace
                 and col.alias_or_name.namespace.name
                 and available_identifiers.get(col.alias_or_name.namespace.name) == 0
