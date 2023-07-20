@@ -4,10 +4,9 @@ import abc
 # pylint: disable=redefined-outer-name, import-outside-toplevel, too-many-lines
 import logging
 import platform
-import time
 import warnings
 from typing import Any, Dict, List, Optional, Tuple, TypedDict, Union
-from urllib.parse import urlencode, urljoin
+from urllib.parse import urljoin
 
 try:
     import pandas as pd
@@ -20,7 +19,6 @@ except ImportError:  # pragma: no cover
         ImportWarning,
     )
 import requests
-from alive_progress import alive_bar
 from pydantic import BaseModel, Field, validator
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
@@ -102,7 +100,7 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
         return urljoin(self.endpoint, url)
 
 
-class _DJClient:  # pylint: disable=too-many-public-methods
+class DJClient:  # pylint: disable=too-many-public-methods
     """
     Client for access to the DJ core service
     """
@@ -370,24 +368,10 @@ class _DJClient:  # pylint: disable=too-many-public-methods
         response = self._session.get("/engines/", timeout=self._timeout)
         return response.json()
 
-    def metrics(self):
-        """
-        Returns all metrics
-        """
-        return self.get_metrics()
-
-    def namespaces(self) -> List["Namespace"]:
-        """
-        Returns all node namespaces.
-        """
-        return [
-            Namespace.parse_obj({**namespace, **{"dj_client": self}})
-            for namespace in self.get_node_namespaces()
-        ]
-
     def namespace(self, _namespace):
         """
         Returns the specified node namespace.
+        TODO: delete
         """
         return Namespace(namespace=_namespace, dj_client=self)
 
@@ -447,20 +431,6 @@ class _DJClient:  # pylint: disable=too-many-public-methods
             timeout=self._timeout,
             json=node.dict(exclude_none=True, exclude={"type"}),
         )
-        return response.json()
-
-    def get_metrics(self):
-        """
-        Retrieves all metrics
-        """
-        response = self._session.get("/metrics/")
-        return response.json()
-
-    def get_node_namespaces(self):
-        """
-        Retrieves all node namespaces
-        """
-        response = self._session.get("/namespaces/")
         return response.json()
 
     def get_nodes_in_namespace(
@@ -555,70 +525,6 @@ class _DJClient:  # pylint: disable=too-many-public-methods
         response = self._session.get(f"/metrics/{node_name}/")
         return response.json()
 
-    def common_dimensions(
-        self,
-        metrics: List[str],
-    ):  # pragma: no cover # Tested in integration tests
-        """
-        Return common dimensions for a set of metrics
-        """
-        query_params = []
-        for metric in metrics:
-            query_params.append(("metric", metric))
-        response = self._session.get(
-            f"/metrics/common/dimensions/?{urlencode(query_params)}",
-        )
-        return response.json()
-
-    def sql_for_metric(  # pylint: disable=too-many-arguments
-        self,
-        node_name: str,
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-    ):
-        """
-        Retrieves the SQL query built for the node with the provided dimensions and filters.
-        """
-        response = self._session.get(
-            f"/sql/{node_name}/",
-            params={
-                "dimensions": dimensions,
-                "filters": filters,
-                "engine_name": engine_name or self.engine_name,
-                "engine_version": engine_version or self.engine_version,
-            },
-        )
-        if response.status_code == 200:
-            return response.json()["sql"]
-        return response.json()
-
-    def sql(  # pylint: disable=too-many-arguments
-        self,
-        metrics: List[str],
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-    ):
-        """
-        Builds SQL for multiple metrics with the provided dimensions and filters.
-        """
-        response = self._session.get(
-            "/sql/",
-            params={
-                "metrics": metrics,
-                "dimensions": dimensions,
-                "filters": filters,
-                "engine_name": engine_name or self.engine_name,
-                "engine_version": engine_version or self.engine_version,
-            },
-        )
-        if response.status_code == 200:
-            return response.json()["sql"]
-        return response.json()
-
     @staticmethod
     def process_results(results) -> "pd.DataFrame":
         """
@@ -639,77 +545,6 @@ class _DJClient:  # pylint: disable=too-many-public-methods
                 )
 
         raise DJClientException("No data for query!")
-
-    def data(  # pylint: disable=too-many-arguments,too-many-locals
-        self,
-        metrics: List[str],
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-        async_: bool = True,
-    ):
-        """
-        Retrieves the data for the node with the provided dimensions and filters.
-        """
-        printed_links = False
-        with alive_bar(
-            title="Processing",
-            length=20,
-            bar="smooth",
-            force_tty=True,
-            calibrate=5e40,
-        ) as progress_bar:
-            poll_interval = 1  # Initial polling interval in seconds
-            job_state = models.QueryState.UNKNOWN
-            results = None
-            while job_state not in models.END_JOB_STATES:
-                progress_bar()  # pylint: disable=not-callable
-                response = self._session.get(
-                    "/data/",
-                    params={
-                        "metrics": metrics,
-                        "dimensions": dimensions,
-                        "filters": filters,
-                        "engine_name": engine_name or self.engine_name,
-                        "engine_version": engine_version or self.engine_version,
-                        "async_": async_,
-                    },
-                )
-                results = response.json()
-
-                # Raise errors if any
-                if not response.ok:
-                    raise DJClientException(f"Error retrieving data: {response.text}")
-                if results["state"] not in models.QueryState.list():
-                    raise DJClientException(  # pragma: no cover
-                        f"Query state {results['state']} is not a DJ-parseable query state!"
-                        " Please reach out to your server admin to make sure DJ is configured"
-                        " correctly.",
-                    )
-
-                # Update the query state and print links if any
-                job_state = models.QueryState(results["state"])
-                if not printed_links and results["links"]:  # pragma: no cover
-                    print(
-                        "Links:\n"
-                        + "\n".join([f"\t* {link}" for link in results["links"]]),
-                    )
-                    printed_links = True
-                progress_bar.title = f"Status: {job_state.value}"
-
-                # Update the polling interval
-                time.sleep(poll_interval)
-                poll_interval *= 2
-
-            # Return results if the job has finished
-            if job_state == models.QueryState.FINISHED:
-                return self.process_results(results)
-            if job_state == models.QueryState.CANCELED:  # pragma: no cover
-                raise DJClientException("Query execution was canceled!")
-            raise DJClientException(  # pragma: no cover
-                f"Error retrieving data: {response.text}",
-            )
 
     def upsert_materialization(
         self,
@@ -759,11 +594,11 @@ class ClientEntity(BaseModel):
     Any entity that uses the DJ client
     """
 
-    dj_client: _DJClient = Field(exclude=True)
+    dj_client: DJClient = Field(exclude=True)
 
     class Config:  # pylint: disable=too-few-public-methods
         """
-        Allow arbitrary types to support _DJClient but exclude
+        Allow arbitrary types to support DJClient but exclude
         it from the output.
         """
 
@@ -866,42 +701,6 @@ class Node(ClientEntity):
         )
         self.sync()
         return upsert_response
-
-    def sql(
-        self,
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = "",
-    ):
-        """
-        Builds the SQL for this node, given the provided dimensions and filters.
-        """
-        return self.dj_client.sql_for_metric(
-            self.name,
-            dimensions,
-            filters,
-            engine_name,
-            engine_version,
-        )
-
-    def data(
-        self,
-        dimensions: List[str],
-        filters: List[str],
-        engine_name: Optional[str] = None,
-        engine_version: Optional[str] = None,
-    ):
-        """
-        Retrieves data for this node, given the provided dimensions and filters.
-        """
-        return self.dj_client.data(  # pragma: no cover
-            [self.name],
-            dimensions,
-            filters,
-            engine_name,
-            engine_version,
-        )
 
     def deactivate(self) -> str:
         """
@@ -1089,15 +888,6 @@ class Namespace(ClientEntity):
             self.namespace,
         )
 
-    def metrics(self):
-        """
-        Retrieves metric nodes under this namespace.
-        """
-        return self.dj_client.get_nodes_in_namespace(
-            self.namespace,
-            type_="metric",
-        )
-
     def sources(self):
         """
         Retrieves source nodes under this namespace.
@@ -1123,13 +913,4 @@ class Namespace(ClientEntity):
         return self.dj_client.get_nodes_in_namespace(
             self.namespace,
             type_="cube",
-        )
-
-    def dimensions(self):
-        """
-        Retrieves dimension nodes under this namespace.
-        """
-        return self.dj_client.get_nodes_in_namespace(
-            self.namespace,
-            type_="dimension",
         )
