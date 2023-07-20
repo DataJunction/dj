@@ -684,7 +684,7 @@ class Column(Aliasable, Named, Expression):
             self.add_type(self.expression.type)
             return self.expression.type
 
-        raise DJParseException(f"Cannot resolve type of column {self}.")
+        raise DJParseException(f"Cannot resolve type of column {self} in {self.parent}")
 
     def add_type(self, type_: ColumnType) -> "Column":
         """
