@@ -60,17 +60,16 @@ def create_a_node_namespace(
 
 @router.get(
     "/namespaces/",
-    response_model=List[NodeNamespace],
+    response_model=List[str],
     status_code=200,
 )
-def list_node_namespaces(
+def list_namespaces(
     session: Session = Depends(get_session),
-) -> List[NodeNamespace]:
+) -> List[str]:
     """
-    List node namespaces
+    List namespaces
     """
-    namespaces = session.exec(select(NodeNamespace)).all()
-    return namespaces
+    return session.exec(select(NodeNamespace.namespace)).all()
 
 
 @router.get(

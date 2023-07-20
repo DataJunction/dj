@@ -2,7 +2,7 @@
 import pandas
 import pytest
 
-from datajunction import DJClient
+from datajunction import DJReader
 from datajunction.exceptions import DJClientException, DJNamespaceAlreadyExists
 from datajunction.models import (
     AvailabilityState,
@@ -14,7 +14,7 @@ from datajunction.models import (
 )
 
 
-class TestDJClient:
+class TestDJReader:
     """
     Tests for DJ client functionality.
     """
@@ -24,22 +24,21 @@ class TestDJClient:
         """
         Returns a DJ client instance
         """
-        return DJClient(requests_session=session_with_examples)  # type: ignore
+        return DJReader(requests_session=session_with_examples)  # type: ignore
 
-    def test_namespaces(self, client):
+    def test_list_namespaces(self, client):
         """
-        Check that `client.namespaces()` works as expected.
+        Check that `client.list_namespaces()` works as expected.
         """
-        expected = [
-            {
-                "namespace": "default",
-            },
-            {
-                "namespace": "foo.bar",
-            },
-        ]
-        result = client.namespaces()
+        # full list
+        expected = ["default", "foo.bar"]
+        result = client.list_namespaces()
         assert result == expected
+
+        # partial list
+        partial = ["foo.bar"]
+        result = client.list_namespaces(prefix="foo")
+        assert result == partial
 
     def test_nodes_in_namespace(self, client):
         """
@@ -87,7 +86,7 @@ class TestDJClient:
             "foo.bar.us_states",
             "foo.bar.us_region",
         }
-        assert set(client.namespace("foo.bar").dimensions()) == {
+        assert set(client.list_dimensions(namespace="foo.bar")) == {
             "foo.bar.repair_order",
             "foo.bar.contractor",
             "foo.bar.hard_hat",
@@ -96,7 +95,7 @@ class TestDJClient:
             "foo.bar.dispatcher",
             "foo.bar.municipality_dim",
         }
-        assert set(client.namespace("foo.bar").metrics()) == {
+        assert set(client.list_metrics(namespace="foo.bar")) == {
             "foo.bar.num_repair_orders",
             "foo.bar.avg_repair_price",
             "foo.bar.total_repair_cost",
@@ -210,7 +209,7 @@ class TestDJClient:
         assert repair_orders.type == "source"
 
         # dimensions
-        result_names_only = client.namespace("default").dimensions()
+        result_names_only = client.list_dimensions(namespace="default")
         assert set(result_names_only) == {
             "default.repair_order",
             "default.contractor",
@@ -231,7 +230,7 @@ class TestDJClient:
         assert result == []
 
         # metrics
-        result_names_only = client.namespace("default").metrics()
+        result_names_only = client.list_metrics(namespace="default")
         assert set(result_names_only) == {
             "default.num_repair_orders",
             "default.avg_repair_price",
@@ -264,14 +263,13 @@ class TestDJClient:
         length_metric = client.metric("default.avg_length_of_employment")
         response = length_metric.deactivate()
         assert response == "Successfully deactivated `default.avg_length_of_employment`"
-        assert (
-            "default.avg_length_of_employment"
-            not in client.namespace("default").metrics()
+        assert "default.avg_length_of_employment" not in client.list_metrics(
+            namespace="default",
         )
         response = length_metric.activate()
         assert response == "Successfully activated `default.avg_length_of_employment`"
-        assert (
-            "default.avg_length_of_employment" in client.namespace("default").metrics()
+        assert "default.avg_length_of_employment" in client.list_metrics(
+            namespace="default",
         )
 
     def test_create_node(self, client):  # pylint: disable=unused-argument
@@ -345,7 +343,7 @@ class TestDJClient:
         payment_type_dim.check()  # Test validating the node
         result = payment_type_dim.save(NodeMode.DRAFT)
         assert result["name"] == "default.payment_type"
-        assert "default.payment_type" in client.namespace("default").dimensions()
+        assert "default.payment_type" in client.list_dimensions(namespace="default")
         payment_type_dim.publish()  # Test changing a draft node to published
         payment_type_dim.sync()
         assert payment_type_dim.mode == NodeMode.PUBLISHED
@@ -363,7 +361,7 @@ class TestDJClient:
         )
         result = account_type_dim.save(NodeMode.PUBLISHED)
         assert result["name"] == "default.account_type"
-        assert "default.account_type" in client.namespace("default").dimensions()
+        assert "default.account_type" in client.list_dimensions(namespace="default")
 
         large_revenue_payments_only = client.new_transform(
             name="default.large_revenue_payments_only",
@@ -420,8 +418,8 @@ class TestDJClient:
         )
         result = number_of_account_types.save(NodeMode.PUBLISHED)
         assert result["name"] == "default.number_of_account_types"
-        assert (
-            "default.number_of_account_types" in client.namespace("default").metrics()
+        assert "default.number_of_account_types" in client.list_metrics(
+            namespace="default",
         )
 
     def test_link_unlink_dimension(self, client):  # pylint: disable=unused-argument
@@ -454,12 +452,15 @@ class TestDJClient:
         """
         Check that getting sql via the client works as expected.
         """
-        metric = client.metric(node_name="foo.bar.avg_repair_price")
-        result = metric.sql(dimensions=[], filters=[])
+        result = client.sql(metrics=["foo.bar.avg_repair_price"])
         assert "SELECT" in result and "FROM" in result
 
         # Retrieve SQL for a single metric
-        result = metric.sql(dimensions=["dimension_that_does_not_exist"], filters=[])
+        result = client.sql(
+            metrics=["foo.bar.avg_repair_price"],
+            dimensions=["dimension_that_does_not_exist"],
+            filters=[],
+        )
         assert (
             result["message"]
             == "Cannot resolve type of column dimension_that_does_not_exist."
@@ -494,9 +495,9 @@ class TestDJClient:
 
     def test_get_metrics(self, client):
         """
-        Check that `client.metrics()` works as expected.
+        Check that `client.list_metrics()` works as expected.
         """
-        metrics = client.metrics()
+        metrics = client.list_metrics()
         assert metrics == [
             "default.num_repair_orders",
             "default.avg_repair_price",
@@ -651,12 +652,14 @@ class TestDJClient:
 
     def test_data(self, client):
         """
-        Verify that updating a source node's columns works
+        Test data retreval for a metric and dimension(s)
         """
-        metric = client.metric(node_name="default.avg_repair_price")
-
         # Retrieve data for a single metric
-        result = metric.data(dimensions=["default.hard_hat.city"], filters=[])
+        result = client.data(
+            metrics=["default.avg_repair_price"],
+            dimensions=["default.hard_hat.city"],
+        )
+
         expected_df = pandas.DataFrame.from_dict(
             {"default_DOT_avg_repair_price": [1.0, 2.0], "city": ["Foo", "Bar"]},
         )
@@ -664,12 +667,18 @@ class TestDJClient:
 
         # No data
         with pytest.raises(DJClientException) as exc_info:
-            metric.data(dimensions=["default.hard_hat.state"], filters=[])
+            client.data(
+                metrics=["default.avg_repair_price"],
+                dimensions=["default.hard_hat.state"],
+            )
         assert "No data for query!" in str(exc_info)
 
         # Error propagation
         with pytest.raises(DJClientException) as exc_info:
-            metric.data(dimensions=["default.hard_hat.postal_code"], filters=[])
+            client.data(
+                metrics=["default.avg_repair_price"],
+                dimensions=["default.hard_hat.postal_code"],
+            )
         assert "Error response from query service" in str(exc_info)
 
     def test_add_availability(self, client):

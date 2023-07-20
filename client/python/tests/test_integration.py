@@ -6,7 +6,7 @@ import namesgenerator
 import pandas
 import pytest
 
-from datajunction import DJClient
+from datajunction import DJReader
 from datajunction.exceptions import DJClientException
 from datajunction.models import AvailabilityState, ColumnAttribute, NodeMode, NodeStatus
 
@@ -16,7 +16,7 @@ def test_integration():  # pylint: disable=too-many-statements
     """
     Integration test
     """
-    dj = DJClient()  # pylint: disable=invalid-name
+    dj = DJReader()  # pylint: disable=invalid-name
 
     # Create a namespace
     namespace = f"integration.python.{namesgenerator.get_random_name()}"
@@ -24,8 +24,8 @@ def test_integration():  # pylint: disable=too-many-statements
 
     # List namespaces
     matching_namespace = None
-    for existing_namespace in dj.namespaces():
-        if existing_namespace.namespace == namespace:
+    for existing_namespace in dj.list_namespaces():
+        if existing_namespace == namespace:
             matching_namespace = existing_namespace
     assert matching_namespace
 
@@ -106,7 +106,7 @@ def test_integration():  # pylint: disable=too-many-statements
     metric.save(NodeMode.PUBLISHED)
 
     # List metrics
-    assert f"{namespace}.num_repair_orders" in dj.metrics()
+    assert f"{namespace}.num_repair_orders" in dj.list_metrics()
 
     # Create a dimension link
     source = dj.source(f"{namespace}.repair_orders")

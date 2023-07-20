@@ -11,17 +11,17 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
     response = client_with_examples.get("/namespaces/")
     assert response.ok
     assert response.json() == [
-        {"namespace": "default"},
-        {"namespace": "foo.bar"},
-        {"namespace": "basic"},
-        {"namespace": "basic.source"},
-        {"namespace": "basic.transform"},
-        {"namespace": "basic.dimension"},
-        {"namespace": "dbt.source"},
-        {"namespace": "dbt.source.jaffle_shop"},
-        {"namespace": "dbt.transform"},
-        {"namespace": "dbt.dimension"},
-        {"namespace": "dbt.source.stripe"},
+        "default",
+        "foo.bar",
+        "basic",
+        "basic.source",
+        "basic.transform",
+        "basic.dimension",
+        "dbt.source",
+        "dbt.source.jaffle_shop",
+        "dbt.transform",
+        "dbt.dimension",
+        "dbt.source.stripe",
     ]
 
 

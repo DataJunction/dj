@@ -13,7 +13,7 @@ To initialize the client:
 ```python
 from datajunction import DJClient
 
-dj = DJClient("http://dj-endpoint:8000")
+dj = DJClient("http://localhost:8000")
 ```
 
 ### Catalogs and Engines
