@@ -560,7 +560,7 @@ def test_infer_types_exp(construction_session: Session):
         DoubleType(),
         DoubleType(),
         DoubleType(),
-        FloatType(),
+        IntegerType(),
         FloatType(),
         DoubleType(),
         DecimalType(precision=9, scale=6),
