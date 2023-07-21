@@ -41,6 +41,20 @@ def test_list_nodes_with_dimension(client_with_examples: TestClient) -> None:
         "default.repair_type",
     ]
 
+    response = client_with_examples.get(
+        "/dimensions/default.municipality_dim/nodes/?node_type=metric",
+    )
+    data = response.json()
+    assert [node["name"] for node in data] == [
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+        "default.discounted_orders_rate",
+        "default.total_repair_order_discounts",
+        "default.avg_repair_order_discounts",
+        "default.avg_time_to_dispatch",
+    ]
+
 
 def test_list_nodes_with_common_dimension(client_with_examples: TestClient) -> None:
     """
@@ -76,3 +90,18 @@ def test_list_nodes_with_common_dimension(client_with_examples: TestClient) -> N
     )
     data = response.json()
     assert [node["name"] for node in data] == []
+
+    response = client_with_examples.get(
+        "/dimensions/common/?dimension=default.hard_hat&dimension=default.us_state"
+        "&dimension=default.dispatcher&node_type=metric",
+    )
+    data = response.json()
+    assert [node["name"] for node in data] == [
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+        "default.discounted_orders_rate",
+        "default.total_repair_order_discounts",
+        "default.avg_repair_order_discounts",
+        "default.avg_time_to_dispatch",
+    ]

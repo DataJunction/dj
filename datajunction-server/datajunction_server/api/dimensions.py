@@ -2,7 +2,7 @@
 Dimensions related APIs.
 """
 import logging
-from typing import Annotated, List, Optional
+from typing import Annotated, List
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
@@ -23,30 +23,30 @@ router = APIRouter()
 def find_nodes_with_dimension(
     name: str,
     *,
-    node_types: Optional[List[NodeType]] = None,
+    node_type: Annotated[List[NodeType] | None, Query()] = Query(None),
     session: Session = Depends(get_session),
 ) -> List[NodeRevisionOutput]:
     """
     List all nodes that have the specified dimension
     """
     dimension_node = get_node_by_name(session, name)
-    nodes = get_nodes_with_dimension(session, dimension_node, node_types)
+    nodes = get_nodes_with_dimension(session, dimension_node, node_type)
     return nodes
 
 
 @router.get("/dimensions/common/", response_model=List[NodeRevisionOutput])
 def find_nodes_with_common_dimensions(
-    dimension: Annotated[list[str] | None, Query()] = Query(None),
+    dimension: Annotated[List[str] | None, Query()] = Query(None),
+    node_type: Annotated[List[NodeType] | None, Query()] = Query(None),
     *,
-    node_types: Optional[List[NodeType]] = None,
     session: Session = Depends(get_session),
 ) -> List[NodeRevisionOutput]:
     """
-    List all nodes that have the specified dimension
+    Find all nodes that have the list of common dimensions
     """
     nodes = get_nodes_with_common_dimensions(
         session,
         [get_node_by_name(session, dim) for dim in dimension],  # type: ignore
-        node_types,
+        node_type,
     )
     return nodes
