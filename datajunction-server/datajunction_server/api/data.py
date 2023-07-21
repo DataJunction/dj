@@ -252,7 +252,7 @@ async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
         query_event_stream(
             query=initial_query_info,
             query_service_client=query_service_client,
-            columns=translated_sql.columns,
+            columns=translated_sql.columns,  # type: ignore
             request=request,
         ),
     )

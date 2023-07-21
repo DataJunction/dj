@@ -269,6 +269,23 @@ class TestDataForNode:
             "links": None,
         }
 
+    def test_stream_multiple_metrics_and_dimensions_data(
+        self,
+        client_with_query_service: TestClient,
+    ) -> None:
+        """
+        Test streaming query status for multiple metrics and dimensions
+        """
+        response = client_with_query_service.get(
+            "/stream?metrics=default.num_repair_orders&metrics="
+            "default.avg_repair_price&dimensions=default.dispatcher.company_name&limit=10",
+            headers={
+                "Accept": "text/event-stream",
+            },
+            stream=True,
+        )
+        assert response.status_code == 200
+
 
 class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     """

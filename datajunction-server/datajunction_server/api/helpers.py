@@ -11,7 +11,7 @@ import uuid
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from fastapi import HTTPException, Request
+from fastapi import HTTPException
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
@@ -831,7 +831,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     )
 
 
-async def query_event_stream(
+async def query_event_stream(  # pylint: disable=too-many-arguments
     query: QueryWithResults,
     query_service_client: QueryServiceClient,
     columns: List[Column],
@@ -861,7 +861,7 @@ async def query_event_stream(
             break
 
         # Check the current state of the query
-        query_next = query_service_client.get_query(query_id=query_id)
+        query_next = query_service_client.get_query(query_id=query_id)  # type: ignore
         if query_next.state in END_JOB_STATES:
             _logger.info(
                 "query end state detected (%s), sending final event to the client",
