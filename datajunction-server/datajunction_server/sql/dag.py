@@ -207,3 +207,25 @@ def get_nodes_with_dimension(
     if node_types:
         return [node for node in final_set if node.type in node_types]
     return list(final_set)
+
+
+def get_nodes_with_common_dimensions(
+    session: Session,
+    common_dimensions: List[Node],
+    node_types: Optional[List[NodeType]] = None,
+) -> List[NodeRevision]:
+    """
+    Find all nodes that share a list of common dimensions
+    """
+    nodes_that_share_dimensions = set()
+    first = True
+    for dimension in common_dimensions:
+        new_nodes = get_nodes_with_dimension(session, dimension, node_types)
+        if first:
+            nodes_that_share_dimensions = set(new_nodes)
+            first = False
+        else:
+            nodes_that_share_dimensions = nodes_that_share_dimensions.intersection(
+                set(new_nodes),
+            )
+    return list(nodes_that_share_dimensions)
