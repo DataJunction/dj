@@ -2,10 +2,11 @@
 Dimensions related APIs.
 """
 import logging
-from typing import Annotated, List
+from typing import List, Union
 
 from fastapi import APIRouter, Depends, Query
 from sqlmodel import Session
+from typing_extensions import Annotated
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.models.node import NodeRevisionOutput, NodeType
@@ -23,7 +24,7 @@ router = APIRouter()
 def find_nodes_with_dimension(
     name: str,
     *,
-    node_type: Annotated[List[NodeType] | None, Query()] = Query(None),
+    node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
     session: Session = Depends(get_session),
 ) -> List[NodeRevisionOutput]:
     """
@@ -36,8 +37,8 @@ def find_nodes_with_dimension(
 
 @router.get("/dimensions/common/", response_model=List[NodeRevisionOutput])
 def find_nodes_with_common_dimensions(
-    dimension: Annotated[List[str] | None, Query()] = Query(None),
-    node_type: Annotated[List[NodeType] | None, Query()] = Query(None),
+    dimension: Annotated[Union[List[str], None], Query()] = Query(None),
+    node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
     *,
     session: Session = Depends(get_session),
 ) -> List[NodeRevisionOutput]:
