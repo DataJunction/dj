@@ -421,6 +421,21 @@ def test_common_dimensions(
     ]
 
 
+def test_no_common_dimensions(
+    client_with_examples: TestClient,
+) -> None:
+    """
+    Test getting common dimensions for metrics that have none in common
+    """
+    response = client_with_examples.get(
+        "/metrics/common/dimensions?"
+        "metric=basic.num_comments&metric=default.total_repair_order_discounts"
+        "&metric=default.total_repair_cost",
+    )
+    assert response.status_code == 200
+    assert response.json() == []
+
+
 def test_raise_common_dimensions_not_a_metric_node(
     client_with_examples: TestClient,
 ) -> None:
