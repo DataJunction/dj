@@ -134,6 +134,8 @@ def get_shared_dimensions(
         # Merge each set of dimensions based on the name and path
         to_delete = set()
         common_dim_keys = common.keys() & list(node_dimensions.keys())
+        if not common_dim_keys:
+            return []
         for common_dim in common_dim_keys:
             for existing_attr in common[common_dim]:
                 for new_attr in node_dimensions[common_dim]:
@@ -228,4 +230,6 @@ def get_nodes_with_common_dimensions(
             nodes_that_share_dimensions = nodes_that_share_dimensions.intersection(
                 set(new_nodes),
             )
+            if not nodes_that_share_dimensions:
+                break
     return list(nodes_that_share_dimensions)
