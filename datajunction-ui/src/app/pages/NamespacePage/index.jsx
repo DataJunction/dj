@@ -20,7 +20,7 @@ export function NamespacePage() {
     const hierarchy = [];
 
     for (const item of namespaceList) {
-      const namespaces = item.namespace.split('.');
+      const namespaces = item.split('.');
       let currentLevel = hierarchy;
 
       let path = '';
