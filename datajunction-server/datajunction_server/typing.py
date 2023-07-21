@@ -77,6 +77,7 @@ class QueryState(str, Enum):
     CANCELED = "CANCELED"
     FAILED = "FAILED"
 
+
 END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]
 
 # sqloxide type hints
