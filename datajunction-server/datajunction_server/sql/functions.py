@@ -44,7 +44,7 @@ from datajunction_server.errors import (
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 
 if TYPE_CHECKING:
-    from datajunction_server.sql.parsing.ast import Expression, Lambda
+    from datajunction_server.sql.parsing.ast import Expression
 
 
 def compare_registers(types, register) -> bool:
@@ -293,6 +293,11 @@ def infer_type(
         )
     element_type = elements[0].type if elements else ct.NullType()
     return ct.ListType(element_type=element_type)
+
+
+@Array.register  # type: ignore
+def infer_type() -> ct.ListType:
+    return ct.ListType(element_type=ct.NullType())
 
 
 class ArrayAgg(Function):
@@ -715,6 +720,21 @@ def infer_type(
     return ct.ListType(element_type=arg.type)
 
 
+class CollectSet(Function):
+    """
+    Collects and returns a list of unique elements.
+    """
+
+    is_aggregation = True
+
+
+@CollectSet.register
+def infer_type(
+    arg: ct.ColumnType,
+) -> ct.ColumnType:
+    return ct.ListType(element_type=arg.type)
+
+
 class Count(Function):
     """
     Counts the number of non-null values in the input column or expression.
@@ -893,6 +913,49 @@ class Extract(Function):
         return ct.IntegerType()
 
 
+class Filter(Function):
+    """
+    Filter an array.
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `filter` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
+        """
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
+
+        expr, func = args
+        if len(func.identifiers) > 2:
+            raise DJParseException(
+                message="The function `filter` takes a lambda function that takes at "
+                "most two arguments.",
+            )
+        for col in func.expr.find_all(ast.Column):
+            if (  # pragma: no cover
+                col.alias_or_name.namespace
+                and col.alias_or_name.namespace.name
+                and func.identifiers[0].name == col.alias_or_name.namespace.name
+            ) or func.identifiers[0].name == col.alias_or_name.name:
+                col.add_type(expr.type.element.type)
+            if (
+                len(func.identifiers) == 2
+                and col.alias_or_name.name == func.identifiers[1].name
+            ):
+                col.add_type(ct.LongType())
+
+
+@Filter.register  # type: ignore
+def infer_type(
+    arg: Union[ct.ListType, ct.PrimitiveType],
+    func: ct.PrimitiveType,
+) -> ct.ListType:
+    return arg.type  # type: ignore
+
+
 class First(Function):
     """
     Returns the first value of expr for a group of rows. If isIgnoreNull is
@@ -915,6 +978,43 @@ def infer_type(
     is_ignore_null: ct.BooleanType,
 ) -> ct.ColumnType:
     return arg.type
+
+
+class FirstValue(Function):
+    """
+    Returns the first value of expr for a group of rows. If isIgnoreNull is
+    true, returns only non-null values.
+    """
+
+    is_aggregation = True
+
+
+@FirstValue.register
+def infer_type(
+    arg: ct.ColumnType,
+) -> ct.ColumnType:
+    return arg.type
+
+
+@FirstValue.register
+def infer_type(
+    arg: ct.ColumnType,
+    is_ignore_null: ct.BooleanType,
+) -> ct.ColumnType:
+    return arg.type
+
+
+class Flatten(Function):
+    """
+    Flatten an array.
+    """
+
+
+@Flatten.register  # type: ignore
+def infer_type(
+    array: ct.ListType,
+) -> ct.ListType:
+    return array.type.element.type  # type: ignore
 
 
 class Floor(Function):
@@ -994,6 +1094,19 @@ def infer_type(  # pragma: no cover
     return ct.StructType(
         *parse_rule(schema.value, "complexColTypeList")
     )  # pragma: no cover
+
+
+class Greatest(Function):
+    """
+    greatest(expr, ...) - Returns the greatest value of all parameters, skipping null values.
+    """
+
+
+@Greatest.register  # type: ignore
+def infer_type(
+    *values: ct.NumberType,
+) -> ct.ColumnType:
+    return values[0].type
 
 
 class If(Function):
@@ -1254,6 +1367,19 @@ def infer_type(
     return ct.DoubleType()
 
 
+class Rank(Function):
+    """
+    rank() - Computes the rank of a value in a group of values. The result is
+    one plus the number of rows preceding or equal to the current row in the
+    ordering of the partition. The values will produce gaps in the sequence.
+    """
+
+
+@Rank.register
+def infer_type() -> ct.IntegerType:
+    return ct.IntegerType()
+
+
 class RegexpLike(Function):
     """
     regexp_like(str, regexp) - Returns true if str matches regexp, or false otherwise
@@ -1266,6 +1392,18 @@ def infer_type(  # type: ignore
     arg2: ct.StringType,
 ) -> ct.BooleanType:
     return ct.BooleanType()
+
+
+class RowNumber(Function):
+    """
+    row_number() - Assigns a unique, sequential number to each row, starting with
+    one, according to the ordering of rows within the window partition.
+    """
+
+
+@RowNumber.register
+def infer_type() -> ct.IntegerType:
+    return ct.IntegerType()
 
 
 class Round(Function):
@@ -1296,7 +1434,40 @@ def infer_type(  # type: ignore
     child: ct.NumberType,
     scale: ct.IntegerBase,
 ) -> ct.NumberType:
+    if scale.value == 0:
+        return ct.IntegerType()
     return child.type
+
+
+@Round.register
+def infer_type(  # type: ignore
+    child: ct.NumberType,
+) -> ct.NumberType:
+    return ct.IntegerType()
+
+
+class Size(Function):
+    """
+    size(expr) - Returns the size of an array or a map. The function returns
+    null for null input if spark.sql.legacy.sizeOfNull is set to false or
+    spark.sql.ansi.enabled is set to true. Otherwise, the function returns -1
+    for null input. With the default settings, the function returns -1 for null
+    input.
+    """
+
+
+@Size.register  # type: ignore
+def infer_type(
+    arg: ct.ListType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+@Size.register  # type: ignore
+def infer_type(
+    arg: ct.MapType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
 
 
 class Split(Function):
@@ -1574,7 +1745,9 @@ class Year(Function):
 
 
 @Year.register
-def infer_type(arg: Union[ct.StringType, ct.DateTimeBase]) -> ct.BigIntType:
+def infer_type(
+    arg: Union[ct.StringType, ct.DateTimeBase, ct.IntegerType],
+) -> ct.BigIntType:
     return ct.BigIntType()
 
 

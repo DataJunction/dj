@@ -22,6 +22,7 @@ from datajunction_server.sql.functions import (
 )
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import (
     BigIntType,
     DateType,
@@ -126,6 +127,33 @@ def test_approx_percentile(session: Session):
     query_with_list.compile(ctx)
     assert not exc.errors
     assert query_with_list.select.projection[0].type == ct.FloatType()  # type: ignore
+
+
+def test_array(session: Session):
+    """
+    Test the `array` Spark function
+    """
+    query = parse(
+        """
+    SELECT array() FROM (select 1 as col)
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.NullType())  # type: ignore
+
+    query = parse(
+        """
+    SELECT array(1, 2, 3) FROM (select 1 as col)
+    """,
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
 
 
 def test_array_agg(session: Session):
@@ -563,6 +591,20 @@ def test_collect_list(session: Session):
     )
 
 
+def test_collect_set(session: Session):
+    """
+    Test the `collect_set` function
+    """
+    query = parse("SELECT collect_set(col) FROM (SELECT (1), (2) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.IntegerType(),
+    )
+
+
 def test_count() -> None:
     """
     Test ``Count`` function.
@@ -593,17 +635,67 @@ def test_element_at(session: Session):
     assert query_with_map.select.projection[0].type == StringType()  # type: ignore
 
 
-def test_first(session: Session):
+def test_filter(session: Session):
     """
-    Test `first`
+    Test the `filter` function
     """
-    query = parse("SELECT first(col), first(col, true) FROM (SELECT (1), (2) AS col)")
+    query = parse("SELECT filter(col, s -> s != 3) FROM (SELECT array(1, 2, 3) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.IntegerType(),
+    )
+
+    query = parse(
+        "SELECT filter(col, (s, i) -> s + i != 3) FROM (SELECT array(1, 2, 3) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.IntegerType(),
+    )
+
+    with pytest.raises(DJParseException):
+        query = parse(
+            "SELECT filter(col, (s, i, a) -> s + i != 3) FROM (SELECT array(1, 2, 3) AS col)",
+        )
+        exc = DJException()
+        ctx = ast.CompileContext(session=session, exception=exc)
+        query.compile(ctx)
+
+
+def test_first_and_first_value(session: Session):
+    """
+    Test `first` and `first_value`
+    """
+    query = parse(
+        "SELECT first(col), first(col, true), first_value(col), "
+        "first_value(col, true) FROM (SELECT (1), (2) AS col)",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[2].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[3].type == ct.IntegerType()  # type: ignore
+
+
+def test_flatten(session: Session):
+    """
+    Test `flatten`
+    """
+    query = parse("SELECT flatten(array(array(1, 2), array(3, 4)))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.IntegerType(),
+    )
 
 
 @pytest.mark.parametrize(
@@ -644,6 +736,18 @@ def test_floor(types, expected) -> None:
             )
             == expected
         )
+
+
+def test_greatest(session: Session):
+    """
+    Test `greatest`
+    """
+    query = parse("SELECT greatest(10, 9, 2, 4, 3)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
 def test_max() -> None:
@@ -691,6 +795,20 @@ def test_now() -> None:
     assert Now.infer_type() == ct.TimestampType()
 
 
+def test_rank(session: Session):
+    """
+    Test `rank`
+    """
+    query = parse(
+        "SELECT rank() OVER (PARTITION BY col ORDER BY col) FROM (SELECT (1), (2) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
 def test_regexp_like(session: Session):
     """
     Test `regexp_like`
@@ -703,6 +821,62 @@ def test_regexp_like(session: Session):
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
+def test_row_number(session: Session):
+    """
+    Test `row_number`
+    """
+    query = parse(
+        "SELECT row_number() OVER (PARTITION BY col ORDER BY col) FROM (SELECT (1), (2) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_round(session: Session):
+    """
+    Test `round`
+    """
+    query = parse(
+        "SELECT round(2.5, 0)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+    query = parse(
+        "SELECT round(2.5)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_size(session: Session):
+    """
+    Test the `size` Spark function
+    """
+    query = parse("SELECT size(array('b', 'd', 'c', 'a'))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+    query = parse("SELECT size(map('a', 1, 'b', 2))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
 
 
 def test_split(session: Session):
