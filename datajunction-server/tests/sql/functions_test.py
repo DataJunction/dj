@@ -22,6 +22,7 @@ from datajunction_server.sql.functions import (
 )
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.sql.parsing.types import (
     BigIntType,
     DateType,
@@ -645,6 +646,24 @@ def test_filter(session: Session):
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.IntegerType(),
     )
+
+    query = parse(
+        "SELECT filter(col, (s, i) -> s + i != 3) FROM (SELECT array(1, 2, 3) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.IntegerType(),
+    )
+
+    with pytest.raises(DJParseException):
+        query = parse(
+            "SELECT filter(col, (s, i, a) -> s + i != 3) FROM (SELECT array(1, 2, 3) AS col)",
+        )
+        exc = DJException()
+        ctx = ast.CompileContext(session=session, exception=exc)
+        query.compile(ctx)
 
 
 def test_first_and_first_value(session: Session):

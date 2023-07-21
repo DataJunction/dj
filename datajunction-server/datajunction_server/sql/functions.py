@@ -929,19 +929,23 @@ class Filter(Function):
         )
 
         expr, func = args
-        available_identifiers = {
-            identifier.name: idx for idx, identifier in enumerate(func.identifiers)
-        }
-        columns = list(
-            func.expr.filter(lambda x: isinstance(x, ast.Column)),
-        )
-        for col in columns:
+        if len(func.identifiers) > 2:
+            raise DJParseException(
+                message="The function `filter` takes a lambda function that takes at "
+                "most two arguments.",
+            )
+        for col in func.expr.find_all(ast.Column):
             if (  # pragma: no cover
                 col.alias_or_name.namespace
                 and col.alias_or_name.namespace.name
-                and available_identifiers.get(col.alias_or_name.namespace.name) == 0
-            ) or available_identifiers.get(col.alias_or_name.name) == 0:
-                col.add_type(expr.type)
+                and func.identifiers[0].name == col.alias_or_name.namespace.name
+            ) or func.identifiers[0].name == col.alias_or_name.name:
+                col.add_type(expr.type.element.type)
+            if (
+                len(func.identifiers) == 2
+                and col.alias_or_name.name == func.identifiers[1].name
+            ):
+                col.add_type(ct.LongType())
 
 
 @Filter.register  # type: ignore
