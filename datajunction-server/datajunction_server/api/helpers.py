@@ -60,8 +60,6 @@ from datajunction_server.typing import END_JOB_STATES
 
 _logger = logging.getLogger(__name__)
 
-logger = logging.getLogger(__name__)
-
 
 def get_node_namespace(  # pylint: disable=too-many-arguments
     session: Session,
@@ -403,7 +401,7 @@ def validate_node_data(  # pylint: disable=too-many-locals
 
     # Only raise on missing parents if the node mode is set to published
     if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
-        logger.error(
+        _logger.error(
             "Node %s missing parents %s",
             validated_node.name,
             list(missing_parents_map.keys()),
