@@ -39,6 +39,7 @@ exports[`<App /> should render and match the snapshot 1`] = `
           "revisions": [Function],
           "sql": [Function],
           "sqls": [Function],
+          "stream": [Function],
           "upstreams": [Function],
         },
       }
