@@ -15,10 +15,9 @@ authors = [
 dependencies = [
     "importlib-metadata",
     "celery[redis]>=5.2.3",
-    "djopenapi",
     "python-dotenv==0.19.2",
     "requests>=2.26.0",
-    "pydantic",
+    "pydantic<2.0",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"
@@ -39,7 +38,7 @@ uvicorn = [
 ]
 
 [tool.hatch.version]
-path = "djrs/__about__.py"
+path = "datajunction_reflection/__about__.py"
 
 [project.urls]
 repository = "https://github.com/DataJunction/dj"
@@ -68,8 +67,8 @@ test = [
 allow-direct-references = true
 
 [tool.coverage.run]
-source = ['djrs/']
+source = ['datajunction_reflection/']
 
 [tool.isort]
-src_paths = ["djrs/", "tests/"]
+src_paths = ["datajunction_reflection/", "tests/"]
 profile = 'black'
