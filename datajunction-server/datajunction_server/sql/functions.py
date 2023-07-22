@@ -862,6 +862,29 @@ def infer_type(
     return ct.IntegerType()
 
 
+class DjCurrentTimestamp(Function):
+    """
+    A special function that returns the current timestamp, used for incrementally materializing nodes.
+    """
+
+
+@DjCurrentTimestamp.register  # type: ignore
+def infer_type() -> ct.StringType:
+    """
+    By default it will return a timestamp in the format %Y-%m-%d %H:%M:%S
+    """
+    return ct.StringType()
+
+
+@DjCurrentTimestamp.register  # type: ignore
+def infer_type(_: ct.StringType) -> ct.StringType:
+    """
+    This function can optionally take a datetime format string like:
+    DJ_CURRENT_TIMESTAMP('%Y-%m-%d')
+    """
+    return ct.StringType()
+
+
 class ElementAt(Function):
     """
     element_at(array, index) - Returns element of array at given (1-based) index

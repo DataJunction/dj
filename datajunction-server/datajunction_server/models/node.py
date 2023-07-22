@@ -813,6 +813,14 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         extra = Extra.allow
 
+    def has_available_materialization(self, build_criteria: BuildCriteria) -> bool:
+        """
+        Has a materialization available
+        """
+        return self.availability and self.availability.is_available(
+            criteria=build_criteria,
+        )
+
 
 class ImmutableNodeFields(BaseSQLModel):
     """

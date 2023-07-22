@@ -281,6 +281,23 @@ def _build_tables_on_select(
         )  # got a materialization
         if node_table is None:  # no materialization - recurse to node first
             node_query = parse(cast(str, node.query))
+
+            dj_current_timestamp = [
+                expr
+                for expr in node_query.filter(
+                    lambda x: isinstance(x, ast.Function)
+                    and x.name.name == "dj_current_timestamp",
+                )
+            ]
+            if dj_current_timestamp and not node.has_available_materialization(
+                build_criteria,
+            ):
+                raise DJException(
+                    message=f"One of the parent nodes {node.name} has a query that uses DJ_CURRENT_TIMESTAMP(),"
+                    f"which is only meant to be used for materialization. {node.name} must be "
+                    "successfully materialized before it can be used.",
+                )
+
             node_table = build_ast(  # type: ignore
                 session,
                 node_query,
@@ -508,6 +525,9 @@ def build_node(  # pylint: disable=too-many-arguments
         query = parse(node.query)
     else:
         query = build_source_node_query(node)
+
+    if node.has_available_materialization(build_criteria):
+        node.has_available_materialization(node.query)
 
     add_filters_dimensions_orderby_limit_to_query_ast(
         query,
