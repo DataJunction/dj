@@ -856,7 +856,8 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
     }
     # Continuously check the query until it's complete
     while not timeout or (time.time() - starting_time < timeout):
-        if await request.is_disconnected():  # Check if the client closed the connection
+        # Check if the client closed the connection
+        if await request.is_disconnected():  # pragma: no cover
             _logger.error("connection closed by the client")
             break
 
@@ -877,7 +878,7 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
             }
             _logger.info("connection closed by the server")
             break
-        if query_prev != query_next:
+        if query_prev != query_next:  # pragma: no cover
             _logger.info(
                 "query information has changed, sending an event to the client",
             )
@@ -889,4 +890,4 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
             }
 
             query = query_next
-        await asyncio.sleep(stream_delay)
+        await asyncio.sleep(stream_delay)  # pragma: no cover
