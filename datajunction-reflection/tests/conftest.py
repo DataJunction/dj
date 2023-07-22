@@ -3,7 +3,7 @@ import threading
 
 import pytest
 
-from djrs.worker.app import celery_app as celeryapp
+from datajunction_reflection.worker.app import celery_app as celeryapp
 
 # pytest_plugins = ("celery.contrib.pytest", )
 
