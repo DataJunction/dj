@@ -48,6 +48,10 @@ class NodeType(str, enum.Enum):
     """
 
     METRIC = "metric"
+    DIMENSION = "dimension"
+    SOURCE = "source"
+    TRANSFORM = "transform"
+    CUBE = "cube"
 
 
 class SourceColumn(BaseModel):
