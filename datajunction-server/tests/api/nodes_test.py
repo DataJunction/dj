@@ -976,6 +976,80 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         ]
         assert response.status_code == 201
 
+    def test_refresh_source_node(
+        self,
+        client_with_query_service: TestClient,
+    ):
+        """
+        Refresh a source node with a query service
+        """
+        response = client_with_query_service.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        data = response.json()
+
+        # Columns have changed, so the new node revision should be bumped to a new
+        # version with an additional `ratings` column. Existing dimension links remain
+        new_columns = [
+            {
+                "attributes": [],
+                "dimension": {"name": "default.repair_order"},
+                "name": "repair_order_id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "municipality_id",
+                "type": "string",
+            },
+            {"attributes": [], "dimension": None, "name": "hard_hat_id", "type": "int"},
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "order_date",
+                "type": "timestamp",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "required_date",
+                "type": "timestamp",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "dispatched_date",
+                "type": "timestamp",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "dispatcher_id",
+                "type": "int",
+            },
+            {"attributes": [], "dimension": None, "name": "rating", "type": "int"},
+        ]
+        assert data["version"] == "v2.0"
+        assert data["columns"] == new_columns
+        assert response.status_code == 201
+
+        response = client_with_query_service.get("/history?node=default.repair_orders")
+        history = response.json()
+        assert [
+            (activity["activity_type"], activity["entity_type"]) for activity in history
+        ] == [("create", "node"), ("create", "link"), ("refresh", "node")]
+
+        # Refresh it again, but this time no columns will have changed so
+        # verify that the node revision stays the same
+        response = client_with_query_service.post(
+            "/nodes/default.repair_orders/refresh/",
+        )
+        data_second = response.json()
+        assert data_second["version"] == "v2.0"
+        assert data_second["node_revision_id"] == data["node_revision_id"]
+        assert data_second["columns"] == new_columns
+
     def test_create_update_source_node(
         self,
         client_with_examples: TestClient,
