@@ -799,6 +799,17 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                     f"Node {self.name} of type cube node needs cube elements",
                 )
 
+    def copy_dimension_links_from_revision(self, old_revision: "NodeRevision"):
+        """
+        Copy dimension links and attributes from another node revision if the column names match
+        """
+        old_columns_mapping = {col.name: col for col in old_revision.columns}
+        for col in self.columns:  # pylint: disable=not-an-iterable
+            if col.name in old_columns_mapping:
+                col.dimension_id = old_columns_mapping[col.name].dimension_id
+                col.attributes = old_columns_mapping[col.name].attributes or []
+        return self
+
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         extra = Extra.allow
 
