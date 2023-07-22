@@ -12,7 +12,7 @@ from datajunction.models import AvailabilityState, ColumnAttribute, NodeMode, No
 
 
 @pytest.mark.skipif("not config.getoption('integration')")
-def test_integration():  # pylint: disable=too-many-statements
+def test_integration():  # pylint: disable=too-many-statements,too-many-locals
     """
     Integration test
     """
@@ -368,6 +368,19 @@ def test_integration():  # pylint: disable=too-many-statements
                 "default.hard_hat.state",
             ],
         },
+    ]
+
+    # List common metrics for multiple dimensions
+    common_metrics = dj.common_metrics(
+        dimensions=["default.date_dim", "default.repair_order"],
+    )
+    assert common_metrics == [
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+        "default.total_repair_order_discounts",
+        "default.avg_repair_order_discounts",
+        "default.avg_time_to_dispatch",
     ]
 
     # Get SQL for a set of metrics and dimensions

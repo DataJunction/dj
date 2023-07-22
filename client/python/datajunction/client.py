@@ -54,7 +54,7 @@ class DJReader(_internal.DJClient):
     def common_dimensions(
         self,
         metrics: List[str],
-    ):  # pragma: no cover # Tested in integration tests
+    ) -> List:  # pragma: no cover # Tested in integration tests
         """
         Return common dimensions for a set of metrics.
         """
@@ -69,12 +69,17 @@ class DJReader(_internal.DJClient):
     def common_metrics(
         self,
         dimensions: List[str],
-    ):
+    ) -> List[str]:  # pragma: no cover # Tested in integration tests
         """
         Return common metrics for a set of dimensions.
         """
-        # TODO  # pylint: disable=W0511
-        # Add this to the server APIs first.
+        query_params = [("node_type", models.NodeType.METRIC.value)]
+        for dim in dimensions:
+            query_params.append(("dimension", dim))
+        response = self._session.get(
+            f"/dimensions/common/?{urlencode(query_params)}",
+        )
+        return [metric["name"] for metric in response.json()]
 
     #
     # Get SQL
