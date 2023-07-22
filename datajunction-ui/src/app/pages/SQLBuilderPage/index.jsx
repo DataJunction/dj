@@ -47,23 +47,38 @@ export function SQLBuilderPage() {
     setLoadingData(true);
     setQueryInfo({});
     const fetchData = async () => {
-      // setData(null);
-      const sse = await djClient.stream(selectedMetrics, selectedDimensions);
-      sse.onmessage = e => {
-        const messageData = JSON.parse(JSON.parse(e.data));
-        setQueryInfo(messageData);
-        if (messageData.results) {
-          setLoadingData(false);
+      if (process.env.REACT_USE_SSE) {
+        const sse = await djClient.stream(selectedMetrics, selectedDimensions);
+        sse.onmessage = e => {
+          const messageData = JSON.parse(JSON.parse(e.data));
           setQueryInfo(messageData);
-          setData(messageData.results);
-          messageData.numRows = messageData.results?.length
-            ? messageData.results[0].rows.length
+          if (messageData.results) {
+            setLoadingData(false);
+            setData(messageData.results);
+            messageData.numRows = messageData.results?.length
+              ? messageData.results[0].rows.length
+              : [];
+            setViewData(true);
+            setShowNumRows(10);
+          }
+        };
+        sse.onerror = () => sse.close();
+      } else {
+        const response = await djClient.data(
+          selectedMetrics,
+          selectedDimensions,
+        );
+        setQueryInfo(response);
+        if (response.results) {
+          setLoadingData(false);
+          setData(response.results);
+          response.numRows = response.results?.length
+            ? response.results[0].rows.length
             : [];
           setViewData(true);
           setShowNumRows(10);
         }
-      };
-      sse.onerror = () => sse.close();
+      }
     };
     fetchData().catch(console.error);
   };
