@@ -721,15 +721,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "sseclient"
-version = "0.0.27"
-summary = "Python client library for reading Server Sent Event streams."
-dependencies = [
-    "requests>=2.9",
-    "six",
-]
-
-[[package]]
 name = "starlette"
 version = "0.19.1"
 requires_python = ">=3.6"
@@ -866,7 +857,7 @@ summary = "Backport of pathlib-compatible object wrapper for zip files"
 lock_version = "4.2"
 cross_platform = true
 groups = ["default", "test", "uvicorn"]
-content_hash = "sha256:9401e6af6143c1560ff277b0b37e650bacc0b072b5e2a934c337d7b13cd4eb81"
+content_hash = "sha256:911b131f0f00c0b48523114289e999d7a306dcea7145239f5771d74a521f793c"
 
 [metadata.files]
 "accept-types 0.4.1" = [
@@ -1774,9 +1765,6 @@ content_hash = "sha256:9401e6af6143c1560ff277b0b37e650bacc0b072b5e2a934c337d7b13
 "sse-starlette 1.6.1" = [
     {url = "https://files.pythonhosted.org/packages/40/88/0af7f586894cfe61bd212f33e571785c4570085711b24fb7445425a5eeb0/sse-starlette-1.6.1.tar.gz", hash = "sha256:6208af2bd7d0887c92f1379da14bd1f4db56bd1274cc5d36670c683d2aa1de6a"},
     {url = "https://files.pythonhosted.org/packages/5e/f7/499e5d0c181a52a205d5b0982fd71cf162d1e070c97dca90c60520bbf8bf/sse_starlette-1.6.1-py3-none-any.whl", hash = "sha256:d8f18f1c633e355afe61cc5e9c92eea85badcb8b2d56ec8cfb0a006994aa55da"},
-]
-"sseclient 0.0.27" = [
-    {url = "https://files.pythonhosted.org/packages/cf/6c/fa601216344952be8f9a51a3f49b4274bbbc58bd395f87f67f6131726358/sseclient-0.0.27.tar.gz", hash = "sha256:b2fe534dcb33b1d3faad13d60c5a7c718e28f85987f2a034ecf5ec279918c11c"},
 ]
 "starlette 0.19.1" = [
     {url = "https://files.pythonhosted.org/packages/2b/18/405f4fb59119b8efa203c10a04a32a927976b5450cf649c8b4c9d079d21e/starlette-0.19.1.tar.gz", hash = "sha256:c6d21096774ecb9639acad41b86b7706e52ba3bf1dc13ea4ed9ad593d47e24c7"},
