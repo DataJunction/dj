@@ -97,7 +97,7 @@ services:
     profiles: ["demo"]
     build:
       context: ./datajunction-reflection
-    command: ["celery", "-A", "djrs.worker.app", "worker", "--loglevel", "INFO"]
+    command: ["celery", "-A", "datajunction_reflection.worker.app", "worker", "--loglevel", "INFO"]
     networks:
       - core
       - djrs-network
@@ -113,7 +113,7 @@ services:
     build:
       context: ./datajunction-reflection
     command:
-      ["celery", "--app", "djrs.worker.app", "beat", "--loglevel", "INFO"]
+      ["celery", "--app", "datajunction_reflection.worker.app", "beat", "--loglevel", "INFO"]
     networks:
       - djrs-network
     depends_on:
