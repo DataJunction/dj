@@ -9,6 +9,7 @@ import Select from 'react-select';
 import QueryInfo from '../../components/QueryInfo';
 
 export function SQLBuilderPage() {
+  const DEFAULT_NUM_ROWS = 100;
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [stagedMetrics, setStagedMetrics] = useState([]);
   const [metrics, setMetrics] = useState([]);
@@ -21,7 +22,7 @@ export function SQLBuilderPage() {
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
   const [viewData, setViewData] = useState(false);
-  const [showNumRows, setShowNumRows] = useState(100);
+  const [showNumRows, setShowNumRows] = useState(DEFAULT_NUM_ROWS);
   const [displayedRows, setDisplayedRows] = useState(<></>);
   const numRowsOptions = [
     {
@@ -59,7 +60,7 @@ export function SQLBuilderPage() {
               ? messageData.results[0].rows.length
               : [];
             setViewData(true);
-            setShowNumRows(10);
+            setShowNumRows(DEFAULT_NUM_ROWS);
           }
         };
         sse.onerror = () => sse.close();
@@ -76,7 +77,7 @@ export function SQLBuilderPage() {
             ? response.results[0].rows.length
             : [];
           setViewData(true);
-          setShowNumRows(10);
+          setShowNumRows(DEFAULT_NUM_ROWS);
         }
       }
     };
