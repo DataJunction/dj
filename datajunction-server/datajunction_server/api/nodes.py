@@ -12,7 +12,6 @@ from typing import Dict, List, Optional, Set, Tuple, Union, cast
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from starlette.requests import Request
@@ -340,20 +339,19 @@ def set_column_attributes(
     return list(modified_columns)  # type: ignore
 
 
-@router.get("/nodes/", response_model=List[NodeOutput])
-def list_nodes(*, session: Session = Depends(get_session)) -> List[NodeOutput]:
+@router.get("/nodes/", response_model=List[str])
+def list_nodes(
+    node_type: Optional[NodeType] = None,
+    *,
+    session: Session = Depends(get_session),
+) -> List[str]:
     """
     List the available nodes.
     """
-    nodes = (
-        session.exec(
-            select(Node)
-            .where(is_(Node.deactivated_at, None))
-            .options(joinedload(Node.current)),
-        )
-        .unique()
-        .all()
-    )
+    statement = select(Node.name).where(is_(Node.deactivated_at, None))
+    if node_type:
+        statement = statement.where(Node.type == node_type)
+    nodes = session.exec(statement).unique().all()
     return nodes
 
 
@@ -1752,6 +1750,76 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             query_service_client,
         )
     return new_revision
+
+
+@router.post(
+    "/nodes/{name}/refresh/",
+    response_model=NodeOutput,
+    status_code=201,
+)
+def refresh_source_node(
+    name: str,
+    *,
+    session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+):
+    """
+    Refresh a source node with the latest columns from the query service.
+    """
+    source_node = get_node_by_name(session, name, node_type=NodeType.SOURCE)
+    current_revision = source_node.current
+
+    # Get the latest columns for the source node's table from the query service
+    columns = query_service_client.get_columns_for_table(
+        current_revision.catalog.name,
+        current_revision.schema_,  # type: ignore
+        current_revision.table,  # type: ignore
+        current_revision.catalog.engines[0]
+        if len(current_revision.catalog.engines) >= 1
+        else None,
+    )
+
+    # Check if any of the columns have changed (only continue with update if they have)
+    column_changes = {col.identifier() for col in current_revision.columns} != {
+        col.identifier() for col in columns
+    }
+    if not column_changes:
+        return source_node
+
+    # Create a new node revision with the updated columns and bump the version
+    old_version = Version.parse(source_node.current_version)
+    new_revision = NodeRevision.parse_obj(current_revision.dict(exclude={"id"}))
+    new_revision.version = str(old_version.next_major_version())
+    new_revision.columns = [
+        Column(name=column.name, type=column.type, node_revisions=[new_revision])
+        for column in columns
+    ]
+
+    # Keep the dimension links and attributes on the columns from the node's
+    # last revision if any existed
+    new_revision.copy_dimension_links_from_revision(current_revision)
+
+    # Point the source node to the new revision
+    source_node.current_version = new_revision.version
+    new_revision.extra_validation()
+
+    session.add(new_revision)
+    session.add(source_node)
+
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=source_node.name,
+            node=source_node.name,
+            activity_type=ActivityType.REFRESH,
+            details={
+                "version": new_revision.version,
+            },
+        ),
+    )
+    session.commit()
+    session.refresh(source_node.current)
+    return source_node  # type: ignore
 
 
 @router.patch("/nodes/{name}/", response_model=NodeOutput)

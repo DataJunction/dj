@@ -23,6 +23,7 @@ class ActivityType(str, Enum):
     DELETE = "delete"
     RESTORE = "restore"
     UPDATE = "update"
+    REFRESH = "refresh"
     TAG = "tag"
     SET_ATTRIBUTE = "set_attribute"
     STATUS_CHANGE = "status_change"
