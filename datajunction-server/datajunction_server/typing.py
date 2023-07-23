@@ -78,6 +78,8 @@ class QueryState(str, Enum):
     FAILED = "FAILED"
 
 
+END_JOB_STATES = [QueryState.FINISHED, QueryState.CANCELED, QueryState.FAILED]
+
 # sqloxide type hints
 # Reference: https://github.com/sqlparser-rs/sqlparser-rs/blob/main/src/ast/query.rs
 

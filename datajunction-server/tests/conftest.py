@@ -4,6 +4,7 @@ Fixtures for testing.
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 
 import re
+import uuid
 from http.client import HTTPException
 from typing import Collection, Iterator, List, Optional
 from unittest.mock import MagicMock
@@ -108,6 +109,20 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         qs_client,
         "submit_query",
         mock_submit_query,
+    )
+
+    def mock_get_query(
+        query_id: uuid.UUID,
+    ) -> Collection[Collection[str]]:
+        for _, response in QUERY_DATA_MAPPINGS.items():
+            if response.id == query_id:
+                return response
+        raise RuntimeError(f"No mocked query exists for id {query_id}")
+
+    mocker.patch.object(
+        qs_client,
+        "get_query",
+        mock_get_query,
     )
     #
     # def mock_materialize(

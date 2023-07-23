@@ -2,18 +2,19 @@
 Data related APIs.
 """
 
-import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
+from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import (
     build_sql_for_multiple_metrics,
     get_engine,
     get_node_by_name,
     get_query,
+    query_event_stream,
     validate_orderby,
 )
 from datajunction_server.errors import DJException, DJInvalidInputException
@@ -33,7 +34,6 @@ from datajunction_server.models.query import (
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import get_query_service_client, get_session
 
-_logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
@@ -209,3 +209,50 @@ def get_data_for_metrics(  # pylint: disable=R0914, R0913
     if result.results.__root__:  # pragma: no cover
         result.results.__root__[0].columns = translated_sql.columns or []
     return result
+
+
+@router.get("/stream/", response_model=QueryWithResults)
+async def get_data_stream_for_metrics(  # pylint: disable=R0914, R0913
+    metrics: List[str] = Query([]),
+    dimensions: List[str] = Query([]),
+    filters: List[str] = Query([]),
+    orderby: List[str] = Query([]),
+    limit: Optional[int] = None,
+    *,
+    session: Session = Depends(get_session),
+    request: Request,
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+) -> QueryWithResults:
+    """
+    Return data for a set of metrics with dimensions and filters using server side events
+    """
+    translated_sql, engine, catalog = build_sql_for_multiple_metrics(
+        session,
+        metrics,
+        dimensions,
+        filters,
+        orderby,
+        limit,
+        engine_name,
+        engine_version,
+    )
+
+    query_create = QueryCreate(
+        engine_name=engine.name,
+        catalog_name=catalog.name,
+        engine_version=engine.version,
+        submitted_query=translated_sql.sql,
+        async_=True,
+    )
+    # Submits the query, equivalent to calling POST /data/ directly
+    initial_query_info = query_service_client.submit_query(query_create)
+    return EventSourceResponse(
+        query_event_stream(
+            query=initial_query_info,
+            query_service_client=query_service_client,
+            columns=translated_sql.columns,  # type: ignore
+            request=request,
+        ),
+    )

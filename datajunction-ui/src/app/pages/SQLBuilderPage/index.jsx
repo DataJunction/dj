@@ -9,6 +9,7 @@ import Select from 'react-select';
 import QueryInfo from '../../components/QueryInfo';
 
 export function SQLBuilderPage() {
+  const DEFAULT_NUM_ROWS = 100;
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [stagedMetrics, setStagedMetrics] = useState([]);
   const [metrics, setMetrics] = useState([]);
@@ -17,12 +18,11 @@ export function SQLBuilderPage() {
   const [stagedDimensions, setStagedDimensions] = useState([]);
   const [selectedMetrics, setSelectedMetrics] = useState([]);
   const [query, setQuery] = useState('');
-  const [submittedQueryInfo, setSubmittedQueryInfo] = useState(null);
+  const [queryInfo, setQueryInfo] = useState({});
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
   const [viewData, setViewData] = useState(false);
-  const [showHelp, setShowHelp] = useState(true);
-  const [showNumRows, setShowNumRows] = useState(100);
+  const [showNumRows, setShowNumRows] = useState(DEFAULT_NUM_ROWS);
   const [displayedRows, setDisplayedRows] = useState(<></>);
   const numRowsOptions = [
     {
@@ -46,20 +46,39 @@ export function SQLBuilderPage() {
   // Get data for the current selection of metrics and dimensions
   const getData = () => {
     setLoadingData(true);
+    setQueryInfo({});
     const fetchData = async () => {
-      setData(null);
-      const queryInfo = await djClient.data(
-        selectedMetrics,
-        selectedDimensions,
-      );
-      setLoadingData(false);
-      setSubmittedQueryInfo(queryInfo);
-      queryInfo.numRows = 0;
-      if (queryInfo.results && queryInfo.results?.length) {
-        setData(queryInfo.results);
-        queryInfo.numRows = queryInfo.results[0].rows.length;
-        setViewData(true);
-        setShowNumRows(10);
+      if (process.env.REACT_USE_SSE) {
+        const sse = await djClient.stream(selectedMetrics, selectedDimensions);
+        sse.onmessage = e => {
+          const messageData = JSON.parse(JSON.parse(e.data));
+          setQueryInfo(messageData);
+          if (messageData.results) {
+            setLoadingData(false);
+            setData(messageData.results);
+            messageData.numRows = messageData.results?.length
+              ? messageData.results[0].rows.length
+              : [];
+            setViewData(true);
+            setShowNumRows(DEFAULT_NUM_ROWS);
+          }
+        };
+        sse.onerror = () => sse.close();
+      } else {
+        const response = await djClient.data(
+          selectedMetrics,
+          selectedDimensions,
+        );
+        setQueryInfo(response);
+        if (response.results) {
+          setLoadingData(false);
+          setData(response.results);
+          response.numRows = response.results?.length
+            ? response.results[0].rows.length
+            : [];
+          setViewData(true);
+          setShowNumRows(DEFAULT_NUM_ROWS);
+        }
       }
     };
     fetchData().catch(console.error);
@@ -69,25 +88,7 @@ export function SQLBuilderPage() {
     setQuery('');
     setData(null);
     setViewData(false);
-  };
-  const handleMetricSelect = event => {
-    const metrics = event.map(m => m.value);
-    resetView();
-    setStagedMetrics(metrics);
-  };
-
-  const handleMetricSelectorClose = () => {
-    setSelectedMetrics(stagedMetrics);
-  };
-
-  const handleDimensionSelect = event => {
-    const dimensions = event.map(d => d.value);
-    resetView();
-    setStagedDimensions(dimensions);
-  };
-
-  const handleDimensionSelectorClose = () => {
-    setSelectedDimensions(stagedDimensions);
+    setQueryInfo({});
   };
 
   // Get metrics
@@ -125,11 +126,9 @@ export function SQLBuilderPage() {
     const fetchData = async () => {
       if (selectedMetrics.length && selectedDimensions.length) {
         const query = await djClient.sqls(selectedMetrics, selectedDimensions);
-        setShowHelp(false);
         setQuery(query.sql);
       } else {
         resetView();
-        setShowHelp(true);
       }
     };
     fetchData().catch(console.error);
@@ -139,7 +138,7 @@ export function SQLBuilderPage() {
   useEffect(() => {
     if (data) {
       setDisplayedRows(
-        data[0].rows.slice(0, showNumRows).map((rowData, index) => (
+        data[0]?.rows.slice(0, showNumRows).map((rowData, index) => (
           <tr key={`data-row:${index}`}>
             {rowData.map(rowValue => (
               <td key={rowValue}>{rowValue}</td>
@@ -167,13 +166,26 @@ export function SQLBuilderPage() {
             <Select
               name="metrics"
               options={metrics}
+              isDisabled={
+                selectedMetrics.length && selectedDimensions.length
+                  ? true
+                  : false
+              }
               noOptionsMessage={() => 'No metrics found.'}
               placeholder={`${metrics.length} Available Metrics`}
               isMulti
               isClearable
               closeMenuOnSelect={false}
-              onChange={handleMetricSelect}
-              onMenuClose={handleMetricSelectorClose}
+              onChange={e => {
+                setSelectedDimensions([]);
+                resetView();
+                setStagedMetrics(e.map(m => m.value));
+              }}
+              onMenuClose={() => {
+                resetView();
+                setSelectedDimensions([]);
+                setSelectedMetrics(stagedMetrics);
+              }}
             />
             <h4>Group By</h4>
             <Select
@@ -187,12 +199,17 @@ export function SQLBuilderPage() {
               isMulti
               isClearable
               closeMenuOnSelect={false}
-              onChange={handleDimensionSelect}
-              onMenuClose={handleDimensionSelectorClose}
+              onChange={e => {
+                resetView();
+                setStagedDimensions(e.map(d => d.value));
+              }}
+              onMenuClose={() => {
+                setSelectedDimensions(stagedDimensions);
+              }}
             />
           </div>
           <div className="card-header">
-            {showHelp ? (
+            {!viewData && !query ? (
               <div className="card-light-shadow">
                 <h6>Using the SQL Builder</h6>
                 <p>
@@ -272,7 +289,7 @@ export function SQLBuilderPage() {
             ) : (
               <></>
             )}
-            {submittedQueryInfo ? <QueryInfo {...submittedQueryInfo} /> : <></>}
+            {queryInfo && queryInfo.id ? <QueryInfo {...queryInfo} /> : <></>}
             <div>
               {query && !viewData ? (
                 <SyntaxHighlighter language="sql" style={foundation}>
@@ -294,7 +311,7 @@ export function SQLBuilderPage() {
                 <table className="card-inner-table table">
                   <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
                     <tr>
-                      {data[0].columns.map(columnName => (
+                      {data[0]?.columns.map(columnName => (
                         <th key={columnName.name}>{columnName.name}</th>
                       ))}
                     </tr>
