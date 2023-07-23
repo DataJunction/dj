@@ -5,7 +5,7 @@
 groups = ["default", "test"]
 cross_platform = true
 static_urls = false
-lock_version = "4.3"
+lock_version = "4.2"
 content_hash = "sha256:b691c0cb73bc65dcb812d3e361a3c78c0b4d9e20406c4ed47b04f8edb9e271b9"
 
 [[package]]
