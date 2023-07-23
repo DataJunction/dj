@@ -102,36 +102,14 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
 
     assert response.status_code == 200
     assert len(data) == 3
+    assert set(data) == {"not-a-metric", "also-not-a-metric", "a-metric"}
 
-    nodes = {node["name"]: node for node in data}
-    assert nodes["not-a-metric"]["query"] is None
-    assert nodes["not-a-metric"]["version"] == "1"
-    assert nodes["not-a-metric"]["display_name"] == "Not-A-Metric"
-    assert not nodes["not-a-metric"]["columns"]
-    assert nodes["not-a-metric"]["parents"] == []
+    response = client.get("/nodes?node_type=metric")
+    data = response.json()
 
-    assert nodes["also-not-a-metric"]["query"] == "SELECT 42 AS answer"
-    assert nodes["also-not-a-metric"]["display_name"] == "Also-Not-A-Metric"
-    assert nodes["also-not-a-metric"]["columns"] == [
-        {
-            "name": "answer",
-            "type": "int",
-            "attributes": [],
-            "dimension": None,
-        },
-    ]
-
-    assert nodes["a-metric"]["query"] == "SELECT COUNT(*) FROM my_table"
-    assert nodes["a-metric"]["display_name"] == "A-Metric"
-    assert nodes["a-metric"]["columns"] == [
-        {
-            "name": "_col0",
-            "type": "int",
-            "attributes": [],
-            "dimension": None,
-        },
-    ]
-    assert nodes["a-metric"]["parents"] == []
+    assert response.status_code == 200
+    assert len(data) == 1
+    assert set(data) == {"a-metric"}
 
 
 class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
@@ -2837,11 +2815,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         """
         for node in client_with_examples.get("/nodes/").json():
             status = client_with_examples.post(
-                f"/nodes/{node['name']}/validate/",
+                f"/nodes/{node}/validate/",
             ).json()["status"]
             assert status == "valid"
         # Confirm that they still show as valid server-side
         for node in client_with_examples.get("/nodes/").json():
+            node = client_with_examples.get(f"/nodes/{node}").json()
             assert node["status"] == "valid"
 
 

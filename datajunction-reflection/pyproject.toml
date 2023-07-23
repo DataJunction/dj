@@ -3,7 +3,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.pdm.build]
-includes = ["djrs"]
+includes = ["datajunction_reflection"]
 
 [project]
 name = "datajunction-reflection"
