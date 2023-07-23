@@ -59,7 +59,7 @@ jobs:
 
       - name: Test DJ ${{ matrix.library }} with pytest
         run: |
-          export module=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'djrs'}}
+          export module=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
           export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
           cd $tests_dir; pdm run pytest ${{ matrix.library == 'server' && '-n auto' || '' }} --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
 

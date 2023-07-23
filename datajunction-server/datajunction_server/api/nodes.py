@@ -12,7 +12,6 @@ from typing import Dict, List, Optional, Set, Tuple, Union, cast
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
 from pydantic import ValidationError
-from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from starlette.requests import Request
@@ -340,20 +339,19 @@ def set_column_attributes(
     return list(modified_columns)  # type: ignore
 
 
-@router.get("/nodes/", response_model=List[NodeOutput])
-def list_nodes(*, session: Session = Depends(get_session)) -> List[NodeOutput]:
+@router.get("/nodes/", response_model=List[str])
+def list_nodes(
+    node_type: Optional[NodeType] = None,
+    *,
+    session: Session = Depends(get_session),
+) -> List[str]:
     """
     List the available nodes.
     """
-    nodes = (
-        session.exec(
-            select(Node)
-            .where(is_(Node.deactivated_at, None))
-            .options(joinedload(Node.current)),
-        )
-        .unique()
-        .all()
-    )
+    statement = select(Node.name).where(is_(Node.deactivated_at, None))
+    if node_type:
+        statement = statement.where(Node.type == node_type)
+    nodes = session.exec(statement).unique().all()
     return nodes
 
 
