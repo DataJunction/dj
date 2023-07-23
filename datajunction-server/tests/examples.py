@@ -1789,6 +1789,16 @@ COLUMN_MAPPINGS = {
         Column(name="timestamp", type=TimestampType()),
         Column(name="text", type=StringType()),
     ],
+    "default.roads.repair_orders": [
+        Column(name="repair_order_id", type=IntegerType()),
+        Column(name="municipality_id", type=StringType()),
+        Column(name="hard_hat_id", type=IntegerType()),
+        Column(name="order_date", type=TimestampType()),
+        Column(name="required_date", type=TimestampType()),
+        Column(name="dispatched_date", type=TimestampType()),
+        Column(name="dispatcher_id", type=IntegerType()),
+        Column(name="rating", type=IntegerType()),
+    ],
 }
 
 QUERY_DATA_MAPPINGS = {
