@@ -31,6 +31,7 @@ dependencies = [
     "SQLAlchemy<2.0.0,>=1.4.41",
     "sqlmodel<1.0.0,>=0.0.8",
     "sqlparse<1.0.0,>=0.4.3",
+    "sse-starlette>=1.6.0",
     "yarl<2.0.0,>=1.8.2",
 ]
 requires-python = ">=3.8,<4.0"

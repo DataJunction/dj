@@ -1,9 +1,13 @@
 """
 Helpers for API endpoints
 """
+import asyncio
 import collections
 import http.client
+import json
 import logging
+import time
+import uuid
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
@@ -47,12 +51,14 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
-from datajunction_server.models.query import ColumnMetadata
+from datajunction_server.models.query import ColumnMetadata, QueryWithResults
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.typing import END_JOB_STATES
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 def get_node_namespace(  # pylint: disable=too-many-arguments
@@ -395,7 +401,7 @@ def validate_node_data(  # pylint: disable=too-many-locals
 
     # Only raise on missing parents if the node mode is set to published
     if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
-        logger.error(
+        _logger.error(
             "Node %s missing parents %s",
             validated_node.name,
             list(missing_parents_map.keys()),
@@ -821,3 +827,65 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         engine,
         leading_metric_node.current.catalog,
     )
+
+
+async def query_event_stream(  # pylint: disable=too-many-arguments
+    query: QueryWithResults,
+    query_service_client: QueryServiceClient,
+    columns: List[Column],
+    request,
+    timeout: float = 0.0,
+    stream_delay: float = 0.5,
+    retry_timeout: int = 5000,
+):
+    """
+    A generator of events from a query submitted to the query service
+    """
+    starting_time = time.time()
+    # Start with query and query_next as the initial state of the query
+    query_prev = query_next = query
+    query_id = query_prev.id
+    _logger.info("sending initial event to the client for query %s", query_id)
+    yield {
+        "event": "message",
+        "id": uuid.uuid4(),
+        "retry": retry_timeout,
+        "data": json.dumps(query.json()),
+    }
+    # Continuously check the query until it's complete
+    while not timeout or (time.time() - starting_time < timeout):
+        # Check if the client closed the connection
+        if await request.is_disconnected():  # pragma: no cover
+            _logger.error("connection closed by the client")
+            break
+
+        # Check the current state of the query
+        query_next = query_service_client.get_query(query_id=query_id)  # type: ignore
+        if query_next.state in END_JOB_STATES:
+            _logger.info(
+                "query end state detected (%s), sending final event to the client",
+                query_next.state,
+            )
+            if query_next.results.__root__:  # pragma: no cover
+                query_next.results.__root__[0].columns = columns or []
+            yield {
+                "event": "message",
+                "id": uuid.uuid4(),
+                "retry": retry_timeout,
+                "data": json.dumps(query_next.json()),
+            }
+            _logger.info("connection closed by the server")
+            break
+        if query_prev != query_next:  # pragma: no cover
+            _logger.info(
+                "query information has changed, sending an event to the client",
+            )
+            yield {
+                "event": "message",
+                "id": uuid.uuid4(),
+                "retry": retry_timeout,
+                "data": json.dumps(query_next.json()),
+            }
+
+            query = query_next
+        await asyncio.sleep(stream_delay)  # pragma: no cover
