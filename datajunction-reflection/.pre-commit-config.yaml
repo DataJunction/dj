@@ -94,3 +94,7 @@ repos:
     language: system
     types: [python]
     exclude: ^templates/
+- repo: https://github.com/pdm-project/pdm
+  rev: 2.6.1
+  hooks:
+    - id: pdm-lock-check
