@@ -1642,6 +1642,65 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
+    def test_node_with_incremental_materialization(
+        self,
+        client_with_query_service: TestClient,
+    ) -> None:
+        """
+        1. Create a transform node that uses dj_current_timestamp (i.e., it is
+           meant to be incrementally materialized).
+        2. Create a metric node that references the above transform.
+        3. When SQL for the metric is requested without the transform having been materialized,
+           the request will fail.
+        """
+        client_with_query_service.post(
+            "/nodes/transform/",
+            json={
+                "description": "Repair orders transform (partitioned)",
+                "query": """
+                        SELECT
+                        repair_order_id,
+                        municipality_id,
+                        hard_hat_id,
+                        order_date,
+                        required_date,
+                        dispatched_date,
+                        dispatcher_id,
+                        dj_current_timestamp('%Y%m%d') as date_partition
+                        FROM default.repair_orders
+                        WHERE date_format(order_date, 'yyyyMMdd') = dj_current_timestamp('%Y%m%d')
+                    """,
+                "mode": "published",
+                "name": "default.repair_orders_partitioned",
+                "primary_key": ["repair_order_id"],
+            },
+        )
+        client_with_query_service.post(
+            "/nodes/default.repair_orders_partitioned/columns/hard_hat_id/"
+            "?dimension=default.hard_hat&dimension_column=hard_hat_id",
+        )
+
+        client_with_query_service.post(
+            "/nodes/metric/",
+            json={
+                "description": "Number of repair orders",
+                "query": "SELECT count(repair_order_id) FROM default.repair_orders_partitioned",
+                "mode": "published",
+                "name": "default.num_repair_orders_partitioned",
+            },
+        )
+
+        response = client_with_query_service.get(
+            "/sql?metrics=default.num_repair_orders_partitioned"
+            "&dimensions=default.hard_hat.last_name",
+        )
+        assert response.json()["message"] == (
+            "One of the parent nodes default.repair_orders_partitioned has a "
+            "query that uses DJ_CURRENT_TIMESTAMP(), which is only meant to be "
+            "used for materialization. default.repair_orders_partitioned must "
+            "be successfully materialized before it can be used."
+        )
+
     def test_update_node_query_with_materializations(
         self,
         client_with_query_service: TestClient,

@@ -817,8 +817,11 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         """
         Has a materialization available
         """
-        return self.availability and self.availability.is_available(
-            criteria=build_criteria,
+        return (
+            self.availability is not None
+            and self.availability.is_available(  # pylint: disable=no-member
+                criteria=build_criteria,
+            )
         )
 
 
