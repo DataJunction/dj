@@ -42,6 +42,18 @@ class NodeStatus(str, enum.Enum):
     INVALID = "invalid"
 
 
+class NodeType(str, enum.Enum):
+    """
+    DJ node types
+    """
+
+    METRIC = "metric"
+    DIMENSION = "dimension"
+    SOURCE = "source"
+    TRANSFORM = "transform"
+    CUBE = "cube"
+
+
 class SourceColumn(BaseModel):
     """
     A column used in creation of a source node
