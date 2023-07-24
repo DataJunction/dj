@@ -34,7 +34,7 @@ class DJReader(_internal.DJClient):
         """
         return self.get_nodes_in_namespace(
             namespace=namespace,
-            type_="dimension",
+            type_=models.NodeType.DIMENSION.value,
         )
 
     def list_metrics(self, namespace: Optional[str] = None) -> List[str]:
@@ -44,37 +44,62 @@ class DJReader(_internal.DJClient):
         if namespace:
             return self.get_nodes_in_namespace(
                 namespace=namespace,
-                type_="metric",
+                type_=models.NodeType.METRIC.value,
             )
         return self._session.get("/metrics/").json()
 
     #
     # Get common metrics and dimensions
     #
-    def common_dimensions(
+    def common_dimensions_with_details(
         self,
         metrics: List[str],
-    ):  # pragma: no cover # Tested in integration tests
+    ) -> List[dict]:  # pragma: no cover # Tested in integration tests
         """
         Return common dimensions for a set of metrics.
         """
         query_params = []
         for metric in metrics:
-            query_params.append(("metric", metric))
+            query_params.append((models.NodeType.METRIC.value, metric))
         response = self._session.get(
             f"/metrics/common/dimensions/?{urlencode(query_params)}",
+        )
+        return response.json()
+
+    def common_dimensions(
+        self,
+        metrics: List[str],
+    ) -> List[str]:  # pragma: no cover # Tested in integration tests
+        """
+        Return common dimensions (names only) for a set of metrics.
+        """
+        dimensions = self.common_dimensions_with_details(metrics=metrics)
+        return [dimension["name"] for dimension in dimensions]
+
+    def common_metrics_with_details(
+        self,
+        dimensions: List[str],
+    ) -> List[dict]:  # pragma: no cover # Tested in integration tests
+        """
+        Return common metrics for a set of dimensions.
+        """
+        query_params = [("node_type", models.NodeType.METRIC.value)]
+        for dim in dimensions:
+            query_params.append((models.NodeType.DIMENSION.value, dim))
+        response = self._session.get(
+            f"/dimensions/common/?{urlencode(query_params)}",
         )
         return response.json()
 
     def common_metrics(
         self,
         dimensions: List[str],
-    ):
+    ) -> List[str]:  # pragma: no cover # Tested in integration tests
         """
-        Return common metrics for a set of dimensions.
+        Return common metrics (names only) for a set of dimensions.
         """
-        # TODO  # pylint: disable=W0511
-        # Add this to the server APIs first.
+        metrics = self.common_metrics_with_details(dimensions=dimensions)
+        return [metric["name"] for metric in metrics]
 
     #
     # Get SQL

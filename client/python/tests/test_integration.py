@@ -1,7 +1,7 @@
 """
 Integration tests to be run against the latest full demo datajunction environment
 """
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,line-too-long
 import namesgenerator
 import pandas
 import pytest
@@ -12,11 +12,11 @@ from datajunction.models import AvailabilityState, ColumnAttribute, NodeMode, No
 
 
 @pytest.mark.skipif("not config.getoption('integration')")
-def test_integration():  # pylint: disable=too-many-statements
+def test_integration():  # pylint: disable=too-many-statements,too-many-locals,line-too-long
     """
     Integration test
     """
-    dj = DJReader()  # pylint: disable=invalid-name
+    dj = DJReader()  # pylint: disable=invalid-name,line-too-long
 
     # Create a namespace
     namespace = f"integration.python.{namesgenerator.get_random_name()}"
@@ -130,7 +130,47 @@ def test_integration():  # pylint: disable=too-many-statements
     dj.metric(f"{namespace}.num_repair_orders").dimensions()
 
     # List common dimensions for multiple metrics
+    # names only
     common_dimensions = dj.common_dimensions(
+        metrics=[
+            "default.num_repair_orders",
+            "default.avg_repair_price",
+            "default.total_repair_cost",
+        ],
+    )
+    assert common_dimensions == [
+        "default.dispatcher.company_name",
+        "default.dispatcher.dispatcher_id",
+        "default.dispatcher.phone",
+        "default.hard_hat.address",
+        "default.hard_hat.birth_date",
+        "default.hard_hat.city",
+        "default.hard_hat.contractor_id",
+        "default.hard_hat.country",
+        "default.hard_hat.first_name",
+        "default.hard_hat.hard_hat_id",
+        "default.hard_hat.hire_date",
+        "default.hard_hat.last_name",
+        "default.hard_hat.manager",
+        "default.hard_hat.postal_code",
+        "default.hard_hat.state",
+        "default.hard_hat.title",
+        "default.municipality_dim.contact_name",
+        "default.municipality_dim.contact_title",
+        "default.municipality_dim.local_region",
+        "default.municipality_dim.municipality_id",
+        "default.municipality_dim.municipality_type_desc",
+        "default.municipality_dim.municipality_type_id",
+        "default.municipality_dim.state_id",
+        "default.repair_orders.repair_order_id",
+        "default.us_state.state_abbr",
+        "default.us_state.state_id",
+        "default.us_state.state_name",
+        "default.us_state.state_region",
+        "default.us_state.state_region_description",
+    ]
+    # with details
+    common_dimensions = dj.common_dimensions_with_details(
         metrics=[
             "default.num_repair_orders",
             "default.avg_repair_price",
@@ -367,6 +407,230 @@ def test_integration():  # pylint: disable=too-many-statements
                 "default.repair_order.hard_hat_id",
                 "default.hard_hat.state",
             ],
+        },
+    ]
+
+    # List common metrics for multiple dimensions
+    # names only
+    common_metrics = dj.common_metrics(
+        dimensions=["default.date_dim", "default.repair_order"],
+    )
+    assert common_metrics == [
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+        "default.total_repair_order_discounts",
+        "default.avg_repair_order_discounts",
+        "default.avg_time_to_dispatch",
+    ]
+    # with details
+    common_metrics = dj.common_metrics_with_details(
+        dimensions=["default.date_dim", "default.repair_order"],
+    )
+    assert common_metrics == [
+        {
+            "node_revision_id": 23,
+            "node_id": 23,
+            "type": "metric",
+            "name": "default.num_repair_orders",
+            "display_name": "Default: Num Repair Orders",
+            "version": "v1.0",
+            "status": "valid",
+            "mode": "published",
+            "catalog": {
+                "id": 1,
+                "uuid": "48474405-6e39-46f8-88b1-0bea868aa947",
+                "created_at": "2023-07-22T00:02:43.554751+00:00",
+                "updated_at": "2023-07-22T00:02:43.554752+00:00",
+                "extra_params": {},
+                "name": "warehouse",
+            },
+            "schema_": None,
+            "table": None,
+            "description": "Number of repair orders",
+            "query": "SELECT  count(repair_order_id) default_DOT_num_repair_orders \n FROM default.repair_orders\n\n",
+            "availability": None,
+            "columns": [
+                {
+                    "name": "default_DOT_num_repair_orders",
+                    "type": "bigint",
+                    "attributes": [],
+                    "dimension": None,
+                },
+            ],
+            "updated_at": "2023-07-22T00:02:51.460733+00:00",
+            "materializations": [],
+            "parents": [{"name": "default.repair_orders"}],
+        },
+        {
+            "node_revision_id": 24,
+            "node_id": 24,
+            "type": "metric",
+            "name": "default.avg_repair_price",
+            "display_name": "Default: Avg Repair Price",
+            "version": "v1.0",
+            "status": "valid",
+            "mode": "published",
+            "catalog": {
+                "id": 1,
+                "uuid": "48474405-6e39-46f8-88b1-0bea868aa947",
+                "created_at": "2023-07-22T00:02:43.554751+00:00",
+                "updated_at": "2023-07-22T00:02:43.554752+00:00",
+                "extra_params": {},
+                "name": "warehouse",
+            },
+            "schema_": None,
+            "table": None,
+            "description": "Average repair price",
+            "query": "SELECT  avg(price) default_DOT_avg_repair_price \n FROM default.repair_order_details\n\n",
+            "availability": None,
+            "columns": [
+                {
+                    "name": "default_DOT_avg_repair_price",
+                    "type": "double",
+                    "attributes": [],
+                    "dimension": None,
+                },
+            ],
+            "updated_at": "2023-07-22T00:02:51.616490+00:00",
+            "materializations": [],
+            "parents": [{"name": "default.repair_order_details"}],
+        },
+        {
+            "node_revision_id": 25,
+            "node_id": 25,
+            "type": "metric",
+            "name": "default.total_repair_cost",
+            "display_name": "Default: Total Repair Cost",
+            "version": "v1.0",
+            "status": "valid",
+            "mode": "published",
+            "catalog": {
+                "id": 1,
+                "uuid": "48474405-6e39-46f8-88b1-0bea868aa947",
+                "created_at": "2023-07-22T00:02:43.554751+00:00",
+                "updated_at": "2023-07-22T00:02:43.554752+00:00",
+                "extra_params": {},
+                "name": "warehouse",
+            },
+            "schema_": None,
+            "table": None,
+            "description": "Total repair cost",
+            "query": "SELECT  sum(price) default_DOT_total_repair_cost \n FROM default.repair_order_details\n\n",
+            "availability": None,
+            "columns": [
+                {
+                    "name": "default_DOT_total_repair_cost",
+                    "type": "double",
+                    "attributes": [],
+                    "dimension": None,
+                },
+            ],
+            "updated_at": "2023-07-22T00:02:51.834912+00:00",
+            "materializations": [],
+            "parents": [{"name": "default.repair_order_details"}],
+        },
+        {
+            "node_revision_id": 27,
+            "node_id": 27,
+            "type": "metric",
+            "name": "default.total_repair_order_discounts",
+            "display_name": "Default: Total Repair Order Discounts",
+            "version": "v1.0",
+            "status": "valid",
+            "mode": "published",
+            "catalog": {
+                "id": 1,
+                "uuid": "48474405-6e39-46f8-88b1-0bea868aa947",
+                "created_at": "2023-07-22T00:02:43.554751+00:00",
+                "updated_at": "2023-07-22T00:02:43.554752+00:00",
+                "extra_params": {},
+                "name": "warehouse",
+            },
+            "schema_": None,
+            "table": None,
+            "description": "Total repair order discounts",
+            "query": "SELECT  sum(price * discount) default_DOT_total_repair_order_discounts \n FROM default.repair_order_details\n\n",
+            "availability": None,
+            "columns": [
+                {
+                    "name": "default_DOT_total_repair_order_discounts",
+                    "type": "double",
+                    "attributes": [],
+                    "dimension": None,
+                },
+            ],
+            "updated_at": "2023-07-22T00:02:52.276818+00:00",
+            "materializations": [],
+            "parents": [{"name": "default.repair_order_details"}],
+        },
+        {
+            "node_revision_id": 28,
+            "node_id": 28,
+            "type": "metric",
+            "name": "default.avg_repair_order_discounts",
+            "display_name": "Default: Avg Repair Order Discounts",
+            "version": "v1.0",
+            "status": "valid",
+            "mode": "published",
+            "catalog": {
+                "id": 1,
+                "uuid": "48474405-6e39-46f8-88b1-0bea868aa947",
+                "created_at": "2023-07-22T00:02:43.554751+00:00",
+                "updated_at": "2023-07-22T00:02:43.554752+00:00",
+                "extra_params": {},
+                "name": "warehouse",
+            },
+            "schema_": None,
+            "table": None,
+            "description": "Total repair order discounts",
+            "query": "SELECT  avg(price * discount) default_DOT_avg_repair_order_discounts \n FROM default.repair_order_details\n\n",
+            "availability": None,
+            "columns": [
+                {
+                    "name": "default_DOT_avg_repair_order_discounts",
+                    "type": "double",
+                    "attributes": [],
+                    "dimension": None,
+                },
+            ],
+            "updated_at": "2023-07-22T00:02:52.428709+00:00",
+            "materializations": [],
+            "parents": [{"name": "default.repair_order_details"}],
+        },
+        {
+            "node_revision_id": 29,
+            "node_id": 29,
+            "type": "metric",
+            "name": "default.avg_time_to_dispatch",
+            "display_name": "Default: Avg Time To Dispatch",
+            "version": "v1.0",
+            "status": "valid",
+            "mode": "published",
+            "catalog": {
+                "id": 1,
+                "uuid": "48474405-6e39-46f8-88b1-0bea868aa947",
+                "created_at": "2023-07-22T00:02:43.554751+00:00",
+                "updated_at": "2023-07-22T00:02:43.554752+00:00",
+                "extra_params": {},
+                "name": "warehouse",
+            },
+            "schema_": None,
+            "table": None,
+            "description": "Average time to dispatch a repair order",
+            "query": "SELECT  avg(dispatched_date - order_date) default_DOT_avg_time_to_dispatch \n FROM default.repair_orders\n\n",
+            "availability": None,
+            "columns": [
+                {
+                    "name": "default_DOT_avg_time_to_dispatch",
+                    "type": "date",
+                    "attributes": [],
+                    "dimension": None,
+                },
+            ],
+            "updated_at": "2023-07-22T00:02:52.617142+00:00",
+            "materializations": [],
+            "parents": [{"name": "default.repair_orders"}],
         },
     ]
 
