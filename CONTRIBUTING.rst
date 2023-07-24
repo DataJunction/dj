@@ -396,6 +396,19 @@ Input the EBNF into https://bottlecaps.de/rr/ui
 Common Issues
 ===================
 
+Docker missing dependencies
+----------------------------------------
+
+If you are still new to docker development... you may run into this. If someone else modified / added new dependencies in some
+of the DJ conatainers, you may notice an error like:
+
+.. code-block:: sh
+  dj            | ModuleNotFoundError: No module named 'sse_starlette'
+
+Remember it is not your local env that needs to be patched but one of the DJ docker conatainers. 
+Try running `docker compose build` and your `docker compose up` should work just fine.
+
+
 Alembic migration error
 ----------------------------------------
 
