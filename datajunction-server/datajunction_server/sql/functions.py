@@ -827,6 +827,21 @@ def infer_type(
     return ct.IntegerType()
 
 
+class DateFormat(Function):
+    """
+    date_format(timestamp, fmt) - Converts timestamp to a value of string
+    in the format specified by the date format fmt.
+    """
+
+
+@DateFormat.register  # type: ignore
+def infer_type(
+    timestamp: ct.TimestampType,
+    fmt: ct.StringType,
+) -> ct.StringType:
+    return ct.StringType()
+
+
 class DateSub(Function):
     """
     Subtracts a specified number of days from a date.
@@ -864,14 +879,16 @@ def infer_type(
 
 class DjCurrentTimestamp(Function):
     """
-    A special function that returns the current timestamp, used for incrementally materializing nodes.
+    A special function that returns the "current" timestamp as a string based on the
+    specified format. Used for incrementally materializing nodes, where "current" refers
+    to the timestamp associated with the given partition that's being processed.
     """
 
 
 @DjCurrentTimestamp.register  # type: ignore
 def infer_type() -> ct.StringType:
     """
-    By default it will return a timestamp in the format %Y-%m-%d %H:%M:%S
+    Defaults to returning a timestamp in the format %Y-%m-%d %H:%M:%S
     """
     return ct.StringType()
 
