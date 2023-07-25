@@ -1647,7 +1647,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         client_with_query_service: TestClient,
     ) -> None:
         """
-        1. Create a transform node that uses dj_current_timestamp (i.e., it is
+        1. Create a transform node that uses dj_logical_timestamp (i.e., it is
            meant to be incrementally materialized).
         2. Create a metric node that references the above transform.
         3. When SQL for the metric is requested without the transform having been materialized,
@@ -1666,9 +1666,9 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                         required_date,
                         dispatched_date,
                         dispatcher_id,
-                        dj_current_timestamp('%Y%m%d') as date_partition
+                        dj_logical_timestamp('%Y%m%d') as date_partition
                         FROM default.repair_orders
-                        WHERE date_format(order_date, 'yyyyMMdd') = dj_current_timestamp('%Y%m%d')
+                        WHERE date_format(order_date, 'yyyyMMdd') = dj_logical_timestamp('%Y%m%d')
                     """,
                 "mode": "published",
                 "name": "default.repair_orders_partitioned",
@@ -1689,16 +1689,64 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "name": "default.num_repair_orders_partitioned",
             },
         )
-
         response = client_with_query_service.get(
             "/sql?metrics=default.num_repair_orders_partitioned"
             "&dimensions=default.hard_hat.last_name",
         )
+
         assert response.json()["message"] == (
             "One of the parent nodes default.repair_orders_partitioned has a "
-            "query that uses DJ_CURRENT_TIMESTAMP(), which is only meant to be "
+            "query that uses dj_logical_timestamp(), which is only meant to be "
             "used for materialization. default.repair_orders_partitioned must "
             "be successfully materialized before it can be used."
+        )
+
+        client_with_query_service.post(
+            "/engines/",
+            json={
+                "name": "spark",
+                "version": "2.4.4",
+                "dialect": "spark",
+            },
+        )
+
+        # Setting the materialization config should succeed
+        response = client_with_query_service.post(
+            "/nodes/default.repair_orders_partitioned/materialization/",
+            json={
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
+                "config": {
+                    "partitions": [],
+                },
+                "schedule": "0 * * * *",
+            },
+        )
+        data = response.json()
+        assert (
+            data["message"] == "Successfully updated materialization config named "
+            "`default` for node `default.repair_orders_partitioned`"
+        )
+
+        response = client_with_query_service.get(
+            "/nodes/default.repair_orders_partitioned",
+        )
+        assert response.json()["materializations"][0]["config"]["query"] == (
+            "SELECT  ${dj_logical_timestamp} AS date_partition,\n\t"
+            "default_DOT_repair_orders.dispatched_date,\n\t"
+            "default_DOT_repair_orders.dispatcher_id,\n\t"
+            "default_DOT_repair_orders.hard_hat_id,\n\t"
+            "default_DOT_repair_orders.municipality_id,\n\t"
+            "default_DOT_repair_orders.order_date,\n\t"
+            "default_DOT_repair_orders.repair_order_id,\n\t"
+            "default_DOT_repair_orders.required_date \n"
+            " FROM roads.repair_orders AS "
+            "default_DOT_repair_orders \n"
+            " WHERE  "
+            "date_format(default_DOT_repair_orders.order_date, "
+            "'yyyyMMdd') = ${dj_logical_timestamp}\n\n"
         )
 
     def test_update_node_query_with_materializations(

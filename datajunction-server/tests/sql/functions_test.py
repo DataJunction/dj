@@ -628,20 +628,11 @@ def test_date_format(session: Session) -> None:
     assert query_with_array.select.projection[0].type == StringType()  # type: ignore
 
 
-def test_dj_current_timestamp(session: Session) -> None:
+def test_dj_logical_timestamp(session: Session) -> None:
     """
-    Test ``DJ_CURRENT_TIMESTAMP`` function.
+    Test ``DJ_LOGICAL_TIMESTAMP`` function.
     """
-    query_with_array = parse("SELECT dj_current_timestamp() as date_partition")
-    exc = DJException()
-    ctx = ast.CompileContext(session=session, exception=exc)
-    query_with_array.compile(ctx)
-    assert not exc.errors
-    assert query_with_array.select.projection[0].type == StringType()  # type: ignore
-
-    query_with_array = parse(
-        "SELECT dj_current_timestamp('%Y-%m-%d') as date_partition",
-    )
+    query_with_array = parse("SELECT dj_logical_timestamp() as date_partition")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query_with_array.compile(ctx)

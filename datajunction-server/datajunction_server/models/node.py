@@ -52,6 +52,7 @@ class BuildCriteria:
 
     timestamp: Optional[UTCDatetime] = None
     dialect: Dialect = Dialect.SPARK
+    for_materialization: bool = False
 
 
 class NodeRelationship(BaseSQLModel, table=True):  # type: ignore

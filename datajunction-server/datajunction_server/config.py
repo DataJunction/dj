@@ -54,6 +54,10 @@ class Settings(
     # The namespace where source nodes for registered tables should exist
     source_node_namespace: Optional[str] = "source"
 
+    # The format string used for the DJ_LOGICAL_TIMESTAMP() macro
+    dj_logical_timestamp_format: Optional[str] = "${{{}}}"
+    timestamp_param: str = "dj_logical_timestamp"
+
     @property
     def celery(self) -> Celery:
         """
