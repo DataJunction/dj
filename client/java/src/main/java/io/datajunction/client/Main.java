@@ -1,4 +1,4 @@
-package org.datajunction.client;
+package io.datajunction.client;
 
 public class Main {
     public static void main(String[] args) {
