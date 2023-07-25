@@ -105,3 +105,23 @@ jobs:
         run: yarn test
       - name: Build Project
         run: yarn webpack-build
+
+  build-java:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./client/java
+    steps:
+      - uses: actions/checkout@v3
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+      - name: Official Gradle Wrapper Validation Action
+        uses: gradle/wrapper-validation-action@v1
+      - name: Build with Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          arguments: build
+          build-root-directory: ./client/java
