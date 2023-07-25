@@ -42,6 +42,7 @@ from datajunction_server.errors import (
     ErrorCode,
 )
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Expression
@@ -160,6 +161,7 @@ class Function(Dispatch):  # pylint: disable=too-few-public-methods
     """
 
     is_aggregation: ClassVar[bool] = False
+    is_runtime: ClassVar[bool] = False
 
     @staticmethod
     def infer_type(*args) -> ct.ColumnType:
@@ -182,6 +184,37 @@ class TableFunction(Dispatch):  # pylint: disable=too-few-public-methods
     @staticmethod
     def infer_type(*args) -> List[ct.ColumnType]:
         raise NotImplementedError()
+
+
+class DjLogicalTimestamp(Function):
+    """
+    A special function that returns the "current" timestamp as a string based on the
+    specified format. Used for incrementally materializing nodes, where "current" refers
+    to the timestamp associated with the given partition that's being processed.
+    """
+
+    is_runtime = True
+
+    def __str__(self):
+        settings = get_settings()
+        return settings.dj_logical_timestamp_format.format(settings.timestamp_param)
+
+
+@DjLogicalTimestamp.register  # type: ignore
+def infer_type() -> ct.StringType:
+    """
+    Defaults to returning a timestamp in the format %Y-%m-%d %H:%M:%S
+    """
+    return ct.StringType()
+
+
+@DjLogicalTimestamp.register  # type: ignore
+def infer_type(_: ct.StringType) -> ct.StringType:
+    """
+    This function can optionally take a datetime format string like:
+    DJ_CURRENT_TIMESTAMP('%Y-%m-%d')
+    """
+    return ct.StringType()
 
 
 #####################
@@ -875,31 +908,6 @@ def infer_type(
     arg: Union[ct.StringType, ct.DateType, ct.TimestampType],
 ) -> ct.IntegerType:  # type: ignore
     return ct.IntegerType()
-
-
-class DjCurrentTimestamp(Function):
-    """
-    A special function that returns the "current" timestamp as a string based on the
-    specified format. Used for incrementally materializing nodes, where "current" refers
-    to the timestamp associated with the given partition that's being processed.
-    """
-
-
-@DjCurrentTimestamp.register  # type: ignore
-def infer_type() -> ct.StringType:
-    """
-    Defaults to returning a timestamp in the format %Y-%m-%d %H:%M:%S
-    """
-    return ct.StringType()
-
-
-@DjCurrentTimestamp.register  # type: ignore
-def infer_type(_: ct.StringType) -> ct.StringType:
-    """
-    This function can optionally take a datetime format string like:
-    DJ_CURRENT_TIMESTAMP('%Y-%m-%d')
-    """
-    return ct.StringType()
 
 
 class ElementAt(Function):
@@ -1864,6 +1872,28 @@ class FunctionRegistryDict(dict):
             ) from exc
 
 
+class MacroRegistryDict(dict):
+    """
+    Custom dictionary mapping for functions
+    """
+
+    def __getitem__(self, key):
+        """
+        Returns a custom error about functions that haven't been implemented yet.
+        """
+        try:
+            return super().__getitem__(key)
+        except KeyError as exc:
+            raise DJNotImplementedException(
+                f"The function `{key}` hasn't been implemented in "
+                "DJ yet. You can file an issue at https://github."
+                "com/DataJunction/dj/issues/new?title=Function+"
+                f"missing:+{key} to request it to be added, or use "
+                "the documentation at https://github.com/DataJunct"
+                "ion/dj/blob/main/docs/functions.rst to implement it.",
+            ) from exc
+
+
 function_registry = FunctionRegistryDict()
 for cls in Function.__subclasses__():
     snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)
@@ -1876,3 +1906,10 @@ for cls in TableFunction.__subclasses__():
     snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)
     table_function_registry[cls.__name__.upper()] = cls
     table_function_registry[snake_cased.upper()] = cls
+
+#
+# macro_registry = MacroRegistryDict()
+# for cls in Macro.__subclasses__():
+#     snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)
+#     function_registry[cls.__name__.upper()] = cls
+#     function_registry[snake_cased.upper()] = cls

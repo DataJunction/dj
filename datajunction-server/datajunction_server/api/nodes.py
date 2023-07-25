@@ -76,6 +76,7 @@ from datajunction_server.models.materialization import (
 from datajunction_server.models.node import (
     DEFAULT_DRAFT_VERSION,
     DEFAULT_PUBLISHED_VERSION,
+    BuildCriteria,
     ColumnOutput,
     CreateCubeNode,
     CreateNode,
@@ -642,6 +643,16 @@ def create_new_materialization(
             ),
             dimensions=[],
             orderby=[],
+            build_criteria=BuildCriteria(
+                dialect=(
+                    current_revision.catalog.engines[0].dialect
+                    if current_revision.catalog
+                    and current_revision.catalog.engines
+                    and current_revision.catalog.engines[0].dialect
+                    else Dialect.SPARK
+                ),
+                for_materialization=True,
+            ),
         )
         generic_config = GenericMaterializationConfig(
             query=str(materialization_ast),
