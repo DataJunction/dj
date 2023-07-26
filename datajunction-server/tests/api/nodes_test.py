@@ -1642,6 +1642,140 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
+    def test_node_with_incremental_materialization(
+        self,
+        client_with_query_service: TestClient,
+    ) -> None:
+        """
+        1. Create a transform node that uses dj_logical_timestamp (i.e., it is
+           meant to be incrementally materialized).
+        2. Create a metric node that references the above transform.
+        3. When SQL for the metric is requested without the transform having been materialized,
+           the request will fail.
+        """
+        client_with_query_service.post(
+            "/nodes/transform/",
+            json={
+                "description": "Repair orders transform (partitioned)",
+                "query": """
+                        SELECT
+                        repair_order_id,
+                        municipality_id,
+                        hard_hat_id,
+                        order_date,
+                        required_date,
+                        dispatched_date,
+                        dispatcher_id,
+                        dj_logical_timestamp('%Y%m%d') as date_partition
+                        FROM default.repair_orders
+                        WHERE date_format(order_date, 'yyyyMMdd') = dj_logical_timestamp('%Y%m%d')
+                    """,
+                "mode": "published",
+                "name": "default.repair_orders_partitioned",
+                "primary_key": ["repair_order_id"],
+            },
+        )
+        client_with_query_service.post(
+            "/nodes/default.repair_orders_partitioned/columns/hard_hat_id/"
+            "?dimension=default.hard_hat&dimension_column=hard_hat_id",
+        )
+
+        client_with_query_service.post(
+            "/nodes/metric/",
+            json={
+                "description": "Number of repair orders",
+                "query": "SELECT count(repair_order_id) FROM default.repair_orders_partitioned",
+                "mode": "published",
+                "name": "default.num_repair_orders_partitioned",
+            },
+        )
+        response = client_with_query_service.get(
+            "/sql?metrics=default.num_repair_orders_partitioned"
+            "&dimensions=default.hard_hat.last_name",
+        )
+
+        assert response.json()["sql"] == (
+            "WITH\n"
+            "m0_default_DOT_num_repair_orders_partitioned AS (SELECT  "
+            "default_DOT_hard_hat.last_name,\n"
+            "\tcount(default_DOT_repair_orders_partitioned.repair_order_id) "
+            "default_DOT_num_repair_orders_partitioned \n"
+            " FROM (SELECT  ${dj_logical_timestamp} AS date_partition,\n"
+            "\tdefault_DOT_repair_orders.dispatched_date,\n"
+            "\tdefault_DOT_repair_orders.dispatcher_id,\n"
+            "\tdefault_DOT_repair_orders.hard_hat_id,\n"
+            "\tdefault_DOT_repair_orders.municipality_id,\n"
+            "\tdefault_DOT_repair_orders.order_date,\n"
+            "\tdefault_DOT_repair_orders.repair_order_id,\n"
+            "\tdefault_DOT_repair_orders.required_date \n"
+            " FROM roads.repair_orders AS default_DOT_repair_orders \n"
+            " WHERE  date_format(default_DOT_repair_orders.order_date, 'yyyyMMdd') = "
+            "${dj_logical_timestamp})\n"
+            " AS default_DOT_repair_orders_partitioned LEFT OUTER JOIN (SELECT  "
+            "default_DOT_hard_hats.hard_hat_id,\n"
+            "\tdefault_DOT_hard_hats.last_name,\n"
+            "\tdefault_DOT_hard_hats.state \n"
+            " FROM roads.hard_hats AS default_DOT_hard_hats)\n"
+            " AS default_DOT_hard_hat ON "
+            "default_DOT_repair_orders_partitioned.hard_hat_id = "
+            "default_DOT_hard_hat.hard_hat_id \n"
+            " GROUP BY  default_DOT_hard_hat.last_name\n"
+            ")SELECT  "
+            "m0_default_DOT_num_repair_orders_partitioned."
+            "default_DOT_num_repair_orders_partitioned,\n"
+            "\tm0_default_DOT_num_repair_orders_partitioned.last_name \n"
+            " FROM m0_default_DOT_num_repair_orders_partitioned\n"
+            "\n"
+        )
+
+        client_with_query_service.post(
+            "/engines/",
+            json={
+                "name": "spark",
+                "version": "2.4.4",
+                "dialect": "spark",
+            },
+        )
+
+        # Setting the materialization config should succeed
+        response = client_with_query_service.post(
+            "/nodes/default.repair_orders_partitioned/materialization/",
+            json={
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
+                "config": {
+                    "partitions": [],
+                },
+                "schedule": "0 * * * *",
+            },
+        )
+        data = response.json()
+        assert (
+            data["message"] == "Successfully updated materialization config named "
+            "`default` for node `default.repair_orders_partitioned`"
+        )
+
+        response = client_with_query_service.get(
+            "/nodes/default.repair_orders_partitioned",
+        )
+        assert response.json()["materializations"][0]["config"]["query"] == (
+            "SELECT  ${dj_logical_timestamp} AS date_partition,\n\t"
+            "default_DOT_repair_orders.dispatched_date,\n\t"
+            "default_DOT_repair_orders.dispatcher_id,\n\t"
+            "default_DOT_repair_orders.hard_hat_id,\n\t"
+            "default_DOT_repair_orders.municipality_id,\n\t"
+            "default_DOT_repair_orders.order_date,\n\t"
+            "default_DOT_repair_orders.repair_order_id,\n\t"
+            "default_DOT_repair_orders.required_date \n"
+            " FROM roads.repair_orders AS "
+            "default_DOT_repair_orders \n"
+            " WHERE  "
+            "date_format(default_DOT_repair_orders.order_date, "
+            "'yyyyMMdd') = ${dj_logical_timestamp}\n\n"
+        )
+
     def test_update_node_query_with_materializations(
         self,
         client_with_query_service: TestClient,

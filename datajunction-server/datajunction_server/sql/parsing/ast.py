@@ -1424,6 +1424,9 @@ class Function(Named, Operation):
         return self
 
     def __str__(self) -> str:
+        if self.name.name.upper() in function_registry and self.is_runtime():
+            return self.function().substitute()
+
         over = f" {self.over} " if self.over else ""
         quantifier = f" {self.quantifier} " if self.quantifier else ""
         ret = (
@@ -1438,6 +1441,9 @@ class Function(Named, Operation):
 
     def is_aggregation(self) -> bool:
         return self.function().is_aggregation
+
+    def is_runtime(self) -> bool:
+        return self.function().is_runtime
 
     @property
     def type(self) -> ColumnType:

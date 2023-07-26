@@ -52,6 +52,7 @@ class BuildCriteria:
 
     timestamp: Optional[UTCDatetime] = None
     dialect: Dialect = Dialect.SPARK
+    for_materialization: bool = False
 
 
 class NodeRelationship(BaseSQLModel, table=True):  # type: ignore
@@ -812,6 +813,17 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         extra = Extra.allow
+
+    def has_available_materialization(self, build_criteria: BuildCriteria) -> bool:
+        """
+        Has a materialization available
+        """
+        return (
+            self.availability is not None  # pragma: no cover
+            and self.availability.is_available(  # pylint: disable=no-member
+                criteria=build_criteria,
+            )
+        )
 
 
 class ImmutableNodeFields(BaseSQLModel):
