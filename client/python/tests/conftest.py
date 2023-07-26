@@ -4,13 +4,14 @@ Fixtures for testing DJ client.
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 
 from http.client import HTTPException
-from typing import Iterator
+from typing import Iterator, List, Optional
 from unittest.mock import MagicMock
 
 import pytest
 from cachelib import SimpleCache
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
+from datajunction_server.models import Column, Engine
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
@@ -26,7 +27,7 @@ from sqlalchemy.pool import StaticPool
 from sqlmodel import Session, SQLModel
 from starlette.testclient import TestClient
 
-from tests.examples import EXAMPLES, QUERY_DATA_MAPPINGS
+from tests.examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS
 
 
 @pytest.fixture
@@ -74,6 +75,20 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
     """
     qs_client = QueryServiceClient(uri="query_service:8001")
     qs_client.query_state = QueryState.RUNNING  # type: ignore
+
+    def mock_get_columns_for_table(
+        catalog: str,
+        schema: str,
+        table: str,
+        engine: Optional[Engine] = None,  # pylint: disable=unused-argument
+    ) -> List[Column]:
+        return COLUMN_MAPPINGS[f"{catalog}.{schema}.{table}"]
+
+    mocker.patch.object(
+        qs_client,
+        "get_columns_for_table",
+        mock_get_columns_for_table,
+    )
 
     def mock_submit_query(
         query_create: QueryCreate,
