@@ -1424,8 +1424,8 @@ class Function(Named, Operation):
         return self
 
     def __str__(self) -> str:
-        if self.is_runtime():
-            return self.function()().__str__()
+        if self.name.name.upper() in function_registry and self.is_runtime():
+            return self.function().substitute()
 
         over = f" {self.over} " if self.over else ""
         quantifier = f" {self.quantifier} " if self.quantifier else ""

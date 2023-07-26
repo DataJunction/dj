@@ -195,9 +195,10 @@ class DjLogicalTimestamp(Function):
 
     is_runtime = True
 
-    def __str__(self):
+    @staticmethod
+    def substitute():
         settings = get_settings()
-        return settings.dj_logical_timestamp_format.format(settings.timestamp_param)
+        return settings.dj_logical_timestamp_format
 
 
 @DjLogicalTimestamp.register  # type: ignore
@@ -1872,28 +1873,6 @@ class FunctionRegistryDict(dict):
             ) from exc
 
 
-class MacroRegistryDict(dict):
-    """
-    Custom dictionary mapping for functions
-    """
-
-    def __getitem__(self, key):
-        """
-        Returns a custom error about functions that haven't been implemented yet.
-        """
-        try:
-            return super().__getitem__(key)
-        except KeyError as exc:
-            raise DJNotImplementedException(
-                f"The function `{key}` hasn't been implemented in "
-                "DJ yet. You can file an issue at https://github."
-                "com/DataJunction/dj/issues/new?title=Function+"
-                f"missing:+{key} to request it to be added, or use "
-                "the documentation at https://github.com/DataJunct"
-                "ion/dj/blob/main/docs/functions.rst to implement it.",
-            ) from exc
-
-
 function_registry = FunctionRegistryDict()
 for cls in Function.__subclasses__():
     snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)
@@ -1906,10 +1885,3 @@ for cls in TableFunction.__subclasses__():
     snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)
     table_function_registry[cls.__name__.upper()] = cls
     table_function_registry[snake_cased.upper()] = cls
-
-#
-# macro_registry = MacroRegistryDict()
-# for cls in Macro.__subclasses__():
-#     snake_cased = re.sub(r"(?<!^)(?=[A-Z])", "_", cls.__name__)
-#     function_registry[cls.__name__.upper()] = cls
-#     function_registry[snake_cased.upper()] = cls

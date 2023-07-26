@@ -1694,11 +1694,38 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             "&dimensions=default.hard_hat.last_name",
         )
 
-        assert response.json()["message"] == (
-            "One of the parent nodes default.repair_orders_partitioned has a "
-            "query that uses dj_logical_timestamp(), which is only meant to be "
-            "used for materialization. default.repair_orders_partitioned must "
-            "be successfully materialized before it can be used."
+        assert response.json()["sql"] == (
+            "WITH\n"
+            "m0_default_DOT_num_repair_orders_partitioned AS (SELECT  "
+            "default_DOT_hard_hat.last_name,\n"
+            "\tcount(default_DOT_repair_orders_partitioned.repair_order_id) "
+            "default_DOT_num_repair_orders_partitioned \n"
+            " FROM (SELECT  ${dj_logical_timestamp} AS date_partition,\n"
+            "\tdefault_DOT_repair_orders.dispatched_date,\n"
+            "\tdefault_DOT_repair_orders.dispatcher_id,\n"
+            "\tdefault_DOT_repair_orders.hard_hat_id,\n"
+            "\tdefault_DOT_repair_orders.municipality_id,\n"
+            "\tdefault_DOT_repair_orders.order_date,\n"
+            "\tdefault_DOT_repair_orders.repair_order_id,\n"
+            "\tdefault_DOT_repair_orders.required_date \n"
+            " FROM roads.repair_orders AS default_DOT_repair_orders \n"
+            " WHERE  date_format(default_DOT_repair_orders.order_date, 'yyyyMMdd') = "
+            "${dj_logical_timestamp})\n"
+            " AS default_DOT_repair_orders_partitioned LEFT OUTER JOIN (SELECT  "
+            "default_DOT_hard_hats.hard_hat_id,\n"
+            "\tdefault_DOT_hard_hats.last_name,\n"
+            "\tdefault_DOT_hard_hats.state \n"
+            " FROM roads.hard_hats AS default_DOT_hard_hats)\n"
+            " AS default_DOT_hard_hat ON "
+            "default_DOT_repair_orders_partitioned.hard_hat_id = "
+            "default_DOT_hard_hat.hard_hat_id \n"
+            " GROUP BY  default_DOT_hard_hat.last_name\n"
+            ")SELECT  "
+            "m0_default_DOT_num_repair_orders_partitioned."
+            "default_DOT_num_repair_orders_partitioned,\n"
+            "\tm0_default_DOT_num_repair_orders_partitioned.last_name \n"
+            " FROM m0_default_DOT_num_repair_orders_partitioned\n"
+            "\n"
         )
 
         client_with_query_service.post(
