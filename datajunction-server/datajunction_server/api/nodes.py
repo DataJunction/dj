@@ -1357,6 +1357,7 @@ def register_a_table(  # pylint: disable=too-many-arguments
         )
     namespace = f"{settings.source_node_namespace}.{catalog}.{schema_}"
     name = f"{namespace}.{table}"
+    raise_if_node_exists(session, name)
 
     # Create the namespace if required (idempotent)
     create_a_node_namespace(namespace=namespace, session=session)
