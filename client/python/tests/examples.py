@@ -5,7 +5,9 @@ import uuid
 from typing import Dict, Union
 
 from datajunction_server.errors import DJException, DJQueryServiceClientException
+from datajunction_server.models import Column
 from datajunction_server.models.query import QueryWithResults
+from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from datajunction_server.typing import QueryState
 
 # pylint: disable=too-many-lines
@@ -1076,6 +1078,15 @@ EXAMPLES = (  # type: ignore
         {},
     ),
 )
+
+COLUMN_MAPPINGS = {
+    "default.store.comments": [
+        Column(name="id", type=IntegerType()),
+        Column(name="user_id", type=IntegerType()),
+        Column(name="timestamp", type=TimestampType()),
+        Column(name="text", type=StringType()),
+    ],
+}
 
 QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     """
