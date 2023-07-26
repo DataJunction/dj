@@ -1,7 +1,7 @@
 """
 Tests for ``datajunction_server.sql.functions``.
 """
-# pylint: disable=line-too-long
+# pylint: disable=line-too-long,too-many-lines
 
 import pytest
 from sqlmodel import Session
@@ -614,6 +614,30 @@ def test_count() -> None:
         == BigIntType()
     )
     assert Count.is_aggregation is True
+
+
+def test_date_format(session: Session) -> None:
+    """
+    Test ``date_format`` function.
+    """
+    query_with_array = parse("SELECT date_format(NOW(), 'yyyyMMdd') as date_partition")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query_with_array.compile(ctx)
+    assert not exc.errors
+    assert query_with_array.select.projection[0].type == StringType()  # type: ignore
+
+
+def test_dj_logical_timestamp(session: Session) -> None:
+    """
+    Test ``DJ_LOGICAL_TIMESTAMP`` function.
+    """
+    query_with_array = parse("SELECT dj_logical_timestamp() as date_partition")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query_with_array.compile(ctx)
+    assert not exc.errors
+    assert query_with_array.select.projection[0].type == StringType()  # type: ignore
 
 
 def test_element_at(session: Session):

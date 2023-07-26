@@ -54,6 +54,13 @@ class Settings(
     # The namespace where source nodes for registered tables should exist
     source_node_namespace: Optional[str] = "source"
 
+    # This specifies what the DJ_LOGICAL_TIMESTAMP() macro should be replaced with.
+    # This defaults to an Airflow compatible value, but other examples include:
+    #   ${dj_logical_timestamp}
+    #   {{ dj_logical_timestamp }}
+    #   $dj_logical_timestamp
+    dj_logical_timestamp_format: Optional[str] = "${dj_logical_timestamp}"
+
     @property
     def celery(self) -> Celery:
         """
