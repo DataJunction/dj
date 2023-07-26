@@ -14,9 +14,7 @@ def test_generated_python_client_code_new_metric(client_with_examples: TestClien
     )
     assert (
         response.json()
-        == """from datajunction import DJClient, NodeMode
-
-dj = DJClient(DJ_URL)
+        == """dj = DJClient(DJ_URL)
 
 num_repair_orders = dj.new_metric(
     description="Number of repair orders",
@@ -42,9 +40,7 @@ def test_generated_python_client_code_new_source(client_with_examples: TestClien
     )
     assert (
         response.json()
-        == """from datajunction import DJClient, NodeMode
-
-dj = DJClient(DJ_URL)
+        == """dj = DJClient(DJ_URL)
 
 repair_order_details = dj.new_source(
     description="Details on repair orders",
@@ -65,9 +61,7 @@ def test_generated_python_client_code_new_dimension(client_with_examples: TestCl
     response = client_with_examples.get("/client/python/new_node/default.repair_order")
     assert (
         response.json()
-        == """from datajunction import DJClient, NodeMode
-
-dj = DJClient(DJ_URL)
+        == """dj = DJClient(DJ_URL)
 
 repair_order = dj.new_dimension(
     description="Repair order dimension",
@@ -110,9 +104,7 @@ def test_generated_python_client_code_new_cube(client_with_examples: TestClient)
     response = client_with_examples.get("/client/python/new_node/default.repairs_cube")
     assert (
         response.json()
-        == """from datajunction import DJClient, NodeMode
-
-dj = DJClient(DJ_URL)
+        == """dj = DJClient(DJ_URL)
 
 repairs_cube = dj.new_cube(
     description="Cube of various metrics related to repairs",
@@ -164,9 +156,7 @@ def test_generated_python_client_code_adding_materialization(
     )
     assert (
         response.json()
-        == """from datajunction import DJClient, MaterializationConfig
-
-dj = DJClient(DJ_URL)
+        == """dj = DJClient(DJ_URL)
 
 country_agg = dj.transform(
     "basic.transform.country_agg"
@@ -209,9 +199,7 @@ def test_generated_python_client_code_link_dimension(client_with_examples: TestC
     )
     assert (
         response.json()
-        == """from datajunction import DJClient, MaterializationConfig
-
-dj = DJClient(DJ_URL)
+        == """dj = DJClient(DJ_URL)
 repair_orders = dj.source(
     "foo.bar.repair_orders"
 )

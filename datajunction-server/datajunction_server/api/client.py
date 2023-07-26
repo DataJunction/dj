@@ -76,9 +76,7 @@ def client_code_for_creating_node(
         [f"    {k}={params[k]}" for k in sorted(params.keys())] + cube_params,
     )
 
-    client_code = f"""from datajunction import DJClient, NodeMode
-
-dj = DJClient(DJ_URL)
+    client_code = f"""dj = DJClient(DJ_URL)
 
 {node_short_name} = dj.new_{node.type}(
 {formatted_params}
@@ -118,9 +116,7 @@ def client_code_for_adding_materialization(
             for line in json.dumps(user_modified_config, indent=4).split("\n")
         ],
     )
-    client_code = f"""from datajunction import DJClient, MaterializationConfig
-
-dj = DJClient(DJ_URL)
+    client_code = f"""dj = DJClient(DJ_URL)
 
 {node_short_name} = dj.{node.type}(
     "{node.name}"
@@ -155,9 +151,7 @@ def client_code_for_linking_dimension_to_node(
     """
     node_short_name = node_name.split(".")[-1]
     node = get_node_by_name(session, node_name)
-    client_code = f"""from datajunction import DJClient, MaterializationConfig
-
-dj = DJClient(DJ_URL)
+    client_code = f"""dj = DJClient(DJ_URL)
 {node_short_name} = dj.{node.type}(
     "{node.name}"
 )
