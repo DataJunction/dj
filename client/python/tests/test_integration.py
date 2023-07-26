@@ -1,12 +1,12 @@
 """
 Integration tests to be run against the latest full demo datajunction environment
 """
-# pylint: disable=too-many-lines,line-too-long
+# pylint: disable=too-many-lines,line-too-long,protected-access
 import namesgenerator
 import pandas
 import pytest
 
-from datajunction import DJReader
+from datajunction import DJBuilder
 from datajunction.exceptions import DJClientException
 from datajunction.models import AvailabilityState, ColumnAttribute, NodeMode, NodeStatus
 
@@ -16,11 +16,11 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     """
     Integration test
     """
-    dj = DJReader()  # pylint: disable=invalid-name,line-too-long
+    dj = DJBuilder()  # pylint: disable=invalid-name,line-too-long
 
     # Create a namespace
     namespace = f"integration.python.{namesgenerator.get_random_name()}"
-    dj.new_namespace(namespace)
+    dj.create_namespace(namespace)
 
     # List namespaces
     matching_namespace = None
@@ -30,7 +30,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     assert matching_namespace
 
     # Create a source
-    dj.new_source(
+    dj.create_source(
         name=f"{namespace}.repair_orders",
         description="Repair orders",
         catalog="warehouse",
@@ -45,13 +45,13 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
             {"name": "dispatched_date", "type": "timestamp"},
             {"name": "dispatcher_id", "type": "int"},
         ],
-    ).save()
+    )
 
     # Get source
     dj.source(f"{namespace}.repair_orders")
 
     # Create a transform
-    dj.new_transform(
+    dj.create_transform(
         name=f"{namespace}.repair_orders_w_dispatchers",
         description="Repair orders that have a dispatcher",
         query=f"""
@@ -63,13 +63,13 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
             FROM {namespace}.repair_orders
             WHERE dispatcher_id IS NOT NULL
         """,
-    ).save()
+    )
 
     # Get transform
     dj.transform(f"{namespace}.repair_orders_w_dispatchers")
 
     # Create a source and dimension node
-    dj.new_source(
+    dj.create_source(
         name=f"{namespace}.dispatchers",
         description="Different third party dispatcher companies that coordinate repairs",
         catalog="warehouse",
@@ -80,8 +80,8 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
             {"name": "company_name", "type": "string"},
             {"name": "phone", "type": "string"},
         ],
-    ).save()
-    dj.new_dimension(
+    )
+    dj.create_dimension(
         name=f"{namespace}.all_dispatchers",
         description="All dispatchers",
         primary_key=["dispatcher_id"],
@@ -92,18 +92,17 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
             phone
             FROM {namespace}.dispatchers
         """,
-    ).save()
+    )
 
     # Get dimension
     dj.dimension(f"{namespace}.all_dispatchers")
 
     # Create metrics
-    metric = dj.new_metric(
+    dj.create_metric(
         name=f"{namespace}.num_repair_orders",
         description="Number of repair orders",
         query=f"SELECT count(repair_order_id) FROM {namespace}.repair_orders",
     )
-    metric.save(NodeMode.PUBLISHED)
 
     # List metrics
     assert f"{namespace}.num_repair_orders" in dj.list_metrics()
@@ -808,7 +807,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     pandas.testing.assert_frame_equal(result, expected_df)
 
     # Create a transform 2 downstream from a transform 1
-    dj.new_transform(
+    dj.create_transform(
         name=f"{namespace}.repair_orders_w_hard_hats",
         description="Repair orders that have a hard hat assigned",
         query=f"""
@@ -820,7 +819,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
             FROM {namespace}.repair_orders_w_dispatchers
             WHERE hard_hat_id IS NOT NULL
         """,
-    ).save()
+    )
 
     # Get transform 2 that's downstream from transform 1 and make sure it's valid
     transform_2 = dj.transform(f"{namespace}.repair_orders_w_hard_hats")
@@ -858,7 +857,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     ]
 
     # Create a draft transform 4 that's downstream from a not yet created transform 3
-    dj.new_transform(
+    dj.create_transform(
         name=f"{namespace}.repair_orders_w_repair_order_id",
         description="Repair orders without a null ID",
         query=f"""
@@ -870,17 +869,18 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
             FROM {namespace}.repair_orders_w_municipalities
             WHERE repair_order_id IS NOT NULL
         """,
-    ).save(mode=NodeMode.DRAFT)
+        mode=NodeMode.DRAFT,
+    )
     transform_4 = dj.transform(f"{namespace}.repair_orders_w_repair_order_id")
-    transform_4.sync()
+    transform_4.refresh()
     assert transform_4.mode == NodeMode.DRAFT
     assert transform_4.status == NodeStatus.INVALID
     # Check that transform 4 is invalid because transform 3 does not exist
     with pytest.raises(DJClientException):
-        transform_4.check()
+        transform_4._validate()
 
     # Create a draft transform 3 that's downstream from transform 2
-    dj.new_transform(
+    dj.create_transform(
         name=f"{namespace}.repair_orders_w_municipalities",
         description="Repair orders that have a municipality listed",
         query=f"""
@@ -892,14 +892,15 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
             FROM {namespace}.repair_orders_w_hard_hats
             WHERE municipality_id IS NOT NULL
         """,
-    ).save(NodeMode.DRAFT)
+        mode=NodeMode.DRAFT,
+    )
     transform_3 = dj.transform(f"{namespace}.repair_orders_w_municipalities")
     # Check that transform 3 is valid
-    assert transform_3.check() == NodeStatus.VALID
+    assert transform_3._validate() == NodeStatus.VALID
 
     # Check that transform 4 is now valid after transform 3 was created
-    transform_4.sync()
-    assert transform_4.check() == NodeStatus.VALID
+    transform_4.refresh()
+    assert transform_4._validate() == NodeStatus.VALID
 
     # Check that publishing transform 3 works
     transform_3.publish()
