@@ -281,26 +281,6 @@ def _build_tables_on_select(
         )  # got a materialization
         if node_table is None:  # no materialization - recurse to node first
             node_query = parse(cast(str, node.query))
-
-            dj_logical_timestamp = list(
-                node_query.filter(
-                    lambda x: isinstance(x, ast.Function)
-                    and x.name.name.lower() == "dj_logical_timestamp",
-                ),
-            )
-            if (
-                dj_logical_timestamp
-                and not node.has_available_materialization(
-                    build_criteria,  # type: ignore
-                )
-                and (build_criteria and not build_criteria.for_materialization)
-            ):
-                raise DJException(
-                    message=f"One of the parent nodes {node.name} has a query that uses "
-                    "dj_logical_timestamp(), which is only meant to be used for materialization."
-                    f" {node.name} must be successfully materialized before it can be used.",
-                )
-
             node_table = build_ast(  # type: ignore
                 session,
                 node_query,
@@ -587,21 +567,6 @@ def build_metric_nodes(
                     f"`{col}`, which is not available on every"
                     f" metric and thus cannot be included.{potential_dimension_match}",
                 )
-
-    # Set the dialect by finding available engines for this node, or default to Spark
-    if not build_criteria:
-        build_criteria = BuildCriteria(
-            dialect=(
-                metric_nodes[0].current.catalog.engines[0].dialect
-                if metric_nodes
-                and metric_nodes[0].current
-                and metric_nodes[0].current.catalog
-                and metric_nodes[0].current.catalog.engines
-                and metric_nodes[0].current.catalog.engines[0].dialect
-                else Dialect.SPARK
-            ),
-            for_materialization=False,
-        )
 
     combined_ast: ast.Query = ast.Query(
         select=ast.Select(from_=ast.From(relations=[])),
