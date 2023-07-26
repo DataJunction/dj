@@ -2,7 +2,7 @@
 import pandas
 import pytest
 
-from datajunction import DJReader
+from datajunction import DJBuilder
 from datajunction.exceptions import DJClientException, DJNamespaceAlreadyExists
 from datajunction.models import (
     AvailabilityState,
@@ -14,7 +14,7 @@ from datajunction.models import (
 )
 
 
-class TestDJReader:
+class TestDJClient:
     """
     Tests for DJ client functionality.
     """
@@ -24,7 +24,7 @@ class TestDJReader:
         """
         Returns a DJ client instance
         """
-        return DJReader(requests_session=session_with_examples)  # type: ignore
+        return DJBuilder(requests_session=session_with_examples)  # type: ignore
 
     def test_list_namespaces(self, client):
         """
@@ -42,7 +42,7 @@ class TestDJReader:
 
     def test_nodes_in_namespace(self, client):
         """
-        Check that `client.get_nodes_in_namespace()` works as expected.
+        Check that `client._get_nodes_in_namespace()` works as expected.
         """
         assert set(client.namespace("foo.bar").nodes()) == {
             "foo.bar.repair_orders",
@@ -111,7 +111,7 @@ class TestDJReader:
         """
         Check that `client.catalogs()` works as expected.
         """
-        result = client.catalogs()
+        result = client.list_catalogs()
         assert result == [
             {"engines": [], "name": "draft"},
             {
@@ -142,7 +142,7 @@ class TestDJReader:
         """
         Check that `client.engines()` works as expected.
         """
-        result = client.engines()
+        result = client.list_engines()
         assert result == [
             {"dialect": "spark", "name": "spark", "uri": None, "version": "3.1.1"},
             {"dialect": None, "name": "postgres", "uri": None, "version": "15.2"},
@@ -272,11 +272,12 @@ class TestDJReader:
             namespace="default",
         )
 
-    def test_create_node(self, client):  # pylint: disable=unused-argument
+    def test_create_nodes(self, client):  # pylint: disable=unused-argument
         """
         Verifies that creating a new node works.
         """
-        account_type_table = client.new_source(
+        # source nodes
+        account_type_table = client.create_source(
             name="default.account_type_table",
             description="A source table for account type data",
             display_name="Default: Account Type Table",
@@ -289,12 +290,12 @@ class TestDJReader:
                 Column(name="account_type_classification", type="int"),
                 Column(name="preferred_payment_method", type="int"),
             ],
+            mode=NodeMode.PUBLISHED,
         )
-        result = account_type_table.save(NodeMode.PUBLISHED)
-        assert result["name"] == "default.account_type_table"
+        assert account_type_table.name == "default.account_type_table"
         assert "default.account_type_table" in client.namespace("default").sources()
 
-        payment_type_table = client.new_source(
+        payment_type_table = client.create_source(
             name="default.payment_type_table",
             description="A source table for different types of payments",
             display_name="Default: Payment Type Table",
@@ -306,12 +307,12 @@ class TestDJReader:
                 Column(name="payment_type_name", type="string"),
                 Column(name="payment_type_classification", type="string"),
             ],
+            mode=NodeMode.PUBLISHED,
         )
-        result = payment_type_table.save(NodeMode.PUBLISHED)
-        assert result["name"] == "default.payment_type_table"
+        assert payment_type_table.name == "default.payment_type_table"
         assert "default.payment_type_table" in client.namespace("default").sources()
 
-        revenue = client.new_source(
+        revenue = client.create_source(
             name="default.revenue",
             description="Record of payments",
             display_name="Default: Payment Records",
@@ -325,12 +326,13 @@ class TestDJReader:
                 Column(name="customer_id", type="int"),
                 Column(name="account_type", type="string"),
             ],
+            mode=NodeMode.PUBLISHED,
         )
-        result = revenue.save(NodeMode.PUBLISHED)
-        assert result["name"] == "default.revenue"
+        assert revenue.name == "default.revenue"
         assert "default.revenue" in client.namespace("default").sources()
 
-        payment_type_dim = client.new_dimension(
+        # dimension nodes
+        payment_type_dim = client.create_dimension(
             name="default.payment_type",
             description="Payment type dimension",
             display_name="Default: Payment Type",
@@ -339,16 +341,16 @@ class TestDJReader:
                 "FROM default.payment_type_table"
             ),
             primary_key=["id"],
+            mode=NodeMode.DRAFT,
         )
-        payment_type_dim.check()  # Test validating the node
-        result = payment_type_dim.save(NodeMode.DRAFT)
-        assert result["name"] == "default.payment_type"
+        payment_type_dim._validate()  # pylint: disable=protected-access
+        assert payment_type_dim.name == "default.payment_type"
         assert "default.payment_type" in client.list_dimensions(namespace="default")
         payment_type_dim.publish()  # Test changing a draft node to published
-        payment_type_dim.sync()
+        payment_type_dim.refresh()
         assert payment_type_dim.mode == NodeMode.PUBLISHED
 
-        account_type_dim = client.new_dimension(
+        account_type_dim = client.create_dimension(
             name="default.account_type",
             description="Account type dimension",
             display_name="Default: Account Type",
@@ -358,25 +360,27 @@ class TestDJReader:
                 "default.account_type_table"
             ),
             primary_key=["id"],
+            mode=NodeMode.PUBLISHED,
         )
-        result = account_type_dim.save(NodeMode.PUBLISHED)
-        assert result["name"] == "default.account_type"
+        assert account_type_dim.name == "default.account_type"
         assert "default.account_type" in client.list_dimensions(namespace="default")
 
-        large_revenue_payments_only = client.new_transform(
+        # transform nodes
+        large_revenue_payments_only = client.create_transform(
             name="default.large_revenue_payments_only",
             description="Default: Only large revenue payments",
             query=(
                 "SELECT payment_id, payment_amount, customer_id, account_type "
                 "FROM default.revenue WHERE payment_amount > 1000000"
             ),
+            mode=NodeMode.PUBLISHED,
         )
-        result = large_revenue_payments_only.save(NodeMode.PUBLISHED)
-        assert result["name"] == "default.large_revenue_payments_only"
+        assert large_revenue_payments_only.name == "default.large_revenue_payments_only"
         assert (
             "default.large_revenue_payments_only"
             in client.namespace("default").transforms()
         )
+        client.transform("default.large_revenue_payments_only")
 
         result = large_revenue_payments_only.add_materialization(
             MaterializationConfig(
@@ -391,7 +395,7 @@ class TestDJReader:
             "urls": [["http://fake.url/job"]],
         }
 
-        large_revenue_payments_and_business_only = client.new_transform(
+        large_revenue_payments_and_business_only = client.create_transform(
             name="default.large_revenue_payments_and_business_only",
             description="Only large revenue payments from business accounts",
             query=(
@@ -400,10 +404,12 @@ class TestDJReader:
                 "default.large_revenue_payments_and_business_only > 1000000 "
                 "AND account_type='BUSINESS'"
             ),
+            mode=NodeMode.PUBLISHED,
         )
-        large_revenue_payments_and_business_only.save(NodeMode.PUBLISHED)
-        result = client.transform("default.large_revenue_payments_and_business_only")
-        assert result.name == "default.large_revenue_payments_and_business_only"
+        assert (
+            large_revenue_payments_and_business_only.name
+            == "default.large_revenue_payments_and_business_only"
+        )
         assert (
             "default.large_revenue_payments_and_business_only"
             in client.namespace(
@@ -411,16 +417,27 @@ class TestDJReader:
             ).transforms()
         )
 
-        number_of_account_types = client.new_metric(
+        # metric nodes
+        number_of_account_types = client.create_metric(
             name="default.number_of_account_types",
             description="Total number of account types",
             query="SELECT count(id) FROM default.account_type",
+            mode=NodeMode.PUBLISHED,
         )
-        result = number_of_account_types.save(NodeMode.PUBLISHED)
-        assert result["name"] == "default.number_of_account_types"
+        assert number_of_account_types.name == "default.number_of_account_types"
         assert "default.number_of_account_types" in client.list_metrics(
             namespace="default",
         )
+
+        # TODO: cube nodes, fixme  # pylint: disable=fixme
+        # cube_one = client.create_cube(
+        #     name="default.cube_one",
+        #     description="Ice ice cube.",
+        #     metrics=["default.number_of_account_types"],
+        #     dimensions=["default.payment_type"],
+        #     mode=NodeMode.PUBLISHED,
+        # )
+        # assert cube_one.name == "default.cube_one"
 
     def test_link_unlink_dimension(self, client):  # pylint: disable=unused-argument
         """
@@ -556,10 +573,10 @@ class TestDJReader:
         """
         Verifies that creating a new namespace works.
         """
-        namespace = client.new_namespace(namespace="roads.demo")
+        namespace = client.namespace(namespace="roads.demo")
         assert namespace.namespace == "roads.demo"
         with pytest.raises(DJNamespaceAlreadyExists) as exc_info:
-            client.new_namespace(namespace="roads.demo")
+            client.create_namespace(namespace="roads.demo")
         assert "Node namespace `roads.demo` already exists" in str(exc_info.value)
 
     def test_get_node_revisions(self, client):
@@ -572,7 +589,7 @@ class TestDJReader:
         local_hard_hats.save()
         local_hard_hats.primary_key = ["hard_hat_id", "last_name"]
         local_hard_hats.save()
-        revs = local_hard_hats.revisions()
+        revs = local_hard_hats.list_revisions()
         assert len(revs) == 3
         assert [rev["version"] for rev in revs] == ["v1.0", "v1.1", "v2.0"]
 
