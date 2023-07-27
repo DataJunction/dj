@@ -58,7 +58,9 @@ def test_generated_python_client_code_new_dimension(client_with_examples: TestCl
     """
     Test generating Python client code for creating a new dimension
     """
-    response = client_with_examples.get("/datajunction-clients/python/new_node/default.repair_order")
+    response = client_with_examples.get(
+        "/datajunction-clients/python/new_node/default.repair_order",
+    )
     assert (
         response.json()
         == """dj = DJClient(DJ_URL)
@@ -101,7 +103,9 @@ def test_generated_python_client_code_new_cube(client_with_examples: TestClient)
             "name": "default.repairs_cube",
         },
     )
-    response = client_with_examples.get("/datajunction-clients/python/new_node/default.repairs_cube")
+    response = client_with_examples.get(
+        "/datajunction-clients/python/new_node/default.repairs_cube",
+    )
     assert (
         response.json()
         == """dj = DJClient(DJ_URL)
@@ -152,7 +156,7 @@ def test_generated_python_client_code_adding_materialization(
         },
     )
     response = client_with_query_service.get(
-        "/datajunction-clients/python/add_materialization/basic.transform.country_agg/country_3491792861",
+        "/datajunction-clients/python/add_materialization/basic.transform.country_agg/country_3491792861",  # pylint: disable=line-too-long
     )
     assert (
         response.json()
