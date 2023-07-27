@@ -1229,14 +1229,18 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert data == {
             "message": (
                 "Unable to infer type for some columns on node "
-                "`default.avg_length_of_employment_plus_one`"
+                "`default.avg_length_of_employment_plus_one`.\n\n"
+                "\t* Incompatible types in binary operation NOW() - "
+                "foo.bar.hard_hats.hire_date + 1. Got left timestamp, rig"
             ),
             "errors": [
                 {
                     "code": 302,
                     "message": (
                         "Unable to infer type for some columns on node "
-                        "`default.avg_length_of_employment_plus_one`"
+                        "`default.avg_length_of_employment_plus_one`.\n\n"
+                        "\t* Incompatible types in binary operation NOW() - "
+                        "foo.bar.hard_hats.hire_date + 1. Got left timestamp, rig"
                     ),
                     "debug": {
                         "columns": {
