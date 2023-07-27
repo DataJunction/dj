@@ -133,7 +133,7 @@ services:
       - "8181:8888"
     volumes:
       - ./notebooks:/home/jovyan/notebooks
-      - ./client/python:/home/jovyan/notebooks/datajunction
+      - ./datajunction-clients/python:/home/jovyan/notebooks/datajunction
     environment:
       JUPYTER_ENABLE_LAB: "yes"
     command: /bin/bash -c "pip install -e /home/jovyan/notebooks/datajunction/ && start-notebook.sh --NotebookApp.token='' --NotebookApp.password=''"

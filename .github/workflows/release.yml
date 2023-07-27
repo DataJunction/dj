@@ -47,7 +47,7 @@ jobs:
                 - 'djqs/djqs/__about__.py'
 
       - name: Tag release
-        working-directory: ${{ steps.changes.outputs.server == 'true' && '.' || steps.changes.outputs.client == 'true' && './client/python' || steps.changes.outputs.djrs == 'true' && './djrs' || steps.changes.outputs.djqs == 'true' && './djqs' }}
+        working-directory: ${{ steps.changes.outputs.server == 'true' && '.' || steps.changes.outputs.client == 'true' && './datajunction-clients/python' || steps.changes.outputs.djrs == 'true' && './djrs' || steps.changes.outputs.djqs == 'true' && './djqs' }}
         run: |
           export NEW_VERSION=v$(hatch version)
           export LIBRARY=${{ steps.changes.outputs.server == 'true' && 'server' || steps.changes.outputs.client == 'true' && 'client' || steps.changes.outputs.djrs == 'true' && 'djrs' || steps.changes.outputs.djqs == 'true' && 'djqs' }}
@@ -57,7 +57,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
 
       - name: Publish to pypi
-        working-directory: ${{ steps.changes.outputs.server == 'true' && '.' || steps.changes.outputs.client == 'true' && './client/python' || steps.changes.outputs.djrs == 'true' && './djrs' || steps.changes.outputs.djqs == 'true' && './djqs' }}
+        working-directory: ${{ steps.changes.outputs.server == 'true' && '.' || steps.changes.outputs.client == 'true' && './datajunction-clients/python' || steps.changes.outputs.djrs == 'true' && './djrs' || steps.changes.outputs.djqs == 'true' && './djqs' }}
         env:
           HATCH_INDEX_USER: __token__
           HATCH_INDEX_AUTH: ${{ secrets.PYPI_TOKEN }}
@@ -66,7 +66,7 @@ jobs:
           hatch publish
 
       - name: Create Github release
-        working-directory: ${{ steps.changes.outputs.server == 'true' && '.' || steps.changes.outputs.client == 'true' && './client/python' || steps.changes.outputs.djrs == 'true' && './djrs' || steps.changes.outputs.djqs == 'true' && './djqs' }}
+        working-directory: ${{ steps.changes.outputs.server == 'true' && '.' || steps.changes.outputs.client == 'true' && './datajunction-clients/python' || steps.changes.outputs.djrs == 'true' && './djrs' || steps.changes.outputs.djqs == 'true' && './djqs' }}
         run: |
           export LIBRARY=${{ steps.changes.outputs.server == 'true' && 'server' || steps.changes.outputs.client == 'true' && 'client' || steps.changes.outputs.djrs == 'true' && 'djrs' || steps.changes.outputs.djqs == 'true' && 'djqs' }}
           gh release create $(hatch version)-$LIBRARY

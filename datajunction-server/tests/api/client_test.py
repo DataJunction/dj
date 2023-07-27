@@ -10,7 +10,7 @@ def test_generated_python_client_code_new_metric(client_with_examples: TestClien
     Test generating Python client code for creating a new metric
     """
     response = client_with_examples.get(
-        "/client/python/new_node/default.num_repair_orders",
+        "/datajunction-clients/python/new_node/default.num_repair_orders",
     )
     assert (
         response.json()
@@ -36,7 +36,7 @@ def test_generated_python_client_code_new_source(client_with_examples: TestClien
     Test generating Python client code for creating a new source
     """
     response = client_with_examples.get(
-        "/client/python/new_node/default.repair_order_details",
+        "/datajunction-clients/python/new_node/default.repair_order_details",
     )
     assert (
         response.json()
@@ -58,7 +58,7 @@ def test_generated_python_client_code_new_dimension(client_with_examples: TestCl
     """
     Test generating Python client code for creating a new dimension
     """
-    response = client_with_examples.get("/client/python/new_node/default.repair_order")
+    response = client_with_examples.get("/datajunction-clients/python/new_node/default.repair_order")
     assert (
         response.json()
         == """dj = DJClient(DJ_URL)
@@ -101,7 +101,7 @@ def test_generated_python_client_code_new_cube(client_with_examples: TestClient)
             "name": "default.repairs_cube",
         },
     )
-    response = client_with_examples.get("/client/python/new_node/default.repairs_cube")
+    response = client_with_examples.get("/datajunction-clients/python/new_node/default.repairs_cube")
     assert (
         response.json()
         == """dj = DJClient(DJ_URL)
@@ -152,7 +152,7 @@ def test_generated_python_client_code_adding_materialization(
         },
     )
     response = client_with_query_service.get(
-        "/client/python/add_materialization/basic.transform.country_agg/country_3491792861",
+        "/datajunction-clients/python/add_materialization/basic.transform.country_agg/country_3491792861",
     )
     assert (
         response.json()
@@ -194,7 +194,7 @@ def test_generated_python_client_code_link_dimension(client_with_examples: TestC
     Test generating Python client code for creating a new dimension
     """
     response = client_with_examples.get(
-        "/client/python/link_dimension/foo.bar.repair_orders/"
+        "/datajunction-clients/python/link_dimension/foo.bar.repair_orders/"
         "municipality_id/foo.bar.municipality_dim/",
     )
     assert (

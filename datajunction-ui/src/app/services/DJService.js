@@ -43,7 +43,7 @@ export const DataJunctionAPI = {
 
   clientCode: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/client/python/new_node/' + name)
+      await fetch(DJ_URL + '/datajunction-clients/python/new_node/' + name)
     ).json();
     return data;
   },
@@ -123,7 +123,7 @@ export const DataJunctionAPI = {
         materialization.clientCode = await (
           await fetch(
             DJ_URL +
-              `/client/python/add_materialization/${node}/${materialization.name}`,
+              `/datajunction-clients/python/add_materialization/${node}/${materialization.name}`,
           )
         ).json();
         return materialization;
@@ -137,7 +137,7 @@ export const DataJunctionAPI = {
         col.clientCode = await (
           await fetch(
             DJ_URL +
-              `/client/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
+              `/datajunction-clients/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
           )
         ).json();
         return col;
