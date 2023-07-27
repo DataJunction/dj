@@ -103,10 +103,12 @@ def test_ast_compile_query_missing_columns(
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
     assert (
-        "Column `column_foo` does not exist on any valid table." in exc.errors[0].message
+        "Column `column_foo` does not exist on any valid table."
+        in exc.errors[0].message
     )
     assert (
-        "Column `column_bar` does not exist on any valid table." in exc.errors[1].message
+        "Column `column_bar` does not exist on any valid table."
+        in exc.errors[1].message
     )
 
     node = query.select.from_.relations[  # pylint: disable=protected-access
