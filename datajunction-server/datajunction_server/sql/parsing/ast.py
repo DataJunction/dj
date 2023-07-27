@@ -446,6 +446,7 @@ class Node(ABC):
             if not child.is_compiled():
                 child.compile(ctx)
                 child._is_compiled = True
+        self._is_compiled = True
 
     def is_compiled(self) -> bool:
         """
@@ -869,7 +870,7 @@ class Column(Aliasable, Named, Expression):
                 ctx.exception.errors.append(
                     DJError(
                         code=ErrorCode.INVALID_COLUMN,
-                        message=f"Column`{self}` does not exist on any valid table.",
+                        message=f"Column `{self}` does not exist on any valid table.",
                     ),
                 )
                 return
@@ -2243,6 +2244,7 @@ class Query(TableExpression):
         )
         for expr in self.select.projection:
             self._columns += expr.columns
+        self._is_compiled = True
 
     def bake_ctes(self) -> "Query":
         """
