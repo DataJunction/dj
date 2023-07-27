@@ -158,7 +158,7 @@ def test_raise_on_unjoinable_automatic_dimension_groupby(construction_session: S
     query_ast.compile(ctx)
 
     assert (
-        "Column`basic.dimension.countries.country` does not exist on any valid table."
+        "Column `basic.dimension.countries.country` does not exist on any valid table."
         in str(
             ctx.exception.errors,
         )
