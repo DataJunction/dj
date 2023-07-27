@@ -314,6 +314,18 @@ class DJBuilder(DJClient):
         new_source.save(mode=mode)
         return new_source
 
+    def register_table(self, catalog: str, schema: str, table: str):
+        """
+        Register a table as a source node. This will create a source node under the configured
+        `source_node_namespace` (a server-side setting), which defaults to the `source` namespace.
+        """
+        response = self._session.post(f"/register/table/{catalog}/{schema}/{table}/")
+        new_source = Source(
+            **response.json(),
+            dj_client=self,
+        )
+        return new_source
+
     #
     # Nodes: TRANSFORM
     #

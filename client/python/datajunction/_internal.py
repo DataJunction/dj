@@ -34,6 +34,19 @@ _logger = logging.getLogger(__name__)
 #
 # Helpers
 #
+
+
+def from_jupyter() -> bool:  # pragma: no cover
+    """
+    Checks whether we're running from an IPython interactive console
+    """
+    try:
+        from IPython import get_ipython
+    except ImportError:
+        return False
+    return get_ipython() is not None
+
+
 class Results(TypedDict):
     """
     Results in a completed DJ Query
@@ -49,7 +62,7 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
     subsequent requests will use as a prefix.
     """
 
-    def __init__(self, endpoint: str = None):
+    def __init__(self, endpoint: str = None, show_traceback: bool = False):
         super().__init__()
         self.endpoint = endpoint
         self.mount("http://", HTTPAdapter())
@@ -66,6 +79,8 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
             },
         )
 
+        self._show_traceback = show_traceback
+
     def request(self, method, url, *args, **kwargs):
         """
         Make the request with the full URL.
@@ -78,13 +93,21 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
         except requests.exceptions.RequestException as exc:
             error_message = None
             if not exc.response:
-                raise DJClientException(exc) from exc
+                error_message = str(exc)
             if exc.response.headers.get("Content-Type") == "application/json":
                 error_message = exc.response.json().get("message")
             if not error_message:
                 error_message = (
                     f"Request failed with status code {exc.response.status_code}"
                 )
+            if from_jupyter() and not self._show_traceback:
+                from IPython import get_ipython  # pylint: disable=import-error
+
+                def shortened_error():
+                    print(error_message)
+
+                get_ipython().showtraceback = shortened_error
+
             raise DJClientException(error_message) from exc
 
     def prepare_request(self, request, *args, **kwargs):
@@ -120,15 +143,19 @@ class DJClient:
         engine_version: str = None,
         requests_session: RequestsSessionWithEndpoint = None,
         target_namespace: str = DEFAULT_NAMESPACE,
-        timeout=2 * 60,
+        timeout: int = 2 * 60,
+        debug: bool = False,
     ):
         self.target_namespace = target_namespace
         self.uri = uri
         self.engine_name = engine_name
         self.engine_version = engine_version
+        self._debug = debug
+
         if not requests_session:  # pragma: no cover
             self._session = RequestsSessionWithEndpoint(
                 endpoint=self.uri,
+                show_traceback=self._debug,
             )
         else:  # pragma: no cover
             self._session = requests_session
