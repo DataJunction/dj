@@ -1,5 +1,5 @@
 files: ^datajunction-(server|query|reflection)/
-exclude: (^docs/|^openapi/|^client/python/|^client/javascript/|^datajunction-server/dj/sql/parsing/backends/grammar/generated|^README.md)
+exclude: (^docs/|^openapi/|^datajunction-clients/python/|^datajunction-clients/javascript/|^datajunction-server/dj/sql/parsing/backends/grammar/generated|^README.md)
 
 repos:
 - repo: https://github.com/pre-commit/pre-commit-hooks

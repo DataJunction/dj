@@ -11,7 +11,7 @@ DataJunction (DJ) is currently supported in Python 3.8, 3.9, and 3.10. It's reco
 
     $ pyenv virtualenv 3.8 dj  # or 3.9/3.10
 
-Then you can pick any of the components you want to develop on, say ``cd datajunction-server`` or ``cd client/python``,
+Then you can pick any of the components you want to develop on, say ``cd datajunction-server`` or ``cd datajunction-clients/python``,
 install required dependencies with ``pdm install`` and call ``make test`` to run all the unit tests for that component.
 
 DJ relies heavily on these libraries:

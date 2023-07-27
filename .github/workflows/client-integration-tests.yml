@@ -30,7 +30,7 @@ jobs:
           pdm sync -d
           cd ./datajunction-clients/python; pdm install -d -G pandas
       - name: Python client integration tests
-        run: cd client/python && make test PYTEST_ARGS="--integration -k test_integration"
+        run: cd datajunction-clients/python && make test PYTEST_ARGS="--integration -k test_integration"
 
   javascript-client-integration:
     runs-on: ubuntu-latest

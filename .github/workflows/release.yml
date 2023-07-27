@@ -4,7 +4,7 @@ on:
     branches: [ main ]
     paths:
       - 'dj/__about__.py'
-      - 'client/python/datajunction/__about__.py'
+      - 'datajunction-clients/python/datajunction/__about__.py'
 
 jobs:
   publish:
@@ -40,7 +40,7 @@ jobs:
               server:
                 - 'dj/__about__.py'
               client:
-                - 'client/python/datajunction/__about__.py'
+                - 'datajunction-clients/python/datajunction/__about__.py'
               djrs:
                 - 'djrs/djrs/__about__.py'
               djqs:
