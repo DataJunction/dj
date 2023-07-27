@@ -14,7 +14,7 @@ from datajunction.models import (
 )
 
 
-class TestDJClient:
+class TestDJClient:  # pylint: disable=too-many-public-methods
     """
     Tests for DJ client functionality.
     """
@@ -271,6 +271,18 @@ class TestDJClient:
         assert "default.avg_length_of_employment" in client.list_metrics(
             namespace="default",
         )
+
+    def test_register_table(self, client):  # pylint: disable=unused-argument
+        """
+        Verifies that registering a table works.
+        """
+        store_comments = client.register_table(
+            catalog="default",
+            schema="store",
+            table="comments",
+        )
+        assert store_comments.name == "source.default.store.comments"
+        assert "source.default.store.comments" in client.namespace("source").sources()
 
     def test_create_nodes(self, client):  # pylint: disable=unused-argument
         """
