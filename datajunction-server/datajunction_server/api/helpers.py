@@ -287,7 +287,11 @@ def get_downstream_nodes(
         )
         .where(NodeRelationship.parent_id == node.id)
         .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
-        .join(Node, Node.id == NodeRevision.node_id)
+        .join(
+            Node,
+            (Node.id == NodeRevision.node_id)
+            & (Node.current_version == NodeRevision.version),
+        )
     ).cte("dag", recursive=True)
 
     paths = dag.union_all(
@@ -482,7 +486,11 @@ def validate_node_data(  # pylint: disable=too-many-locals
                     DJError(
                         code=ErrorCode.TYPE_INFERENCE,
                         message=(
-                            f"Unable to infer type for some columns on node `{data.name}`"
+                            f"Unable to infer type for some columns on node `{data.name}`.\n"
+                            + ("\n\t* " if type_inference_failures else "")
+                            + "\n\t* ".join(
+                                [val[:103] for val in type_inference_failures.values()],
+                            )
                         ),
                         debug={
                             "columns": type_inference_failures,
