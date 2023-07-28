@@ -24,6 +24,8 @@ class Settings(
     description: str = "A DataJunction metrics layer"
     url: str = "http://localhost:8000/"
 
+    loglevel: str = "ERROR"
+
     # A list of hostnames that are allowed to make cross-site HTTP requests
     cors_origin_whitelist: List[str] = ["http://localhost:3000"]
 

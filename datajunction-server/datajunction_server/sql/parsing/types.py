@@ -179,6 +179,9 @@ class FixedType(PrimitiveType):
         cls._instances[length] = cls._instances.get(length) or object.__new__(cls)
         return cls._instances[length]
 
+    def __getnewargs__(self):
+        return self._length
+
     def __init__(self, length: int):
         if not self._initialized:
             super().__init__(f"fixed({length})", f"FixedType(length={length})")
@@ -219,6 +222,9 @@ class DecimalType(NumberType):
         )
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
         return cls._instances[key]
+
+    def __getnewargs__(self):
+        return self._precision, self._scale
 
     def __init__(self, precision: int, scale: int):
 
@@ -273,6 +279,9 @@ class NestedField(ColumnType):
         key = (is_optional, name.name, field_type, doc)
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
         return cls._instances[key]
+
+    def __getnewargs__(self):
+        return self.name, self._type, self._is_optional, self._doc
 
     def __init__(
         self,
@@ -361,6 +370,9 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
         cls._instances[fields] = cls._instances.get(fields) or object.__new__(cls)
         return cls._instances[fields]
 
+    def __getnewargs__(self):
+        return self._fields
+
     def __init__(self, *fields: NestedField):
         if not self._initialized:
             super().__init__(
@@ -394,6 +406,9 @@ class ListType(ColumnType):
         key = (element_type,)
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)  # type: ignore
         return cls._instances[key]  # type: ignore
+
+    def __getnewargs__(self):
+        return (self._element_field._type,)
 
     def __init__(
         self,
@@ -432,6 +447,9 @@ class MapType(ColumnType):
         impl_key = (key_type, value_type)
         cls._instances[impl_key] = cls._instances.get(impl_key) or object.__new__(cls)
         return cls._instances[impl_key]
+
+    def __getnewargs__(self):
+        return self._key_field._type, self._value_field._type
 
     def __init__(
         self,
@@ -752,6 +770,9 @@ class DayTimeIntervalType(IntervalTypeBase):
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
         return cls._instances[key]
 
+    def __getnewargs__(self):
+        return self._from, self._to
+
     def __init__(
         self,
         from_: DateTimeBase.Unit = DateTimeBase.Unit.day,
@@ -798,6 +819,9 @@ class YearMonthIntervalType(IntervalTypeBase):
         key = (from_.upper(), to_.upper())  # type: ignore
         cls._instances[key] = cls._instances.get(key) or object.__new__(cls)
         return cls._instances[key]
+
+    def __getnewargs__(self):
+        return self._from, self._to
 
     def __init__(
         self,

@@ -40,7 +40,7 @@ from datajunction_server.models.column import Column
 from datajunction_server.models.engine import Engine
 from datajunction_server.models.node import NodeRevision
 from datajunction_server.models.table import Table
-from datajunction_server.utils import get_settings
+from datajunction_server.utils import get_settings, setup_logging
 
 if TYPE_CHECKING:  # pragma: no cover
     from opentelemetry import trace
@@ -55,6 +55,7 @@ def get_dj_app(
     Get the DJ FastAPI app and optionally inject an OpenTelemetry tracer provider
     """
     settings = get_settings()
+    setup_logging(settings.loglevel)
     application = FastAPI(
         title=settings.name,
         description=settings.description,
