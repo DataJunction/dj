@@ -2,7 +2,6 @@ import { useState, useContext, useEffect } from 'react';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import sql from 'react-syntax-highlighter/dist/esm/languages/hljs/sql';
-import { format } from 'sql-formatter';
 import NodeStatus from './NodeStatus';
 import ListGroupItem from '../../components/ListGroupItem';
 import ToggleSwitch from '../../components/ToggleSwitch';
@@ -50,23 +49,7 @@ export default function NodeInfoTab({ node }) {
             <></>
           )}
           <SyntaxHighlighter language="sql" style={foundation}>
-            {checked
-              ? format(compiledSQL, {
-                  language: 'spark',
-                  tabWidth: 2,
-                  keywordCase: 'upper',
-                  denseOperators: true,
-                  logicalOperatorNewline: 'before',
-                  expressionWidth: 10,
-                })
-              : format(node?.query, {
-                  language: 'spark',
-                  tabWidth: 2,
-                  keywordCase: 'upper',
-                  denseOperators: true,
-                  logicalOperatorNewline: 'before',
-                  expressionWidth: 10,
-                })}
+            {checked ? compiledSQL : node?.query}
           </SyntaxHighlighter>
         </div>
       </div>
