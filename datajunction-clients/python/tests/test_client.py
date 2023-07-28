@@ -208,7 +208,25 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         assert repair_orders.table == "repair_orders"
         assert repair_orders.type == "source"
 
-        # dimensions
+        # dimensions (all)
+        all_dimensions = client.list_dimensions()
+        assert set(all_dimensions) == {
+            "default.repair_order",
+            "default.contractor",
+            "default.hard_hat",
+            "default.local_hard_hats",
+            "default.us_state",
+            "default.dispatcher",
+            "default.municipality_dim",
+            "foo.bar.repair_order",
+            "foo.bar.contractor",
+            "foo.bar.hard_hat",
+            "foo.bar.local_hard_hats",
+            "foo.bar.us_state",
+            "foo.bar.dispatcher",
+            "foo.bar.municipality_dim",
+        }
+        # dimensions (namespace: default)
         result_names_only = client.list_dimensions(namespace="default")
         assert set(result_names_only) == {
             "default.repair_order",
@@ -527,7 +545,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "every metric and thus cannot be included."
         )
 
-    def test_get_metrics(self, client):
+    def test_list_metrics(self, client):
         """
         Check that `client.list_metrics()` works as expected.
         """
