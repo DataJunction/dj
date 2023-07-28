@@ -818,8 +818,7 @@ def build_ast(  # pylint: disable=too-many-arguments
     """
     Determines the optimal way to build the query AST and does so
     """
-    if not memoized_queries:
-        memoized_queries = {}
+    memoized_queries = memoized_queries or {}
 
     start = time.time()
     context = CompileContext(session=session, exception=DJException())
