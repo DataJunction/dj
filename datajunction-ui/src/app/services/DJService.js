@@ -134,12 +134,14 @@ export const DataJunctionAPI = {
   columns: async function (node) {
     return await Promise.all(
       node.columns.map(async col => {
-        col.clientCode = await (
-          await fetch(
-            DJ_URL +
-              `/datajunction-clients/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
-          )
-        ).json();
+        if (col.dimension !== null) {
+          col.clientCode = await (
+            await fetch(
+              DJ_URL +
+                `/datajunction-clients/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
+            )
+          ).json();
+        }
         return col;
       }),
     );
@@ -167,7 +169,9 @@ export const DataJunctionAPI = {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
-    return new EventSource(DJ_URL + '/stream/?' + params + '&limit=10000&async_=true');
+    return new EventSource(
+      DJ_URL + '/stream/?' + params + '&limit=10000&async_=true',
+    );
   },
 
   lineage: async function (node) {},

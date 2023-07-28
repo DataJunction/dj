@@ -293,14 +293,7 @@ export function SQLBuilderPage() {
             <div>
               {query && !viewData ? (
                 <SyntaxHighlighter language="sql" style={foundation}>
-                  {format(query, {
-                    language: 'spark',
-                    tabWidth: 2,
-                    keywordCase: 'upper',
-                    denseOperators: true,
-                    logicalOperatorNewline: 'before',
-                    expressionWidth: 10,
-                  })}
+                  {query}
                 </SyntaxHighlighter>
               ) : (
                 ''

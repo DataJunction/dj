@@ -82,14 +82,7 @@ const NodeSQLTab = djNode => {
         >
           <h6 className="mb-0 w-100">Query</h6>
           <SyntaxHighlighter language="sql" style={foundation}>
-            {format(query, {
-              language: 'spark',
-              tabWidth: 2,
-              keywordCase: 'upper',
-              denseOperators: true,
-              logicalOperatorNewline: 'before',
-              expressionWidth: 10,
-            })}
+            {query}
           </SyntaxHighlighter>
         </div>
       </div>
