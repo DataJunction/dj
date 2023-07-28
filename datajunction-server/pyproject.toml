@@ -14,7 +14,6 @@ authors = [
 ]
 dependencies = [
     "alembic>=1.10.3",
-    "PyYAML<7.0,>=6.0",
     "SQLAlchemy-Utils<1.0.0,>=0.40.0",
     "accept-types<1.0.0,>=0.4.1",
     "antlr4-python3-runtime==4.12.0",
