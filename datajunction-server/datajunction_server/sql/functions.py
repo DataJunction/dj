@@ -861,14 +861,6 @@ def infer_type(
     return ct.IntegerType()
 
 
-@DateDiff.register  # type: ignore
-def infer_type(
-    start_date: ct.IntegerType,
-    end_date: ct.IntegerType,
-) -> ct.IntegerType:
-    return ct.IntegerType()
-
-
 class DateFormat(Function):
     """
     date_format(timestamp, fmt) - Converts timestamp to a value of string
@@ -1199,19 +1191,6 @@ class IfNull(Function):
 @IfNull.register
 def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
     return args[0].type if args[1].type == ct.NullType() else args[1].type
-
-
-class Int(Function):
-    """
-    int(expr) - Casts the value expr to the target data type int.
-    """
-
-
-@Int.register  # type: ignore
-def infer_type(
-    arg: ct.ColumnType,
-) -> ct.ColumnType:
-    return ct.IntegerType()
 
 
 class Length(Function):
