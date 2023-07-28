@@ -28,15 +28,16 @@ class DJClient(_internal.DJClient):
             namespaces = [n for n in namespaces if n.startswith(prefix)]
         return namespaces
 
-    def list_dimensions(self, namespace: str) -> List[str]:
+    def list_dimensions(self, namespace: Optional[str] = None) -> List[str]:
         """
-        List dimension nodes under given namespace.
-        TODO: make namespace optional and return all dimension nodes, similar to get("/metrics/").
+        List dimension nodes under given namespace or all.
         """
-        return self._get_nodes_in_namespace(
-            namespace=namespace,
-            type_=models.NodeType.DIMENSION.value,
-        )
+        if namespace:
+            return self._get_nodes_in_namespace(
+                namespace=namespace,
+                type_=models.NodeType.DIMENSION.value,
+            )
+        return self._session.get("/dimensions/").json()
 
     def list_metrics(self, namespace: Optional[str] = None) -> List[str]:
         """

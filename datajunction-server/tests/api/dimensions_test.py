@@ -4,6 +4,17 @@ Tests for the dimensions API.
 from fastapi.testclient import TestClient
 
 
+def test_list_dimension(client_with_examples: TestClient) -> None:
+    """
+    Test ``GET /dimensions/``.
+    """
+    response = client_with_examples.get("/dimensions/")
+    data = response.json()
+
+    assert response.status_code == 200
+    assert len(data) > 10
+
+
 def test_list_nodes_with_dimension(client_with_examples: TestClient) -> None:
     """
     Test ``GET /dimensions/{name}/nodes/``.
