@@ -1,5 +1,7 @@
 """Functions to add to an ast DJ node queries"""
 import collections
+import logging
+import time
 
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
@@ -17,6 +19,8 @@ from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.utils import amenable_name
+
+_logger = logging.getLogger(__name__)
 
 
 def _get_tables_from_select(
@@ -269,6 +273,7 @@ def _build_tables_on_select(
     session: Session,
     select: ast.SelectExpression,
     tables: Dict[NodeRevision, List[ast.Table]],
+    memoized_queries: Dict[int, ast.Query],
     build_criteria: Optional[BuildCriteria] = None,
 ):
     """
@@ -281,12 +286,18 @@ def _build_tables_on_select(
         )  # got a materialization
         if node_table is None:  # no materialization - recurse to node first
             node_query = parse(cast(str, node.query))
-            node_table = build_ast(  # type: ignore
-                session,
-                node_query,
-                build_criteria,
-            ).select  # pylint: disable=W0212
-            node_table.parenthesized = True  # type: ignore
+            if hash(node_query) in memoized_queries:  # pragma: no cover
+                node_table = memoized_queries[hash(node_query)].select  # type: ignore
+            else:
+                query_ast = build_ast(  # type: ignore
+                    session,
+                    node_query,
+                    memoized_queries,
+                    build_criteria,
+                )
+                node_table = query_ast.select  # type: ignore
+                node_table.parenthesized = True  # type: ignore
+                memoized_queries[hash(node_query)] = query_ast
 
         alias = amenable_name(node.node.name)
         context = CompileContext(session=session, exception=DJException())
@@ -332,6 +343,7 @@ def dimension_columns_mapping(
 def _build_select_ast(
     session: Session,
     select: ast.SelectExpression,
+    memoized_queries: Dict[int, ast.Query],
     build_criteria: Optional[BuildCriteria] = None,
 ):
     """
@@ -343,7 +355,7 @@ def _build_select_ast(
     tables = _get_tables_from_select(select)
     dimension_columns = dimension_columns_mapping(select)
     join_tables_for_dimensions(session, dimension_columns, tables, build_criteria)
-    _build_tables_on_select(session, select, tables, build_criteria)
+    _build_tables_on_select(session, select, tables, memoized_queries, build_criteria)
 
 
 # pylint: disable=R0915
@@ -517,7 +529,11 @@ def build_node(  # pylint: disable=too-many-arguments
         orderby,
         limit,
     )
-    return build_ast(session, query, build_criteria)
+    memoized_queries: Dict[int, ast.Query] = {}
+    _logger.info("Calling build_ast on %s", node.name)
+    astt = build_ast(session, query, memoized_queries, build_criteria)
+    _logger.info("Finished build_ast on %s", node.name)
+    return astt
 
 
 def build_metric_nodes(
@@ -796,12 +812,26 @@ def build_source_node_query(node: NodeRevision):
 def build_ast(  # pylint: disable=too-many-arguments
     session: Session,
     query: ast.Query,
+    memoized_queries: Dict[int, ast.Query] = None,
     build_criteria: Optional[BuildCriteria] = None,
 ) -> ast.Query:
     """
     Determines the optimal way to build the query AST and does so
     """
+    memoized_queries = memoized_queries or {}
+
+    start = time.time()
     context = CompileContext(session=session, exception=DJException())
-    query.compile(context)
-    query.build(session, build_criteria)
+    if hash(query) in memoized_queries:
+        query = memoized_queries[hash(query)]  # pragma: no cover
+    else:
+        query.compile(context)
+        memoized_queries[hash(query)] = query
+    end = time.time()
+    _logger.info("Finished compiling query %s in %s", str(query)[-100:], end - start)
+
+    start = time.time()
+    query.build(session, memoized_queries, build_criteria)
+    end = time.time()
+    _logger.info("Finished building query in %s", end - start)
     return query
