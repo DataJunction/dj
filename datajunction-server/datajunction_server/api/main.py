@@ -8,6 +8,8 @@ Main DJ server app.
 # pylint: disable=unused-import
 
 import logging
+from logging import config
+from os import path
 from typing import TYPE_CHECKING, Optional
 
 from fastapi import Depends, FastAPI, Request
@@ -40,7 +42,7 @@ from datajunction_server.models.column import Column
 from datajunction_server.models.engine import Engine
 from datajunction_server.models.node import NodeRevision
 from datajunction_server.models.table import Table
-from datajunction_server.utils import get_settings, setup_logging
+from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:  # pragma: no cover
     from opentelemetry import trace
@@ -55,7 +57,10 @@ def get_dj_app(
     Get the DJ FastAPI app and optionally inject an OpenTelemetry tracer provider
     """
     settings = get_settings()
-    setup_logging(settings.loglevel)
+    config.fileConfig(
+        path.join(path.dirname(path.abspath(__file__)), "logging.conf"),
+        disable_existing_loggers=False,
+    )
     application = FastAPI(
         title=settings.name,
         description=settings.description,
