@@ -69,7 +69,6 @@ repos:
     - types-freezegun
     - types-python-dateutil
     - types-pkg_resources
-    - types-PyYAML
     - types-tabulate
 - repo: https://github.com/asottile/add-trailing-comma
   rev: v2.2.1
@@ -104,28 +103,28 @@ repos:
     - id: black-nb
       files: '\.ipynb$'
 - repo: https://github.com/pdm-project/pdm
-  rev: 2.6.1
+  rev: 2.8.1
   hooks:
     - id: pdm-lock-check
       name: pdm-lock-check-root
       entry: pdm lock --check --project .
       files: ^pyproject.toml$
 - repo: https://github.com/pdm-project/pdm
-  rev: 2.6.1
+  rev: 2.8.1
   hooks:
     - id: pdm-lock-check
       name: pdm-lock-check-server
       entry: pdm lock --check --project datajunction-server
       files: ^datajunction-server/pyproject.toml$
 - repo: https://github.com/pdm-project/pdm
-  rev: 2.6.1
+  rev: 2.8.1
   hooks:
     - id: pdm-lock-check
       name: pdm-lock-check-query
       entry: pdm lock --check --project datajunction-query
       files: ^datajunction-query/pyproject.toml$
 - repo: https://github.com/pdm-project/pdm
-  rev: 2.6.1
+  rev: 2.8.1
   hooks:
     - id: pdm-lock-check
       name: pdm-lock-check-reflection
