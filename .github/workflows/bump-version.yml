@@ -37,7 +37,7 @@ jobs:
     runs-on: 'ubuntu-latest'
     defaults:
       run:
-        working-directory: ${{ github.event.inputs.library == 'server' && '.' || github.event.inputs.library == 'client' && './client/python' || github.event.inputs.library == 'djrs' && './djrs' || github.event.inputs.library == 'djqs' && './djqs' }}
+        working-directory: ${{ github.event.inputs.library == 'server' && '.' || github.event.inputs.library == 'client' && './datajunction-clients/python' || github.event.inputs.library == 'djrs' && './djrs' || github.event.inputs.library == 'djqs' && './djqs' }}
     steps:
       - uses: actions/checkout@v2
       - name: Set up Python

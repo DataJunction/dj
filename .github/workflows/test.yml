@@ -44,7 +44,7 @@ jobs:
       - name: Install dependencies
         run: |
           pdm sync -d
-          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
+          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
           cd $tests_dir; pdm install -d -G pandas
 
       - uses: pre-commit/action@v3.0.0
@@ -54,13 +54,13 @@ jobs:
 
       - name: Python Linters
         run: |
-          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
+          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
           cd $tests_dir; pdm run pre-commit run --all-files
 
       - name: Test DJ ${{ matrix.library }} with pytest
         run: |
           export module=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
-          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './client/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
+          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
           cd $tests_dir; pdm run pytest ${{ matrix.library == 'server' && '-n auto' || '' }} --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
 
   build-javascript:
@@ -76,13 +76,13 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - name: Install Dev Dependencies
         run: npm install --only=dev
-        working-directory: ./client/javascript
+        working-directory: ./datajunction-clients/javascript
       - name: Build Javascript Client
         run: npm run build
-        working-directory: ./client/javascript
+        working-directory: ./datajunction-clients/javascript
       - name: Lint Javascript Client
         run: npm run lint
-        working-directory: ./client/javascript
+        working-directory: ./datajunction-clients/javascript
 
   build-ui:
     runs-on: ubuntu-latest
@@ -110,7 +110,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./client/java
+        working-directory: ./datajunction-clients/java
     steps:
       - uses: actions/checkout@v3
       - name: Set up JDK 17
@@ -124,4 +124,4 @@ jobs:
         uses: gradle/gradle-build-action@v2
         with:
           arguments: build
-          build-root-directory: ./client/java
+          build-root-directory: ./datajunction-clients/java
