@@ -28,9 +28,9 @@ jobs:
       - name: Install dependencies
         run: |
           pdm sync -d
-          cd ./client/python; pdm install -d -G pandas
+          cd ./datajunction-clients/python; pdm install -d -G pandas
       - name: Python client integration tests
-        run: cd client/python && make test PYTEST_ARGS="--integration -k test_integration"
+        run: cd datajunction-clients/python && make test PYTEST_ARGS="--integration -k test_integration"
 
   javascript-client-integration:
     runs-on: ubuntu-latest
@@ -47,7 +47,7 @@ jobs:
           node-version: ${{ matrix.node-version }}
       - name: Install Dev Dependencies
         run: npm install --only=dev
-        working-directory: ./client/javascript
+        working-directory: ./datajunction-clients/javascript
       - name: Javascript client integration tests
         run: npm test
-        working-directory: ./client/javascript
+        working-directory: ./datajunction-clients/javascript

@@ -16,7 +16,7 @@ _logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.get("/client/python/new_node/{node_name}", response_model=str)
+@router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)
 def client_code_for_creating_node(
     node_name: str, *, session: Session = Depends(get_session)
 ) -> str:
@@ -86,7 +86,7 @@ def client_code_for_creating_node(
 
 
 @router.get(
-    "/client/python/add_materialization/{node_name}/{materialization_name}",
+    "/datajunction-clients/python/add_materialization/{node_name}/{materialization_name}",
     response_model=str,
 )
 def client_code_for_adding_materialization(
@@ -136,7 +136,7 @@ materialization = MaterializationConfig(
 
 
 @router.get(
-    "/client/python/link_dimension/{node_name}/{column}/{dimension}/",
+    "/datajunction-clients/python/link_dimension/{node_name}/{column}/{dimension}/",
     response_model=str,
 )
 def client_code_for_linking_dimension_to_node(
