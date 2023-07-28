@@ -286,7 +286,7 @@ def _build_tables_on_select(
         )  # got a materialization
         if node_table is None:  # no materialization - recurse to node first
             node_query = parse(cast(str, node.query))
-            if hash(node_query) in memoized_queries:
+            if hash(node_query) in memoized_queries:  # pragma: no cover
                 node_table = memoized_queries[hash(node_query)].select  # type: ignore
             else:
                 query_ast = build_ast(  # type: ignore
@@ -530,7 +530,10 @@ def build_node(  # pylint: disable=too-many-arguments
         limit,
     )
     memoized_queries: Dict[int, ast.Query] = {}
-    return build_ast(session, query, memoized_queries, build_criteria)
+    _logger.info("Calling build_ast on %s", node.name)
+    astt = build_ast(session, query, memoized_queries, build_criteria)
+    _logger.info("Finished build_ast on %s", node.name)
+    return astt
 
 
 def build_metric_nodes(
@@ -821,12 +824,12 @@ def build_ast(  # pylint: disable=too-many-arguments
     start = time.time()
     context = CompileContext(session=session, exception=DJException())
     if hash(query) in memoized_queries:
-        query = memoized_queries[hash(query)]
+        query = memoized_queries[hash(query)]  # pragma: no cover
     else:
         query.compile(context)
         memoized_queries[hash(query)] = query
     end = time.time()
-    _logger.info("Finished compiling query in %s", end - start)
+    _logger.info("Finished compiling query %s in %s", str(query)[-100:], end - start)
 
     start = time.time()
     query.build(session, memoized_queries, build_criteria)
