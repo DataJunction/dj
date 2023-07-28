@@ -42,6 +42,7 @@ def get_sql(
         else None
     )
     validate_orderby(orderby, [node_name], dimensions)
+    _logger.info("Calling get_query")
     query_ast = get_query(
         session=session,
         node_name=node_name,
@@ -51,6 +52,7 @@ def get_sql(
         limit=limit,
         engine=engine,
     )
+    _logger.info("Finished calling get_query")
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
         for col in query_ast.select.projection
