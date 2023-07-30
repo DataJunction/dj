@@ -1139,6 +1139,39 @@ def infer_type() -> ct.TimestampType:
     return ct.TimestampType()
 
 
+class CurrentTimezone(Function):
+    """
+    current_timezone() - Returns the current timezone.
+    """
+
+
+@CurrentTimezone.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.StringType()
+
+
+class CurrentUser(Function):
+    """
+    current_user() - Returns the current user.
+    """
+
+
+@CurrentUser.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.StringType()
+
+
+class Date(Function):
+    """
+    date(expr) - Converts expr to date.
+    """
+
+
+@Date.register  # type: ignore
+def infer_type(arg: Union[ct.StringType, ct.TimestampType]) -> ct.ColumnType:
+    return ct.DateType()
+
+
 class DateAdd(Function):
     """
     Adds a specified number of days to a date.
