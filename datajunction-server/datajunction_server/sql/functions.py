@@ -1939,6 +1939,17 @@ def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
     return ct.TimestampType()
 
 
+class Get(Function):
+    """
+    get(expr, index) - Retrieves an element from an array at the specified index or retrieves a value from a map for the given key.
+    """
+
+
+@Get.register  # type: ignore
+def infer_type(arg1: ct.ListType, arg2: ct.IntegerType) -> ct.ColumnType:
+    return arg1.type.element.type
+
+
 class Greatest(Function):
     """
     greatest(expr, ...) - Returns the greatest value of all parameters, skipping null values.

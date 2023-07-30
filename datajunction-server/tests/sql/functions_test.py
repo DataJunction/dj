@@ -1478,6 +1478,19 @@ def test_from_utc_timestamp_func(session: Session):
     assert query.select.projection[1].type == ct.TimestampType()  # type: ignore
 
 
+def test_get_func(session: Session):
+    """
+    Test the `get` function
+    """
+    query = parse("SELECT get(array(1, 2, 3), 0), get(array('a', 'b', 'c'), 1)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
 def test_greatest(session: Session):
     """
     Test `greatest`
