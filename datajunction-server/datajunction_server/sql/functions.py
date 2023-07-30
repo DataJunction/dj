@@ -1802,6 +1802,91 @@ def infer_type(
     )  # pragma: no cover
 
 
+class Forall(Function):
+    """
+    forall(expr, predicate) - Returns true if a given predicate holds for all elements of an array.
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `filter` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
+        """
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
+
+        expr, func = args
+        if len(func.identifiers) != 1:
+            raise DJParseException(
+                message="The function `forall` takes a lambda function that takes at "
+                "most one argument.",
+            )
+        lambda_arg_col = [
+            col
+            for col in func.expr.find_all(ast.Column)
+            if col.alias_or_name.name == func.identifiers[0].name
+        ][0]
+        lambda_arg_col.add_type(expr.type.element.type)
+
+
+@Forall.register  # type: ignore
+def infer_type(arg1: ct.ListType, arg2: ct.BooleanType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class FormatNumber(Function):
+    """
+    format_number(x, d) - Formats the number x to a format like '#,###,###.##',
+    rounded to d decimal places.
+    """
+
+
+@FormatNumber.register  # type: ignore
+def infer_type(arg1: ct.FloatType, arg2: ct.IntegerType) -> ct.StringType:
+    return ct.StringType()
+
+
+@FormatNumber.register  # type: ignore
+def infer_type(arg1: ct.FloatType, arg2: ct.StringType) -> ct.StringType:
+    return ct.StringType()
+
+
+class FormatString(Function):
+    """
+    format_string(format, ...) - Formats the arguments in printf-style.
+    """
+
+
+@FormatString.register  # type: ignore
+def infer_type(arg1: ct.StringType, *args: ct.PrimitiveType) -> ct.StringType:
+    return ct.StringType()
+
+
+class FromCsv(Function):
+    """
+    from_csv(csvStr, schema, options) - Parses a CSV string and returns a struct.
+    """
+
+
+@FromCsv.register  # type: ignore
+def infer_type(
+    arg1: ct.StringType,
+    schema: ct.StringType,
+    arg3: Optional[ct.MapType] = None,
+) -> ct.ColumnType:
+    # TODO: Handle options?  # pylint: disable=fixme
+    # pylint: disable=import-outside-toplevel
+    from datajunction_server.sql.parsing.backends.antlr4 import (
+        parse_rule,  # pragma: no cover
+    )
+
+    return ct.StructType(
+        *parse_rule(schema.value, "complexColTypeList")
+    )  # pragma: no cover
+
+
 class FromJson(Function):  # pragma: no cover
     """
     Converts a JSON string to a struct or map.
@@ -1823,6 +1908,35 @@ def infer_type(  # pragma: no cover
     return ct.StructType(
         *parse_rule(schema.value, "complexColTypeList")
     )  # pragma: no cover
+
+
+class FromUnixtime(Function):
+    """
+    from_unixtime(unix_time, format) - Converts the number of seconds from the Unix
+    epoch to a string representing the timestamp.
+    """
+
+
+@FromUnixtime.register  # type: ignore
+def infer_type(arg1: ct.IntegerType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.StringType()
+
+
+class FromUtcTimestamp(Function):
+    """
+    from_utc_timestamp(timestamp, timezone) - Renders that time as a timestamp
+    in the given time zone.
+    """
+
+
+@FromUtcTimestamp.register  # type: ignore
+def infer_type(arg1: ct.TimestampType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.TimestampType()
+
+
+@FromUtcTimestamp.register  # type: ignore
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.TimestampType()
 
 
 class Greatest(Function):

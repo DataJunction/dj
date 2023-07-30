@@ -1,7 +1,6 @@
 """
 Tests for ``datajunction_server.sql.functions``.
 """
-# pylint: disable=line-too-long,too-many-lines
 
 import pytest
 from sqlmodel import Session
@@ -34,6 +33,8 @@ from datajunction_server.sql.parsing.types import (
     StringType,
     WildcardType,
 )
+
+# pylint: disable=line-too-long,too-many-lines
 
 
 def test_missing_functions() -> None:
@@ -1373,6 +1374,108 @@ def test_floor(types, expected) -> None:
             )
             == expected
         )
+
+
+def test_forall_func(session: Session):
+    """
+    Test the `forall` function
+    """
+    query = parse(
+        "SELECT forall(array(1, 2, 3), x -> x > 0), forall(array(1, 2, 3), x -> x < 0)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    # assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+
+
+def test_format_number_func(session: Session):
+    """
+    Test the `format_number` function
+    """
+    query = parse("SELECT format_number(12345.6789, 2), format_number(98765.4321, 3)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_format_string_func(session: Session):
+    """
+    Test the `format_string` function
+    """
+    query = parse(
+        "SELECT format_string('%s %s', 'hello', 'world'), format_string('%d %d', 1, 2)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+# TODO: Fix these two  # pylint: disable=fixme
+# def test_from_csv_func(session: Session):
+#     """
+#     Test the `from_csv` function
+#     """
+#     query = parse("SELECT from_csv('1,2,3', 'a INT, b INT, c INT'), from_csv('4,5,6', 'x INT, y INT, z INT')")
+#     exc = DJException()
+#     ctx = ast.CompileContext(session=session, exception=exc)
+#     query.compile(ctx)
+#     assert not exc.errors
+#     assert isinstance(query.select.projection[0].type, ct.StructType)  # type: ignore
+#     assert isinstance(query.select.projection[1].type, ct.StructType)  # type: ignore
+
+
+# TODO: Fix these two  # pylint: disable=fixme
+# def test_from_json_func(session: Session):
+#     """
+#     Test the `from_json` function
+#     """
+#     query = parse("SELECT from_json('1,2,3', 'a INT, b INT, c INT'), from_json('4,5,6', 'x INT, y INT, z INT')")
+#     exc = DJException()
+#     ctx = ast.CompileContext(session=session, exception=exc)
+#     query.compile(ctx)
+#     assert not exc.errors
+#     assert isinstance(query.select.projection[0].type, Union[ct.StructType, ct.ListType])  # type: ignore
+#     assert isinstance(query.select.projection[1].type, Union[ct.StructType, ct.ListType])
+
+
+def test_from_unix_time_func(session: Session):
+    """
+    Test the `from_unix_time` function
+    """
+    query = parse(
+        "SELECT from_unixtime(1609459200, 'yyyy-MM-dd HH:mm:ss'), from_unixtime(1609459200, 'dd/MM/yyyy HH:mm:ss')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_from_utc_timestamp_func(session: Session):
+    """
+    Test the `from_utc_timestamp` function
+    """
+    query = parse(
+        "SELECT from_utc_timestamp('2023-01-01 00:00:00', 'PST'), "
+        "from_utc_timestamp(cast('2023-01-01 00:00:00' as timestamp), 'IST')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+    assert query.select.projection[1].type == ct.TimestampType()  # type: ignore
 
 
 def test_greatest(session: Session):
