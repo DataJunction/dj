@@ -1609,6 +1609,17 @@ class Extract(Function):
         return ct.IntegerType()
 
 
+class Factorial(Function):
+    """
+    factorial(expr) - Returns the factorial of the number.
+    """
+
+
+@Factorial.register  # type: ignore
+def infer_type(arg: ct.IntegerType) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
 class Filter(Function):
     """
     Filter an array.
@@ -1650,6 +1661,17 @@ def infer_type(
     func: ct.PrimitiveType,
 ) -> ct.ListType:
     return arg.type  # type: ignore
+
+
+class FindInSet(Function):
+    """
+    find_in_set(str, str_list) - Returns the index of the first occurrence of str in str_list.
+    """
+
+
+@FindInSet.register  # type: ignore
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.IntegerType()
 
 
 class First(Function):
@@ -1711,6 +1733,17 @@ def infer_type(
     array: ct.ListType,
 ) -> ct.ListType:
     return array.type.element.type  # type: ignore
+
+
+class Float(Function):
+    """
+    float(expr) - Casts the value expr to the target data type float.
+    """
+
+
+@Float.register  # type: ignore
+def infer_type(arg: Union[ct.NumberType, ct.StringType]) -> ct.FloatType:
+    return ct.FloatType()
 
 
 class Floor(Function):
@@ -2477,6 +2510,29 @@ def infer_type(
 # Table Functions                                                                #
 # https://spark.apache.org/docs/3.3.2/sql-ref-syntax-qry-select-tvf.html#content #
 ##################################################################################
+
+
+class Explode(TableFunction):
+    """
+    The Explode function is used to explode the specified array,
+    nested array, or map column into multiple rows.
+    The explode function will generate a new row for each
+    element in the specified column.
+    """
+
+
+@Explode.register
+def infer_type(
+    arg: ct.ListType,
+) -> List[ct.NestedField]:
+    return [arg.element]
+
+
+@Explode.register
+def infer_type(
+    arg: ct.MapType,
+) -> List[ct.NestedField]:
+    return [arg.key, arg.value]
 
 
 class Unnest(TableFunction):

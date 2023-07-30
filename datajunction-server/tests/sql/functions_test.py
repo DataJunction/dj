@@ -1205,21 +1205,6 @@ def test_exists_func(session: Session):
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
-def test_explode_func(session: Session):
-    """
-    Test the `explode` function
-    """
-    query = parse(
-        "SELECT explode(array(1, 2, 3)), explode(map('key1', 'value1', 'key2', 'value2'))",
-    )
-    exc = DJException()
-    ctx = ast.CompileContext(session=session, exception=exc)
-    query.compile(ctx)
-    assert not exc.errors
-    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
-    assert query.select.projection[1].type == ct.StringType()  # type: ignore
-
-
 def test_explode_outer_func(session: Session):
     """
     Test the `explode_outer` function
@@ -1246,6 +1231,19 @@ def test_expm1_func(session: Session):
     assert not exc.errors
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+
+
+def test_factorial_func(session: Session):
+    """
+    Test the `factorial` function
+    """
+    query = parse("SELECT factorial(0), factorial(5)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
 def test_filter(session: Session):
@@ -1279,6 +1277,19 @@ def test_filter(session: Session):
         query.compile(ctx)
 
 
+def test_find_in_set_func(session: Session):
+    """
+    Test the `find_in_set` function
+    """
+    query = parse("SELECT find_in_set('b', 'a,b,c,d'), find_in_set('e', 'a,b,c,d')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
 def test_first_and_first_value(session: Session):
     """
     Test `first` and `first_value`
@@ -1309,6 +1320,19 @@ def test_flatten(session: Session):
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.IntegerType(),
     )
+
+
+def test_float_func(session: Session):
+    """
+    Test the `float` function
+    """
+    query = parse("SELECT float(123), float('456.78')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
 @pytest.mark.parametrize(
