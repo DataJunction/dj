@@ -949,6 +949,19 @@ def test_date_func(session: Session):
     assert query.select.projection[1].type == ct.DateType()  # type: ignore
 
 
+def test_date_from_unix_date_func(session: Session):
+    """
+    Test the `date_from_unix_date` function
+    """
+    query = parse("SELECT date_from_unix_date(0), date_from_unix_date(18500)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DateType()  # type: ignore
+    assert query.select.projection[1].type == ct.DateType()  # type: ignore
+
+
 def test_date_format(session: Session) -> None:
     """
     Test ``date_format`` function.
@@ -959,6 +972,21 @@ def test_date_format(session: Session) -> None:
     query_with_array.compile(ctx)
     assert not exc.errors
     assert query_with_array.select.projection[0].type == StringType()  # type: ignore
+
+
+def test_date_part_func(session: Session):
+    """
+    Test the `date_part` function
+    """
+    query = parse(
+        "SELECT date_part('year', cast('2023-07-30' as date)), date_part('hour', cast('2023-07-30 12:34:56' as timestamp))",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
 def test_dj_logical_timestamp(session: Session) -> None:

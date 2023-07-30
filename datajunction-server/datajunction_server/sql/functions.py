@@ -1224,6 +1224,17 @@ def infer_type(
     return ct.IntegerType()
 
 
+class DateFromUnixDate(Function):
+    """
+    date_from_unix_date(expr) - Converts the number of days from epoch (1970-01-01) to a date.
+    """
+
+
+@DateFromUnixDate.register  # type: ignore
+def infer_type(arg: ct.IntegerType) -> ct.ColumnType:
+    return ct.DateType()
+
+
 class DateFormat(Function):
     """
     date_format(timestamp, fmt) - Converts timestamp to a value of string
@@ -1237,6 +1248,21 @@ def infer_type(
     fmt: ct.StringType,
 ) -> ct.StringType:
     return ct.StringType()
+
+
+class DatePart(Function):
+    """
+    date_part(field, source) - Extracts a part of the date or time given.
+    """
+
+
+@DatePart.register  # type: ignore
+def infer_type(
+    arg1: ct.StringType, arg2: Union[ct.DateType, ct.TimestampType],
+) -> ct.ColumnType:
+    # The output can be integer, float, or string depending on the part extracted.
+    # Here we assume the output is an integer for simplicity. Adjust as needed.
+    return ct.IntegerType()
 
 
 class DateSub(Function):
