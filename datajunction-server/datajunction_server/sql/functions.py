@@ -1941,13 +1941,40 @@ def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
 
 class Get(Function):
     """
-    get(expr, index) - Retrieves an element from an array at the specified index or retrieves a value from a map for the given key.
+    get(expr, index) - Retrieves an element from an array at the specified
+    index or retrieves a value from a map for the given key.
     """
 
 
 @Get.register  # type: ignore
 def infer_type(arg1: ct.ListType, arg2: ct.IntegerType) -> ct.ColumnType:
     return arg1.type.element.type
+
+
+# TODO: Extract the actual output schema  # pylint: disable=fixme
+# class GetJsonObject(Function):
+#     """
+#     get_json_object(jsonString, path) - Extracts a JSON object from a JSON
+#     string based on the JSON path specified.
+#     """
+#
+#
+# @GetJsonObject.register  # type: ignore
+# def infer_type(
+#     arg1: ct.StringType, arg2: ct.StringType
+# ) -> ct.ColumnType:
+#     return ct.StringType()
+
+
+class GetBit(Function):
+    """
+    getbit(expr, pos) - Returns the value of the bit (0 or 1) at the specified position.
+    """
+
+
+@GetBit.register  # type: ignore
+def infer_type(arg1: ct.IntegerType, arg2: ct.IntegerType) -> ct.ColumnType:
+    return ct.IntegerType()
 
 
 class Greatest(Function):
@@ -1961,6 +1988,50 @@ def infer_type(
     *values: ct.NumberType,
 ) -> ct.ColumnType:
     return values[0].type
+
+
+class Grouping(Function):
+    """
+    grouping(col) - Returns 1 if the specified column is aggregated, and 0 otherwise.
+    """
+
+
+@Grouping.register  # type: ignore
+def infer_type(arg: ct.ColumnType) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class GroupingId(Function):
+    """
+    grouping_id(cols) - Returns a bit vector with a bit for each grouping column.
+    """
+
+
+@GroupingId.register  # type: ignore
+def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
+    return ct.BigIntType()
+
+
+class Hash(Function):
+    """
+    hash(args) - Returns a hash value of the arguments.
+    """
+
+
+@Hash.register  # type: ignore
+def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class Hex(Function):
+    """
+    hex(expr) - Converts a number or a string to a hexadecimal string.
+    """
+
+
+@Hex.register  # type: ignore
+def infer_type(arg: Union[ct.IntegerType, ct.StringType]) -> ct.ColumnType:
+    return ct.StringType()
 
 
 class If(Function):
