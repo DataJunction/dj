@@ -2115,6 +2115,98 @@ def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
     return args[0].type if args[1].type == ct.NullType() else args[1].type
 
 
+class ILike(Function):
+    """
+    ilike(str, pattern) - Performs case-insensitive LIKE match.
+    """
+
+
+@ILike.register  # type: ignore
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class InitCap(Function):
+    """
+    initcap(str) - Converts the first letter of each word in the string to uppercase
+    and the rest to lowercase.
+    """
+
+
+@InitCap.register  # type: ignore
+def infer_type(arg: ct.StringType) -> ct.ColumnType:
+    return ct.StringType()
+
+
+class Inline(Function):
+    """
+    inline(array_of_struct) - Explodes an array of structs into a table.
+    """
+
+
+@Inline.register  # type: ignore
+def infer_type(arg: ct.ListType) -> ct.ColumnType:
+    # The output type is the type of the struct's fields
+    return arg.type.element.type
+
+
+class InlineOuter(Function):
+    """
+    inline_outer(array_of_struct) - Similar to inline, but includes nulls if the size
+    of the array is less than the size of the outer array.
+    """
+
+
+@InlineOuter.register  # type: ignore
+def infer_type(arg: ct.ListType) -> ct.ColumnType:
+    # The output type is the type of the struct's fields
+    return arg.type.element.type
+
+
+class InputFileBlockLength(Function):
+    """
+    input_file_block_length() - Returns the length of the current block being read from HDFS.
+    """
+
+
+@InputFileBlockLength.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.LongType()
+
+
+class InputFileBlockStart(Function):
+    """
+    input_file_block_start() - Returns the start offset of the current block being read from HDFS.
+    """
+
+
+@InputFileBlockStart.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.LongType()
+
+
+class InputFileName(Function):
+    """
+    input_file_name() - Returns the name of the current file being read from HDFS.
+    """
+
+
+@InputFileName.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.StringType()
+
+
+class Instr(Function):
+    """
+    instr(str, substring) - Returns the position of the first occurrence of substring in string.
+    """
+
+
+@Instr.register  # type: ignore
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
 class Int(Function):
     """
     int(expr) - Casts the value expr to the target data type int.

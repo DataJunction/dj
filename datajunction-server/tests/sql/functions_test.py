@@ -1628,6 +1628,96 @@ def test_hypot_func(session: Session):
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
+def test_ilike_func(session: Session):
+    """
+    Test the `ilike` function
+    """
+    query = parse(
+        "SELECT col1 ilike '%pattern%' FROM (SELECT ('aee'), ('bee') AS col1)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
+def test_initcap_func(session: Session):
+    """
+    Test the `initcap` function
+    """
+    query = parse("SELECT initcap('hello world'), initcap('SQL function')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+# TODO: fix struct  # pylint: disable=fixme
+# def test_inline_func(session: Session):
+#     """
+#     Test the `inline` function
+#     """
+#     # This test assumes there's a table with a column of type ARRAY<STRUCT<a: INT, b: STRING>>
+#     query = parse("SELECT inline(array_col) FROM (SELECT (array(struct('a', 1, 'b', '222'))) AS col1)")
+#     exc = DJException()
+#     ctx = ast.CompileContext(session=session, exception=exc)
+#     query.compile(ctx)
+#     assert not exc.errors
+#     assert isinstance(query.select.projection[0].type, ct.StructType)  # type: ignore
+
+
+def test_input_file_block_length_func(session: Session):
+    """
+    Test the `input_file_block_length` function
+    """
+    query = parse("SELECT input_file_block_length()")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.LongType()  # type: ignore
+
+
+def test_input_file_block_start_func(session: Session):
+    """
+    Test the `input_file_block_start` function
+    """
+    query = parse("SELECT input_file_block_start()")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.LongType()  # type: ignore
+
+
+def test_input_file_name_func(session: Session):
+    """
+    Test the `input_file_name` function
+    """
+    query = parse("SELECT input_file_name()")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+def test_instr_func(session: Session):
+    """
+    Test the `instr` function
+    """
+    query = parse("SELECT instr('hello world', 'world'), instr('hello world', 'SQL')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
 def test_max() -> None:
     """
     Test ``Max`` function.
