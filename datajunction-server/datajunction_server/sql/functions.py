@@ -731,9 +731,7 @@ class Ceiling(Function):
 
 
 @Ceiling.register  # type: ignore
-def infer_type(
-    arg: ct.NumberType
-) -> ct.ColumnType:
+def infer_type(arg: ct.NumberType) -> ct.ColumnType:
     return ct.BigIntType()
 
 
@@ -757,9 +755,7 @@ class CharLength(Function):
 
 
 @CharLength.register  # type: ignore
-def infer_type(
-    arg: ct.StringType
-) -> ct.ColumnType:
+def infer_type(arg: ct.StringType) -> ct.ColumnType:
     return ct.IntegerType()
 
 
@@ -770,9 +766,7 @@ class CharacterLength(Function):
 
 
 @CharacterLength.register  # type: ignore
-def infer_type(
-    arg: ct.StringType
-) -> ct.ColumnType:
+def infer_type(arg: ct.StringType) -> ct.ColumnType:
     return ct.IntegerType()
 
 
@@ -783,9 +777,7 @@ class Chr(Function):
 
 
 @Chr.register  # type: ignore
-def infer_type(
-    arg: ct.IntegerType
-) -> ct.ColumnType:
+def infer_type(arg: ct.IntegerType) -> ct.ColumnType:
     return ct.StringType()
 
 
@@ -849,7 +841,8 @@ def infer_type(
 
 class ConcatWs(Function):
     """
-    concat_ws(separator, [str | array(str)]+) - Returns the concatenation of the strings separated by separator.
+    concat_ws(separator, [str | array(str)]+) - Returns the concatenation of the
+    strings separated by separator.
     """
 
 
@@ -870,15 +863,14 @@ class Contains(Function):
 
 
 @Contains.register  # type: ignore
-def infer_type(
-    arg1: ct.StringType, arg2: ct.StringType
-) -> ct.ColumnType:
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
     return ct.BooleanType()
 
 
 @Contains.register  # type: ignore
 def infer_type(  # pragma: no cover
-    arg1: ct.BinaryType, arg2: ct.BinaryType
+    arg1: ct.BinaryType,
+    arg2: ct.BinaryType,
 ) -> ct.ColumnType:
     return ct.BooleanType()
 
@@ -891,14 +883,18 @@ class Conv(Function):
 
 @Conv.register  # type: ignore
 def infer_type(
-    arg1: ct.NumberType, arg2: ct.IntegerType, arg3: ct.IntegerType
+    arg1: ct.NumberType,
+    arg2: ct.IntegerType,
+    arg3: ct.IntegerType,
 ) -> ct.ColumnType:
     return ct.StringType()
 
 
 @Conv.register  # type: ignore
 def infer_type(
-    arg1: ct.StringType, arg2: ct.IntegerType, arg3: ct.IntegerType
+    arg1: ct.StringType,
+    arg2: ct.IntegerType,
+    arg3: ct.IntegerType,
 ) -> ct.ColumnType:
     return ct.StringType()
 
@@ -912,7 +908,9 @@ class ConvertTimezone(Function):
 
 @ConvertTimezone.register  # type: ignore
 def infer_type(
-    arg1: ct.StringType, arg2: ct.StringType, arg3: ct.TimestampType
+    arg1: ct.StringType,
+    arg2: ct.StringType,
+    arg3: ct.TimestampType,
 ) -> ct.ColumnType:
     return ct.TimestampType()
 
@@ -925,7 +923,8 @@ class Corr(Function):
 
 @Corr.register  # type: ignore
 def infer_type(
-    arg1: ct.NumberType, arg2: ct.NumberType,
+    arg1: ct.NumberType,
+    arg2: ct.NumberType,
 ) -> ct.ColumnType:
     return ct.FloatType()
 
@@ -937,9 +936,7 @@ class Cos(Function):
 
 
 @Cos.register  # type: ignore
-def infer_type(
-    arg: ct.NumberType
-) -> ct.ColumnType:
+def infer_type(arg: ct.NumberType) -> ct.ColumnType:
     return ct.FloatType()
 
 
@@ -950,9 +947,7 @@ class Cosh(Function):
 
 
 @Cosh.register  # type: ignore
-def infer_type(
-    arg: ct.NumberType
-) -> ct.ColumnType:
+def infer_type(arg: ct.NumberType) -> ct.ColumnType:
     return ct.FloatType()
 
 
@@ -963,9 +958,7 @@ class Cot(Function):
 
 
 @Cot.register  # type: ignore
-def infer_type(
-    arg: ct.NumberType
-) -> ct.ColumnType:
+def infer_type(arg: ct.NumberType) -> ct.ColumnType:
     return ct.FloatType()
 
 
@@ -984,6 +977,124 @@ def infer_type(
     return ct.BigIntType()
 
 
+class CountIf(Function):
+    """
+    count_if(expr) - Returns the number of true values in expr.
+    """
+
+
+@CountIf.register  # type: ignore
+def infer_type(arg: ct.BooleanType) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class CountMinSketch(Function):
+    """
+    count_min_sketch(col, eps, confidence, seed) - Creates a Count-Min sketch of col.
+    """
+
+
+@CountMinSketch.register  # type: ignore
+def infer_type(
+    arg1: ct.ColumnType,
+    arg2: ct.FloatType,
+    arg3: ct.FloatType,
+    arg4: ct.IntegerType,
+) -> ct.ColumnType:
+    return ct.BinaryType()
+
+
+class CovarPop(Function):
+    """
+    covar_pop(expr1, expr2) - Returns the population covariance of expr1 and expr2.
+    """
+
+
+@CovarPop.register  # type: ignore
+def infer_type(
+    arg1: ct.NumberType,
+    arg2: ct.NumberType,
+) -> ct.ColumnType:
+    return ct.FloatType()
+
+
+class CovarSamp(Function):
+    """
+    covar_samp(expr1, expr2) - Returns the sample covariance of expr1 and expr2.
+    """
+
+
+@CovarSamp.register  # type: ignore
+def infer_type(arg1: ct.NumberType, arg2: ct.NumberType) -> ct.ColumnType:
+    return ct.FloatType()
+
+
+class Crc32(Function):
+    """
+    crc32(expr) - Computes a cyclic redundancy check value and returns the result as a bigint.
+    """
+
+
+@Crc32.register  # type: ignore
+def infer_type(arg: ct.StringType) -> ct.ColumnType:
+    return ct.BigIntType()
+
+
+class Csc(Function):
+    """
+    csc(expr) - Computes the cosecant of expr.
+    """
+
+
+@Csc.register  # type: ignore
+def infer_type(arg: ct.NumberType) -> ct.ColumnType:
+    return ct.FloatType()
+
+
+class CumeDist(Function):
+    """
+    cume_dist() - Computes the cumulative distribution of a value within a group of values.
+    """
+
+
+@CumeDist.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.FloatType()
+
+
+class Curdate(Function):
+    """
+    curdate() - Returns the current date.
+    """
+
+
+@Curdate.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.DateType()
+
+
+class CurrentCatalog(Function):
+    """
+    current_catalog() - Returns the current catalog.
+    """
+
+
+@CurrentCatalog.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.StringType()
+
+
+class CurrentDatabase(Function):
+    """
+    current_database() - Returns the current database.
+    """
+
+
+@CurrentDatabase.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.StringType()
+
+
 class CurrentDate(Function):
     """
     Returns the current date.
@@ -993,6 +1104,17 @@ class CurrentDate(Function):
 @CurrentDate.register  # type: ignore
 def infer_type() -> ct.DateType:
     return ct.DateType()
+
+
+class CurrentSchema(Function):
+    """
+    current_schema() - Returns the current schema.
+    """
+
+
+@CurrentSchema.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.StringType()
 
 
 class CurrentTime(Function):
