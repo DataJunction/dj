@@ -1491,6 +1491,33 @@ def test_get_func(session: Session):
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
+# TODO: Fix GetJsonObject to extract output schema
+# def test_get_json_object_func(session: Session):
+#     """
+#     Test the `get_json_object` function
+#     """
+#     query = parse("SELECT get_json_object('{\"key\": \"value\"}', '$.key'), get_json_object('{\"key1\": \"value1\", \"key2\": \"value2\"}', '$.key2')")
+#     exc = DJException()
+#     ctx = ast.CompileContext(session=session, exception=exc)
+#     query.compile(ctx)
+#     assert not exc.errors
+#     assert query.select.projection[0].type == ct.StringType()  # type: ignore
+#     assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_getbit_func(session: Session):
+    """
+    Test the `getbit` function
+    """
+    query = parse("SELECT getbit(1010, 0), getbit(1010, 1)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
 def test_greatest(session: Session):
     """
     Test `greatest`
@@ -1501,6 +1528,63 @@ def test_greatest(session: Session):
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_grouping_func(session: Session):
+    """
+    Test the `grouping` function
+    """
+    query = parse(
+        "SELECT grouping(col1), grouping(col2) FROM "
+        "(SELECT (1), (2) AS col1, (3), (4) AS col2) GROUP BY col1",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_grouping_id_func(session: Session):
+    """
+    Test the `grouping_id` function
+    """
+    query = parse(
+        "SELECT grouping_id(col1, col2) FROM "
+        "(SELECT (1), (2) AS col1, (3), (4) AS col2) GROUP BY col1",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
+
+
+def test_hash_func(session: Session):
+    """
+    Test the `hash` function
+    """
+    query = parse("SELECT hash('hello'), hash(123)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_hex_func(session: Session):
+    """
+    Test the `hex` function
+    """
+    query = parse("SELECT hex('hello'), hex(123)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
 def test_max() -> None:
