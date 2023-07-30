@@ -1001,6 +1001,115 @@ def test_dj_logical_timestamp(session: Session) -> None:
     assert query_with_array.select.projection[0].type == StringType()  # type: ignore
 
 
+def test_dayofmonth_func(session: Session):
+    """
+    Test the `dayofmonth` function
+    """
+    query = parse(
+        "SELECT dayofmonth(cast('2023-07-30' as date)), dayofmonth('2023-01-01')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_dayofweek_func(session: Session):
+    """
+    Test the `dayofweek` function
+    """
+    query = parse(
+        "SELECT dayofweek(cast('2023-07-30' as date)), dayofweek('2023-01-01')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_dayofyear_func(session: Session):
+    """
+    Test the `dayofyear` function
+    """
+    query = parse(
+        "SELECT dayofyear(cast('2023-07-30' as date)), dayofyear('2023-01-01')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_decimal_func(session: Session):
+    """
+    Test the `decimal` function
+    """
+    query = parse("SELECT decimal(123), decimal('456.78')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DecimalType(8, 6)  # type: ignore
+    assert query.select.projection[1].type == ct.DecimalType(8, 6)  # type: ignore
+
+
+def test_decode_func(session: Session):
+    """
+    Test the `decode` function
+    """
+    query = parse("SELECT decode(unhex('4D7953514C'), 'UTF-8')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+def test_degrees_func(session: Session):
+    """
+    Test the `degrees` function
+    """
+    query = parse("SELECT degrees(1), degrees(3.141592653589793)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+
+
+def test_double_func(session: Session):
+    """
+    Test the `double` function
+    """
+    query = parse("SELECT double('123.45'), double(67890)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
+    assert query.select.projection[1].type == ct.DoubleType()  # type: ignore
+
+
+def test_e_func(session: Session):
+    """
+    Test the `e` function
+    """
+    query = parse("SELECT e(), e()")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+
+
 def test_element_at(session: Session):
     """
     Test the `element_at` Spark function
@@ -1357,6 +1466,19 @@ def test_trim(session: Session):
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+def test_unhex_func(session: Session):
+    """
+    Test the `unhex` function
+    """
+    query = parse("SELECT unhex('4D'), unhex('7953514C')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BinaryType()  # type: ignore
+    assert query.select.projection[1].type == ct.BinaryType()  # type: ignore
 
 
 def test_upper(session: Session):

@@ -1258,7 +1258,8 @@ class DatePart(Function):
 
 @DatePart.register  # type: ignore
 def infer_type(
-    arg1: ct.StringType, arg2: Union[ct.DateType, ct.TimestampType],
+    arg1: ct.StringType,
+    arg2: Union[ct.DateType, ct.TimestampType],
 ) -> ct.ColumnType:
     # The output can be integer, float, or string depending on the part extracted.
     # Here we assume the output is an integer for simplicity. Adjust as needed.
@@ -1298,6 +1299,125 @@ def infer_type(
     arg: Union[ct.StringType, ct.DateType, ct.TimestampType],
 ) -> ct.IntegerType:  # type: ignore
     return ct.IntegerType()
+
+
+class Dayofmonth(Function):
+    """
+    dayofmonth(date) - Extracts the day of the month of a given date.
+    """
+
+
+@Dayofmonth.register  # type: ignore
+def infer_type(
+    arg: Union[ct.DateType, ct.StringType],
+) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class Dayofweek(Function):
+    """
+    dayofweek(date) - Extracts the day of the week of a given date.
+    """
+
+
+@Dayofweek.register  # type: ignore
+def infer_type(
+    arg: Union[ct.DateType, ct.StringType],
+) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class Dayofyear(Function):
+    """
+    dayofyear(date) - Extracts the day of the year of a given date.
+    """
+
+
+@Dayofyear.register  # type: ignore
+def infer_type(
+    arg: Union[ct.DateType, ct.StringType],
+) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class Decimal(Function):
+    """
+    decimal(expr, precision, scale) - Converts expr to a decimal number.
+    """
+
+
+@Decimal.register  # type: ignore
+def infer_type(
+    arg1: Union[ct.IntegerType, ct.FloatType, ct.StringType],
+) -> ct.ColumnType:
+    return ct.DecimalType(8, 6)
+
+
+class Decode(Function):
+    """
+    decode(bin, charset) - Decodes the first argument using the second argument
+    character set.
+
+    TODO: decode(expr, search, result [, search, result ] ... [, default]) - Compares
+    expr to each search value in order. If expr is equal to a search value, decode
+    returns the corresponding result. If no match is found, then it returns default.
+    If default is omitted, it returns null.
+    """
+
+
+@Decode.register  # type: ignore
+def infer_type(arg1: ct.BinaryType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.StringType()
+
+
+class Degrees(Function):
+    """
+    degrees(expr) - Converts radians to degrees.
+    """
+
+
+@Degrees.register  # type: ignore
+def infer_type(arg: ct.NumberType) -> ct.ColumnType:
+    return ct.FloatType()
+
+
+class DenseRank(Function):  # pragma: no cover
+    """
+    TODO
+    dense_rank() - Computes the dense rank of a value in a group of values.
+    """
+
+
+class Div(Function):
+    """
+    TODO
+    expr1 div expr2 - Divide expr1 by expr2. It returns NULL if an operand is NULL or
+    expr2 is 0. The result is casted to long.
+    """
+
+
+class Double(Function):
+    """
+    double(expr) - Converts expr to a double precision floating-point number.
+    """
+
+
+@Double.register  # type: ignore
+def infer_type(
+    arg: Union[ct.IntegerType, ct.FloatType, ct.StringType],
+) -> ct.ColumnType:
+    return ct.DoubleType()
+
+
+class E(Function):  # pylint: disable=invalid-name
+    """
+    e() - Returns the mathematical constant e.
+    """
+
+
+@E.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.FloatType()
 
 
 class ElementAt(Function):
@@ -2138,6 +2258,19 @@ class Trim(Function):
 @Trim.register
 def infer_type(arg: ct.StringType) -> ct.StringType:
     return ct.StringType()
+
+
+class Unhex(Function):
+    """
+    unhex(str) - Interprets each pair of characters in the input string as a
+    hexadecimal number and converts it to the byte that number represents.
+    The output is a binary string.
+    """
+
+
+@Unhex.register  # type: ignore
+def infer_type(arg: ct.StringType) -> ct.ColumnType:
+    return ct.BinaryType()
 
 
 class Upper(Function):
