@@ -489,6 +489,70 @@ def test_cardinality(session: Session):
     assert not exc.errors
     assert query_with_map.select.projection[0].type == ct.IntegerType()  # type: ignore
 
+def test_cbrt_func(session: Session):
+    """
+    Test the `cbrt` function
+    """
+    query = parse("SELECT cbrt(27), cbrt(64.0)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == FloatType()  # type: ignore
+    assert query.select.projection[1].type == FloatType()  # type: ignore
+
+
+def test_char_func(session: Session):
+    """
+    Test the `char` function
+    """
+    query = parse("SELECT char(65), char(97)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == StringType()  # type: ignore
+    assert query.select.projection[1].type == StringType()  # type: ignore
+
+
+def test_char_length_func(session: Session):
+    """
+    Test the `char_length` function
+    """
+    query = parse("SELECT char_length('hello'), char_length('world')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == IntegerType()  # type: ignore
+    assert query.select.projection[1].type == IntegerType()  # type: ignore
+
+
+def test_character_length_func(session: Session):
+    """
+    Test the `character_length` function
+    """
+    query = parse("SELECT character_length('hello'), character_length('world')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == IntegerType()  # type: ignore
+    assert query.select.projection[1].type == IntegerType()  # type: ignore
+
+
+def test_chr_func(session: Session):
+    """
+    Test the `chr` function
+    """
+    query = parse("SELECT chr(65), chr(97)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == StringType()  # type: ignore
+    assert query.select.projection[1].type == StringType()  # type: ignore
+
 
 @pytest.mark.parametrize(
     "types, expected",
@@ -577,6 +641,19 @@ def test_coalesce_infer_type() -> None:
     )
 
 
+def test_concat_ws_func(session: Session):
+    """
+    Test the `concat_ws` function
+    """
+    query = parse("SELECT concat_ws(',', 'hello', 'world'), concat_ws('-', 'spark', 'sql', 'function')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == StringType()  # type: ignore
+    assert query.select.projection[1].type == StringType()  # type: ignore
+
+
 def test_collect_list(session: Session):
     """
     Test the `collect_list` function
@@ -603,6 +680,96 @@ def test_collect_set(session: Session):
     assert query.select.projection[0].type == ct.ListType(  # type: ignore
         element_type=ct.IntegerType(),
     )
+
+
+def test_contains_func(session: Session):
+    """
+    Test the `contains` function
+    """
+    query = parse("SELECT contains('hello world', 'world'), contains('hello world', 'spark')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+
+
+def test_conv_func(session: Session):
+    """
+    Test the `conv` function
+    """
+    query = parse("SELECT conv('10', 10, 2), conv(15, 10, 16)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_convert_timezone_func(session: Session):
+    """
+    Test the `convert_timezone` function
+    """
+    query = parse("SELECT convert_timezone('PST', 'EST', cast('2023-07-30 12:34:56' as timestamp))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+
+
+def test_corr_func(session: Session):
+    """
+    Test the `corr` function
+    """
+    query = parse("SELECT corr(2.0, 3.0), corr(5, 10)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+
+
+def test_cos_func(session: Session):
+    """
+    Test the `cos` function
+    """
+    query = parse("SELECT cos(0), cos(3.1416)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+
+
+def test_cosh_func(session: Session):
+    """
+    Test the `cosh` function
+    """
+    query = parse("SELECT cosh(0), cosh(1.0)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+
+
+def test_cot_func(session: Session):
+    """
+    Test the `cot` function
+    """
+    query = parse("SELECT cot(1), cot(0.7854)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
 def test_count() -> None:

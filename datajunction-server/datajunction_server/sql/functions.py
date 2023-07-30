@@ -655,6 +655,19 @@ def infer_type(
     return ct.IntegerType()
 
 
+class Cbrt(Function):
+    """
+    cbrt(expr) - Computes the cube root of the value expr.
+    """
+
+
+@Cbrt.register  # type: ignore
+def infer_type(
+    arg: ct.NumberType,
+) -> ct.ColumnType:
+    return ct.FloatType()
+
+
 class Ceil(Function):
     """
     Computes the smallest integer greater than or equal to the input value.
@@ -709,6 +722,71 @@ def infer_type(
     args: ct.NumberType,
 ) -> ct.BigIntType:
     return ct.BigIntType()
+
+
+class Ceiling(Function):
+    """
+    ceiling(expr) - Returns the smallest integer greater than or equal to the value expr.
+    """
+
+
+@Ceiling.register  # type: ignore
+def infer_type(
+    arg: ct.NumberType
+) -> ct.ColumnType:
+    return ct.BigIntType()
+
+
+class Char(Function):
+    """
+    char(expr) - Returns the ASCII character having the binary equivalent to expr.
+    """
+
+
+@Char.register  # type: ignore
+def infer_type(
+    arg: ct.IntegerType,
+) -> ct.ColumnType:
+    return ct.StringType()
+
+
+class CharLength(Function):
+    """
+    char_length(expr) - Returns the length of the value expr.
+    """
+
+
+@CharLength.register  # type: ignore
+def infer_type(
+    arg: ct.StringType
+) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class CharacterLength(Function):
+    """
+    character_length(expr) - Returns the length of the value expr.
+    """
+
+
+@CharacterLength.register  # type: ignore
+def infer_type(
+    arg: ct.StringType
+) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class Chr(Function):
+    """
+    chr(expr) - Returns the ASCII character having the binary equivalent to expr.
+    """
+
+
+@Chr.register  # type: ignore
+def infer_type(
+    arg: ct.IntegerType
+) -> ct.ColumnType:
+    return ct.StringType()
 
 
 class Coalesce(Function):
@@ -767,6 +845,128 @@ def infer_type(
     arg: ct.ColumnType,
 ) -> ct.ColumnType:
     return ct.ListType(element_type=arg.type)
+
+
+class ConcatWs(Function):
+    """
+    concat_ws(separator, [str | array(str)]+) - Returns the concatenation of the strings separated by separator.
+    """
+
+
+@ConcatWs.register  # type: ignore
+def infer_type(
+    sep: ct.StringType,
+    *strings: ct.StringType,
+) -> ct.ColumnType:
+    return ct.StringType()
+
+
+class Contains(Function):
+    """
+    contains(left, right) - Returns a boolean. The value is True if right is found inside left.
+    Returns NULL if either input expression is NULL. Otherwise, returns False. Both left or
+    right must be of STRING or BINARY type.
+    """
+
+
+@Contains.register  # type: ignore
+def infer_type(
+    arg1: ct.StringType, arg2: ct.StringType
+) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+@Contains.register  # type: ignore
+def infer_type(  # pragma: no cover
+    arg1: ct.BinaryType, arg2: ct.BinaryType
+) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class Conv(Function):
+    """
+    conv(expr, from_base, to_base) - Convert the number expr from from_base to to_base.
+    """
+
+
+@Conv.register  # type: ignore
+def infer_type(
+    arg1: ct.NumberType, arg2: ct.IntegerType, arg3: ct.IntegerType
+) -> ct.ColumnType:
+    return ct.StringType()
+
+
+@Conv.register  # type: ignore
+def infer_type(
+    arg1: ct.StringType, arg2: ct.IntegerType, arg3: ct.IntegerType
+) -> ct.ColumnType:
+    return ct.StringType()
+
+
+class ConvertTimezone(Function):
+    """
+    convert_timezone(from_tz, to_tz, timestamp) - Convert timestamp from from_tz to to_tz.
+    Spark 3.4+
+    """
+
+
+@ConvertTimezone.register  # type: ignore
+def infer_type(
+    arg1: ct.StringType, arg2: ct.StringType, arg3: ct.TimestampType
+) -> ct.ColumnType:
+    return ct.TimestampType()
+
+
+class Corr(Function):
+    """
+    corr(expr1, expr2) - Compute the correlation of expr1 and expr2.
+    """
+
+
+@Corr.register  # type: ignore
+def infer_type(
+    arg1: ct.NumberType, arg2: ct.NumberType,
+) -> ct.ColumnType:
+    return ct.FloatType()
+
+
+class Cos(Function):
+    """
+    cos(expr) - Compute the cosine of expr.
+    """
+
+
+@Cos.register  # type: ignore
+def infer_type(
+    arg: ct.NumberType
+) -> ct.ColumnType:
+    return ct.FloatType()
+
+
+class Cosh(Function):
+    """
+    cosh(expr) - Compute the hyperbolic cosine of expr.
+    """
+
+
+@Cosh.register  # type: ignore
+def infer_type(
+    arg: ct.NumberType
+) -> ct.ColumnType:
+    return ct.FloatType()
+
+
+class Cot(Function):
+    """
+    cot(expr) - Compute the cotangent of expr.
+    """
+
+
+@Cot.register  # type: ignore
+def infer_type(
+    arg: ct.NumberType
+) -> ct.ColumnType:
+    return ct.FloatType()
 
 
 class Count(Function):
@@ -857,6 +1057,14 @@ def infer_type(
 def infer_type(
     start_date: ct.StringType,
     end_date: ct.StringType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+@DateDiff.register  # type: ignore
+def infer_type(
+    start_date: ct.IntegerType,
+    end_date: ct.IntegerType,
 ) -> ct.IntegerType:
     return ct.IntegerType()
 
@@ -1191,6 +1399,19 @@ class IfNull(Function):
 @IfNull.register
 def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
     return args[0].type if args[1].type == ct.NullType() else args[1].type
+
+
+class Int(Function):
+    """
+    int(expr) - Casts the value expr to the target data type int.
+    """
+
+
+@Int.register  # type: ignore
+def infer_type(
+    arg: ct.ColumnType,
+) -> ct.ColumnType:
+    return ct.IntegerType()
 
 
 class Length(Function):
