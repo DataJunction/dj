@@ -2034,6 +2034,52 @@ def infer_type(arg: Union[ct.IntegerType, ct.StringType]) -> ct.ColumnType:
     return ct.StringType()
 
 
+class HistogramNumeric(Function):
+    """
+    histogram_numeric(col, numBins) - Generates a histogram using a series of buckets
+    defined by equally spaced width intervals.
+    """
+
+
+@HistogramNumeric.register  # type: ignore
+def infer_type(arg1: ct.ColumnType, arg2: ct.IntegerType) -> ct.ColumnType:
+    # assuming that there's a StructType for the bin and frequency
+    from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+        ast,
+    )
+
+    return ct.ListType(
+        element_type=ct.StructType(
+            ct.NestedField(ast.Name("x"), ct.FloatType()),
+            ct.NestedField(ast.Name("y"), ct.FloatType()),
+        ),
+    )
+
+
+class Hour(Function):
+    """
+    hour(timestamp) - Extracts the hour from a timestamp.
+    """
+
+
+@Hour.register  # type: ignore
+def infer_type(
+    arg: Union[ct.TimestampType, ct.StringType],
+) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class Hypot(Function):
+    """
+    hypot(a, b) - Returns sqrt(a^2 + b^2) without intermediate overflow or underflow.
+    """
+
+
+@Hypot.register  # type: ignore
+def infer_type(arg1: ct.NumberType, arg2: ct.NumberType) -> ct.ColumnType:
+    return ct.FloatType()
+
+
 class If(Function):
     """
     If statement

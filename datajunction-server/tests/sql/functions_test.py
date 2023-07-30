@@ -1587,6 +1587,47 @@ def test_hex_func(session: Session):
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
+def test_histogram_numeric_func(session: Session):
+    """
+    Test the `histogram_numeric` function
+    """
+    query = parse("SELECT histogram_numeric(col, 5) FROM (SELECT (1), (2) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert isinstance(query.select.projection[0].type, ct.ListType)  # type: ignore
+    assert isinstance(query.select.projection[0].type.element.type, ct.StructType)  # type: ignore
+
+
+def test_hour_func(session: Session):
+    """
+    Test the `hour` function
+    """
+    query = parse(
+        "SELECT hour(cast('2023-01-01 12:34:56' as timestamp)), hour('2023-01-01 23:45:56')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_hypot_func(session: Session):
+    """
+    Test the `hypot` function
+    """
+    query = parse("SELECT hypot(3, 4), hypot(5.0, 12.0)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+
+
 def test_max() -> None:
     """
     Test ``Max`` function.
