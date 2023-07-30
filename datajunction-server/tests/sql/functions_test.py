@@ -1205,6 +1205,49 @@ def test_exists_func(session: Session):
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
 
 
+def test_explode_func(session: Session):
+    """
+    Test the `explode` function
+    """
+    query = parse(
+        "SELECT explode(array(1, 2, 3)), explode(map('key1', 'value1', 'key2', 'value2'))",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_explode_outer_func(session: Session):
+    """
+    Test the `explode_outer` function
+    """
+    query = parse(
+        "SELECT explode_outer(array(1, 2, 3)), explode_outer(map('key1', 'value1', 'key2', 'value2'))",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_expm1_func(session: Session):
+    """
+    Test the `expm1` function
+    """
+    query = parse("SELECT expm1(1), expm1(0.5)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+    assert query.select.projection[1].type == ct.FloatType()  # type: ignore
+
+
 def test_filter(session: Session):
     """
     Test the `filter` function
