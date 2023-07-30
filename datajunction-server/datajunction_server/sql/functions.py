@@ -1551,6 +1551,49 @@ def infer_type(
     return ct.DoubleType()
 
 
+class Explode(Function):
+    """
+    explode(expr) - Returns a new row for each element in the given array or map.
+    """
+
+
+@Explode.register  # type: ignore
+def infer_type(arg: ct.ListType) -> ct.ColumnType:
+    return arg.type.element.type
+
+
+@Explode.register  # type: ignore
+def infer_type(arg: ct.MapType) -> ct.ColumnType:
+    return arg.type.value.type
+
+
+class ExplodeOuter(Function):
+    """
+    explode_outer(expr) - Similar to explode, but returns null if the array/map is null or empty.
+    """
+
+
+@ExplodeOuter.register  # type: ignore
+def infer_type(arg: ct.ListType) -> ct.ColumnType:
+    return arg.type.element.type
+
+
+@ExplodeOuter.register  # type: ignore
+def infer_type(arg: ct.MapType) -> ct.ColumnType:
+    return arg.type.value.type
+
+
+class Expm1(Function):
+    """
+    expm1(expr) - Calculates e^x - 1.
+    """
+
+
+@Expm1.register  # type: ignore
+def infer_type(arg: ct.NumberType) -> ct.ColumnType:
+    return ct.FloatType()
+
+
 class Extract(Function):
     """
     Returns a specified component of a timestamp, such as year, month or day.
@@ -2434,29 +2477,6 @@ def infer_type(
 # Table Functions                                                                #
 # https://spark.apache.org/docs/3.3.2/sql-ref-syntax-qry-select-tvf.html#content #
 ##################################################################################
-
-
-class Explode(TableFunction):
-    """
-    The Explode function is used to explode the specified array,
-    nested array, or map column into multiple rows.
-    The explode function will generate a new row for each
-    element in the specified column.
-    """
-
-
-@Explode.register
-def infer_type(
-    arg: ct.ListType,
-) -> List[ct.NestedField]:
-    return [arg.element]
-
-
-@Explode.register
-def infer_type(
-    arg: ct.MapType,
-) -> List[ct.NestedField]:
-    return [arg.key, arg.value]
 
 
 class Unnest(TableFunction):
