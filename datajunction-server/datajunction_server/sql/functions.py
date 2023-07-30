@@ -1443,6 +1443,101 @@ def infer_type(
     return map_arg.type.value.type
 
 
+class Elt(Function):
+    """
+    elt(n, input1, input2, ...) - Returns the n-th input, e.g., returns input2 when n is 2.
+    """
+
+
+@Elt.register  # type: ignore
+def infer_type(arg1: ct.IntegerType, *args: ct.ColumnType) -> ct.ColumnType:
+    return args[0].type
+
+
+class Encode(Function):
+    """
+    encode(str, charset) - Encodes str into the provided charset.
+    """
+
+
+@Encode.register  # type: ignore
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.StringType()
+
+
+class Endswith(Function):
+    """
+    endswith(str, substr) - Returns true if str ends with substr.
+    """
+
+
+@Endswith.register  # type: ignore
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class EqualNull(Function):
+    """
+    equal_null(expr1, expr2) - Returns true if expr1 and expr2 are equal or both are null.
+    """
+
+
+@EqualNull.register  # type: ignore
+def infer_type(arg1: ct.ColumnType, arg2: ct.ColumnType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class Every(Function):
+    """
+    every(expr) - Returns true if all values are true.
+    """
+
+    is_aggregation = True
+
+
+@Every.register  # type: ignore
+def infer_type(arg: ct.BooleanType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class Exists(Function):
+    """
+    exists(expr, pred) - Tests whether a predicate holds for one or more
+    elements in the array.
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `filter` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
+        """
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
+
+        expr, func = args
+        if len(func.identifiers) != 1:
+            raise DJParseException(
+                message="The function `exists` takes a lambda function that takes at "
+                "most one argument.",
+            )
+        lambda_arg_col = [
+            col
+            for col in func.expr.find_all(ast.Column)
+            if col.alias_or_name.name == func.identifiers[0].name
+        ][0]
+        lambda_arg_col.add_type(expr.type.element.type)
+
+
+@Exists.register  # type: ignore
+def infer_type(
+    expr: ct.ListType,
+    pred: ct.BooleanType,
+) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
 class Exp(Function):
     """
     Returns e to the power of expr.

@@ -1129,6 +1129,82 @@ def test_element_at(session: Session):
     assert query_with_map.select.projection[0].type == StringType()  # type: ignore
 
 
+def test_elt_func(session: Session):
+    """
+    Test the `elt` function
+    """
+    query = parse("SELECT elt(1, 'a', 'b', 'c'), elt(3, 'd', 'e', 'f')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_encode_func(session: Session):
+    """
+    Test the `encode` function
+    """
+    query = parse("SELECT encode('hello', 'UTF-8'), encode('world', 'UTF-8')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_endswith_func(session: Session):
+    """
+    Test the `endswith` function
+    """
+    query = parse("SELECT endswith('hello', 'lo'), endswith('world', 'ld')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+
+
+def test_equal_null_func(session: Session):
+    """
+    Test the `equal_null` function
+    """
+    query = parse("SELECT equal_null('hello', 'hello'), equal_null(NULL, NULL)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+
+
+def test_every_func(session: Session):
+    """
+    Test the `every` function
+    """
+    query = parse("SELECT every(col), every(col) FROM (SELECT (true), (false) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+
+
+def test_exists_func(session: Session):
+    """
+    Test the `exists` function
+    """
+    query = parse("SELECT exists(array(1, 2, 3), x -> x % 2 > 0)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
 def test_filter(session: Session):
     """
     Test the `filter` function
