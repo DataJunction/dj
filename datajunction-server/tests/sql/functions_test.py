@@ -920,6 +920,35 @@ def test_current_schema_func(session: Session):
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
+def test_current_timezone_current_user_funcs(session: Session):
+    """
+    Test the `current_timezone` function
+    Test the `current_user` function
+    """
+    query = parse("SELECT current_timezone(), current_user()")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_date_func(session: Session):
+    """
+    Test the `date` function
+    """
+    query = parse(
+        "SELECT date('2023-07-30'), date(cast('2023-07-30 12:34:56' as timestamp))",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DateType()  # type: ignore
+    assert query.select.projection[1].type == ct.DateType()  # type: ignore
+
+
 def test_date_format(session: Session) -> None:
     """
     Test ``date_format`` function.
