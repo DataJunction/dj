@@ -597,7 +597,7 @@ def _(ctx: sbp.FunctionCallContext):
     name = visit(ctx.functionName())
     quantifier = visit(ctx.setQuantifier()) if ctx.setQuantifier() else ""
     over = visit(ctx.windowSpec()) if ctx.windowSpec() else None
-    args = visit((ctx.argument))
+    args = visit(ctx.argument)
     return ast.Function(name, args, quantifier=quantifier, over=over)
 
 
@@ -967,8 +967,11 @@ def _(ctx: sbp.SubqueryContext):
 
 
 @visit.register
-def _(ctx: sbp.StructContext) -> ast.Struct:
-    return ast.Struct(visit(ctx.argument))
+def _(ctx: sbp.StructContext) -> ast.Function:
+    return ast.Function(
+        ast.Name("struct"),
+        args=visit(ctx.argument),
+    )
 
 
 @visit.register
