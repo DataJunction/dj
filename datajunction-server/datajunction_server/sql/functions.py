@@ -2848,6 +2848,41 @@ def infer_type(map_: ct.MapType) -> ct.ColumnType:
     return ct.ListType(element_type=map_.type.value.type)
 
 
+# TODO  # pylint: disable=fixme
+# class MapZipWith(Function):
+#     """
+#     map_zip_with(map1, map2, function) - Returns a merged map of two given maps by
+#     applying function to the pair of values with the same key.
+#     """
+#
+#
+# @MapZipWith.register  # type: ignore
+# def infer_type(
+#     map1: ct.MapType, map2: ct.MapType, function: ct.ColumnType
+# ) -> ct.ColumnType:
+#     return ct.MapType()
+
+
+class Mask(Function):
+    """
+    mask(input[, upperChar, lowerChar, digitChar, otherChar]) - masks the
+    given string value. The function replaces characters with 'X' or 'x',
+    and numbers with 'n'. This can be useful for creating copies of tables
+    with sensitive information removed.
+    """
+
+
+@Mask.register  # type: ignore
+def infer_type(
+    input_: ct.StringType,
+    upper: Optional[ct.StringType] = None,
+    lower: Optional[ct.StringType] = None,
+    digit: Optional[ct.StringType] = None,
+    other: Optional[ct.StringType] = None,
+) -> ct.StringType:
+    return ct.StringType()
+
+
 class Max(Function):
     """
     Computes the maximum value of the input column or expression.
@@ -2870,6 +2905,59 @@ def infer_type(
     return arg.type
 
 
+class MaxBy(Function):
+    """
+    max_by(val, key) - Returns the value of val corresponding to the maximum value of key.
+    """
+
+
+@MaxBy.register  # type: ignore
+def infer_type(val: ct.ColumnType, key: ct.ColumnType) -> ct.ColumnType:
+    return val.type
+
+
+class Md5(Function):
+    """
+    md5(expr) - Calculates the MD5 hash of the given value.
+    """
+
+
+@Md5.register  # type: ignore
+def infer_type(arg: ct.ColumnType) -> ct.ColumnType:
+    return ct.StringType()
+
+
+class Mean(Function):
+    """
+    mean(expr) - Returns the average of the values in the group.
+    """
+
+
+@Mean.register  # type: ignore
+def infer_type(arg: ct.ColumnType) -> ct.ColumnType:
+    return ct.DoubleType()
+
+
+class Median(Function):
+    """
+    median(expr) - Returns the median of the values in the group.
+    """
+
+
+@Median.register  # type: ignore
+def infer_type(arg: ct.NumberType) -> ct.ColumnType:
+    return ct.DoubleType()
+
+
+# TODO: fix parsing of:  # pylint: disable=fixme
+#   SELECT median(col) FROM VALUES (INTERVAL '0' MONTH),
+#   (INTERVAL '10' MONTH) AS tab(col)
+#   in order to test this
+@Median.register  # type: ignore
+def infer_type(arg: ct.IntervalTypeBase) -> ct.IntervalTypeBase:  # pragma: no cover
+    return arg.type
+
+
 class Min(Function):
     """
     Computes the minimum value of the input column or expression.
@@ -2883,6 +2971,17 @@ def infer_type(
     arg: ct.NumberType,
 ) -> ct.NumberType:
     return arg.type
+
+
+class MinBy(Function):
+    """
+    min_by(val, key) - Returns the value of val corresponding to the minimum value of key.
+    """
+
+
+@MinBy.register  # type: ignore
+def infer_type(val: ct.ColumnType, key: ct.ColumnType) -> ct.ColumnType:
+    return val.type
 
 
 class Month(Function):

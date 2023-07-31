@@ -2200,6 +2200,95 @@ def test_max() -> None:
     )
 
 
+# TODO
+# def test_map_zip_with_func(session: Session):
+#     """
+#     Test the `map_zip_with` function
+#     """
+#     # The third argument to map_zip_with is a function, which needs special handling
+#     # Assuming that we have a function "func" defined elsewhere in the code
+#     query = parse("SELECT map_zip_with(map_col1, map_col2, func) FROM table")
+#     exc = DJException()
+#     ctx = ast.CompileContext(session=session, exception=exc)
+#     query.compile(ctx)
+#     assert not exc.errors
+#     assert isinstance(query.select.projection[0].type, ct.MapType)  # type: ignore
+
+
+def test_mask_func(session: Session):
+    """
+    Test the `mask` function
+    """
+    query = parse(
+        "SELECT mask('abcd-EFGH-8765-4321'), "
+        "mask('abcd-EFGH-8765-4321', 'Q'), "
+        "mask('AbCD123-@$#', 'Q', 'q'), "
+        "mask('AbCD123-@$#', 'Q', 'q', 'd'), "
+        "mask('AbCD123-@$#', 'Q', 'q', 'd', 'o')",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+    assert query.select.projection[2].type == ct.StringType()  # type: ignore
+    assert query.select.projection[3].type == ct.StringType()  # type: ignore
+    assert query.select.projection[4].type == ct.StringType()  # type: ignore
+
+
+def test_max_by_min_by_funcs(session: Session):
+    """
+    Test the `max_by` function
+    """
+    query = parse(
+        "SELECT max_by(x, y), min_by(x, y) "
+        "FROM (SELECT ('a'), ('b'), ('c') AS x, (10), (50), (20) AS y)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_md5_func(session: Session):
+    """
+    Test the `md5` function
+    """
+    query = parse("SELECT md5('Spark')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+def test_mean_func(session: Session):
+    """
+    Test the `mean` function
+    """
+    query = parse("SELECT mean(col) FROM (SELECT (1), (2), (3) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
+
+
+def test_median_func(session: Session):
+    """
+    Test the `median` function
+    """
+    query = parse("SELECT median(col) FROM (SELECT (1), (2), (3) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
+
+
 def test_min() -> None:
     """
     Test ``Min`` function.
