@@ -1995,6 +1995,82 @@ def test_make_date_func(session: Session):
     assert query.select.projection[1].type == ct.DateType()  # type: ignore
 
 
+def test_make_dt_interval_func(session: Session):
+    """
+    Test the `make_dt_interval` function
+    """
+    query = parse("SELECT make_dt_interval(1, 2, 30, 45)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DayTimeIntervalType()  # type: ignore
+
+
+def test_make_interval_func(session: Session):
+    """
+    Test the `make_interval` function
+    """
+    query = parse("SELECT make_interval(1, 6)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.YearMonthIntervalType()  # type: ignore
+
+
+def test_make_timestamp_func(session: Session):
+    """
+    Test the `make_timestamp` function
+    """
+    query = parse("SELECT make_timestamp(2023, 7, 30, 14, 45, 30)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+
+
+def test_make_timestamp_ltz_func(session: Session):
+    """
+    Test the `make_timestamp_ltz` function
+    """
+    query = parse(
+        "SELECT make_timestamp_ltz(2023, 7, 30, 14, 45, 30, 'UTC'), "
+        "make_timestamp_ltz(2023, 7, 30, 14, 45, 30)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+    assert query.select.projection[1].type == ct.TimestampType()  # type: ignore
+
+
+def test_make_timestamp_ntz_func(session: Session):
+    """
+    Test the `make_timestamp_ntz` function
+    """
+    query = parse("SELECT make_timestamp_ntz(2023, 7, 30, 14, 45, 30)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+
+
+def test_make_ym_interval_func(session: Session):
+    """
+    Test the `make_ym_interval` function
+    """
+    query = parse("SELECT make_ym_interval(1, 6)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.YearMonthIntervalType()  # type: ignore
+
+
 def test_max() -> None:
     """
     Test ``Max`` function.
