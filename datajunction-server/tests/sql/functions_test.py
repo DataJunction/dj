@@ -811,11 +811,13 @@ def test_count_if_func(session: Session):
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
-def test_count_if_func(session: Session):
+def test_count_min_sketch(session: Session):
     """
-    Test the `count_if` function
+    Test the `count_min_sketch` function
     """
-    query = parse("SELECT count_min_sketch(col, 0.5, 0.5, 1) FROM (SELECT (1), (2), (1) AS col)")
+    query = parse(
+        "SELECT count_min_sketch(col, 0.5, 0.5, 1) FROM (SELECT (1), (2), (1) AS col)",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
@@ -1414,7 +1416,9 @@ def test_format_number_func(session: Session):
     """
     Test the `format_number` function
     """
-    query = parse("SELECT format_number(12345.6789, 2), format_number(98765.4321, '###.##')")
+    query = parse(
+        "SELECT format_number(12345.6789, 2), format_number(98765.4321, '###.##')",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
@@ -1684,8 +1688,10 @@ def test_inline_func(session: Session):
     Test the `inline` function
     """
     # This test assumes there's a table with a column of type ARRAY<STRUCT<a: INT, b: STRING>>
-    query = parse("SELECT inline(col1), inline_outer(array(struct(1, 'a'), struct(2, 'b')))"
-                  " FROM (SELECT (array(struct('a', 1, 'b', '222'))) AS col1)")
+    query = parse(
+        "SELECT inline(col1), inline_outer(array(struct(1, 'a'), struct(2, 'b')))"
+        " FROM (SELECT (array(struct('a', 1, 'b', '222'))) AS col1)",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
