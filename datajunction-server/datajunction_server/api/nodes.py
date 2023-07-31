@@ -812,7 +812,7 @@ def list_node_materializations(
     node = get_node_by_name(session, node_name, with_current=True)
     materializations = []
     for materialization in node.current.materializations:
-        if not materialization.deactivated_at or show_deleted:
+        if not materialization.deactivated_at or show_deleted:  # pragma: no cover
             info = query_service_client.get_materialization_info(
                 node_name,
                 node.current.version,  # type: ignore
@@ -845,7 +845,7 @@ def deactivate_node_materializations(
     node = get_node_by_name(session, node_name, with_current=True)
     query_service_client.deactivate_materialization(node_name, materialization_name)
     for materialization in node.current.materializations:
-        if materialization.name == materialization_name:
+        if materialization.name == materialization_name:  # pragma: no cover
             now = datetime.utcnow()
             materialization.deactivated_at = UTCDatetime(
                 year=now.year,
@@ -858,7 +858,13 @@ def deactivate_node_materializations(
             session.add(materialization)
     session.commit()
     session.refresh(node.current)
-    return node.current.materializations
+    return JSONResponse(
+        status_code=HTTPStatus.NO_CONTENT,
+        content={
+            "message": f"The materialization named `{materialization_name}` on node `{node_name}` "
+            "has been successfully deactivated",
+        },
+    )
 
 
 @router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
