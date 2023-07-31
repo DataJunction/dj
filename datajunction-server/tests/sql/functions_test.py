@@ -1897,6 +1897,47 @@ def test_len_func(session: Session):
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
 
 
+def test_like_func(session: Session):
+    """
+    Test the `like` function
+    """
+    query = parse(
+        "SELECT col like '%pattern%' FROM (SELECT ('a'), ('b'), ('c') AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
+def test_localtimestamp_func(session: Session):
+    """
+    Test the `localtimestamp` function
+    """
+    query = parse("SELECT localtimestamp()")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.TimestampType()  # type: ignore
+
+
+def test_locate_func(session: Session):
+    """
+    Test the `locate` function
+    """
+    query = parse(
+        "SELECT locate('world', 'hello world'), locate('SQL', 'hello world', 2)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
 def test_max() -> None:
     """
     Test ``Max`` function.

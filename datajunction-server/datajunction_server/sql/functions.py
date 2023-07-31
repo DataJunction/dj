@@ -2450,6 +2450,17 @@ def infer_type(
     return ct.IntegerType()
 
 
+class Like(Function):
+    """
+    like(str, pattern) - Performs pattern matching using SQL's LIKE operator.
+    """
+
+
+@Like.register  # type: ignore
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
 class Ln(Function):
     """
     Returns the natural logarithm of a number.
@@ -2461,6 +2472,32 @@ def infer_type(
     args: ct.ColumnType,
 ) -> ct.DoubleType:
     return ct.DoubleType()
+
+
+class Localtimestamp(Function):
+    """
+    localtimestamp() - Returns the current timestamp at the system's local time zone.
+    """
+
+
+@Localtimestamp.register  # type: ignore
+def infer_type() -> ct.ColumnType:
+    return ct.TimestampType()
+
+
+class Locate(Function):
+    """
+    locate(substr, str[, pos]) - Returns the position of the first occurrence of substr in str.
+    """
+
+
+@Locate.register  # type: ignore
+def infer_type(
+    arg1: ct.StringType,
+    arg2: ct.StringType,
+    pos: Optional[ct.IntegerType] = None,
+) -> ct.ColumnType:
+    return ct.IntegerType()
 
 
 class Log(Function):
