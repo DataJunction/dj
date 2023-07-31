@@ -2368,6 +2368,61 @@ def infer_type(arg: ct.StringType) -> ct.ColumnType:
     return ct.StringType()
 
 
+class Lead(Function):
+    """
+    lead(expr[, offset[, default]]) - Returns the value that is `offset`
+    rows after the current row in a window partition.
+    """
+
+
+@Lead.register  # type: ignore
+def infer_type(
+    arg: ct.ColumnType,
+    offset: Optional[ct.IntegerType] = None,
+    default: Optional[ct.ColumnType] = None,
+) -> ct.ColumnType:
+    # The output type is the same as the input expression's type
+    return arg.type
+
+
+class Least(Function):
+    """
+    least(expr1, expr2, ...) - Returns the smallest value of the list of values.
+    """
+
+
+@Least.register  # type: ignore
+def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
+    # The output type is the same as the input expressions' type
+    # Assuming all input expressions have the same type
+    return args[0].type
+
+
+class Left(Function):
+    """
+    left(str, len) - Returns the leftmost `len` characters from the string.
+    """
+
+
+@Left.register  # type: ignore
+def infer_type(  # pragma: no cover  # see test_left_func
+    arg1: ct.StringType,
+    arg2: ct.IntegerType,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+class Len(Function):
+    """
+    len(str) - Returns the length of the string.
+    """
+
+
+@Len.register  # type: ignore
+def infer_type(arg: ct.StringType) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
 class Length(Function):
     """
     Returns the length of a string.
