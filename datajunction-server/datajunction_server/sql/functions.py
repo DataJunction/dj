@@ -2284,6 +2284,90 @@ def infer_type(json_str: ct.StringType, *paths: ct.StringType) -> ct.ColumnType:
     return ct.ListType(element_type=ct.StringType())
 
 
+class Kurtosis(Function):
+    """
+    kurtosis(expr) - Returns the kurtosis of the values in a group.
+    """
+
+
+@Kurtosis.register  # type: ignore
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
+class Lag(Function):
+    """
+    lag(expr[, offset[, default]]) - Returns the value that is `offset` rows
+    before the current row in a window partition.
+    """
+
+
+@Lag.register  # type: ignore
+def infer_type(
+    arg: ct.ColumnType,
+    offset: Optional[ct.IntegerType] = None,
+    default: Optional[ct.ColumnType] = None,
+) -> ct.ColumnType:
+    # The output type is the same as the input expression's type
+    return arg.type
+
+
+class Last(Function):
+    """
+    last(expr[, ignoreNulls]) - Returns the last value of `expr` for a group of rows.
+    """
+
+    is_aggregation = True
+
+
+@Last.register  # type: ignore
+def infer_type(
+    arg: ct.ColumnType,
+    ignore_nulls: Optional[ct.BooleanType] = None,
+) -> ct.ColumnType:
+    # The output type is the same as the input expression's type
+    return arg.type
+
+
+class LastDay(Function):
+    """
+    last_day(date) - Returns the last day of the month which the date belongs to.
+    """
+
+
+@LastDay.register  # type: ignore
+def infer_type(arg: Union[ct.DateType, ct.StringType]) -> ct.ColumnType:
+    return ct.DateType()
+
+
+class LastValue(Function):
+    """
+    last_value(expr[, ignoreNulls]) - Returns the last value in an ordered set of values.
+    """
+
+    is_aggregation = True
+
+
+@LastValue.register  # type: ignore
+def infer_type(
+    arg: ct.ColumnType,
+    ignore_nulls: Optional[ct.BooleanType] = None,
+) -> ct.ColumnType:
+    # The output type is the same as the input expression's type
+    return arg.type
+
+
+class Lcase(Function):
+    """
+    lcase(str) - Converts the string to lowercase.
+    """
+
+
+@Lcase.register  # type: ignore
+def infer_type(arg: ct.StringType) -> ct.ColumnType:
+    return ct.StringType()
+
+
 class Length(Function):
     """
     Returns the length of a string.

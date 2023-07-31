@@ -1772,6 +1772,78 @@ def test_json_tuple_func(session: Session):
     assert isinstance(query.select.projection[0].type, ct.ListType)  # type: ignore
 
 
+def test_kurtosis_func(session: Session):
+    """
+    Test the `kurtosis` function
+    """
+    query = parse("SELECT kurtosis(col) FROM (SELECT (1), (2), (3) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
+
+
+def test_lag_func(session: Session):
+    """
+    Test the `lag` function
+    """
+    query = parse(
+        "SELECT lag(col) OVER (ORDER BY col) FROM (SELECT (1), (2), (3) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    # The output type depends on the type of `col`
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_last_and_last_value(session: Session):
+    """
+    Test the `last` function
+    """
+    query = parse(
+        "SELECT last(col) OVER (PARTITION BY col2 ORDER BY col3), "
+        "last_value(col) OVER (PARTITION BY col2 ORDER BY col3) "
+        "FROM (SELECT (1), (2), (3) AS col, (1), (2), (3) AS col2, "
+        "(3), (4), (5) as col3)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    # The output type depends on the type of `col`
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_last_day_func(session: Session):
+    """
+    Test the `last_day` function
+    """
+    query = parse("SELECT last_day('2023-01-01'), last_day(cast('2023-02-15' as date))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DateType()  # type: ignore
+    assert query.select.projection[1].type == ct.DateType()  # type: ignore
+
+
+def test_lcase_func(session: Session):
+    """
+    Test the `lcase` function
+    """
+    query = parse("SELECT lcase('HELLO'), lcase('WORLD')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
 def test_max() -> None:
     """
     Test ``Max`` function.
