@@ -2379,6 +2379,69 @@ def test_months_between(session: Session):
     assert query.select.projection[0].type == ct.FloatType()  # type: ignore
 
 
+def test_named_struct_func(session: Session):
+    """
+    Test the `named_struct` function
+    """
+    query = parse("SELECT named_struct('name', 'cactus', 'age', 30)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StructType(  # type: ignore
+        ct.NestedField(name="name", field_type=ct.StringType()),  # type: ignore
+        ct.NestedField(name="age", field_type=ct.IntegerType()),  # type: ignore
+    )
+
+
+def test_nanvl_func(session: Session):
+    """
+    Test the `nanvl` function
+    """
+    query = parse("SELECT nanvl(cast('NaN' as double), 123)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
+
+
+def test_negative_func(session: Session):
+    """
+    Test the `negative` function
+    """
+    query = parse("SELECT negative(1)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_next_day_func(session: Session):
+    """
+    Test the `next_day` function
+    """
+    query = parse("SELECT next_day('2015-01-14', 'TU')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DateType()  # type: ignore
+
+
+def test_not_func(session: Session):
+    """
+    Test the `not` function
+    """
+    query = parse("SELECT not(true)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
 def test_now() -> None:
     """
     Test ``Now`` function.
