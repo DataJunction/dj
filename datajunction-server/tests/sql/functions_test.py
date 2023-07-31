@@ -2307,6 +2307,78 @@ def test_min() -> None:
         ) == StringType()
 
 
+def test_minute(session: Session):
+    """
+    Test the `minute` function
+    """
+    query = parse(
+        "SELECT minute('2009-07-30 12:58:59'), minute(cast('2009-07-30 12:58:59' as timestamp))",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_mod(session: Session):
+    """
+    Test the `mod` function
+    """
+    query = parse(
+        "SELECT MOD(2, 1.8)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
+
+def test_mode(session: Session):
+    """
+    Test the `mode` function
+    """
+    query = parse(
+        "SELECT mode(col) FROM (SELECT (0), (10), (10) AS col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_monotonically_increasing_id(session: Session):
+    """
+    Test the `monotonically_increasing_id` function
+    """
+    query = parse(
+        "SELECT monotonically_increasing_id()",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BigIntType()  # type: ignore
+
+
+def test_months_between(session: Session):
+    """
+    Test the `months_between` function
+    """
+    query = parse(
+        "SELECT months_between('1997-02-28 10:30:00', '1996-10-30'), "
+        "months_between('1997-02-28 10:30:00', '1996-10-30', false)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.FloatType()  # type: ignore
+
+
 def test_now() -> None:
     """
     Test ``Now`` function.

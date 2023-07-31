@@ -2984,6 +2984,50 @@ def infer_type(val: ct.ColumnType, key: ct.ColumnType) -> ct.ColumnType:
     return val.type
 
 
+class Minute(Function):
+    """
+    minute(timestamp) - Returns the minute component of the string/timestamp
+    """
+
+
+@Minute.register  # type: ignore
+def infer_type(val: Union[ct.StringType, ct.TimestampType]) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+class Mod(Function):
+    """
+    mod(expr1, expr2) - Returns the remainder after expr1/expr2.
+    """
+
+
+@Mod.register  # type: ignore
+def infer_type(expr1: ct.NumberType, expr2: ct.NumberType) -> ct.FloatType:
+    return ct.FloatType()
+
+
+class Mode(Function):
+    """
+    mode(col) - Returns the most frequent value for the values within col.
+    """
+
+
+@Mode.register  # type: ignore
+def infer_type(arg: ct.ColumnType) -> ct.ColumnType:
+    return arg.type
+
+
+class MonotonicallyIncreasingId(Function):
+    """
+    monotonically_increasing_id() - Returns monotonically increasing 64-bit integers
+    """
+
+
+@MonotonicallyIncreasingId.register  # type: ignore
+def infer_type() -> ct.BigIntType:
+    return ct.BigIntType()
+
+
 class Month(Function):
     """
     Extracts the month of a date or timestamp.
@@ -2993,6 +3037,30 @@ class Month(Function):
 @Month.register
 def infer_type(arg: Union[ct.StringType, ct.DateTimeBase]) -> ct.BigIntType:
     return ct.BigIntType()
+
+
+class MonthsBetween(Function):
+    """
+    months_between(timestamp1, timestamp2[, roundOff])
+    """
+
+
+@MonthsBetween.register
+def infer_type(
+    arg: ct.StringType,
+    arg2: ct.StringType,
+    arg3: Optional[ct.BooleanType] = None,
+) -> ct.BigIntType:
+    return ct.FloatType()
+
+
+@MonthsBetween.register
+def infer_type(
+    arg: ct.TimestampType,
+    arg2: ct.TimestampType,
+    arg3: Optional[ct.BooleanType] = None,
+) -> ct.BigIntType:
+    return ct.FloatType()
 
 
 class Now(Function):
