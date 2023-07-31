@@ -2071,6 +2071,115 @@ def test_make_ym_interval_func(session: Session):
     assert query.select.projection[0].type == ct.YearMonthIntervalType()  # type: ignore
 
 
+def test_map_concat_func(session: Session):
+    """
+    Test the `map_concat` function
+    """
+    query = parse("SELECT map_concat(map(1, 'a', 2, 'b'), map(1, 'c'))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.MapType(key_type=ct.IntegerType(), value_type=ct.StringType())  # type: ignore
+
+
+def test_map_contains_key_func(session: Session):
+    """
+    Test the `map_contains_key` function
+    """
+    query = parse("SELECT map_contains_key(map(1, 'a', 2, 'b'), 1)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+
+
+def test_map_entries_func(session: Session):
+    """
+    Test the `map_entries` function
+    """
+    query = parse("SELECT map_entries(map(1, 'a', 2, 'b'))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(  # type: ignore
+        element_type=ct.StructType(
+            ct.NestedField(name="key", field_type=ct.IntegerType()),  # type: ignore
+            ct.NestedField(name="value", field_type=ct.StringType()),  # type: ignore
+        ),
+    )  # type: ignore
+
+
+def test_map_filter_func(session: Session):
+    """
+    Test the `map_filter` function
+    """
+    query = parse("SELECT map_filter(map(1, 0, 2, 2, 3, -1), (k, v) -> k > v)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.IntegerType(),
+        value_type=ct.IntegerType(),
+    )
+
+
+def test_map_from_arrays_func(session: Session):
+    """
+    Test the `map_from_arrays` function
+    """
+    query = parse("SELECT map_from_arrays(array(1.0, 3.0), array('2', '4'))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.FloatType(),
+        value_type=ct.StringType(),
+    )
+
+
+def test_map_from_entries_func(session: Session):
+    """
+    Test the `map_from_entries` function
+    """
+    query = parse("SELECT map_from_entries(array(struct(1, 'a'), struct(2, 'b')))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.MapType(  # type: ignore
+        key_type=ct.IntegerType(),
+        value_type=ct.StringType(),
+    )
+
+
+def test_map_keys_func(session: Session):
+    """
+    Test the `map_keys` function
+    """
+    query = parse("SELECT map_keys(map(1, 'a', 2, 'b'))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.IntegerType())  # type: ignore
+
+
+def test_map_values_func(session: Session):
+    """
+    Test the `map_values` function
+    """
+    query = parse("SELECT map_values(map(1, 'a', 2, 'b'))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
 def test_max() -> None:
     """
     Test ``Max`` function.
