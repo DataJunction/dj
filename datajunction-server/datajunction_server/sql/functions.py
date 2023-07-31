@@ -2606,6 +2606,108 @@ def infer_type(
     return ct.DateType()
 
 
+class MakeDtInterval(Function):
+    """
+    make_dt_interval(days, hours, mins, secs) - Returns a day-time interval.
+    """
+
+
+@MakeDtInterval.register  # type: ignore
+def infer_type(
+    days: ct.IntegerType,
+    hours: ct.IntegerType,
+    mins: ct.IntegerType,
+    secs: ct.IntegerType,
+) -> ct.DayTimeIntervalType:
+    return ct.DayTimeIntervalType()
+
+
+class MakeInterval(Function):
+    """
+    make_interval(years, months) - Returns a year-month interval.
+    """
+
+
+@MakeInterval.register  # type: ignore
+def infer_type(
+    years: ct.IntegerType,
+    months: ct.IntegerType,
+) -> ct.YearMonthIntervalType:
+    return ct.YearMonthIntervalType()
+
+
+class MakeTimestamp(Function):
+    """
+    make_timestamp(year, month, day, hour, min, sec) - Returns a timestamp
+    made from the arguments.
+    """
+
+
+@MakeTimestamp.register  # type: ignore
+def infer_type(  # pylint: disable=too-many-arguments
+    year: ct.IntegerType,
+    month: ct.IntegerType,
+    day: ct.IntegerType,
+    hour: ct.IntegerType,
+    min_: ct.IntegerType,
+    sec: ct.IntegerType,
+) -> ct.TimestampType:
+    return ct.TimestampType()
+
+
+class MakeTimestampLtz(Function):
+    """
+    make_timestamp_ltz(year, month, day, hour, min, sec, timezone)
+    Returns a timestamp with local time zone.
+    """
+
+
+@MakeTimestampLtz.register  # type: ignore
+def infer_type(  # pylint: disable=too-many-arguments
+    year: ct.IntegerType,
+    month: ct.IntegerType,
+    day: ct.IntegerType,
+    hour: ct.IntegerType,
+    min_: ct.IntegerType,
+    sec: ct.IntegerType,
+    timezone: Optional[ct.StringType] = None,
+) -> ct.TimestampType:
+    return ct.TimestampType()
+
+
+class MakeTimestampNtz(Function):
+    """
+    make_timestamp_ntz(year, month, day, hour, min, sec)
+    Returns a timestamp without time zone.
+    """
+
+
+@MakeTimestampNtz.register  # type: ignore
+def infer_type(  # pylint: disable=too-many-arguments
+    year: ct.IntegerType,
+    month: ct.IntegerType,
+    day: ct.IntegerType,
+    hour: ct.IntegerType,
+    min_: ct.IntegerType,
+    sec: ct.IntegerType,
+) -> ct.TimestampType:
+    return ct.TimestampType()
+
+
+class MakeYmInterval(Function):
+    """
+    make_ym_interval(years, months) - Returns a year-month interval.
+    """
+
+
+@MakeYmInterval.register  # type: ignore
+def infer_type(
+    years: ct.IntegerType,
+    months: ct.IntegerType,
+) -> ct.YearMonthIntervalType:
+    return ct.YearMonthIntervalType()
+
+
 class Map(Function):
     """
     Returns a map of constants
