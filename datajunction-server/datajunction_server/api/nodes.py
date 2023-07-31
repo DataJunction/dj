@@ -856,6 +856,16 @@ def deactivate_node_materializations(
                 second=now.second,
             )
             session.add(materialization)
+
+    session.add(
+        History(
+            entity_type=EntityType.MATERIALIZATION,
+            entity_name=materialization_name,
+            node=node.name,
+            activity_type=ActivityType.DELETE,
+            details={},
+        ),
+    )
     session.commit()
     session.refresh(node.current)
     return JSONResponse(
