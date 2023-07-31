@@ -2449,6 +2449,98 @@ def test_now() -> None:
     assert Now.infer_type() == ct.TimestampType()
 
 
+def test_nth_value_func(session: Session):
+    """
+    Test the `nth_value` function
+    """
+    query = parse(
+        "SELECT a, b, nth_value(b, 2) OVER (PARTITION BY a ORDER BY b) FROM "
+        "(SELECT ('A1'), ('A2'), ('A1') AS a, (2), (1), (3) AS b)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[2].type == ct.IntegerType()  # type: ignore
+
+
+def test_ntile_func(session: Session):
+    """
+    Test the `ntile` function
+    """
+    query = parse(
+        "SELECT a, b, ntile(2) OVER (PARTITION BY a ORDER BY b) FROM"
+        "(SELECT ('A1'), ('A2'), ('A1') AS a, (2), (1), (3) AS b)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[2].type == ct.IntegerType()  # type: ignore
+
+
+def test_nullif_func(session: Session):
+    """
+    Test the `nullif` function
+    """
+    query = parse("SELECT nullif(2, 2)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_nvl_func(session: Session):
+    """
+    Test the `nvl` function
+    """
+    query = parse("SELECT nvl(array('1'), array('2'))")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.ListType(element_type=ct.StringType())  # type: ignore
+
+
+def test_nvl2_func(session: Session):
+    """
+    Test the `nvl2` function
+    """
+    query = parse("SELECT nvl2(3, NULL, 1)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_octet_length_func(session: Session):
+    """
+    Test the `octet_length` function
+    """
+    query = parse("SELECT octet_length('Spark SQL')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_overlay_func(session: Session):
+    """
+    Test the `overlay` function
+    TODO: support syntax like:  # pylint: disable=fixme
+        SELECT overlay(encode('Spark SQL', 'utf-8') PLACING encode('_', 'utf-8') FROM 6);
+    """
+    query = parse("SELECT overlay('Hello World', 'J', 7)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
 def test_rank(session: Session):
     """
     Test `rank`
