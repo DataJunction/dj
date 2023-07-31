@@ -125,6 +125,7 @@ class Dispatch(metaclass=DispatchMeta):
             spread_types = temp
         for types in spread_types:
             cls.registry[cls][func_name][tuple(types)] = func  # type: ignore
+        return func
 
     @classmethod
     def dispatch(  # pylint: disable=redefined-outer-name
@@ -675,7 +676,15 @@ class Ceil(Function):
     """
 
 
+class Ceiling(Function):
+    """
+    ceiling(expr[, scale]) - Returns the smallest number after rounding up that is not smaller
+    than expr. An optional scale parameter can be specified to control the rounding behavior.
+    """
+
+
 @Ceil.register
+@Ceiling.register
 def infer_type(
     args: ct.NumberType,
     _target_scale: ct.IntegerType,
@@ -712,6 +721,7 @@ def infer_type(
 
 
 @Ceil.register
+@Ceiling.register
 def infer_type(
     args: ct.DecimalType,
 ) -> ct.DecimalType:
@@ -719,20 +729,10 @@ def infer_type(
 
 
 @Ceil.register
+@Ceiling.register
 def infer_type(
     args: ct.NumberType,
 ) -> ct.BigIntType:
-    return ct.BigIntType()
-
-
-class Ceiling(Function):
-    """
-    ceiling(expr) - Returns the smallest integer greater than or equal to the value expr.
-    """
-
-
-@Ceiling.register  # type: ignore
-def infer_type(arg: ct.NumberType) -> ct.ColumnType:
     return ct.BigIntType()
 
 
@@ -869,10 +869,10 @@ def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
 
 
 @Contains.register  # type: ignore
-def infer_type(  # pragma: no cover
+def infer_type(
     arg1: ct.BinaryType,
     arg2: ct.BinaryType,
-) -> ct.ColumnType:
+) -> ct.ColumnType:  # pragma: no cover
     return ct.BooleanType()
 
 
@@ -985,8 +985,8 @@ class CountIf(Function):
 
 
 @CountIf.register  # type: ignore
-def infer_type(arg: ct.BooleanType) -> ct.ColumnType:
-    return ct.IntegerType()
+def infer_type(arg: ct.BooleanType) -> ct.IntegerType:
+    return ct.IntegerType()  # pragma: no cover
 
 
 class CountMinSketch(Function):
@@ -1222,7 +1222,7 @@ def infer_type(
     start_date: ct.IntegerType,
     end_date: ct.IntegerType,
 ) -> ct.IntegerType:
-    return ct.IntegerType()
+    return ct.IntegerType()  # pragma: no cover
 
 
 class DateFromUnixDate(Function):
@@ -1519,7 +1519,7 @@ class Exists(Function):
 
         expr, func = args
         if len(func.identifiers) != 1:
-            raise DJParseException(
+            raise DJParseException(  # pragma: no cover
                 message="The function `exists` takes a lambda function that takes at "
                 "most one argument.",
             )
@@ -1560,12 +1560,12 @@ class Explode(Function):
 
 @Explode.register  # type: ignore
 def infer_type(arg: ct.ListType) -> ct.ColumnType:
-    return arg.type.element.type
+    return arg.type.element.type  # pragma: no cover
 
 
 @Explode.register  # type: ignore
 def infer_type(arg: ct.MapType) -> ct.ColumnType:
-    return arg.type.value.type
+    return arg.type.value.type  # pragma: no cover
 
 
 class ExplodeOuter(Function):
@@ -1820,7 +1820,7 @@ class Forall(Function):
 
         expr, func = args
         if len(func.identifiers) != 1:
-            raise DJParseException(
+            raise DJParseException(  # pragma: no cover
                 message="The function `forall` takes a lambda function that takes at "
                 "most one argument.",
             )
@@ -2406,11 +2406,11 @@ class Left(Function):
 
 
 @Left.register  # type: ignore
-def infer_type(  # pragma: no cover  # see test_left_func
+def infer_type(
     arg1: ct.StringType,
     arg2: ct.IntegerType,
 ) -> ct.StringType:
-    return ct.StringType()
+    return ct.StringType()  # pragma: no cover  # see test_left_func
 
 
 class Len(Function):
@@ -2778,7 +2778,7 @@ class MapFilter(Function):
 
         expr, func = args
         if len(func.identifiers) != 2:
-            raise DJParseException(
+            raise DJParseException(  # pragma: no cover
                 message="The function `map_filter` takes a lambda function that takes "
                 "exactly two arguments.",
             )
@@ -3047,17 +3047,8 @@ class MonthsBetween(Function):
 
 @MonthsBetween.register
 def infer_type(
-    arg: ct.StringType,
-    arg2: ct.StringType,
-    arg3: Optional[ct.BooleanType] = None,
-) -> ct.BigIntType:
-    return ct.FloatType()
-
-
-@MonthsBetween.register
-def infer_type(
-    arg: ct.TimestampType,
-    arg2: ct.TimestampType,
+    arg: Union[ct.StringType, ct.TimestampType],
+    arg2: Union[ct.StringType, ct.TimestampType],
     arg3: Optional[ct.BooleanType] = None,
 ) -> ct.BigIntType:
     return ct.FloatType()
@@ -3128,7 +3119,7 @@ class Not(Function):
 
 @Not.register  # type: ignore
 def infer_type(arg: ct.BooleanType) -> ct.ColumnType:
-    return ct.BooleanType()
+    return ct.BooleanType()  # pragma: no cover
 
 
 class Now(Function):

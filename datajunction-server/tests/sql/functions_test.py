@@ -596,11 +596,14 @@ def test_ceil(types, expected) -> None:
         )
 
 
-def test_ceil_func(session: Session):
+def test_ceil_ceiling_funcs(session: Session):
     """
-    Test the `ceil` function
+    Test the `ceil` and `ceiling` functions
     """
-    query = parse("SELECT ceil(-0.1), ceil(5), ceil(3.1411, 3), ceil(3.1411, -3)")
+    query = parse(
+        "SELECT ceil(-0.1), ceil(5), ceil(3.1411, 3), ceil(3.1411, -3), "
+        "ceiling(-0.1), ceiling(5), ceiling(3.1411, 3), ceiling(3.1411, -3)",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
@@ -609,6 +612,10 @@ def test_ceil_func(session: Session):
     assert query.select.projection[1].type == BigIntType()  # type: ignore
     assert query.select.projection[2].type == DecimalType(precision=14, scale=3)  # type: ignore
     assert query.select.projection[3].type == DecimalType(precision=14, scale=0)  # type: ignore
+    assert query.select.projection[4].type == BigIntType()  # type: ignore
+    assert query.select.projection[5].type == BigIntType()  # type: ignore
+    assert query.select.projection[6].type == DecimalType(precision=14, scale=3)  # type: ignore
+    assert query.select.projection[7].type == DecimalType(precision=14, scale=0)  # type: ignore
 
 
 def test_coalesce_infer_type() -> None:
@@ -802,6 +809,18 @@ def test_count_if_func(session: Session):
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_count_if_func(session: Session):
+    """
+    Test the `count_if` function
+    """
+    query = parse("SELECT count_min_sketch(col, 0.5, 0.5, 1) FROM (SELECT (1), (2), (1) AS col)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BinaryType()  # type: ignore
 
 
 def test_covar_pop_func(session: Session):
@@ -1395,7 +1414,7 @@ def test_format_number_func(session: Session):
     """
     Test the `format_number` function
     """
-    query = parse("SELECT format_number(12345.6789, 2), format_number(98765.4321, 3)")
+    query = parse("SELECT format_number(12345.6789, 2), format_number(98765.4321, '###.##')")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
@@ -1630,18 +1649,21 @@ def test_hypot_func(session: Session):
     assert query.select.projection[1].type == ct.FloatType()  # type: ignore
 
 
-def test_ilike_func(session: Session):
+def test_ilike_like_func(session: Session):
     """
-    Test the `ilike` function
+    Test the `ilike`, `like` functions
     """
     query = parse(
-        "SELECT col1 ilike '%pattern%' FROM (SELECT ('aee'), ('bee') AS col1)",
+        "SELECT col1 ilike '%pattern%', ilike(col1, '%pattern%'), "
+        "like(col1, '%pattern%') FROM (SELECT ('aee'), ('bee') AS col1)",
     )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
     assert not exc.errors
     assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[2].type == ct.BooleanType()  # type: ignore
 
 
 def test_initcap_func(session: Session):
@@ -1657,18 +1679,19 @@ def test_initcap_func(session: Session):
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-# TODO: fix struct  # pylint: disable=fixme
-# def test_inline_func(session: Session):
-#     """
-#     Test the `inline` function
-#     """
-#     # This test assumes there's a table with a column of type ARRAY<STRUCT<a: INT, b: STRING>>
-#     query = parse("SELECT inline(array_col) FROM (SELECT (array(struct('a', 1, 'b', '222'))) AS col1)")
-#     exc = DJException()
-#     ctx = ast.CompileContext(session=session, exception=exc)
-#     query.compile(ctx)
-#     assert not exc.errors
-#     assert isinstance(query.select.projection[0].type, ct.StructType)  # type: ignore
+def test_inline_func(session: Session):
+    """
+    Test the `inline` function
+    """
+    # This test assumes there's a table with a column of type ARRAY<STRUCT<a: INT, b: STRING>>
+    query = parse("SELECT inline(col1), inline_outer(array(struct(1, 'a'), struct(2, 'b')))"
+                  " FROM (SELECT (array(struct('a', 1, 'b', '222'))) AS col1)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert isinstance(query.select.projection[0].type, ct.StructType)  # type: ignore
+    assert isinstance(query.select.projection[1].type, ct.StructType)  # type: ignore
 
 
 def test_input_file_block_length_func(session: Session):
@@ -1707,6 +1730,18 @@ def test_input_file_name_func(session: Session):
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
 
 
+def test_int(session: Session):
+    """
+    Test the `int` function
+    """
+    query = parse("SELECT int('3')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
 def test_instr_func(session: Session):
     """
     Test the `instr` function
@@ -1725,6 +1760,19 @@ def test_isnan_func(session: Session):
     Test the `isnan` function
     """
     query = parse("SELECT isnan(1/0), isnan(0.0/0.0)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+
+
+def test_isnotnull_isnull(session: Session):
+    """
+    Test the `isnotnull`, `isnull` functions
+    """
+    query = parse("SELECT isnotnull(0), isnull(null)")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
@@ -2370,6 +2418,7 @@ def test_months_between(session: Session):
     """
     query = parse(
         "SELECT months_between('1997-02-28 10:30:00', '1996-10-30'), "
+        "months_between(cast('1997-02-28 10:30:00' as timestamp), cast('1996-10-30' as timestamp)), "
         "months_between('1997-02-28 10:30:00', '1996-10-30', false)",
     )
     exc = DJException()
