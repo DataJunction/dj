@@ -3071,15 +3071,14 @@ class NamedStruct(Function):
 
 @NamedStruct.register  # type: ignore
 def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
-    from itertools import pairwise  # pylint: disable=import-outside-toplevel
-
+    args_iter = iter(args)
     nested_fields = [
         ct.NestedField(
             name=field_name.value.replace("'", ""),
             field_type=field_value.type,
         )
-        for field_name, field_value in pairwise(args)
-    ][::2]
+        for field_name, field_value in zip(args_iter, args_iter)
+    ]
     return ct.StructType(*nested_fields)
 
 
