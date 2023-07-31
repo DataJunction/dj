@@ -2527,6 +2527,17 @@ def infer_type(
     return ct.DoubleType()
 
 
+class Log1p(Function):
+    """
+    log1p(expr) - Returns the natural logarithm of the given value plus one.
+    """
+
+
+@Log1p.register  # type: ignore
+def infer_type(arg: ct.NumberType) -> ct.DoubleType:
+    return ct.DoubleType()
+
+
 class Log2(Function):
     """
     Returns the base-2 logarithm of a number.
@@ -2548,6 +2559,51 @@ class Lower(Function):
     @staticmethod
     def infer_type(arg: "Expression") -> ct.StringType:  # type: ignore
         return ct.StringType()
+
+
+class Lpad(Function):
+    """
+    lpad(str, len[, pad]) - Left-pads the string with pad to a length of len.
+    If str is longer than len, the return value is shortened to len characters.
+    """
+
+
+@Lpad.register  # type: ignore
+def infer_type(
+    arg1: ct.StringType,
+    arg2: ct.IntegerType,
+    pad: Optional[ct.StringType] = None,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+class Ltrim(Function):
+    """
+    ltrim(str[, trimStr]) - Trims the spaces from left end of the string.
+    """
+
+
+@Ltrim.register  # type: ignore
+def infer_type(
+    arg1: ct.StringType,
+    trim_str: Optional[ct.StringType] = None,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+class MakeDate(Function):
+    """
+    make_date(year, month, day) - Creates a date from the given year, month, and day.
+    """
+
+
+@MakeDate.register  # type: ignore
+def infer_type(
+    year: ct.IntegerType,
+    month: ct.IntegerType,
+    day: ct.IntegerType,
+) -> ct.ColumnType:
+    return ct.DateType()
 
 
 class Map(Function):

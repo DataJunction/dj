@@ -1848,7 +1848,9 @@ def test_lead_func(session: Session):
     """
     Test the `lead` function
     """
-    query = parse("SELECT lead(col, 1, 'N/A') OVER (ORDER BY col) FROM table")
+    query = parse(
+        "SELECT lead(col, 1, 'N/A') OVER (ORDER BY col) FROM (SELECT ('1'), ('a'), ('x') AS col)",
+    )
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
     query.compile(ctx)
@@ -1936,6 +1938,61 @@ def test_locate_func(session: Session):
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_log_functions(session: Session):
+    """
+    Test the `log1p`, `log10` and `log2` functions
+    """
+    query = parse(
+        "SELECT log1p(col), log10(col), log2(col) FROM (SELECT (1), (2), (3) as col)",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DoubleType()  # type: ignore
+    assert query.select.projection[1].type == ct.DoubleType()  # type: ignore
+    assert query.select.projection[2].type == ct.DoubleType()  # type: ignore
+
+
+def test_lpad_func(session: Session):
+    """
+    Test the `lpad` function
+    """
+    query = parse("SELECT lpad('hello', 10, ' '), lpad('SQL', 5, '0')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_ltrim_func(session: Session):
+    """
+    Test the `ltrim` function
+    """
+    query = parse("SELECT ltrim('   hello'), ltrim('-----world-', '-')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_make_date_func(session: Session):
+    """
+    Test the `make_date` function
+    """
+    query = parse("SELECT make_date(2023, 7, 30), make_date(2023, 12, 31)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.DateType()  # type: ignore
+    assert query.select.projection[1].type == ct.DateType()  # type: ignore
 
 
 def test_max() -> None:
