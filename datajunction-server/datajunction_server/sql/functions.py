@@ -31,6 +31,7 @@ from typing import (
     Tuple,
     Type,
     Union,
+    cast,
     get_origin,
 )
 
@@ -2714,31 +2715,137 @@ class Map(Function):
     """
 
 
-def extract_consistent_type(elements):
-    """
-    Check if all elements are the same type and return that type.
-    """
-    if all(isinstance(element.type, ct.IntegerType) for element in elements):
-        return ct.IntegerType()
-    if all(isinstance(element.type, ct.DoubleType) for element in elements):
-        return ct.DoubleType()
-    if all(isinstance(element.type, ct.FloatType) for element in elements):
-        return ct.FloatType()
-    return ct.StringType()
-
-
 @Map.register  # type: ignore
 def infer_type(
-    *elements: ct.ColumnType,
+    *args: ct.ColumnType,
 ) -> ct.MapType:
-    keys = elements[0::2]
-    values = elements[1::2]
-    if len(keys) != len(values):
-        raise DJParseException("Different number of keys and values for MAP.")
+    return ct.MapType(key_type=args[0].type, value_type=args[1].type)
 
-    key_type = extract_consistent_type(keys)
-    value_type = extract_consistent_type(values)
-    return ct.MapType(key_type=key_type, value_type=value_type)
+
+class MapConcat(Function):
+    """
+    map_concat(map, ...) - Concatenates all the given maps into one.
+    """
+
+
+@MapConcat.register  # type: ignore
+def infer_type(*args: ct.MapType) -> ct.MapType:
+    return args[0].type
+
+
+class MapContainsKey(Function):
+    """
+    map_contains_key(map, key) - Returns true if the map contains the given key.
+    """
+
+
+@MapContainsKey.register  # type: ignore
+def infer_type(map_: ct.MapType, key: ct.ColumnType) -> ct.BooleanType:
+    return ct.BooleanType()
+
+
+class MapEntries(Function):
+    """
+    map_entries(map) - Returns an unordered array of all entries in the given map.
+    """
+
+
+@MapEntries.register  # type: ignore
+def infer_type(map_: ct.MapType) -> ct.ColumnType:
+    return ct.ListType(
+        element_type=ct.StructType(
+            ct.NestedField("key", field_type=map_.type.key.type),
+            ct.NestedField("value", field_type=map_.type.value.type),
+        ),
+    )
+
+
+class MapFilter(Function):
+    """
+    map_filter(map, function) - Returns a map that only includes the entries that match the
+    given predicate.
+    """
+
+    @staticmethod
+    def compile_lambda(*args):
+        """
+        Compiles the lambda function used by the `map_filter` Spark function so that
+        the lambda's expression can be evaluated to determine the result's type.
+        """
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
+
+        expr, func = args
+        if len(func.identifiers) != 2:
+            raise DJParseException(
+                message="The function `map_filter` takes a lambda function that takes "
+                "exactly two arguments.",
+            )
+        identifiers = {iden.name: idx for idx, iden in enumerate(func.identifiers)}
+        lambda_arg_cols = {
+            identifiers[col.alias_or_name.name]: col
+            for col in func.expr.find_all(ast.Column)
+            if col.alias_or_name.name in identifiers
+        }
+        lambda_arg_cols[0].add_type(expr.type.key.type)
+        lambda_arg_cols[1].add_type(expr.type.value.type)
+
+
+@MapFilter.register  # type: ignore
+def infer_type(map_: ct.MapType, function: ct.BooleanType) -> ct.MapType:
+    return map_.type
+
+
+class MapFromArrays(Function):
+    """
+    map_from_arrays(keys, values) - Creates a map from two arrays.
+    """
+
+
+@MapFromArrays.register  # type: ignore
+def infer_type(keys: ct.ListType, values: ct.ListType) -> ct.MapType:
+    return ct.MapType(
+        key_type=keys.type.element.type,
+        value_type=values.type.element.type,
+    )
+
+
+class MapFromEntries(Function):
+    """
+    map_from_entries(array) - Creates a map from an array of entries.
+    """
+
+
+@MapFromEntries.register  # type: ignore
+def infer_type(array_of_entries: ct.ListType) -> ct.ColumnType:
+    entry = cast(ct.StructType, array_of_entries.type.element.type)
+    key, value = entry.fields
+    return ct.MapType(key_type=key.type, value_type=value.type)
+
+
+class MapKeys(Function):
+    """
+    map_keys(map) - Returns an unordered array containing the keys of the map.
+    """
+
+
+@MapKeys.register  # type: ignore
+def infer_type(
+    map_: ct.MapType,
+) -> ct.ColumnType:
+    return ct.ListType(element_type=map_.type.key.type)
+
+
+class MapValues(Function):
+    """
+    map_values(map) - Returns an unordered array containing the values of the map.
+    """
+
+
+@MapValues.register  # type: ignore
+def infer_type(map_: ct.MapType) -> ct.ColumnType:
+    return ct.ListType(element_type=map_.type.value.type)
 
 
 class Max(Function):
@@ -3038,6 +3145,25 @@ def infer_type(
     instance: ct.IntegerType,
 ) -> ct.IntegerType:
     return ct.IntegerType()
+
+
+class Struct(Function):
+    """
+    struct(val1, val2, ...) - Creates a new struct with the given field values.
+    """
+
+
+@Struct.register  # type: ignore
+def infer_type(*args: ct.ColumnType) -> ct.StructType:
+    return ct.StructType(
+        *[
+            ct.NestedField(
+                name=arg.alias.name if hasattr(arg, "alias") else f"col{idx}",
+                field_type=arg.type,
+            )
+            for idx, arg in enumerate(args)
+        ],
+    )
 
 
 class Substring(Function):
