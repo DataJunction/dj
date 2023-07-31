@@ -3063,6 +3063,75 @@ def infer_type(
     return ct.FloatType()
 
 
+class NamedStruct(Function):
+    """
+    named_struct(name, val, ...) - Creates a new struct with the given field names and values.
+    """
+
+
+@NamedStruct.register  # type: ignore
+def infer_type(*args: ct.ColumnType) -> ct.ColumnType:
+    from itertools import pairwise  # pylint: disable=import-outside-toplevel
+
+    nested_fields = [
+        ct.NestedField(
+            name=field_name.value.replace("'", ""),
+            field_type=field_value.type,
+        )
+        for field_name, field_value in pairwise(args)
+    ][::2]
+    return ct.StructType(*nested_fields)
+
+
+class Nanvl(Function):
+    """
+    nanvl(expr1, expr2) - Returns the first argument if it is not NaN,
+    or the second argument if the first argument is NaN.
+    """
+
+
+@Nanvl.register  # type: ignore
+def infer_type(expr1: ct.NumberType, expr2: ct.NumberType) -> ct.NumberType:
+    return expr1.type
+
+
+class Negative(Function):
+    """
+    negative(expr) - Returns the negated value of the input expression.
+    """
+
+
+@Negative.register  # type: ignore
+def infer_type(arg: ct.NumberType) -> ct.NumberType:
+    return arg.type
+
+
+class NextDay(Function):
+    """
+    next_day(start_date, day_of_week) - Returns the first date which is
+    later than start_date and named as indicated.
+    """
+
+
+@NextDay.register  # type: ignore
+def infer_type(
+    date: Union[ct.DateType, ct.StringType],
+    day_of_week: ct.StringType,
+) -> ct.ColumnType:
+    return ct.DateType()
+
+
+class Not(Function):
+    """
+    not(expr) - Returns the logical NOT of the Boolean expression.
+    """
+
+
+@Not.register  # type: ignore
+def infer_type(arg: ct.BooleanType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
 class Now(Function):
     """
     Returns the current timestamp.
