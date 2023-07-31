@@ -1951,19 +1951,16 @@ def infer_type(arg1: ct.ListType, arg2: ct.IntegerType) -> ct.ColumnType:
     return arg1.type.element.type
 
 
-# TODO: Extract the actual output schema  # pylint: disable=fixme
-# class GetJsonObject(Function):
-#     """
-#     get_json_object(jsonString, path) - Extracts a JSON object from a JSON
-#     string based on the JSON path specified.
-#     """
-#
-#
-# @GetJsonObject.register  # type: ignore
-# def infer_type(
-#     arg1: ct.StringType, arg2: ct.StringType
-# ) -> ct.ColumnType:
-#     return ct.StringType()
+class GetJsonObject(Function):
+    """
+    get_json_object(jsonString, path) - Extracts a JSON object from a JSON
+    string based on the JSON path specified.
+    """
+
+
+@GetJsonObject.register  # type: ignore
+def infer_type(arg1: ct.StringType, arg2: ct.StringType) -> ct.ColumnType:
+    return ct.StringType()
 
 
 class GetBit(Function):
@@ -2218,6 +2215,73 @@ def infer_type(
     arg: ct.ColumnType,
 ) -> ct.ColumnType:
     return ct.IntegerType()
+
+
+class Isnan(Function):
+    """
+    isnan(expr) - Tests if a value is NaN.
+    """
+
+
+@Isnan.register  # type: ignore
+def infer_type(arg: ct.NumberType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class Isnotnull(Function):
+    """
+    isnotnull(expr) - Tests if a value is not null.
+    """
+
+
+@Isnotnull.register  # type: ignore
+def infer_type(arg: ct.ColumnType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class Isnull(Function):
+    """
+    isnull(expr) - Tests if a value is null.
+    """
+
+
+@Isnull.register  # type: ignore
+def infer_type(arg: ct.ColumnType) -> ct.ColumnType:
+    return ct.BooleanType()
+
+
+class JsonArrayLength(Function):
+    """
+    json_array_length(jsonArray) - Returns the length of the JSON array.
+    """
+
+
+@JsonArrayLength.register  # type: ignore
+def infer_type(arg: ct.StringType) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class JsonObjectKeys(Function):
+    """
+    json_object_keys(jsonObject) - Returns all the keys of the JSON object.
+    """
+
+
+@JsonObjectKeys.register  # type: ignore
+def infer_type(arg: ct.StringType) -> ct.ColumnType:
+    return ct.ListType(element_type=ct.StringType())
+
+
+class JsonTuple(Function):
+    """
+    json_tuple(json_str, path1, path2, ...) - Extracts multiple values from a JSON object.
+    """
+
+
+@JsonTuple.register  # type: ignore
+def infer_type(json_str: ct.StringType, *paths: ct.StringType) -> ct.ColumnType:
+    # assuming that there's a TupleType for the extracted values
+    return ct.ListType(element_type=ct.StringType())
 
 
 class Length(Function):

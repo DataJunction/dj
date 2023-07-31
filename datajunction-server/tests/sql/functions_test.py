@@ -1491,18 +1491,20 @@ def test_get_func(session: Session):
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
-# TODO: Fix GetJsonObject to extract output schema
-# def test_get_json_object_func(session: Session):
-#     """
-#     Test the `get_json_object` function
-#     """
-#     query = parse("SELECT get_json_object('{\"key\": \"value\"}', '$.key'), get_json_object('{\"key1\": \"value1\", \"key2\": \"value2\"}', '$.key2')")
-#     exc = DJException()
-#     ctx = ast.CompileContext(session=session, exception=exc)
-#     query.compile(ctx)
-#     assert not exc.errors
-#     assert query.select.projection[0].type == ct.StringType()  # type: ignore
-#     assert query.select.projection[1].type == ct.StringType()  # type: ignore
+def test_get_json_object_func(session: Session):
+    """
+    Test the `get_json_object` function
+    """
+    query = parse(
+        "SELECT get_json_object('{\"key\": \"value\"}', '$.key'), "
+        'get_json_object(\'{"key1": "value1", "key2": "value2"}\', \'$.key2\')',
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
 def test_getbit_func(session: Session):
@@ -1716,6 +1718,58 @@ def test_instr_func(session: Session):
     assert not exc.errors
     assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
     assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
+def test_isnan_func(session: Session):
+    """
+    Test the `isnan` function
+    """
+    query = parse("SELECT isnan(1/0), isnan(0.0/0.0)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.BooleanType()  # type: ignore
+    assert query.select.projection[1].type == ct.BooleanType()  # type: ignore
+
+
+def test_json_array_length_func(session: Session):
+    """
+    Test the `json_array_length` function
+    """
+    query = parse("SELECT json_array_length('[1, 2, 3]')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+def test_json_object_keys_func(session: Session):
+    """
+    Test the `json_object_keys` function
+    """
+    query = parse('SELECT json_object_keys(\'{"key1": "value1", "key2": "value2"}\')')
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert isinstance(query.select.projection[0].type, ct.ListType)  # type: ignore
+    assert query.select.projection[0].type.element.type == ct.StringType()  # type: ignore
+
+
+def test_json_tuple_func(session: Session):
+    """
+    Test the `json_tuple` function
+    """
+    query = parse(
+        'SELECT json_tuple(\'{"key1": "value1", "key2": "value2"}\', \'key1\', \'key2\')',
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert isinstance(query.select.projection[0].type, ct.ListType)  # type: ignore
 
 
 def test_max() -> None:
