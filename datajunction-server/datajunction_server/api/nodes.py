@@ -800,6 +800,7 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
 )
 def list_node_materializations(
     node_name: str,
+    show_deleted: bool = False,
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -811,18 +812,53 @@ def list_node_materializations(
     node = get_node_by_name(session, node_name, with_current=True)
     materializations = []
     for materialization in node.current.materializations:
-        info = query_service_client.get_materialization_info(
-            node_name,
-            node.current.version,  # type: ignore
-            materialization.name,  # type: ignore
-        )
-        materialization = MaterializationConfigInfoUnified(
-            **materialization.dict(),
-            **{"engine": materialization.engine.dict()},
-            **info.dict(),
-        )
-        materializations.append(materialization)
+        if not materialization.deactivated_at or show_deleted:
+            info = query_service_client.get_materialization_info(
+                node_name,
+                node.current.version,  # type: ignore
+                materialization.name,  # type: ignore
+            )
+            materialization = MaterializationConfigInfoUnified(
+                **materialization.dict(),
+                **{"engine": materialization.engine.dict()},
+                **info.dict(),
+            )
+            materializations.append(materialization)
     return materializations
+
+
+@router.delete(
+    "/nodes/{node_name}/materializations/",
+    response_model=List[MaterializationConfigInfoUnified],
+)
+def deactivate_node_materializations(
+    node_name: str,
+    materialization_name: str,
+    *,
+    session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> List[MaterializationConfigInfoUnified]:
+    """
+    Deactivate the node materialization with the provided name.
+    Also calls the query service to deactivate the associated scheduled jobs.
+    """
+    node = get_node_by_name(session, node_name, with_current=True)
+    query_service_client.deactivate_materialization(node_name, materialization_name)
+    for materialization in node.current.materializations:
+        if materialization.name == materialization_name:
+            now = datetime.utcnow()
+            materialization.deactivated_at = UTCDatetime(
+                year=now.year,
+                month=now.month,
+                day=now.day,
+                hour=now.hour,
+                minute=now.minute,
+                second=now.second,
+            )
+            session.add(materialization)
+    session.commit()
+    session.refresh(node.current)
+    return node.current.materializations
 
 
 @router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])

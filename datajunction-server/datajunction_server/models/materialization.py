@@ -6,11 +6,12 @@ from typing import TYPE_CHECKING, Dict, List, Optional, Union
 from pydantic import AnyHttpUrl, BaseModel, validator
 from sqlalchemy import JSON
 from sqlalchemy import Column as SqlaColumn
-from sqlalchemy import String
+from sqlalchemy import DateTime, String
 from sqlmodel import Field, Relationship, SQLModel
 
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.engine import Engine, EngineInfo, EngineRef
+from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
     from datajunction_server.models import NodeRevision
@@ -265,6 +266,12 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
     job: str = Field(
         default="MaterializationJob",
         sa_column=SqlaColumn("job", String),
+    )
+
+    deactivated_at: UTCDatetime = Field(
+        nullable=True,
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default=None,
     )
 
     @validator("config")
