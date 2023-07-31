@@ -3143,6 +3143,96 @@ def infer_type() -> ct.TimestampType:
     return ct.TimestampType()
 
 
+class NthValue(Function):
+    """
+    nth_value(input[, offset]) - Returns the value of input at the row
+    that is the offset-th row from beginning of the window frame
+    """
+
+
+@NthValue.register  # type: ignore
+def infer_type(expr: ct.ColumnType, offset: ct.IntegerType) -> ct.ColumnType:
+    return expr.type
+
+
+class Ntile(Function):
+    """
+    ntile(n) - Divides the rows for each window partition into n buckets
+    ranging from 1 to at most n.
+    """
+
+
+@Ntile.register  # type: ignore
+def infer_type(n_buckets: ct.IntegerType) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class Nullif(Function):
+    """
+    nullif(expr1, expr2) - Returns null if expr1 equals expr2, or expr1 otherwise.
+    """
+
+
+@Nullif.register  # type: ignore
+def infer_type(expr1: ct.ColumnType, expr2: ct.ColumnType) -> ct.ColumnType:
+    return expr1.type
+
+
+class Nvl(Function):
+    """
+    nvl(expr1, expr2) - Returns the first argument if it is not null, or the
+    second argument if the first argument is null.
+    """
+
+
+@Nvl.register  # type: ignore
+def infer_type(expr1: ct.ColumnType, expr2: ct.ColumnType) -> ct.ColumnType:
+    return expr1.type
+
+
+class Nvl2(Function):
+    """
+    nvl2(expr1, expr2, expr3) - Returns expr3 if expr1 is null, or expr2 otherwise.
+    """
+
+
+@Nvl2.register  # type: ignore
+def infer_type(
+    expr1: ct.ColumnType,
+    expr2: ct.ColumnType,
+    expr3: ct.ColumnType,
+) -> ct.ColumnType:
+    return expr1.type
+
+
+class OctetLength(Function):
+    """
+    octet_length(expr) - Returns the number of bytes in the input string.
+    """
+
+
+@OctetLength.register  # type: ignore
+def infer_type(expr: ct.StringType) -> ct.ColumnType:
+    return ct.IntegerType()
+
+
+class Overlay(Function):
+    """
+    overlay(expr1, expr2, start[, length]) - Replaces the substring of expr1
+    specified by start (and optionally length) with expr2.
+    """
+
+
+@Overlay.register  # type: ignore
+def infer_type(
+    input_: ct.StringType,
+    replace: ct.StringType,
+    pos: ct.IntegerType,
+    length: Optional[ct.IntegerType] = None,
+) -> ct.ColumnType:
+    return ct.StringType()
+
+
 class PercentRank(Function):
     """
     percent_rank() - Computes the percentage ranking of a value in a group of values.
