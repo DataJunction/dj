@@ -1844,6 +1844,59 @@ def test_lcase_func(session: Session):
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
 
+def test_lead_func(session: Session):
+    """
+    Test the `lead` function
+    """
+    query = parse("SELECT lead(col, 1, 'N/A') OVER (ORDER BY col) FROM table")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    # The output type depends on the type of `col`
+    # Assuming `col` is of type StringType for this test
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+
+
+def test_least_func(session: Session):
+    """
+    Test the `least` function
+    """
+    query = parse("SELECT least(10, 20, 30, 40)")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+
+
+# TODO: figure out why antlr parser fails
+# def test_left_func(session: Session):
+#     """
+#     Test the `left` function
+#     """
+#     query = parse("SELECT left('hello world', 5)")
+#     exc = DJException()
+#     ctx = ast.CompileContext(session=session, exception=exc)
+#     query.compile(ctx)
+#     assert not exc.errors
+#     assert query.select.projection[0].type == ct.StringType()  # type: ignore
+#     assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
+
+def test_len_func(session: Session):
+    """
+    Test the `len` function
+    """
+    query = parse("SELECT len('hello'), len('world')")
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.IntegerType()  # type: ignore
+    assert query.select.projection[1].type == ct.IntegerType()  # type: ignore
+
+
 def test_max() -> None:
     """
     Test ``Max`` function.
