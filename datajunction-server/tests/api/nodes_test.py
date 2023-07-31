@@ -1945,6 +1945,15 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             "`basic.transform.country_agg` so no update was performed.",
         }
 
+        response = client_with_query_service.delete(
+            "/nodes/basic.transform.country_agg/materializations/"
+            "?materialization_name=country_3491792861",
+        )
+        assert response.json() == {
+            "message": "The materialization named `country_3491792861` on node "
+            "`basic.transform.country_agg` has been successfully deactivated",
+        }
+
         # Setting the materialization config without partitions should succeed
         response = client_with_query_service.post(
             "/nodes/basic.transform.country_agg/materialization/",
