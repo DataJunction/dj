@@ -1219,9 +1219,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert response.status_code == 400
-        assert (
-            data["message"]
-            == "Node definition contains references to nodes that do not exist"
+        assert data["message"].startswith(
+            "Node definition contains references to nodes that do not exist",
         )
 
     def test_create_node_with_type_inference_failure(
@@ -1343,9 +1342,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         data = response.json()
-        assert (
-            data["message"]
-            == "Node definition contains references to nodes that do not exist"
+        assert data["message"].startswith(
+            "Node definition contains references to nodes that do not exist",
         )
 
         # Try to update with a new query that references an existing source
@@ -2524,7 +2522,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
 
         assert response.status_code == 200
-        assert len(data) == 5
+        assert len(data) == 6
         assert data["columns"] == [
             {
                 "dimension_column": None,
@@ -2537,7 +2535,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert data["status"] == "valid"
         assert data["node_revision"]["status"] == "valid"
         assert data["dependencies"][0]["name"] == "default.large_revenue_payments_only"
-        assert data["message"] == "Node `foo` is valid"
+        assert data["message"] == "Node `foo` is valid."
         assert data["node_revision"]["id"] is None
         assert data["node_revision"]["mode"] == "published"
         assert data["node_revision"]["name"] == "foo"
@@ -2561,10 +2559,18 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         data = response.json()
-        assert (
-            data["message"]
-            == "Node definition contains references to nodes that do not exist"
-        )
+        assert data["message"] == "Node `foo` is invalid."
+        assert [
+            e
+            for e in data["errors"]
+            if e
+            == {
+                "code": 301,
+                "message": "Node definition contains references to nodes that do not exist",
+                "debug": {"missing_parents": ["large_revenue_payments_only"]},
+                "context": "",
+            }
+        ]
 
     def test_validating_invalid_sql(self, client: TestClient) -> None:
         """
@@ -2612,9 +2618,36 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 400
+        assert response.status_code == 200
         assert data == {
-            "message": "Node definition contains references to nodes that do not exist",
+            "message": "Node `foo` is invalid.",
+            "status": "invalid",
+            "node_revision": {
+                "name": "foo",
+                "display_name": None,
+                "type": "transform",
+                "description": "This is my foo transform node!",
+                "query": "SELECT 1 FROM node_that_does_not_exist",
+                "mode": "published",
+                "id": None,
+                "version": "v0.1",
+                "node_id": None,
+                "catalog_id": None,
+                "schema_": None,
+                "table": None,
+                "status": "valid",
+                "updated_at": mock.ANY,
+            },
+            "dependencies": [],
+            "columns": [
+                {
+                    "id": None,
+                    "name": "col0",
+                    "type": "int",
+                    "dimension_id": None,
+                    "dimension_column": None,
+                },
+            ],
             "errors": [
                 {
                     "code": 301,
@@ -2623,7 +2656,6 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                     "context": "",
                 },
             ],
-            "warnings": [],
         }
 
     def test_allowing_missing_parents_for_draft_nodes(self, client: TestClient) -> None:
@@ -2644,7 +2676,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
 
         assert response.status_code == 200
-        assert data["message"] == "Node `foo` is invalid"
+        assert data["message"] == "Node `foo` is invalid."
         assert data["status"] == "invalid"
         assert data["node_revision"]["mode"] == "draft"
         assert data["node_revision"]["status"] == "invalid"
