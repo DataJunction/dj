@@ -364,9 +364,12 @@ def validate_node_data(  # pylint: disable=too-many-locals
     Dict[NodeRevision, List[ast.Table]],
     Dict[str, List[ast.Table]],
     List[str],
+    List[DJError],
 ]:
     """
-    Validate a node.
+    Validate a node. This function should never raise any errors.
+    It will build the lists of issues (including errors) and return them all
+    for the caller to decide what to do.
     """
 
     if isinstance(data, NodeRevision):
@@ -379,30 +382,31 @@ def validate_node_data(  # pylint: disable=too-many-locals
 
     ctx = ast.CompileContext(session=session, exception=DJException())
 
-    # Try to parse the node's query and extract dependencies
+    # Try to parse the node's query, extract dependencies and missing parents
+    # dependencies_map = missing_parents_map = {}
     try:
         query_ast = parse(validated_node.query)  # type: ignore
         dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)
     except (ValueError, SqlSyntaxError) as raised_exceptions:
         raise DJException(message=str(raised_exceptions)) from raised_exceptions
 
-    # Only raise on missing parents if the node mode is set to published
-    if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
-        _logger.error(
-            "Node %s missing parents %s",
-            validated_node.name,
-            list(missing_parents_map.keys()),
-        )
-        raise DJException(
-            http_status_code=HTTPStatus.BAD_REQUEST,
-            errors=[
-                DJError(
-                    code=ErrorCode.MISSING_PARENT,
-                    message="Node definition contains references to nodes that do not exist",
-                    debug={"missing_parents": list(missing_parents_map.keys())},
-                ),
-            ],
-        )
+    # # Only raise on missing parents if the node mode is set to published
+    # if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
+    #     _logger.error(
+    #         "Node %s missing parents %s",
+    #         validated_node.name,
+    #         list(missing_parents_map.keys()),
+    #     )
+    #     raise DJException(
+    #         http_status_code=HTTPStatus.BAD_REQUEST,
+    #         errors=[
+    #             DJError(
+    #                 code=ErrorCode.MISSING_PARENT,
+    #                 message="Node definition contains references to nodes that do not exist",
+    #                 debug={"missing_parents": list(missing_parents_map.keys())},
+    #             ),
+    #         ],
+    #     )
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
@@ -434,72 +438,73 @@ def validate_node_data(  # pylint: disable=too-many-locals
     )
     validated_node.required_dimensions = matched_bound_columns
 
-    # Only raise on missing parents or type inference if the node mode is set to published
+    errors = []
     if missing_parents_map or type_inference_failures or invalid_required_dimensions:
+        # update status (if needed)
         if validated_node.mode == NodeMode.DRAFT:
             validated_node.status = NodeStatus.INVALID
-        else:
-            missing_parents_error = (
-                [
-                    DJError(
-                        code=ErrorCode.MISSING_PARENT,
-                        message="Node definition contains references to nodes that do not exist",
-                        debug={"missing_parents": list(missing_parents_map.keys())},
+        # build errors
+        missing_parents_error = (
+            [
+                DJError(
+                    code=ErrorCode.MISSING_PARENT,
+                    message="Node definition contains references to nodes that do not exist",
+                    debug={"missing_parents": list(missing_parents_map.keys())},
+                ),
+            ]
+            if missing_parents_map
+            else []
+        )
+        type_inference_error = (
+            [
+                DJError(
+                    code=ErrorCode.TYPE_INFERENCE,
+                    message=(
+                        f"Unable to infer type for some columns on node `{data.name}`.\n"
+                        + ("\n\t* " if type_inference_failures else "")
+                        + "\n\t* ".join(
+                            [val[:103] for val in type_inference_failures.values()],
+                        )
                     ),
-                ]
-                if missing_parents_map
-                else []
-            )
-            invalid_required_dimensions_error = (
-                [
-                    DJError(
-                        code=ErrorCode.INVALID_COLUMN,
-                        message=(
-                            "Node definition contains references to columns as "
-                            "required dimensions that are not on parent nodes."
+                    debug={
+                        "columns": type_inference_failures,
+                        "errors": ctx.exception.errors,
+                    },
+                ),
+            ]
+            if type_inference_failures
+            else []
+        )
+        invalid_required_dimensions_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition contains references to columns as "
+                        "required dimensions that are not on parent nodes."
+                    ),
+                    debug={
+                        "invalid_required_dimensions": list(
+                            invalid_required_dimensions,
                         ),
-                        debug={
-                            "invalid_required_dimensions": list(
-                                invalid_required_dimensions,
-                            ),
-                        },
-                    ),
-                ]
-                if invalid_required_dimensions
-                else []
-            )
-            type_inference_error = (
-                [
-                    DJError(
-                        code=ErrorCode.TYPE_INFERENCE,
-                        message=(
-                            f"Unable to infer type for some columns on node `{data.name}`.\n"
-                            + ("\n\t* " if type_inference_failures else "")
-                            + "\n\t* ".join(
-                                [val[:103] for val in type_inference_failures.values()],
-                            )
-                        ),
-                        debug={
-                            "columns": type_inference_failures,
-                            "errors": ctx.exception.errors,
-                        },
-                    ),
-                ]
-                if type_inference_failures
-                else []
-            )
-            raise DJException(
-                http_status_code=HTTPStatus.BAD_REQUEST,
-                errors=missing_parents_error
-                + type_inference_error
-                + invalid_required_dimensions_error,
-            )
+                    },
+                ),
+            ]
+            if invalid_required_dimensions
+            else []
+        )
+        errors = (
+            missing_parents_error
+            + type_inference_error
+            + invalid_required_dimensions_error
+        )
 
     return (
         validated_node,
         dependencies_map,
         missing_parents_map,
         list(type_inference_failures.keys()),
+        errors,
     )
 
 
@@ -533,13 +538,11 @@ def resolve_downstream_references(
             )
             downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
-            (
-                _,
-                _,
-                missing_parents_map,
-                type_inference_failed_columns,
-            ) = validate_node_data(data=downstream_node_revision, session=session)
-            if not missing_parents_map and not type_inference_failed_columns:
+            (_, _, _, _, errors) = validate_node_data(
+                data=downstream_node_revision,
+                session=session,
+            )
+            if not errors:
                 newly_valid_nodes.append(downstream_node_revision)
             session.add(downstream_node_revision)
             session.commit()
@@ -569,13 +572,11 @@ def propagate_valid_status(
             )
             newly_valid_nodes = []
             for node in downstream_nodes:
-                (
-                    validated_node,
-                    _,
-                    missing_parents_map,
-                    type_inference_failed_columns,
-                ) = validate_node_data(data=node.current, session=session)
-                if not missing_parents_map and not type_inference_failed_columns:
+                (validated_node, _, _, _, errors) = validate_node_data(
+                    data=node.current,
+                    session=session,
+                )
+                if not errors:
                     node.current.columns = validated_node.columns or []
                     node.current.status = NodeStatus.VALID
                     node.current.catalog_id = catalog_id

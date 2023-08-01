@@ -122,23 +122,19 @@ def validate_a_node(
     if data.type == NodeType.SOURCE:
         raise DJException(message="Source nodes cannot be validated")
 
-    (
-        validated_node,
-        dependencies_map,
-        missing_parents_map,
-        type_inference_failed_columns,
-    ) = validate_node_data(data, session)
-    if missing_parents_map or type_inference_failed_columns:
+    (validated_node, dependencies_map, _, _, errors) = validate_node_data(data, session)
+    if errors:
         status = NodeStatus.INVALID
     else:
         status = NodeStatus.VALID
 
     return NodeValidation(
-        message=f"Node `{validated_node.name}` is {status}",
+        message=f"Node `{validated_node.name}` is {status}.",
         status=status,
         node_revision=validated_node,
         dependencies=set(dependencies_map.keys()),
         columns=validated_node.columns,
+        errors=errors,
     )
 
 
@@ -172,13 +168,8 @@ def revalidate_a_node(
             },
         )
 
-    (
-        _,
-        _,
-        missing_parents_map,
-        type_inference_failed_columns,
-    ) = validate_node_data(current_node_revision, session)
-    if missing_parents_map or type_inference_failed_columns:
+    (_, _, _, _, errors) = validate_node_data(current_node_revision, session)
+    if errors:
         status = NodeStatus.INVALID  # pragma: no cover
     else:
         status = NodeStatus.VALID
@@ -436,22 +427,11 @@ def restore_node(name: str, *, session: Session = Depends(get_session)):
                 ):  # pragma: no cover
                     downstream.current.status = NodeStatus.INVALID
         else:
-            # We should not failed node restoration just because of some nodes
+            # We should not fail node restoration just because of some nodes
             # that have been invalid already and stay that way.
-            missing_parents_map = None
-            type_inference_failed_columns = None
-            try:
-                (
-                    _,
-                    _,
-                    missing_parents_map,
-                    type_inference_failed_columns,
-                ) = validate_node_data(downstream.current, session)
-            except DJException:
-                pass
-            finally:
-                if missing_parents_map or type_inference_failed_columns:
-                    downstream.current.status = NodeStatus.INVALID
+            (_, _, _, _, errors) = validate_node_data(downstream.current, session)
+            if errors:
+                downstream.current.status = NodeStatus.INVALID
         session.add(downstream)
         if old_status != downstream.current.status:
             session.add(
@@ -868,10 +848,17 @@ def create_node_revision(
         validated_node,
         dependencies_map,
         missing_parents_map,
-        type_inference_failed_columns,
+        _,
+        errors,
     ) = validate_node_data(node_revision, session)
-    if missing_parents_map or type_inference_failed_columns:
-        node_revision.status = NodeStatus.INVALID
+    if errors:
+        if node_revision.mode == NodeMode.DRAFT:
+            node_revision.status = NodeStatus.INVALID
+        else:
+            raise DJException(
+                http_status_code=HTTPStatus.BAD_REQUEST,
+                errors=errors,
+            )
     else:
         node_revision.status = NodeStatus.VALID
     node_revision.missing_parents = [
@@ -1634,7 +1621,7 @@ def tag_a_node(
     )
 
 
-def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-arguments
+def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-arguments,too-many-branches
     session: Session,
     query_service_client: QueryServiceClient,
     old_revision: NodeRevision,
@@ -1678,6 +1665,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         return None
 
     old_version = Version.parse(node.current_version)
+    new_mode = data.mode if data and data.mode else old_revision.mode
     new_revision = NodeRevision(
         name=old_revision.name,
         node_id=node.id,
@@ -1711,7 +1699,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         schema_=old_revision.schema_,
         table=old_revision.table,
         parents=[],
-        mode=data.mode if data and data.mode else old_revision.mode,
+        mode=new_mode,
         materializations=[],
         status=old_revision.status,
     )
@@ -1722,8 +1710,18 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             validated_node,
             dependencies_map,
             missing_parents_map,
-            type_inference_failed_columns,
+            _,
+            errors,
         ) = validate_node_data(new_revision, session)
+
+        if errors:
+            if new_mode == NodeMode.DRAFT:
+                new_revision.status = NodeStatus.INVALID
+            else:
+                raise DJException(
+                    http_status_code=HTTPStatus.BAD_REQUEST,
+                    errors=errors,
+                )
 
         # Keep the dimension links and attributes on the columns from the node's
         # last revision if any existed
@@ -1757,13 +1755,11 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
                     )
 
         # Set the node's validity status
-        valid_primary_key = (
+        invalid_primary_key = (
             new_revision.type == NodeType.DIMENSION and not new_revision.primary_key()
         )
-        if missing_parents_map or type_inference_failed_columns or valid_primary_key:
+        if invalid_primary_key:
             new_revision.status = NodeStatus.INVALID
-        else:
-            new_revision.status = NodeStatus.VALID
 
         new_revision.missing_parents = [
             MissingParent(name=missing_parent) for missing_parent in missing_parents_map
