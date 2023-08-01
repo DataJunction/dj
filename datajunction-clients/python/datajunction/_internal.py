@@ -225,9 +225,9 @@ class DJClient:
             )
         return node
 
-    def _deactivate_node(self, node: "Node"):
+    def _delete_node(self, node: "Node"):
         """
-        Deactivate this node
+        Delete (aka deactivate) this node.
         """
         response = self._session.post(
             f"/nodes/{node.name}/deactivate/",
@@ -235,9 +235,9 @@ class DJClient:
         )
         return response
 
-    def _activate_node(self, node: "Node"):
+    def _restore_node(self, node: "Node"):
         """
-        Activate this node
+        Restore (aka reactivate) this node.
         """
         response = self._session.post(
             f"/nodes/{node.name}/activate/",

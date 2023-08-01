@@ -18,6 +18,9 @@ class Namespace(ClientEntity):  # pylint: disable=protected-access
 
     namespace: str
 
+    #
+    # List
+    #
     def nodes(self):
         """
         Retrieves all nodes under this namespace.
@@ -53,6 +56,31 @@ class Namespace(ClientEntity):  # pylint: disable=protected-access
             type_=models.NodeType.CUBE.value,
         )
 
+    #
+    # Modify
+    #
+    # def delete(self) -> str:
+    #     """
+    #     Deletes the node (softly). We still keep it in an inactive state.
+    #     """
+    #     response = self.dj_client._delete_node(self)
+    #     if not response.ok:  # pragma: no cover
+    #         raise DJClientException(
+    #             f"Error deleting node `{self.name}`: {response.text}",
+    #         )
+    #     return f"Successfully deleted `{self.name}`"
+
+    # def restore(self) -> str:
+    #     """
+    #     Restores (aka reactivates) the node.
+    #     """
+    #     response = self.dj_client._restore_node(self)
+    #     if not response.ok:  # pragma: no cover
+    #         raise DJClientException(
+    #             f"Error restoring node `{self.name}`: {response.text}",
+    #         )
+    #     return f"Successfully restored `{self.name}`"
+        
 
 class Node(ClientEntity):  # pylint: disable=protected-access
     """
@@ -72,12 +100,20 @@ class Node(ClientEntity):  # pylint: disable=protected-access
     version: Optional[str]
     deactivated_at: Optional[int]
 
+    #
+    # Node level actions
+    #
+    def list_revisions(self) -> List[dict]:
+        """
+        List all revisions of this node
+        """
+        return self.dj_client._get_node_revisions(self.name)
+    
     @abc.abstractmethod
     def _update(self) -> "Node":
         """
         Update the node for fields that have changed.
         """
-
     def save(self, mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED) -> dict:
         """
         Sets the node's mode to PUBLISHED and pushes it to the server.
@@ -110,6 +146,31 @@ class Node(ClientEntity):  # pylint: disable=protected-access
                 setattr(self, key, value)
         return self
 
+    def delete(self) -> str:
+        """
+        Deletes the node (softly). We still keep it in an inactive state.
+        """
+        response = self.dj_client._delete_node(self)
+        if not response.ok:  # pragma: no cover
+            raise DJClientException(
+                f"Error deleting node `{self.name}`: {response.text}",
+            )
+        return f"Successfully deleted `{self.name}`"
+
+    def restore(self) -> str:
+        """
+        Restores (aka reactivates) the node.
+        """
+        response = self.dj_client._restore_node(self)
+        if not response.ok:  # pragma: no cover
+            raise DJClientException(
+                f"Error restoring node `{self.name}`: {response.text}",
+            )
+        return f"Successfully restored `{self.name}`"
+
+    #
+    # Node attributes level actions
+    #
     def link_dimension(
         self,
         column: str,
@@ -159,34 +220,6 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         )
         self.refresh()
         return upsert_response
-
-    def deactivate(self) -> str:
-        """
-        Deactivates the node
-        """
-        response = self.dj_client._deactivate_node(self)
-        if not response.ok:  # pragma: no cover
-            raise DJClientException(
-                f"Error deactivating node `{self.name}`: {response.text}",
-            )
-        return f"Successfully deactivated `{self.name}`"
-
-    def activate(self) -> str:
-        """
-        Activates the node
-        """
-        response = self.dj_client._activate_node(self)
-        if not response.ok:  # pragma: no cover
-            raise DJClientException(
-                f"Error activating node `{self.name}`: {response.text}",
-            )
-        return f"Successfully activated `{self.name}`"
-
-    def list_revisions(self):
-        """
-        List all revisions of this node
-        """
-        return self.dj_client._get_node_revisions(self.name)
 
     def add_availability(self, availability: models.AvailabilityState):
         """

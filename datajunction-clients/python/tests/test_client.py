@@ -279,13 +279,13 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         Verifies that deactivating and reactivating a node works.
         """
         length_metric = client.metric("default.avg_length_of_employment")
-        response = length_metric.deactivate()
-        assert response == "Successfully deactivated `default.avg_length_of_employment`"
+        response = length_metric.delete()
+        assert response == "Successfully deleted `default.avg_length_of_employment`"
         assert "default.avg_length_of_employment" not in client.list_metrics(
             namespace="default",
         )
-        response = length_metric.activate()
-        assert response == "Successfully activated `default.avg_length_of_employment`"
+        response = length_metric.restore()
+        assert response == "Successfully restored `default.avg_length_of_employment`"
         assert "default.avg_length_of_employment" in client.list_metrics(
             namespace="default",
         )

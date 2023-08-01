@@ -21,7 +21,7 @@ router = APIRouter()
 
 
 @router.post("/namespaces/{namespace}/", status_code=201)
-def create_a_node_namespace(
+def create_node_namespace(
     namespace: str,
     session: Session = Depends(get_session),
 ) -> JSONResponse:
