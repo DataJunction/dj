@@ -1941,7 +1941,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "urls": ["http://fake.url/job"],
             },
             "message": "The same materialization config with name "
-            "`country_3491792861`already exists for node "
+            "`country_3491792861` already exists for node "
             "`basic.transform.country_agg` so no update was performed.",
         }
 
@@ -1953,6 +1953,32 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             "message": "The materialization named `country_3491792861` on node "
             "`basic.transform.country_agg` has been successfully deactivated",
         }
+
+        # Setting it again should inform that it already exists but was reactivated
+        response = client_with_query_service.post(
+            "/nodes/basic.transform.country_agg/materialization/",
+            json={
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
+                "config": {
+                    "partitions": [
+                        {
+                            "name": "country",
+                            "values": ["DE", "MY"],
+                            "type_": "categorical",
+                        },
+                    ],
+                },
+                "schedule": "0 * * * *",
+            },
+        )
+        assert response.json()["message"] == (
+            "The same materialization config with name `country_3491792861` already "
+            "exists for node `basic.transform.country_agg` but was deactivated. It has "
+            "now been restored."
+        )
 
         # Setting the materialization config without partitions should succeed
         response = client_with_query_service.post(
