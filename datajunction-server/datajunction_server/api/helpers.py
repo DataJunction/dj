@@ -390,24 +390,6 @@ def validate_node_data(  # pylint: disable=too-many-locals
     except (ValueError, SqlSyntaxError) as raised_exceptions:
         raise DJException(message=str(raised_exceptions)) from raised_exceptions
 
-    # # Only raise on missing parents if the node mode is set to published
-    # if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
-    #     _logger.error(
-    #         "Node %s missing parents %s",
-    #         validated_node.name,
-    #         list(missing_parents_map.keys()),
-    #     )
-    #     raise DJException(
-    #         http_status_code=HTTPStatus.BAD_REQUEST,
-    #         errors=[
-    #             DJError(
-    #                 code=ErrorCode.MISSING_PARENT,
-    #                 message="Node definition contains references to nodes that do not exist",
-    #                 debug={"missing_parents": list(missing_parents_map.keys())},
-    #             ),
-    #         ],
-    #     )
-
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
 

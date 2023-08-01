@@ -1201,7 +1201,7 @@ def test_deactivating_node_upstream_from_cube(
     """
     Verify deactivating and activating a node upstream from a cube
     """
-    client_with_repairs_cube.post("/nodes/default.repair_orders/delete/")
+    client_with_repairs_cube.delete("/nodes/default.repair_orders/")
     response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     data = response.json()
     assert data["status"] == "invalid"
