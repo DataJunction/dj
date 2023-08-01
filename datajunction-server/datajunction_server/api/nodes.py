@@ -729,6 +729,15 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
         if existing_materialization.deactivated_at is not None:
             deactivated_before = True
             existing_materialization.deactivated_at = None  # type: ignore
+            session.add(
+                History(
+                    entity_type=EntityType.MATERIALIZATION,
+                    entity_name=existing_materialization.name,
+                    node=node.name,
+                    activity_type=ActivityType.RESTORE,
+                    details={},
+                ),
+            )
             session.commit()
             session.refresh(existing_materialization)
         existing_materialization_info = query_service_client.get_materialization_info(
