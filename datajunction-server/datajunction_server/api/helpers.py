@@ -125,23 +125,6 @@ def raise_if_node_exists(session: Session, name: str) -> None:
         )
 
 
-def raise_if_node_inactive(session: Session, name: str) -> None:
-    """
-    Raise an error if the node with the given name exists and is inactive.
-    """
-    node = get_node_by_name(
-        session,
-        name,
-        raise_if_not_exists=False,
-        include_inactive=True,
-    )
-    if node and node.deactivated_at:
-        raise DJException(
-            message=f"Node `{name}` exists but has been deactivated.",
-            http_status_code=HTTPStatus.CONFLICT,
-        )
-
-
 def get_column(node: NodeRevision, column_name: str) -> Column:
     """
     Get a column from a node revision
@@ -437,6 +420,10 @@ def validate_node_data(  # pylint: disable=too-many-locals
             column.type = column_type  # type: ignore
         except DJParseException as parse_exc:
             type_inference_failures[column_name] = parse_exc.message
+        except TypeError:
+            type_inference_failures[
+                column_name
+            ] = f"Unknown TypeError on column {column_name}."
         if column:
             validated_node.columns.append(column)
 

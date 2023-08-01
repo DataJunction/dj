@@ -27,12 +27,11 @@ from datajunction_server.api.helpers import (
     get_upstream_nodes,
     propagate_valid_status,
     raise_if_node_exists,
-    raise_if_node_inactive,
     resolve_downstream_references,
     validate_cube,
     validate_node_data,
 )
-from datajunction_server.api.namespaces import create_a_node_namespace
+from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tag_by_name
 from datajunction_server.config import Settings
 from datajunction_server.construction.build import build_metric_nodes, build_node
@@ -364,10 +363,10 @@ def get_a_node(name: str, *, session: Session = Depends(get_session)) -> NodeOut
     return node  # type: ignore
 
 
-@router.post("/nodes/{name}/deactivate/", status_code=201)
-def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
+@router.post("/nodes/{name}/delete/", status_code=201)
+def delete_node(name: str, *, session: Session = Depends(get_session)):
     """
-    Deactivate the specified node.
+    Delete (aka deactivate) the specified node.
     """
     node = get_node_by_name(session, name, with_current=True)
 
@@ -407,20 +406,20 @@ def deactivate_a_node(name: str, *, session: Session = Depends(get_session)):
     session.commit()
     return JSONResponse(
         status_code=HTTPStatus.NO_CONTENT,
-        content={"message": f"Node `{name}` has been successfully deactivated"},
+        content={"message": f"Node `{name}` has been successfully deleted."},
     )
 
 
-@router.post("/nodes/{name}/activate/", status_code=201)
-def activate_a_node(name: str, *, session: Session = Depends(get_session)):
+@router.post("/nodes/{name}/restore/", status_code=201)
+def restore_node(name: str, *, session: Session = Depends(get_session)):
     """
-    Activate the specified node.
+    Restore (aka re-activate) the specified node.
     """
     node = get_node_by_name(session, name, with_current=True, include_inactive=True)
     if not node.deactivated_at:
         raise DJException(
             http_status_code=HTTPStatus.BAD_REQUEST,
-            message=f"Cannot activate `{name}`, node already active",
+            message=f"Cannot restore `{name}`, node already active.",
         )
     node.deactivated_at = None  # type: ignore
 
@@ -437,14 +436,22 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
                 ):  # pragma: no cover
                     downstream.current.status = NodeStatus.INVALID
         else:
-            (
-                _,
-                _,
-                missing_parents_map,
-                type_inference_failed_columns,
-            ) = validate_node_data(downstream.current, session)
-            if missing_parents_map or type_inference_failed_columns:
-                downstream.current.status = NodeStatus.INVALID
+            # We should not failed node restoration just because of some nodes
+            # that have been invalid already and stay that way.
+            missing_parents_map = None
+            type_inference_failed_columns = None
+            try:
+                (
+                    _,
+                    _,
+                    missing_parents_map,
+                    type_inference_failed_columns,
+                ) = validate_node_data(downstream.current, session)
+            except DJException:
+                pass
+            finally:
+                if missing_parents_map or type_inference_failed_columns:
+                    downstream.current.status = NodeStatus.INVALID
         session.add(downstream)
         if old_status != downstream.current.status:
             session.add(
@@ -468,7 +475,7 @@ def activate_a_node(name: str, *, session: Session = Depends(get_session)):
     session.commit()
     return JSONResponse(
         status_code=HTTPStatus.NO_CONTENT,
-        content={"message": f"Node `{name}` has been successfully activated"},
+        content={"message": f"Node `{name}` has been successfully restored."},
     )
 
 
@@ -1177,7 +1184,44 @@ def create_a_source(
     will be inferred using the configured query service.
     """
     raise_if_node_exists(session, data.name)
-    raise_if_node_inactive(session, data.name)
+
+    # if the node previously existed and now is inactive
+    previous_inactive_node = get_node_by_name(
+        session,
+        name=data.name,
+        raise_if_not_exists=False,
+        include_inactive=True,
+    )
+    if previous_inactive_node and previous_inactive_node.deactivated_at:
+        if previous_inactive_node.type != NodeType.SOURCE:
+            raise DJException(  # pragma: no cover
+                message=f"A node with name `{data.name}` of a `{previous_inactive_node.type.value}` "  # pylint: disable=line-too-long
+                "type existed before. If you want to re-created with a different type now, "
+                "you need to remove all the traces of the previous node with a <TODO> command.",
+                http_status_code=HTTPStatus.CONFLICT,
+            )
+        update_a_node(
+            name=data.name,
+            data=UpdateNode(
+                # MutableNodeFields
+                display_name=data.display_name,
+                description=data.description,
+                mode=data.mode,
+                # SourceNodeFields
+                catalog=data.catalog,
+                schema_=data.schema_,
+                table=data.table,
+                columns=data.columns,
+            ),
+            session=session,
+        )
+        response = restore_node(name=data.name, session=session)
+
+        if response.status_code == HTTPStatus.NO_CONTENT:
+            return get_node_by_name(session, data.name, with_current=True)
+        raise DJException(
+            f"Restoring node {data.node} failed: {response.body}",
+        )  # pragma: no cover
 
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
@@ -1235,7 +1279,7 @@ def create_a_source(
 @router.post("/nodes/transform/", response_model=NodeOutput, status_code=201)
 @router.post("/nodes/dimension/", response_model=NodeOutput, status_code=201)
 @router.post("/nodes/metric/", response_model=NodeOutput, status_code=201)
-def create_a_node(
+def create_node(
     data: CreateNode,
     request: Request,
     *,
@@ -1253,7 +1297,6 @@ def create_a_node(
         data.query = NodeRevision.format_metric_alias(data.query, data.name)
 
     raise_if_node_exists(session, data.name)
-    raise_if_node_inactive(session, data.name)
 
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
@@ -1307,7 +1350,6 @@ def create_a_cube(
     Create a cube node.
     """
     raise_if_node_exists(session, data.name)
-    raise_if_node_inactive(session, data.name)
 
     namespace = get_namespace_from_name(data.name)
     get_node_namespace(
@@ -1360,7 +1402,7 @@ def register_a_table(  # pylint: disable=too-many-arguments
     raise_if_node_exists(session, name)
 
     # Create the namespace if required (idempotent)
-    create_a_node_namespace(namespace=namespace, session=session)
+    create_node_namespace(namespace=namespace, session=session)
 
     # Use reflection to get column names and types
     _catalog = get_catalog(session=session, name=catalog)
@@ -1838,7 +1880,6 @@ def update_a_node(
     query = (
         select(Node)
         .where(Node.name == name)
-        .where(is_(Node.deactivated_at, None))
         .with_for_update()
         .execution_options(populate_existing=True)
     )

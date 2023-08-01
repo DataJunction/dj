@@ -1,7 +1,6 @@
 """
 Tests for the data API.
-"""
-# pylint: disable=too-many-lines
+"""  # pylint: disable=too-many-lines
 from typing import Dict, List, Optional
 from unittest import mock
 
