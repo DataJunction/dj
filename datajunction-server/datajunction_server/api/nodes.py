@@ -718,27 +718,43 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
     new_materialization = create_new_materialization(session, current_revision, data)
 
     # Check to see if a materialization for this engine already exists with the exact same config
-    existing_materialization_for_engine = [
-        old_materializations[mat_name]
-        for mat_name in old_materializations
-        if mat_name == new_materialization.name
-    ]
+    existing_materialization = old_materializations.get(new_materialization.name)
+    deactivated_before = False
     if (
-        existing_materialization_for_engine
-        and existing_materialization_for_engine[0].config == new_materialization.config
+        existing_materialization
+        and existing_materialization.config == new_materialization.config
     ):
+        new_materialization.node_revision = None  # type: ignore
+        # if the materialization was deactivated before, restore it
+        if existing_materialization.deactivated_at is not None:
+            deactivated_before = True
+            existing_materialization.deactivated_at = None  # type: ignore
+            session.add(
+                History(
+                    entity_type=EntityType.MATERIALIZATION,
+                    entity_name=existing_materialization.name,
+                    node=node.name,
+                    activity_type=ActivityType.RESTORE,
+                    details={},
+                ),
+            )
+            session.commit()
+            session.refresh(existing_materialization)
         existing_materialization_info = query_service_client.get_materialization_info(
             name,
             current_revision.version,  # type: ignore
             new_materialization.name,  # type: ignore
         )
-        new_materialization.node_revision = None  # type: ignore
         return JSONResponse(
             status_code=HTTPStatus.CREATED,
             content={
                 "message": (
-                    f"The same materialization config with name `{new_materialization.name}`"
+                    f"The same materialization config with name `{new_materialization.name}` "
                     f"already exists for node `{name}` so no update was performed."
+                    if not deactivated_before
+                    else f"The same materialization config with name `{new_materialization.name}` "
+                    f"already exists for node `{name}` but was deactivated. It has now been "
+                    f"restored."
                 ),
                 "info": existing_materialization_info.dict(),
             },
@@ -800,6 +816,7 @@ def upsert_a_materialization(  # pylint: disable=too-many-locals
 )
 def list_node_materializations(
     node_name: str,
+    show_deleted: bool = False,
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
@@ -811,18 +828,72 @@ def list_node_materializations(
     node = get_node_by_name(session, node_name, with_current=True)
     materializations = []
     for materialization in node.current.materializations:
-        info = query_service_client.get_materialization_info(
-            node_name,
-            node.current.version,  # type: ignore
-            materialization.name,  # type: ignore
-        )
-        materialization = MaterializationConfigInfoUnified(
-            **materialization.dict(),
-            **{"engine": materialization.engine.dict()},
-            **info.dict(),
-        )
-        materializations.append(materialization)
+        if not materialization.deactivated_at or show_deleted:  # pragma: no cover
+            info = query_service_client.get_materialization_info(
+                node_name,
+                node.current.version,  # type: ignore
+                materialization.name,  # type: ignore
+            )
+            materialization = MaterializationConfigInfoUnified(
+                **materialization.dict(),
+                **{"engine": materialization.engine.dict()},
+                **info.dict(),
+            )
+            materializations.append(materialization)
     return materializations
+
+
+@router.delete(
+    "/nodes/{node_name}/materializations/",
+    response_model=List[MaterializationConfigInfoUnified],
+)
+def deactivate_node_materializations(
+    node_name: str,
+    materialization_name: str,
+    *,
+    session: Session = Depends(get_session),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> List[MaterializationConfigInfoUnified]:
+    """
+    Deactivate the node materialization with the provided name.
+    Also calls the query service to deactivate the associated scheduled jobs.
+    """
+    node = get_node_by_name(session, node_name, with_current=True)
+    query_service_client.deactivate_materialization(node_name, materialization_name)
+    for materialization in node.current.materializations:
+        if (
+            materialization.name == materialization_name
+            and not materialization.deactivated_at
+        ):  # pragma: no cover
+            now = datetime.utcnow()
+            materialization.deactivated_at = UTCDatetime(
+                year=now.year,
+                month=now.month,
+                day=now.day,
+                hour=now.hour,
+                minute=now.minute,
+                second=now.second,
+            )
+            session.add(materialization)
+
+    session.add(
+        History(
+            entity_type=EntityType.MATERIALIZATION,
+            entity_name=materialization_name,
+            node=node.name,
+            activity_type=ActivityType.DELETE,
+            details={},
+        ),
+    )
+    session.commit()
+    session.refresh(node.current)
+    return JSONResponse(
+        status_code=HTTPStatus.NO_CONTENT,
+        content={
+            "message": f"The materialization named `{materialization_name}` on node `{node_name}` "
+            "has been successfully deactivated",
+        },
+    )
 
 
 @router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
@@ -1735,8 +1806,11 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         new_revision.columns = validated_node.columns or []
 
     # Handle materializations
-    if old_revision.materializations and query_changes:
-        for old in old_revision.materializations:
+    active_materializations = [
+        mat for mat in old_revision.materializations if not mat.deactivated_at
+    ]
+    if active_materializations and query_changes:
+        for old in active_materializations:
             new_revision.materializations.append(
                 create_new_materialization(
                     session,

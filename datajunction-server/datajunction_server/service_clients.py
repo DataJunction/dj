@@ -157,6 +157,26 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         result = response.json()
         return MaterializationInfo(**result)
 
+    def deactivate_materialization(
+        self,
+        node_name: str,
+        materialization_name: str,
+    ) -> MaterializationInfo:
+        """
+        Deactivates the specified node materialization
+        """
+        response = self.requests_session.delete(
+            "/materialization/",
+            params={
+                "node_name": node_name,
+                "materialization_name": materialization_name,
+            },
+        )
+        if not response.ok:  # pragma: no cover
+            return MaterializationInfo(urls=[], output_tables=[])
+        result = response.json()
+        return MaterializationInfo(**result)
+
     def get_materialization_info(
         self,
         node_name: str,

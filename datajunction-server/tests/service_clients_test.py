@@ -260,6 +260,39 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
             },
         )
 
+    def test_query_service_client_deactivate_materialization(
+        self,
+        mocker: MockerFixture,
+    ) -> None:
+        """
+        Test deactivate materialization from a query service client.
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "urls": ["http://fake.url/job"],
+            "output_tables": ["common.a", "common.b"],
+        }
+
+        mock_request = mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.delete",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        query_service_client.deactivate_materialization(
+            node_name="default.hard_hat",
+            materialization_name="default",
+        )
+
+        mock_request.assert_called_with(
+            "/materialization/",
+            params={
+                "node_name": "default.hard_hat",
+                "materialization_name": "default",
+            },
+        )
+
     def test_query_service_client_raising_error(self, mocker: MockerFixture) -> None:
         """
         Test handling an error response from the query service client
