@@ -1979,6 +1979,22 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             "exists for node `basic.transform.country_agg` but was deactivated. It has "
             "now been restored."
         )
+        response = client_with_query_service.get(
+            "/history?node=basic.transform.country_agg",
+        )
+        assert [
+            (
+                activity["activity_type"],
+                activity["entity_type"],
+                activity["entity_name"],
+            )
+            for activity in response.json()
+        ] == [
+            ("create", "node", "basic.transform.country_agg"),
+            ("create", "materialization", "country_3491792861"),
+            ("delete", "materialization", "country_3491792861"),
+            ("restore", "materialization", "country_3491792861"),
+        ]
 
         # Setting the materialization config without partitions should succeed
         response = client_with_query_service.post(
