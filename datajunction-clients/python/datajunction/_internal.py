@@ -81,6 +81,17 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
 
         self._show_traceback = show_traceback
 
+        if from_jupyter() and not self._show_traceback:
+            from IPython import get_ipython  # pylint: disable=import-error
+
+            def shortened_error(*args, **kwargs):  # pylint: disable=unused-argument
+                import sys
+
+                etype, value, _ = sys.exc_info()
+                _logger.error("[%s]: %s", etype.__name__, value)
+
+            get_ipython().showtraceback = shortened_error
+
     def request(self, method, url, *args, **kwargs):
         """
         Make the request with the full URL.
@@ -100,14 +111,6 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
                 error_message = (
                     f"Request failed with status code {exc.response.status_code}"
                 )
-            if from_jupyter() and not self._show_traceback:
-                from IPython import get_ipython  # pylint: disable=import-error
-
-                def shortened_error():
-                    print(error_message)
-
-                get_ipython().showtraceback = shortened_error
-
             raise DJClientException(error_message) from exc
 
     def prepare_request(self, request, *args, **kwargs):
