@@ -223,8 +223,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         Test deleting a node
         """
         # Delete a node
-        response = client_with_examples.post("/nodes/basic.source.users/delete/")
-        assert response.status_code == 204
+        response = client_with_examples.delete("/nodes/basic.source.users/")
+        assert response.status_code == 200
         # Check that then retrieving the node returns an error
         response = client_with_examples.get("/nodes/basic.source.users/")
         assert not response.ok
@@ -382,7 +382,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
         assert response.ok
         # Delete the source node
-        response = client.post("/nodes/default.users/delete/")
+        response = client.delete("/nodes/default.users/")
         assert response.ok
         # The downstream metric should have an invalid status
         assert (
@@ -514,7 +514,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert response.ok
         assert response.json()["status"] == NodeStatus.INVALID
         # Delete the transform node
-        response = client.post("/nodes/default.us_users/delete/")
+        response = client.delete("/nodes/default.us_users/")
         assert response.ok
         # Retrieving the deleted node should respond that the node doesn't exist
         assert client.get("/nodes/default.us_users/").json()["message"] == (
@@ -807,7 +807,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         ] == [("create", "node"), ("create", "link")]
 
         # Delete the dimension node
-        response = client.post("/nodes/default.us_users/delete/")
+        response = client.delete("/nodes/default.us_users/")
         assert response.ok
         # Retrieving the deleted node should respond that the node doesn't exist
         assert client.get("/nodes/default.us_users/").json()["message"] == (
@@ -3217,7 +3217,7 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
         "/nodes/source/",
         json=missing_parent_node,
     )
-    assert response.status_code == 201
+    assert response.status_code == 200
     data = response.json()
     assert data["name"] == missing_parent_node["name"]
     assert data["mode"] == missing_parent_node["mode"]

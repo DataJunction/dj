@@ -225,25 +225,33 @@ class DJClient:
             )
         return node
 
-    def _delete_node(self, node: "Node"):
+    def _delete_node(self, node_name: str) -> None:
         """
         Delete (aka deactivate) this node.
         """
-        response = self._session.post(
-            f"/nodes/{node.name}/deactivate/",
+        response = self._session.delete(
+            f"/nodes/{node_name}/",
             timeout=self._timeout,
         )
-        return response
+        json_response = response.json()
+        if not response.ok:
+            raise DJClientException(
+                f"Deleting node `{node_name}` failed: {json_response}",
+            )  # pragma: no cover
 
-    def _restore_node(self, node: "Node"):
+    def _restore_node(self, node_name: str) -> None:
         """
         Restore (aka reactivate) this node.
         """
         response = self._session.post(
-            f"/nodes/{node.name}/activate/",
+            f"/nodes/{node_name}/restore/",
             timeout=self._timeout,
         )
-        return response
+        json_response = response.json()
+        if not response.ok:
+            raise DJClientException(
+                f"Restoring node `{node_name}` failed: {json_response}",
+            )  # pragma: no cover
 
     def _validate_node(self, node: "Node"):
         """
