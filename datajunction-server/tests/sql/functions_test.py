@@ -1,3 +1,4 @@
+# pylint: disable=line-too-long,too-many-lines
 """
 Tests for ``datajunction_server.sql.functions``.
 """
@@ -33,8 +34,6 @@ from datajunction_server.sql.parsing.types import (
     StringType,
     WildcardType,
 )
-
-# pylint: disable=line-too-long,too-many-lines
 
 
 def test_missing_functions() -> None:
