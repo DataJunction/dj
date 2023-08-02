@@ -520,6 +520,11 @@ class NodeNamespace(SQLModel, table=True):  # type: ignore
     """
 
     namespace: str = Field(nullable=False, unique=True, primary_key=True)
+    deactivated_at: UTCDatetime = Field(
+        nullable=True,
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default=None,
+    )
 
 
 class Node(NodeBase, table=True):  # type: ignore
