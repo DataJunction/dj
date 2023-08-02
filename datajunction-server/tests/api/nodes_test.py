@@ -1959,9 +1959,60 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "urls": ["http://fake.url/job"],
             },
             "message": "The same materialization config with name "
-            "`country_3491792861`already exists for node "
+            "`country_3491792861` already exists for node "
             "`basic.transform.country_agg` so no update was performed.",
         }
+
+        response = client_with_query_service.delete(
+            "/nodes/basic.transform.country_agg/materializations/"
+            "?materialization_name=country_3491792861",
+        )
+        assert response.json() == {
+            "message": "The materialization named `country_3491792861` on node "
+            "`basic.transform.country_agg` has been successfully deactivated",
+        }
+
+        # Setting it again should inform that it already exists but was reactivated
+        response = client_with_query_service.post(
+            "/nodes/basic.transform.country_agg/materialization/",
+            json={
+                "engine": {
+                    "name": "spark",
+                    "version": "2.4.4",
+                },
+                "config": {
+                    "partitions": [
+                        {
+                            "name": "country",
+                            "values": ["DE", "MY"],
+                            "type_": "categorical",
+                        },
+                    ],
+                },
+                "schedule": "0 * * * *",
+            },
+        )
+        assert response.json()["message"] == (
+            "The same materialization config with name `country_3491792861` already "
+            "exists for node `basic.transform.country_agg` but was deactivated. It has "
+            "now been restored."
+        )
+        response = client_with_query_service.get(
+            "/history?node=basic.transform.country_agg",
+        )
+        assert [
+            (
+                activity["activity_type"],
+                activity["entity_type"],
+                activity["entity_name"],
+            )
+            for activity in response.json()
+        ] == [
+            ("create", "node", "basic.transform.country_agg"),
+            ("create", "materialization", "country_3491792861"),
+            ("delete", "materialization", "country_3491792861"),
+            ("restore", "materialization", "country_3491792861"),
+        ]
 
         # Setting the materialization config without partitions should succeed
         response = client_with_query_service.post(
