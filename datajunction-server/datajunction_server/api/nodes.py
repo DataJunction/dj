@@ -33,7 +33,6 @@ from datajunction_server.api.helpers import (
     validate_cube,
     validate_node_data,
 )
-from datajunction_server.api.namespaces.methods import create_namespace
 from datajunction_server.api.tags import get_tag_by_name
 from datajunction_server.config import Settings
 from datajunction_server.construction.build import build_metric_nodes, build_node
@@ -42,6 +41,7 @@ from datajunction_server.errors import (
     DJException,
     DJInvalidInputException,
 )
+from datajunction_server.internal.namespaces import create_namespace
 from datajunction_server.materialization.jobs import (
     DefaultCubeMaterialization,
     DruidCubeMaterializationJob,
@@ -109,7 +109,7 @@ from datajunction_server.utils import (
 )
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["nodes"])
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
@@ -601,7 +601,11 @@ def create_new_materialization(
     )
 
 
-@router.post("/nodes/{name}/materialization/", status_code=201)
+@router.post(
+    "/nodes/{name}/materialization/",
+    status_code=201,
+    tags=["materializations"],
+)
 def upsert_materialization(  # pylint: disable=too-many-locals
     name: str,
     data: UpsertMaterialization,
@@ -721,6 +725,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
 @router.get(
     "/nodes/{node_name}/materializations/",
     response_model=List[MaterializationConfigInfoUnified],
+    tags=["materializations"],
 )
 def list_node_materializations(
     node_name: str,
@@ -754,6 +759,7 @@ def list_node_materializations(
 @router.delete(
     "/nodes/{node_name}/materializations/",
     response_model=List[MaterializationConfigInfoUnified],
+    tags=["materializations"],
 )
 def deactivate_node_materializations(
     node_name: str,
@@ -1612,7 +1618,7 @@ def delete_dimension_link(
     )
 
 
-@router.post("/nodes/{name}/tag/", status_code=201)
+@router.post("/nodes/{name}/tag/", status_code=201, tags=["tags"])
 def tag_node(
     name: str, tag_name: str, *, session: Session = Depends(get_session)
 ) -> JSONResponse:
