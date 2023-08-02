@@ -501,10 +501,10 @@ def _create_node_from_inactive(
         try:
             activate_node(name=data.name, session=session)
             return get_node_by_name(session, data.name, with_current=True)
-        except Exception as exc:
+        except Exception as exc:  # pragma: no cover
             raise DJException(
                 f"Restoring node `{data.name}` failed: {exc}",
-            ) from exc  # pragma: no cover
+            ) from exc
 
     return None
 
