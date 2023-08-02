@@ -18,10 +18,14 @@ from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["sql"])
 
 
-@router.get("/sql/{node_name}/", response_model=TranslatedSQL)
+@router.get(
+    "/sql/{node_name}/",
+    response_model=TranslatedSQL,
+    name="Get SQL For A Node",
+)
 def get_sql(
     node_name: str,
     dimensions: List[str] = Query([]),
@@ -62,7 +66,7 @@ def get_sql(
     )
 
 
-@router.get("/sql/", response_model=TranslatedSQL)
+@router.get("/sql/", response_model=TranslatedSQL, name="Get SQL For Metrics")
 def get_sql_for_metrics(
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),

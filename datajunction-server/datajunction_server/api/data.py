@@ -34,11 +34,11 @@ from datajunction_server.models.query import (
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import get_query_service_client, get_session
 
-router = APIRouter()
+router = APIRouter(tags=["data"])
 
 
-@router.post("/data/{node_name}/availability/")
-def add_an_availability_state(
+@router.post("/data/{node_name}/availability/", name="Add Availability State To Node")
+def add_availability_state(
     node_name: str,
     data: AvailabilityStateBase,
     *,
@@ -105,15 +105,21 @@ def add_an_availability_state(
     )
 
 
-@router.get("/data/{node_name}/")
+@router.get("/data/{node_name}/", name="Get Data for a Node")
 def get_data(  # pylint: disable=too-many-locals
     node_name: str,
     *,
-    dimensions: List[str] = Query([]),
-    filters: List[str] = Query([]),
-    orderby: List[str] = Query([]),
-    limit: Optional[int] = None,
-    async_: bool = False,
+    dimensions: List[str] = Query([], description="Dimensional attributes to group by"),
+    filters: List[str] = Query([], description="Filters on dimensional attributes"),
+    orderby: List[str] = Query([], description="Expression to order by"),
+    limit: Optional[int] = Query(
+        None,
+        description="Number of rows to limit the data retrieved to",
+    ),
+    async_: bool = Query(
+        default=False,
+        description="Whether to run the query async or wait for results from the query engine",
+    ),
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
@@ -168,7 +174,7 @@ def get_data(  # pylint: disable=too-many-locals
     return result
 
 
-@router.get("/data/", response_model=QueryWithResults)
+@router.get("/data/", response_model=QueryWithResults, name="Get Data For Metrics")
 def get_data_for_metrics(  # pylint: disable=R0914, R0913
     metrics: List[str] = Query([]),
     dimensions: List[str] = Query([]),

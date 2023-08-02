@@ -18,7 +18,7 @@ from datajunction_server.sql.dag import (
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["dimensions"])
 
 
 @router.get("/dimensions/", response_model=List[str])

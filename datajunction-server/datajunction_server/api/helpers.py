@@ -161,7 +161,7 @@ def get_attribute_type(
     return session.exec(statement).one_or_none()
 
 
-def get_catalog(session: Session, name: str) -> Catalog:
+def get_catalog_by_name(session: Session, name: str) -> Catalog:
     """
     Get a catalog by name
     """
@@ -750,7 +750,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         materialized=True,
     )
     if cube:
-        catalog = get_catalog(session, cube.availability.catalog)  # type: ignore
+        catalog = get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
         available_engines = catalog.engines + available_engines
 
     # Check if selected engine is available, or if none is provided, select the fastest
