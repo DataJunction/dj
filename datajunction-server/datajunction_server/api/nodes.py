@@ -17,8 +17,8 @@ from sqlmodel import Session, select
 from starlette.requests import Request
 
 from datajunction_server.api.helpers import (
-    activate_node,
-    deactivate_node,
+    restore_node,
+    delete_node,
     get_attribute_type,
     get_catalog,
     get_column,
@@ -33,6 +33,7 @@ from datajunction_server.api.helpers import (
     validate_cube,
     validate_node_data,
 )
+from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tag_by_name
 from datajunction_server.config import Settings
 from datajunction_server.construction.build import build_metric_nodes, build_node
@@ -41,7 +42,6 @@ from datajunction_server.errors import (
     DJException,
     DJInvalidInputException,
 )
-from datajunction_server.internal.namespaces import create_namespace
 from datajunction_server.materialization.jobs import (
     DefaultCubeMaterialization,
     DruidCubeMaterializationJob,
@@ -361,7 +361,7 @@ def delete_node(name: str, *, session: Session = Depends(get_session)):
     """
     Delete (aka deactivate) the specified node.
     """
-    deactivate_node(session, name)
+    delete_node(session, name)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully deleted."},
@@ -373,7 +373,7 @@ def restore_node(name: str, *, session: Session = Depends(get_session)):
     """
     Restore (aka re-activate) the specified node.
     """
-    activate_node(session, name)
+    restore_node(session, name)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},
@@ -1423,7 +1423,7 @@ def register_table(  # pylint: disable=too-many-arguments
     raise_if_node_exists(session, name)
 
     # Create the namespace if required (idempotent)
-    create_namespace(namespace=namespace, session=session)
+    create_node_namespace(namespace=namespace, session=session)
 
     # Use reflection to get column names and types
     _catalog = get_catalog(session=session, name=catalog)

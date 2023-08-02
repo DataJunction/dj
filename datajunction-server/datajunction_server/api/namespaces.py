@@ -10,8 +10,8 @@ from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import (
-    activate_node,
-    deactivate_node,
+    restore_node,
+    delete_node,
     get_node_namespace,
 )
 from datajunction_server.errors import DJAlreadyExistsException
@@ -29,7 +29,7 @@ router = APIRouter(tags=["namespaces"])
 
 
 @router.post("/namespaces/{namespace}/", status_code=201)
-def create_a_node_namespace(
+def create_node_namespace(
     namespace: str,
     session: Session = Depends(get_session),
 ) -> JSONResponse:
@@ -129,7 +129,7 @@ def deactivate_a_namespace(
     # subsequently deactivate this namespace
     if cascade:
         for node_name in node_names:
-            deactivate_node(
+            delete_node(
                 session,
                 node_name,
                 f"Cascaded from deactivating namespace `{namespace}`",
@@ -184,7 +184,7 @@ def restore_a_namespace(
     # subsequently restore this namespace
     if cascade:
         for node_name in node_names:
-            activate_node(
+            restore_node(
                 name=node_name,
                 session=session,
                 message=f"Cascaded from restoring namespace `{namespace}`",

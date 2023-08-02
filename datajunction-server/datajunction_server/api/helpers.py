@@ -871,7 +871,7 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
         await asyncio.sleep(stream_delay)  # pragma: no cover
 
 
-def deactivate_node(session: Session, name: str, message: str = None):
+def delete_node(session: Session, name: str, message: str = None):
     """
     Deactivates a node and propagates to all downstreams.
     """
@@ -914,7 +914,7 @@ def deactivate_node(session: Session, name: str, message: str = None):
     session.commit()
 
 
-def activate_node(session: Session, name: str, message: str = None):
+def restore_node(session: Session, name: str, message: str = None):
     """Restores node and revalidate all downstreams."""
     node = get_node_by_name(session, name, with_current=True, include_inactive=True)
     if not node.deactivated_at:
@@ -932,8 +932,8 @@ def activate_node(session: Session, name: str, message: str = None):
             downstream.current.status = NodeStatus.VALID
             for element in downstream.current.cube_elements:
                 if (
-                        element.node_revisions
-                        and element.node_revisions[-1].status == NodeStatus.INVALID
+                    element.node_revisions
+                    and element.node_revisions[-1].status == NodeStatus.INVALID
                 ):  # pragma: no cover
                     downstream.current.status = NodeStatus.INVALID
         else:
@@ -960,6 +960,7 @@ def activate_node(session: Session, name: str, message: str = None):
             entity_name=node.name,
             node=node.name,
             activity_type=ActivityType.RESTORE,
+            details={"message": message} if message else {},
         ),
     )
     session.commit()
