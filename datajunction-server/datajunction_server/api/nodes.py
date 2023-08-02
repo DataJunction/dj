@@ -17,6 +17,7 @@ from sqlmodel import Session, select
 from starlette.requests import Request
 
 from datajunction_server.api.helpers import (
+    deactivate_node,
     get_attribute_type,
     get_catalog,
     get_column,
@@ -31,7 +32,7 @@ from datajunction_server.api.helpers import (
     validate_cube,
     validate_node_data,
 )
-from datajunction_server.api.namespaces import create_node_namespace
+from datajunction_server.api.namespaces.methods import create_namespace
 from datajunction_server.api.tags import get_tag_by_name
 from datajunction_server.config import Settings
 from datajunction_server.construction.build import build_metric_nodes, build_node
@@ -359,42 +360,7 @@ def delete_node(name: str, *, session: Session = Depends(get_session)):
     """
     Delete (aka deactivate) the specified node.
     """
-    node = get_node_by_name(session, name, with_current=True)
-
-    # Find all downstream nodes and mark them as invalid
-    downstreams = get_downstream_nodes(session, node.name)
-    for downstream in downstreams:
-        if downstream.current.status != NodeStatus.INVALID:
-            downstream.current.status = NodeStatus.INVALID
-            session.add(
-                status_change_history(
-                    downstream.current,
-                    NodeStatus.VALID,
-                    NodeStatus.INVALID,
-                    parent_node=node.name,
-                ),
-            )
-            session.add(downstream)
-
-    now = datetime.utcnow()
-    node.deactivated_at = UTCDatetime(
-        year=now.year,
-        month=now.month,
-        day=now.day,
-        hour=now.hour,
-        minute=now.minute,
-        second=now.second,
-    )
-    session.add(node)
-    session.add(
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.DELETE,
-        ),
-    )
-    session.commit()
+    deactivate_node(session, name)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully deleted."},
@@ -1496,7 +1462,7 @@ def register_table(  # pylint: disable=too-many-arguments
     raise_if_node_exists(session, name)
 
     # Create the namespace if required (idempotent)
-    create_node_namespace(namespace=namespace, session=session)
+    create_namespace(namespace=namespace, session=session)
 
     # Use reflection to get column names and types
     _catalog = get_catalog(session=session, name=catalog)
