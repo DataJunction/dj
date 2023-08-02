@@ -15,7 +15,7 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
 from datajunction_server.utils import get_session
 
-router = APIRouter()
+router = APIRouter(tags=["tags"])
 
 
 def get_tag_by_name(

@@ -18,7 +18,7 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["attributes"])
 
 
 @router.get("/attributes/", response_model=List[AttributeType])
@@ -29,8 +29,13 @@ def list_attributes(*, session: Session = Depends(get_session)) -> List[Attribut
     return session.exec(select(AttributeType)).all()
 
 
-@router.post("/attributes/", response_model=AttributeType, status_code=201)
-def add_an_attribute_type(
+@router.post(
+    "/attributes/",
+    response_model=AttributeType,
+    status_code=201,
+    name="Add An Attribute Type",
+)
+def add_attribute_type(
     data: MutableAttributeTypeFields, *, session: Session = Depends(get_session)
 ) -> AttributeType:
     """
