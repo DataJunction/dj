@@ -17,8 +17,8 @@ from sqlmodel import Session, select
 from starlette.requests import Request
 
 from datajunction_server.api.helpers import (
-    restore_node,
-    delete_node,
+    activate_node,
+    deactivate_node,
     get_attribute_type,
     get_catalog,
     get_column,
@@ -361,7 +361,7 @@ def delete_node(name: str, *, session: Session = Depends(get_session)):
     """
     Delete (aka deactivate) the specified node.
     """
-    delete_node(session, name)
+    deactivate_node(session, name)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully deleted."},
@@ -373,7 +373,7 @@ def restore_node(name: str, *, session: Session = Depends(get_session)):
     """
     Restore (aka re-activate) the specified node.
     """
-    restore_node(session, name)
+    activate_node(session, name)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},

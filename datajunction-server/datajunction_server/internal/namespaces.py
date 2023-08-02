@@ -18,7 +18,7 @@ def get_nodes_in_namespace(
     session: Session,
     namespace: str,
     node_type: NodeType = None,
-    deactivated: bool = False,
+    include_deactivated: bool = False,
 ) -> List[str]:
     """
     Gets a list of node names in the namespace
@@ -39,7 +39,7 @@ def get_nodes_in_namespace(
     list_nodes_query = select(Node.name).where(
         where_clause,
     )  # .where(is_(Node.deactivated_at, None))
-    if deactivated is False:
+    if include_deactivated is False:
         list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
     return session.exec(list_nodes_query).all()
 
