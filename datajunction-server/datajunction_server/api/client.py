@@ -13,7 +13,7 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["client"])
 
 
 @router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)

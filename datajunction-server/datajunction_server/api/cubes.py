@@ -12,11 +12,11 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["cubes"])
 
 
-@router.get("/cubes/{name}/", response_model=CubeRevisionMetadata)
-def get_a_cube(
+@router.get("/cubes/{name}/", response_model=CubeRevisionMetadata, name="Get A Cube")
+def get_cube(
     name: str, *, session: Session = Depends(get_session)
 ) -> CubeRevisionMetadata:
     """

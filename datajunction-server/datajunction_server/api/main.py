@@ -28,6 +28,7 @@ from datajunction_server.api import (
     engines,
     health,
     history,
+    materializations,
     metrics,
     namespaces,
     nodes,
@@ -85,6 +86,7 @@ def get_dj_app(
     application.include_router(query.router)
     application.include_router(nodes.router)
     application.include_router(namespaces.router)
+    application.include_router(materializations.router)
     application.include_router(data.router)
     application.include_router(health.router)
     application.include_router(history.router)
