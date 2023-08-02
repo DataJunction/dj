@@ -15,7 +15,7 @@ _logger = logging.getLogger(__name__)
 router = APIRouter(tags=["cubes"])
 
 
-@router.get("/cubes/{name}/", response_model=CubeRevisionMetadata, name="Get A Cube")
+@router.get("/cubes/{name}/", response_model=CubeRevisionMetadata, name="Get a Cube")
 def get_cube(
     name: str, *, session: Session = Depends(get_session)
 ) -> CubeRevisionMetadata:

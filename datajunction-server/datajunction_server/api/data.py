@@ -37,7 +37,7 @@ from datajunction_server.utils import get_query_service_client, get_session
 router = APIRouter(tags=["data"])
 
 
-@router.post("/data/{node_name}/availability/", name="Add Availability State To Node")
+@router.post("/data/{node_name}/availability/", name="Add Availability State to Node")
 def add_availability_state(
     node_name: str,
     data: AvailabilityStateBase,
