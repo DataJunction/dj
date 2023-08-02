@@ -17,6 +17,7 @@ from sqlmodel import Session, select
 from starlette.requests import Request
 
 from datajunction_server.api.helpers import (
+    activate_node,
     deactivate_node,
     get_attribute_type,
     get_catalog,
@@ -372,53 +373,7 @@ def restore_node(name: str, *, session: Session = Depends(get_session)):
     """
     Restore (aka re-activate) the specified node.
     """
-    node = get_node_by_name(session, name, with_current=True, include_inactive=True)
-    if not node.deactivated_at:
-        raise DJException(
-            http_status_code=HTTPStatus.BAD_REQUEST,
-            message=f"Cannot restore `{name}`, node already active.",
-        )
-    node.deactivated_at = None  # type: ignore
-
-    # Find all downstream nodes and revalidate them
-    downstreams = get_downstream_nodes(session, node.name)
-    for downstream in downstreams:
-        old_status = downstream.current.status
-        if downstream.type == NodeType.CUBE:
-            downstream.current.status = NodeStatus.VALID
-            for element in downstream.current.cube_elements:
-                if (
-                    element.node_revisions
-                    and element.node_revisions[-1].status == NodeStatus.INVALID
-                ):  # pragma: no cover
-                    downstream.current.status = NodeStatus.INVALID
-        else:
-            # We should not fail node restoration just because of some nodes
-            # that have been invalid already and stay that way.
-            (_, _, _, _, errors) = validate_node_data(downstream.current, session)
-            if errors:
-                downstream.current.status = NodeStatus.INVALID
-        session.add(downstream)
-        if old_status != downstream.current.status:
-            session.add(
-                status_change_history(
-                    downstream.current,
-                    old_status,
-                    downstream.current.status,
-                    parent_node=node.name,
-                ),
-            )
-
-    session.add(node)
-    session.add(
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.RESTORE,
-        ),
-    )
-    session.commit()
+    activate_node(session, name)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},

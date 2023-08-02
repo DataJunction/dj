@@ -2,7 +2,7 @@
 Helper methods for namespaces endpoints.
 """
 from datetime import datetime
-from typing import Dict, List
+from typing import List
 
 from sqlalchemy import and_
 from sqlalchemy.sql.operators import is_
@@ -47,7 +47,7 @@ def get_nodes_in_namespace(
 def mark_namespace_deactivated(
     session: Session,
     namespace: NodeNamespace,
-    details: Dict = None,
+    message: str = None,
 ):
     """
     Deactivates the node namespace and updates history indicating so
@@ -67,7 +67,7 @@ def mark_namespace_deactivated(
             entity_name=namespace.namespace,
             node=None,
             activity_type=ActivityType.DELETE,
-            details=details or {},
+            details={"message": message or ""},
         ),
     )
     session.commit()
@@ -76,7 +76,7 @@ def mark_namespace_deactivated(
 def mark_namespace_restored(
     session: Session,
     namespace: NodeNamespace,
-    details: Dict = None,
+    message: str = None,
 ):
     """
     Restores the node namespace and updates history indicating so
@@ -88,7 +88,7 @@ def mark_namespace_restored(
             entity_name=namespace.namespace,
             node=None,
             activity_type=ActivityType.RESTORE,
-            details=details or {},
+            details={"message": message or ""},
         ),
     )
     session.commit()

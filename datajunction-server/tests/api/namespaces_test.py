@@ -236,3 +236,16 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
             },
         ),
     ]
+
+    response = client_with_examples.get(
+        "/history?node=foo.bar.avg_length_of_employment",
+    )
+    assert [
+        (activity["activity_type"], activity["details"]) for activity in response.json()
+    ] == [
+        ("create", {}),
+        ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
+        ("delete", {"message": "Cascaded from deactivating namespace `foo.bar`"}),
+        ("restore", {"message": "Cascaded from restoring namespace `foo.bar`"}),
+        ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
+    ]
