@@ -531,9 +531,9 @@ def build_node(  # pylint: disable=too-many-arguments
     )
     memoized_queries: Dict[int, ast.Query] = {}
     _logger.info("Calling build_ast on %s", node.name)
-    astt = build_ast(session, query, memoized_queries, build_criteria)
+    built_ast = build_ast(session, query, memoized_queries, build_criteria)
     _logger.info("Finished build_ast on %s", node.name)
-    return astt
+    return built_ast
 
 
 def build_metric_nodes(

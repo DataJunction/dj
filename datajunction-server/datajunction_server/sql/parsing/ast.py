@@ -197,6 +197,20 @@ class Node(ABC):
             return None
         return self.parent.get_nearest_parent_of_type(node_type)
 
+    def get_furthest_parent(
+        self: "Node",
+    ) -> Optional[TNode]:
+        """
+        Traverse up the tree until you find a node of `node_type` or hit the root
+        """
+        if self.parent is None:
+            return None
+        curr_parent = self.parent
+        while True:
+            if curr_parent.parent is None:
+                return curr_parent
+            curr_parent = curr_parent.parent
+
     def flatten(self) -> Iterator["Node"]:
         """
         Flatten the sub-ast of the node as an iterator
@@ -475,7 +489,7 @@ class Aliasable(Node):
     alias: Optional["Name"] = None
     as_: Optional[bool] = None
 
-    def set_alias(self: TNode, alias: "Name") -> TNode:
+    def set_alias(self: TNode, alias: Optional["Name"]) -> TNode:
         self.alias = alias
         return self
 
@@ -665,6 +679,19 @@ class Named(Node):
 
 
 @dataclass(eq=False)
+class DefaultName(Name):
+    name: str = ""
+
+    def __bool__(self) -> bool:
+        return False
+
+
+@dataclass(eq=False)
+class UnNamed(Named):
+    name: Name = field(default_factory=DefaultName)
+
+
+@dataclass(eq=False)
 class Column(Aliasable, Named, Expression):
     """
     Column used in statements
@@ -686,6 +713,7 @@ class Column(Aliasable, Named, Expression):
         if self.expression:
             self.add_type(self.expression.type)
             return self.expression.type
+
         parent_expr = f"in {self.parent}" if self.parent else "that has no parent"
         raise DJParseException(f"Cannot resolve type of column {self} {parent_expr}")
 
@@ -821,6 +849,14 @@ class Column(Aliasable, Named, Expression):
         if found:
             return found
 
+        # Check for ctes
+        alpha_query = self.get_furthest_parent()
+        if isinstance(alpha_query, Query) and alpha_query.ctes:
+            for table in alpha_query.ctes:
+                if table.alias_or_name.identifier(False) == namespace:
+                    if table.add_ref_column(self, ctx):
+                        found.append(table)
+
         # If nothing was found in the initial AST, traverse through dimensions graph
         # to find another table in DJ that could be its origin
         to_process = collections.deque(direct_tables)
@@ -894,7 +930,9 @@ class Column(Aliasable, Named, Expression):
         as_ = " AS " if self.as_ else " "
         alias = "" if not self.alias else f"{as_}{self.alias}"
         if self.table is not None and not isinstance(self.table, FunctionTable):
-            ret = f"{self.table.alias_or_name.identifier()}.{self.name.quote_style}{self.name.name}{self.name.quote_style}"
+            ret = f"{self.name.quote_style}{self.name.name}{self.name.quote_style}"
+            if table_name := self.table.alias_or_name:
+                ret = table_name.identifier() + "." + ret
         else:
             ret = str(self.name)
         if self.parenthesized:
@@ -943,24 +981,22 @@ class TableExpression(Aliasable, Expression):
     column_list: List[Column] = field(default_factory=list)
     _columns: List[Expression] = field(
         default_factory=list,
-    )  # all those expressions that can be had from the table
+    )  # all those expressions that can be had from the table; usually derived from dj node metadata for Table
+    # ref (referenced) columns are columns used elsewhere from this table
     _ref_columns: List[Column] = field(init=False, repr=False, default_factory=list)
 
     @property
     def columns(self) -> List[Expression]:
         """
-        Return the columns referenced from this table
+        Return the columns named in this table
         """
         col_list_names = {col.name.name for col in self.column_list}
         return [
             col
             for col in self._columns
             if isinstance(col, (Aliasable, Named))
-            and col.alias_or_name.name not in col_list_names
+            and (col.alias_or_name.name in col_list_names if col_list_names else True)
         ]
-
-    def is_compiled(self) -> bool:
-        return True if self._columns or self._is_compiled else False
 
     @property
     def ref_columns(self) -> Set[Column]:
@@ -1010,6 +1046,7 @@ class TableExpression(Aliasable, Expression):
         for col in self.columns:
             if isinstance(col, (Aliasable, Named)):
                 current_col_name = col.alias_or_name.identifier(False)
+
                 if column.name.name == current_col_name:
                     self._ref_columns.append(column)
                     column.add_table(self)
@@ -1032,7 +1069,7 @@ class TableExpression(Aliasable, Expression):
                                 column.add_type(type_field.type)
         return False
 
-    def is_compiled(self) -> bool:  # noqa: F811
+    def is_compiled(self) -> bool:
         return bool(self._columns) or self._is_compiled
 
     def in_from_or_lateral(self) -> bool:
@@ -2120,8 +2157,8 @@ class Organization(Node):
     Sets up organization for the query
     """
 
-    order: Optional[List[SortItem]] = None
-    sort: Optional[List[SortItem]] = None
+    order: List[SortItem] = field(default_factory=list)
+    sort: List[SortItem] = field(default_factory=list)
 
     def __str__(self) -> str:
         ret = ""
@@ -2232,7 +2269,7 @@ class Select(SelectExpression):
 
 
 @dataclass(eq=False)
-class Query(TableExpression):
+class Query(TableExpression, UnNamed):
     """
     Overarching query type
     """
@@ -2264,14 +2301,21 @@ class Query(TableExpression):
         Note: This destroys the structure of the query which cannot be undone
         you may want to deepcopy it first
         """
+
         for cte in self.ctes:
-            table = Table(name=cte.alias_or_name)
-            self.replace(table, cte)
+            for tbl in self.filter(
+                lambda node: isinstance(node, Table)
+                and node.identifier(False) == cte.alias_or_name.identifier(False),
+            ):
+                tbl.swap(cte)
+        self.ctes = []
         return self
 
     def __str__(self) -> str:
         is_cte = self.parent is not None and self.parent_key == "ctes"
         ctes = ",\n".join(str(cte) for cte in self.ctes)
+        if ctes:
+            ctes += "\n\n"
         with_ = f"WITH\n{ctes}" if ctes else ""
 
         parts = [f"{with_}{self.select}\n"]

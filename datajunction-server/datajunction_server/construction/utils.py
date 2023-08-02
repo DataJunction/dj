@@ -18,6 +18,7 @@ def get_dj_node(
     session: Session,
     node_name: str,
     kinds: Optional[Set[NodeType]] = None,
+    current: bool = True,
 ) -> NodeRevision:
     """Return the DJ Node with a given name from a set of node types"""
     query = select(Node).filter(Node.name == node_name)
@@ -34,7 +35,7 @@ def get_dj_node(
                 message=f"No node `{node_name}` exists of kind {kind_msg}.",
             ),
         ) from no_result_exc
-    return match.current if match else match
+    return match.current if match and current else match
 
 
 def to_namespaced_name(name: str) -> "Name":
