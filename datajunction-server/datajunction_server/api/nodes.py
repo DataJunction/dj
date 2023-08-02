@@ -17,6 +17,8 @@ from sqlmodel import Session, select
 from starlette.requests import Request
 
 from datajunction_server.api.helpers import (
+    activate_node,
+    deactivate_node,
     get_attribute_type,
     get_catalog,
     get_column,
@@ -107,7 +109,7 @@ from datajunction_server.utils import (
 )
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["nodes"])
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
@@ -359,42 +361,7 @@ def delete_node(name: str, *, session: Session = Depends(get_session)):
     """
     Delete (aka deactivate) the specified node.
     """
-    node = get_node_by_name(session, name, with_current=True)
-
-    # Find all downstream nodes and mark them as invalid
-    downstreams = get_downstream_nodes(session, node.name)
-    for downstream in downstreams:
-        if downstream.current.status != NodeStatus.INVALID:
-            downstream.current.status = NodeStatus.INVALID
-            session.add(
-                status_change_history(
-                    downstream.current,
-                    NodeStatus.VALID,
-                    NodeStatus.INVALID,
-                    parent_node=node.name,
-                ),
-            )
-            session.add(downstream)
-
-    now = datetime.utcnow()
-    node.deactivated_at = UTCDatetime(
-        year=now.year,
-        month=now.month,
-        day=now.day,
-        hour=now.hour,
-        minute=now.minute,
-        second=now.second,
-    )
-    session.add(node)
-    session.add(
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.DELETE,
-        ),
-    )
-    session.commit()
+    deactivate_node(session, name)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully deleted."},
@@ -406,53 +373,7 @@ def restore_node(name: str, *, session: Session = Depends(get_session)):
     """
     Restore (aka re-activate) the specified node.
     """
-    node = get_node_by_name(session, name, with_current=True, include_inactive=True)
-    if not node.deactivated_at:
-        raise DJException(
-            http_status_code=HTTPStatus.BAD_REQUEST,
-            message=f"Cannot restore `{name}`, node already active.",
-        )
-    node.deactivated_at = None  # type: ignore
-
-    # Find all downstream nodes and revalidate them
-    downstreams = get_downstream_nodes(session, node.name)
-    for downstream in downstreams:
-        old_status = downstream.current.status
-        if downstream.type == NodeType.CUBE:
-            downstream.current.status = NodeStatus.VALID
-            for element in downstream.current.cube_elements:
-                if (
-                    element.node_revisions
-                    and element.node_revisions[-1].status == NodeStatus.INVALID
-                ):  # pragma: no cover
-                    downstream.current.status = NodeStatus.INVALID
-        else:
-            # We should not fail node restoration just because of some nodes
-            # that have been invalid already and stay that way.
-            (_, _, _, _, errors) = validate_node_data(downstream.current, session)
-            if errors:
-                downstream.current.status = NodeStatus.INVALID
-        session.add(downstream)
-        if old_status != downstream.current.status:
-            session.add(
-                status_change_history(
-                    downstream.current,
-                    old_status,
-                    downstream.current.status,
-                    parent_node=node.name,
-                ),
-            )
-
-    session.add(node)
-    session.add(
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.RESTORE,
-        ),
-    )
-    session.commit()
+    activate_node(session, name)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},
@@ -680,7 +601,11 @@ def create_new_materialization(
     )
 
 
-@router.post("/nodes/{name}/materialization/", status_code=201)
+@router.post(
+    "/nodes/{name}/materialization/",
+    status_code=201,
+    tags=["materializations"],
+)
 def upsert_materialization(  # pylint: disable=too-many-locals
     name: str,
     data: UpsertMaterialization,
@@ -800,6 +725,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
 @router.get(
     "/nodes/{node_name}/materializations/",
     response_model=List[MaterializationConfigInfoUnified],
+    tags=["materializations"],
 )
 def list_node_materializations(
     node_name: str,
@@ -833,6 +759,7 @@ def list_node_materializations(
 @router.delete(
     "/nodes/{node_name}/materializations/",
     response_model=List[MaterializationConfigInfoUnified],
+    tags=["materializations"],
 )
 def deactivate_node_materializations(
     node_name: str,
@@ -1691,7 +1618,7 @@ def delete_dimension_link(
     )
 
 
-@router.post("/nodes/{name}/tag/", status_code=201)
+@router.post("/nodes/{name}/tag/", status_code=201, tags=["tags"])
 def tag_node(
     name: str, tag_name: str, *, session: Session = Depends(get_session)
 ) -> JSONResponse:
