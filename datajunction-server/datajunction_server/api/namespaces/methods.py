@@ -2,7 +2,7 @@
 Helper methods for namespaces endpoints.
 """
 from datetime import datetime
-from typing import Dict
+from typing import Dict, List
 
 from sqlalchemy import and_
 from sqlalchemy.sql.operators import is_
@@ -19,7 +19,7 @@ def get_nodes_in_namespace(
     namespace: str,
     node_type: NodeType = None,
     deactivated: bool = False,
-) -> list[str]:
+) -> List[str]:
     """
     Gets a list of node names in the namespace
     """
