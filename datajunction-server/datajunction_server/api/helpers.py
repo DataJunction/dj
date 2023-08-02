@@ -8,6 +8,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
@@ -33,6 +34,7 @@ from datajunction_server.models import AttributeType, Catalog, Column, Engine
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import (
+    ActivityType,
     EntityType,
     History,
     status_change_history,
@@ -56,7 +58,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.typing import END_JOB_STATES
+from datajunction_server.typing import END_JOB_STATES, UTCDatetime
 
 _logger = logging.getLogger(__name__)
 
@@ -65,7 +67,7 @@ def get_node_namespace(  # pylint: disable=too-many-arguments
     session: Session,
     namespace: str,
     raise_if_not_exists: bool = True,
-) -> str:
+) -> NodeNamespace:
     """
     Get a node namespace
     """
@@ -867,3 +869,45 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
 
             query = query_next
         await asyncio.sleep(stream_delay)  # pragma: no cover
+
+
+def deactivate_node(session: Session, name: str):
+    """
+    Deactivates a node and propagates to all downstreams.
+    """
+    node = get_node_by_name(session, name, with_current=True)
+
+    # Find all downstream nodes and mark them as invalid
+    downstreams = get_downstream_nodes(session, node.name)
+    for downstream in downstreams:
+        if downstream.current.status != NodeStatus.INVALID:
+            downstream.current.status = NodeStatus.INVALID
+            session.add(
+                status_change_history(
+                    downstream.current,
+                    NodeStatus.VALID,
+                    NodeStatus.INVALID,
+                    parent_node=node.name,
+                ),
+            )
+            session.add(downstream)
+
+    now = datetime.utcnow()
+    node.deactivated_at = UTCDatetime(
+        year=now.year,
+        month=now.month,
+        day=now.day,
+        hour=now.hour,
+        minute=now.minute,
+        second=now.second,
+    )
+    session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.DELETE,
+        ),
+    )
+    session.commit()
