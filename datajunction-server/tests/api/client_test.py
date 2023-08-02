@@ -14,9 +14,9 @@ def test_generated_python_client_code_new_metric(client_with_examples: TestClien
     )
     assert (
         response.json()
-        == """dj = DJClient(DJ_URL)
+        == """dj = DJBuilder(DJ_URL)
 
-num_repair_orders = dj.new_metric(
+num_repair_orders = dj.create_metric(
     description="Number of repair orders",
     display_name="Default: Num Repair Orders",
     name="default.num_repair_orders",
@@ -26,8 +26,7 @@ num_repair_orders = dj.new_metric(
         + """ FROM default.repair_orders
 
 \"\"\"
-)
-num_repair_orders.save(NodeMode.PUBLISHED)"""
+)"""
     )
 
 
@@ -40,17 +39,16 @@ def test_generated_python_client_code_new_source(client_with_examples: TestClien
     )
     assert (
         response.json()
-        == """dj = DJClient(DJ_URL)
+        == """dj = DJBuilder(DJ_URL)
 
-repair_order_details = dj.new_source(
+repair_order_details = dj.create_source(
     description="Details on repair orders",
     display_name="Default: Repair Order Details",
     name="default.repair_order_details",
     primary_key=[],
     schema_="roads",
     table="repair_order_details"
-)
-repair_order_details.save(NodeMode.PUBLISHED)"""
+)"""
     )
 
 
@@ -63,9 +61,9 @@ def test_generated_python_client_code_new_dimension(client_with_examples: TestCl
     )
     assert (
         response.json()
-        == """dj = DJClient(DJ_URL)
+        == """dj = DJBuilder(DJ_URL)
 
-repair_order = dj.new_dimension(
+repair_order = dj.create_dimension(
     description="Repair order dimension",
     display_name="Default: Repair Order",
     name="default.repair_order",
@@ -81,8 +79,7 @@ repair_order = dj.new_dimension(
                         dispatcher_id
                         FROM default.repair_orders
                     \"\"\"
-)
-repair_order.save(NodeMode.PUBLISHED)"""
+)"""
     )
 
 
@@ -108,17 +105,16 @@ def test_generated_python_client_code_new_cube(client_with_examples: TestClient)
     )
     assert (
         response.json()
-        == """dj = DJClient(DJ_URL)
+        == """dj = DJBuilder(DJ_URL)
 
-repairs_cube = dj.new_cube(
+repairs_cube = dj.create_cube(
     description="Cube of various metrics related to repairs",
     display_name="Default: Repairs Cube",
     name="default.repairs_cube",
     primary_key=[],
     metrics=["default.num_repair_orders", "default.total_repair_cost"],
     dimensions=["default.hard_hat.country", "default.hard_hat.city"]
-)
-repairs_cube.save(NodeMode.PUBLISHED)"""
+)"""
     )
 
 
@@ -160,7 +156,7 @@ def test_generated_python_client_code_adding_materialization(
     )
     assert (
         response.json()
-        == """dj = DJClient(DJ_URL)
+        == """dj = DJBuilder(DJ_URL)
 
 country_agg = dj.transform(
     "basic.transform.country_agg"
@@ -203,7 +199,7 @@ def test_generated_python_client_code_link_dimension(client_with_examples: TestC
     )
     assert (
         response.json()
-        == """dj = DJClient(DJ_URL)
+        == """dj = DJBuilder(DJ_URL)
 repair_orders = dj.source(
     "foo.bar.repair_orders"
 )
