@@ -10,8 +10,8 @@ from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import (
-    restore_node,
-    delete_node,
+    activate_node,
+    deactivate_node,
     get_node_namespace,
 )
 from datajunction_server.errors import DJAlreadyExistsException
@@ -129,7 +129,7 @@ def deactivate_a_namespace(
     # subsequently deactivate this namespace
     if cascade:
         for node_name in node_names:
-            delete_node(
+            deactivate_node(
                 session,
                 node_name,
                 f"Cascaded from deactivating namespace `{namespace}`",
@@ -178,13 +178,13 @@ def restore_a_namespace(
             message=f"Node namespace `{namespace}` already exists and is active",
         )
 
-    node_names = get_nodes_in_namespace(session, namespace, deactivated=True)
+    node_names = get_nodes_in_namespace(session, namespace, include_deactivated=True)
 
     # If cascade=true is set, we'll restore all nodes in this namespace and then
     # subsequently restore this namespace
     if cascade:
         for node_name in node_names:
-            restore_node(
+            activate_node(
                 name=node_name,
                 session=session,
                 message=f"Cascaded from restoring namespace `{namespace}`",

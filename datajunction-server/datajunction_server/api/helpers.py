@@ -871,7 +871,7 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
         await asyncio.sleep(stream_delay)  # pragma: no cover
 
 
-def delete_node(session: Session, name: str, message: str = None):
+def deactivate_node(session: Session, name: str, message: str = None):
     """
     Deactivates a node and propagates to all downstreams.
     """
@@ -914,7 +914,7 @@ def delete_node(session: Session, name: str, message: str = None):
     session.commit()
 
 
-def restore_node(session: Session, name: str, message: str = None):
+def activate_node(session: Session, name: str, message: str = None):
     """Restores node and revalidate all downstreams."""
     node = get_node_by_name(session, name, with_current=True, include_inactive=True)
     if not node.deactivated_at:
