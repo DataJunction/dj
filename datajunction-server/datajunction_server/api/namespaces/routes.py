@@ -107,13 +107,19 @@ def deactivate_a_namespace(
         raise_if_not_exists=True,
     )
 
+    if node_namespace.deactivated_at:
+        raise DJAlreadyExistsException(
+            message=f"Namespace `{namespace}` is already deactivated.",
+        )
+
     # If there are no active nodes in the namespace, we can safely deactivate this namespace
     node_names = get_nodes_in_namespace(session, namespace)
     if len(node_names) == 0:
-        mark_namespace_deactivated(session, node_namespace)
+        message = f"Namespace `{namespace}` has been deactivated."
+        mark_namespace_deactivated(session, node_namespace, {"message": message})
         return JSONResponse(
             status_code=201,
-            content={"message": f"Namespace `{namespace}` has been deactivated."},
+            content={"message": message},
         )
 
     # If cascade=true is set, we'll deactivate all nodes in this namespace and then
@@ -121,13 +127,16 @@ def deactivate_a_namespace(
     if cascade:
         for node_name in node_names:
             deactivate_node(session, node_name)
-        mark_namespace_deactivated(session, node_namespace)
+        message = (
+            f"Namespace `{namespace}` has been deactivated. The following nodes"
+            f" have also been deactivated: {','.join(node_names)}"
+        )
+        mark_namespace_deactivated(session, node_namespace, {"message": message})
 
         return JSONResponse(
             status_code=201,
             content={
-                "message": f"Namespace `{namespace}` has been deactivated. The following nodes"
-                f" have also been deactivated: {','.join(node_names)}",
+                "message": message,
             },
         )
 
@@ -163,31 +172,30 @@ def restore_a_namespace(
         )
 
     node_names = get_nodes_in_namespace(session, namespace, deactivated=True)
-    if len(node_names) == 0:
-        mark_namespace_restored(session, node_namespace)
-        return JSONResponse(
-            status_code=201,
-            content={"message": f"Namespace `{namespace}` has been restored."},
-        )
 
     # If cascade=true is set, we'll restore all nodes in this namespace and then
     # subsequently restore this namespace
     if cascade:
         for node_name in node_names:
             activate_a_node(name=node_name, session=session)
-        mark_namespace_restored(session, node_namespace)
+
+        message = (
+            f"Namespace `{namespace}` has been restored. The following nodes"
+            f" have also been restored: {','.join(node_names)}"
+        )
+        mark_namespace_restored(session, node_namespace, {"message": message})
 
         return JSONResponse(
             status_code=201,
             content={
-                "message": f"Namespace `{namespace}` has been restored. The following nodes"
-                f" have also been restored: {','.join(node_names)}",
+                "message": message,
             },
         )
 
     # Otherwise just restore this namespace
-    mark_namespace_restored(session, node_namespace)
+    message = f"Namespace `{namespace}` has been restored."
+    mark_namespace_restored(session, node_namespace, {"message": message})
     return JSONResponse(
         status_code=201,
-        content={"message": f"Namespace `{namespace}` has been restored."},
+        content={"message": message},
     )
