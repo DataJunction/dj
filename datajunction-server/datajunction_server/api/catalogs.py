@@ -27,7 +27,7 @@ def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInf
     return list(session.exec(select(Catalog)))
 
 
-@router.get("/catalogs/{name}/", response_model=CatalogInfo, name="Get A Catalog")
+@router.get("/catalogs/{name}/", response_model=CatalogInfo, name="Get a Catalog")
 def get_catalog(name: str, *, session: Session = Depends(get_session)) -> CatalogInfo:
     """
     Return a catalog by name

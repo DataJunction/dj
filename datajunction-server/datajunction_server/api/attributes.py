@@ -33,7 +33,7 @@ def list_attributes(*, session: Session = Depends(get_session)) -> List[Attribut
     "/attributes/",
     response_model=AttributeType,
     status_code=201,
-    name="Add An Attribute Type",
+    name="Add an Attribute Type",
 )
 def add_attribute_type(
     data: MutableAttributeTypeFields, *, session: Session = Depends(get_session)

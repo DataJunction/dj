@@ -34,7 +34,7 @@ router = APIRouter(tags=["materializations"])
 @router.post(
     "/nodes/{name}/materialization/",
     status_code=201,
-    name="Insert Or Update A Materialization For A Node",
+    name="Insert or Update a Materialization for a Node",
 )
 def upsert_materialization(  # pylint: disable=too-many-locals
     name: str,
@@ -155,7 +155,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
 @router.get(
     "/nodes/{node_name}/materializations/",
     response_model=List[MaterializationConfigInfoUnified],
-    name="List Materializations For A Node",
+    name="List Materializations for a Node",
 )
 def list_node_materializations(
     node_name: str,
@@ -189,7 +189,7 @@ def list_node_materializations(
 @router.delete(
     "/nodes/{node_name}/materializations/",
     response_model=List[MaterializationConfigInfoUnified],
-    name="Deactivate A Materialization For A Node",
+    name="Deactivate a Materialization for a Node",
 )
 def deactivate_node_materializations(
     node_name: str,
