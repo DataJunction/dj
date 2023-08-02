@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from datajunction_server.api.nodes import decompose_expression
+from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models import Database, Table
 from datajunction_server.models.column import Column
 from datajunction_server.models.node import Node, NodeRevision, NodeStatus, NodeType
