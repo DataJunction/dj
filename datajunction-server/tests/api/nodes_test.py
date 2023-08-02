@@ -215,16 +215,16 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         session.commit()
         return node
 
-    def test_deactivating_node(
+    def test_deleting_node(
         self,
         client_with_examples: TestClient,
     ):
         """
-        Test deactivating a node
+        Test deleting a node
         """
-        # Deactivate a node
-        response = client_with_examples.post("/nodes/basic.source.users/deactivate/")
-        assert response.status_code == 204
+        # Delete a node
+        response = client_with_examples.delete("/nodes/basic.source.users/")
+        assert response.status_code == 200
         # Check that then retrieving the node returns an error
         response = client_with_examples.get("/nodes/basic.source.users/")
         assert not response.ok
@@ -258,7 +258,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 ),
             ]
 
-        # Trying to create the node again should reveal that the node exists but is deactivated
+        # Trying to create the node again should work.
         response = client_with_examples.post(
             "/nodes/source/",
             json={
@@ -281,11 +281,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "table": "dim_users",
             },
         )
-        assert response.json() == {
-            "message": "Node `basic.source.users` exists but has been deactivated.",
-            "errors": [],
-            "warnings": [],
-        }
+        assert response.ok
 
         # The deletion action should be recorded in the node's history
         response = client_with_examples.get("/history?node=basic.source.users")
@@ -315,14 +311,38 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
                 "pre": {},
                 "user": None,
             },
+            {
+                "id": mock.ANY,
+                "entity_type": "node",
+                "entity_name": "basic.source.users",
+                "node": "basic.source.users",
+                "activity_type": "update",
+                "user": None,
+                "pre": {},
+                "post": {},
+                "details": {"version": "v2.0"},
+                "created_at": mock.ANY,
+            },
+            {
+                "id": mock.ANY,
+                "entity_type": "node",
+                "entity_name": "basic.source.users",
+                "node": "basic.source.users",
+                "activity_type": "restore",
+                "user": None,
+                "pre": {},
+                "post": {},
+                "details": {},
+                "created_at": mock.ANY,
+            },
         ]
 
-    def test_deactivating_source_upstream_from_metric(
+    def test_deleting_source_upstream_from_metric(
         self,
         client: TestClient,
     ):
         """
-        Test deactivating a source that's upstream from a metric
+        Test deleting a source that's upstream from a metric
         """
         response = client.post("/catalogs/", json={"name": "warehouse"})
         assert response.ok
@@ -361,8 +381,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         assert response.ok
-        # Deactivate the source node
-        response = client.post("/nodes/default.users/deactivate/")
+        # Delete the source node
+        response = client.delete("/nodes/default.users/")
         assert response.ok
         # The downstream metric should have an invalid status
         assert (
@@ -382,10 +402,10 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             ),
         ]
 
-        # Reactivate the source node
-        response = client.post("/nodes/default.users/activate/")
+        # Restore the source node
+        response = client.post("/nodes/default.users/restore/")
         assert response.ok
-        # Retrieving the reactivated node should work
+        # Retrieving the restored node should work
         response = client.get("/nodes/default.users/")
         assert response.ok
         # The downstream metric should have been changed to valid
@@ -410,12 +430,12 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             ),
         ]
 
-    def test_deactivating_transform_upstream_from_metric(
+    def test_deleting_transform_upstream_from_metric(
         self,
         client: TestClient,
     ):
         """
-        Test deactivating a transform that's upstream from a metric
+        Test deleting a transform that's upstream from a metric
         """
         response = client.post("/catalogs/", json={"name": "warehouse"})
         assert response.ok
@@ -479,7 +499,7 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         assert response.ok
         # Create an invalid draft downstream node
         # so we can test that it stays invalid
-        # when the upstream node is reactivated
+        # when the upstream node is restored
         response = client.post(
             "/nodes/metric/",
             json={
@@ -493,10 +513,10 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/nodes/default.invalid_metric/")
         assert response.ok
         assert response.json()["status"] == NodeStatus.INVALID
-        # Deactivate the transform node
-        response = client.post("/nodes/default.us_users/deactivate/")
+        # Delete the transform node
+        response = client.delete("/nodes/default.us_users/")
         assert response.ok
-        # Retrieving the deactivated node should respond that the node doesn't exist
+        # Retrieving the deleted node should respond that the node doesn't exist
         assert client.get("/nodes/default.us_users/").json()["message"] == (
             "A node with name `default.us_users` does not exist."
         )
@@ -531,13 +551,13 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             if activity["activity_type"] == "status_change"
         ] == []
 
-        # Reactivate the transform node
-        response = client.post("/nodes/default.us_users/activate/")
+        # Restore the transform node
+        response = client.post("/nodes/default.us_users/restore/")
         assert response.ok
-        # Retrieving the reactivated node should work
+        # Retrieving the restored node should work
         response = client.get("/nodes/default.us_users/")
         assert response.ok
-        # Check history of the reactivated node
+        # Check history of the restored node
         response = client.get("/history?node=default.us_users")
         history = response.json()
         assert [
@@ -577,12 +597,12 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             if activity["activity_type"] == "status_change"
         ] == []
 
-    def test_deactivating_linked_dimension(
+    def test_deleting_linked_dimension(
         self,
         client: TestClient,
     ):
         """
-        Test deactivating a dimension that's linked to columns on other nodes
+        Test deleting a dimension that's linked to columns on other nodes
         """
         response = client.post("/catalogs/", json={"name": "warehouse"})
         assert response.ok
@@ -786,14 +806,14 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             (activity["activity_type"], activity["entity_type"]) for activity in history
         ] == [("create", "node"), ("create", "link")]
 
-        # Deactivate the dimension node
-        response = client.post("/nodes/default.us_users/deactivate/")
+        # Delete the dimension node
+        response = client.delete("/nodes/default.us_users/")
         assert response.ok
-        # Retrieving the deactivated node should respond that the node doesn't exist
+        # Retrieving the deleted node should respond that the node doesn't exist
         assert client.get("/nodes/default.us_users/").json()["message"] == (
             "A node with name `default.us_users` does not exist."
         )
-        # The deactivated dimension's attributes should no longer be available to the metric
+        # The deleted dimension's attributes should no longer be available to the metric
         response = client.get("/metrics/default.num_messages/")
         assert response.ok
         assert [
@@ -802,10 +822,10 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         # The metric should still be VALID
         response = client.get("/nodes/default.num_messages/")
         assert response.json()["status"] == NodeStatus.VALID
-        # Reactivate the dimension node
-        response = client.post("/nodes/default.us_users/activate/")
+        # Restore the dimension node
+        response = client.post("/nodes/default.us_users/restore/")
         assert response.ok
-        # Retrieving the reactivated node should work
+        # Retrieving the restored node should work
         response = client.get("/nodes/default.us_users/")
         assert response.ok
         # The dimension's attributes should now once again show for the linked metric
@@ -863,12 +883,12 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         response = client.get("/nodes/default.num_messages/")
         assert response.json()["status"] == NodeStatus.VALID
 
-    def test_activating_an_already_active_node(
+    def test_restoring_an_already_active_node(
         self,
         client: TestClient,
     ):
         """
-        Test raising when activating an already active node
+        Test raising when restoring an already active node
         """
         response = client.post("/catalogs/", json={"name": "warehouse"})
         assert response.ok
@@ -897,10 +917,10 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         assert response.ok
-        response = client.post("/nodes/default.users/activate/")
+        response = client.post("/nodes/default.users/restore/")
         assert not response.ok
         assert response.json() == {
-            "message": "Cannot activate `default.users`, node already active",
+            "message": "Cannot restore `default.users`, node already active.",
             "errors": [],
             "warnings": [],
         }
@@ -1199,9 +1219,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert response.status_code == 400
-        assert (
-            data["message"]
-            == "Node definition contains references to nodes that do not exist"
+        assert data["message"].startswith(
+            "Node definition contains references to nodes that do not exist",
         )
 
     def test_create_node_with_type_inference_failure(
@@ -1323,9 +1342,8 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         data = response.json()
-        assert (
-            data["message"]
-            == "Node definition contains references to nodes that do not exist"
+        assert data["message"].startswith(
+            "Node definition contains references to nodes that do not exist",
         )
 
         # Try to update with a new query that references an existing source
@@ -2555,7 +2573,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
 
         assert response.status_code == 200
-        assert len(data) == 5
+        assert len(data) == 6
         assert data["columns"] == [
             {
                 "dimension_column": None,
@@ -2568,7 +2586,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert data["status"] == "valid"
         assert data["node_revision"]["status"] == "valid"
         assert data["dependencies"][0]["name"] == "default.large_revenue_payments_only"
-        assert data["message"] == "Node `foo` is valid"
+        assert data["message"] == "Node `foo` is valid."
         assert data["node_revision"]["id"] is None
         assert data["node_revision"]["mode"] == "published"
         assert data["node_revision"]["name"] == "foo"
@@ -2592,10 +2610,18 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         data = response.json()
-        assert (
-            data["message"]
-            == "Node definition contains references to nodes that do not exist"
-        )
+        assert data["message"] == "Node `foo` is invalid."
+        assert [
+            e
+            for e in data["errors"]
+            if e
+            == {
+                "code": 301,
+                "message": "Node definition contains references to nodes that do not exist",
+                "debug": {"missing_parents": ["large_revenue_payments_only"]},
+                "context": "",
+            }
+        ]
 
     def test_validating_invalid_sql(self, client: TestClient) -> None:
         """
@@ -2643,9 +2669,36 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 400
+        assert response.status_code == 200
         assert data == {
-            "message": "Node definition contains references to nodes that do not exist",
+            "message": "Node `foo` is invalid.",
+            "status": "invalid",
+            "node_revision": {
+                "name": "foo",
+                "display_name": None,
+                "type": "transform",
+                "description": "This is my foo transform node!",
+                "query": "SELECT 1 FROM node_that_does_not_exist",
+                "mode": "published",
+                "id": None,
+                "version": "v0.1",
+                "node_id": None,
+                "catalog_id": None,
+                "schema_": None,
+                "table": None,
+                "status": "valid",
+                "updated_at": mock.ANY,
+            },
+            "dependencies": [],
+            "columns": [
+                {
+                    "id": None,
+                    "name": "col0",
+                    "type": "int",
+                    "dimension_id": None,
+                    "dimension_column": None,
+                },
+            ],
             "errors": [
                 {
                     "code": 301,
@@ -2654,7 +2707,6 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                     "context": "",
                 },
             ],
-            "warnings": [],
         }
 
     def test_allowing_missing_parents_for_draft_nodes(self, client: TestClient) -> None:
@@ -2675,7 +2727,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
 
         assert response.status_code == 200
-        assert data["message"] == "Node `foo` is invalid"
+        assert data["message"] == "Node `foo` is invalid."
         assert data["status"] == "invalid"
         assert data["node_revision"]["mode"] == "draft"
         assert data["node_revision"]["status"] == "invalid"
@@ -3216,7 +3268,7 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
         "/nodes/source/",
         json=missing_parent_node,
     )
-    assert response.status_code == 201
+    assert response.status_code == 200
     data = response.json()
     assert data["name"] == missing_parent_node["name"]
     assert data["mode"] == missing_parent_node["mode"]
