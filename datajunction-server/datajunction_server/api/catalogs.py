@@ -10,13 +10,13 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from datajunction_server.api.engines import EngineInfo, get_engine
-from datajunction_server.api.helpers import get_catalog
+from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.errors import DJException
 from datajunction_server.models.catalog import Catalog, CatalogInfo
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["catalogs"])
 
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
@@ -27,16 +27,21 @@ def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInf
     return list(session.exec(select(Catalog)))
 
 
-@router.get("/catalogs/{name}/", response_model=CatalogInfo)
-def get_a_catalog(name: str, *, session: Session = Depends(get_session)) -> CatalogInfo:
+@router.get("/catalogs/{name}/", response_model=CatalogInfo, name="Get a Catalog")
+def get_catalog(name: str, *, session: Session = Depends(get_session)) -> CatalogInfo:
     """
     Return a catalog by name
     """
-    return get_catalog(session, name)
+    return get_catalog_by_name(session, name)
 
 
-@router.post("/catalogs/", response_model=CatalogInfo, status_code=201)
-def add_a_catalog(
+@router.post(
+    "/catalogs/",
+    response_model=CatalogInfo,
+    status_code=201,
+    name="Add A Catalog",
+)
+def add_catalog(
     data: CatalogInfo,
     *,
     session: Session = Depends(get_session),
@@ -45,7 +50,7 @@ def add_a_catalog(
     Add a Catalog
     """
     try:
-        get_catalog(session, data.name)
+        get_catalog_by_name(session, data.name)
     except DJException:
         pass
     else:
@@ -69,8 +74,13 @@ def add_a_catalog(
     return catalog
 
 
-@router.post("/catalogs/{name}/engines/", response_model=CatalogInfo, status_code=201)
-def add_engines_to_a_catalog(
+@router.post(
+    "/catalogs/{name}/engines/",
+    response_model=CatalogInfo,
+    status_code=201,
+    name="Add Engines to a Catalog",
+)
+def add_engines_to_catalog(
     name: str,
     data: List[EngineInfo],
     *,
@@ -79,7 +89,7 @@ def add_engines_to_a_catalog(
     """
     Attach one or more engines to a catalog
     """
-    catalog = get_catalog(session, name)
+    catalog = get_catalog_by_name(session, name)
     catalog.engines.extend(
         list_new_engines(session=session, catalog=catalog, create_engines=data),
     )

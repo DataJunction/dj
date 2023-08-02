@@ -10,7 +10,7 @@ from datajunction_server.api.helpers import get_dj_query
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.utils import get_session
 
-router = APIRouter()
+router = APIRouter(tags=["query"])
 
 
 @router.get("/query/{sql}", response_model=TranslatedSQL)

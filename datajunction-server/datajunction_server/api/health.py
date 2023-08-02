@@ -11,7 +11,7 @@ from sqlmodel import Session, SQLModel
 
 from datajunction_server.utils import get_session
 
-router = APIRouter()
+router = APIRouter(tags=["health"])
 
 
 class HealthcheckStatus(str, enum.Enum):
