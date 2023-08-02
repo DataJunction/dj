@@ -8,15 +8,8 @@ from fastapi import APIRouter, Depends, Request
 from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
-from datajunction_server.api.helpers import (
-    query_event_stream,
-    build_sql_for_dj_query
-)
-
-from datajunction_server.models.query import (
-    QueryCreate,
-    QueryWithResults,
-)
+from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
+from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import get_query_service_client, get_session
 
@@ -36,7 +29,9 @@ def get_data_for_djql(  # pylint: disable=R0914, R0913
     """
     Return data for a DJ SQL query
     """
-    translated_sql, engine, catalog = build_sql_for_dj_query(session, query)
+    translated_sql, engine, catalog = build_sql_for_dj_query(
+        session, query, engine_name, engine_version,
+    )
 
     query_create = QueryCreate(
         engine_name=engine.name,
@@ -56,7 +51,6 @@ def get_data_for_djql(  # pylint: disable=R0914, R0913
 @router.get("/djql/stream/", response_model=QueryWithResults)
 async def get_data_stream_for_djql(  # pylint: disable=R0914, R0913
     query: str,
-    async_: bool = False,
     *,
     session: Session = Depends(get_session),
     request: Request,
@@ -67,7 +61,9 @@ async def get_data_stream_for_djql(  # pylint: disable=R0914, R0913
     """
     Return data for a DJ SQL query using server side events
     """
-    translated_sql, engine, catalog = build_sql_for_dj_query(session, query)
+    translated_sql, engine, catalog = build_sql_for_dj_query(
+        session, query, engine_name, engine_version,
+    )
 
     query_create = QueryCreate(
         engine_name=engine.name,

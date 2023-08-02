@@ -213,13 +213,13 @@ def resolve_all(
     session: Session,
     ctx: ast.CompileContext,
     tree: ast.Query,
-    metrics: List[Node],
+    dj_nodes: List[Node],
 ):
     """
     Resolve all references to DJ Nodes
     """
     touched_nodes: Set[int] = set()
-    tree = resolve_metric_queries(session, tree, ctx, touched_nodes, metrics)
+    tree = resolve_metric_queries(session, tree, ctx, touched_nodes, dj_nodes)
     node_map: Dict[str, List[ast.Column]] = {}
     find_all_other(tree, touched_nodes, node_map)
     for namespace, cols in node_map.items():
@@ -228,6 +228,7 @@ def resolve_all(
             namespace,
             {NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION},
         ):
+            dj_nodes.append(dj_node)
             cte_name = ast.Name(f"node_query_{len(tree.ctes)}")
             built = (
                 build_node(
@@ -261,9 +262,11 @@ def build_dj_query(session: Session, query: str) -> Tuple[ast.Query, List[Node]]
     """
     Build a sql query that refers to DJ Nodes
     """
-    metrics: List[Node] = []
+    dj_nodes: List[Node] = []  # metrics first if any
     ctx = ast.CompileContext(session, ast.DJException())
     tree = parse(query)
-    tree = resolve_all(session, ctx, tree, metrics)
+    tree = resolve_all(session, ctx, tree, dj_nodes)
+    if not dj_nodes:
+        raise ast.DJParseException(f"Found no dj nodes in query `{query}`.")
     tree.compile(ctx)
-    return tree, metrics
+    return tree, dj_nodes
