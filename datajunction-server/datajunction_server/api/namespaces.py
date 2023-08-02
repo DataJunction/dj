@@ -88,8 +88,7 @@ def list_nodes_in_namespace(
     """
     List node names in namespace, filterable to a given type if desired.
     """
-    node_names = get_nodes_in_namespace(session, namespace, type_)
-    return node_names  # type: ignore
+    return get_nodes_in_namespace(session, namespace, type_)  # type: ignore
 
 
 @router.delete("/namespaces/{namespace}/", status_code=201)
