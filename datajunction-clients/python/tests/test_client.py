@@ -425,6 +425,14 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "urls": [["http://fake.url/job"]],
         }
 
+        result = large_revenue_payments_only.deactivate_materialization(
+            materialization_name="default",
+        )
+        assert result == {
+            "message": "The materialization named `default` on node "
+            "`default.large_revenue_payments_only` has been successfully deactivated",
+        }
+
         large_revenue_payments_and_business_only = client.create_transform(
             name="default.large_revenue_payments_and_business_only",
             description="Only large revenue payments from business accounts",
