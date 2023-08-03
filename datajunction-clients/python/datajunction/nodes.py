@@ -191,6 +191,17 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         self.refresh()
         return upsert_response
 
+    def deactivate_materialization(self, materialization_name: str):
+        """
+        Deactivate a materialization for the node.
+        """
+        response = self.dj_client._deactivate_materialization(
+            self.name,
+            materialization_name,
+        )
+        self.refresh()
+        return response
+
     def add_availability(self, availability: models.AvailabilityState):
         """
         Adds an availability state to the node
