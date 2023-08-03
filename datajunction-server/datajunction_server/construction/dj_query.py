@@ -29,20 +29,13 @@ def selects_only_metrics(select: ast.Select) -> bool:
     """
     Checks that a Select only has FROM metrics
     """
-    if select.from_ is None:
-        return False
 
-    relations = select.from_.relations
-    if len(relations) != 1:
-        return False
-
-    relation = relations[0]
-    if len(relation.extensions) > 0:
-        return False
-
-    primary = relation.primary
-
-    return str(primary) == "metrics"
+    return (
+        select.from_ is not None
+        and len(select.from_.relations) == 1
+        and len(select.from_.relations[0].extensions) == 0
+        and str(select.from_.relations[0].primary) == "metrics"
+    )
 
 
 def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
@@ -59,12 +52,13 @@ def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
     replace them in the original query
     """
     for col in tree.find_all(ast.Column):
-        curr_cols = [(True, col)]
+        curr_cols = []
         metric_nodes = []
         if id(col) in touched_nodes:
             continue
         ident = col.identifier(False)
         if metric_node := try_get_dj_node(session, ident, {NodeType.METRIC}):
+            curr_cols.append((True, col))
             # if we found a metric node we need to check where it came from
             parent_select = col.get_nearest_parent_of_type(ast.Select)
             if not parent_select or not selects_only_metrics(parent_select):
@@ -157,18 +151,18 @@ def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
             built.parenthesized = True
             built.compile(ctx)
             for built_col in built.columns:
-                built_col.name.namespace = None
+                built_col.alias_or_name.namespace = None
             for is_metric, cur_col in curr_cols:
-                if is_metric:
-                    name = amenable_name(cur_col.identifier(False))
-                    ref_type = [
-                        col for col in metric_node.current.columns if col.name == name
-                    ][0].type
-                else:
-                    name = cur_col.name.name
-                    ref_type = [col for col in built.columns if col.name.name == name][
-                        0
-                    ].type
+                name = (
+                    amenable_name(cur_col.identifier(False))
+                    if is_metric
+                    else cur_col.name.name
+                )
+
+                ref_type = [
+                    col for col in built.columns if col.alias_or_name.name == name
+                ][0].type
+                
                 swap_col = (
                     ast.Column(ast.Name(name), _type=ref_type, _table=built)
                     .set_alias(cur_col.alias and cur_col.alias.copy())
@@ -201,7 +195,7 @@ def find_all_other(
     if id(node) in touched_nodes:
         return
     touched_nodes.add(id(node))
-    if isinstance(node, ast.Column):
+    if isinstance(node, ast.Column) and node.table is None:
         if namespace_name := node.name.namespace:
             namespace = namespace_name.identifier(False)
             if namespace in node_map:
@@ -226,7 +220,7 @@ def resolve_all(  # pylint: disable=R0914,W0640
     node_map: Dict[str, List[ast.Column]] = {}
     find_all_other(tree, touched_nodes, node_map)
     for namespace, cols in node_map.items():
-        if dj_node := try_get_dj_node(
+        if dj_node := try_get_dj_node(# pragma: no cover
             session,
             namespace,
             {NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION},
@@ -266,7 +260,7 @@ def build_dj_query(session: Session, query: str) -> Tuple[ast.Query, List[Node]]
     """
     dj_nodes: List[Node] = []  # metrics first if any
     ctx = ast.CompileContext(session, ast.DJException())
-    tree = parse(query)
+    tree = parse(query).bake_ctes()
     tree = resolve_all(session, ctx, tree, dj_nodes)
     tree.compile(ctx)
     if not dj_nodes:
