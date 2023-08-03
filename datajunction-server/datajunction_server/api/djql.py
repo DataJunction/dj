@@ -30,7 +30,10 @@ def get_data_for_djql(  # pylint: disable=R0914, R0913
     Return data for a DJ SQL query
     """
     translated_sql, engine, catalog = build_sql_for_dj_query(
-        session, query, engine_name, engine_version,
+        session,
+        query,
+        engine_name,
+        engine_version,
     )
 
     query_create = QueryCreate(
@@ -40,6 +43,7 @@ def get_data_for_djql(  # pylint: disable=R0914, R0913
         submitted_query=translated_sql.sql,
         async_=async_,
     )
+
     result = query_service_client.submit_query(query_create)
 
     # Inject column info if there are results
@@ -62,7 +66,10 @@ async def get_data_stream_for_djql(  # pylint: disable=R0914, R0913
     Return data for a DJ SQL query using server side events
     """
     translated_sql, engine, catalog = build_sql_for_dj_query(
-        session, query, engine_name, engine_version,
+        session,
+        query,
+        engine_name,
+        engine_version,
     )
 
     query_create = QueryCreate(

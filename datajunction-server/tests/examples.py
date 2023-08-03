@@ -1990,4 +1990,208 @@ QUERY_DATA_MAPPINGS = {
             "errors": [],
         }
     ),
+    (
+        """
+        WITH
+node_query_0 AS (SELECT  default_DOT_hard_hats.address,
+    default_DOT_hard_hats.birth_date,
+    default_DOT_hard_hats.city,
+    default_DOT_hard_hats.contractor_id,
+    default_DOT_hard_hats.country,
+    default_DOT_hard_hats.first_name,
+    default_DOT_hard_hats.hard_hat_id,
+    default_DOT_hard_hats.hire_date,
+    default_DOT_hard_hats.last_name,
+    default_DOT_hard_hats.manager,
+    default_DOT_hard_hats.postal_code,
+    default_DOT_hard_hats.state,
+    default_DOT_hard_hats.title
+ FROM roads.hard_hats AS default_DOT_hard_hats
+
+)
+
+SELECT  node_query_0.country,
+    node_query_0.city
+ FROM node_query_0
+        """
+    )
+    .strip()
+    .replace('"', "")
+    .replace("\n", "")
+    .replace(" ", ""): QueryWithResults(
+        **{
+            "id": "23cc6e9e-0c55-4fcf-b7e6-cbd2bf126326",
+            "submitted_query": """WITH\nnode_query_0 AS
+            (SELECT  default_DOT_hard_hats.address,\n
+            \tdefault_DOT_hard_hats.birth_date,\n
+            \tdefault_DOT_hard_hats.city,\n
+            \tdefault_DOT_hard_hats.contractor_id,\n
+            \tdefault_DOT_hard_hats.country,\n
+            \tdefault_DOT_hard_hats.first_name,\n
+            \tdefault_DOT_hard_hats.hard_hat_id,\n
+            \tdefault_DOT_hard_hats.hire_date,\n
+            \tdefault_DOT_hard_hats.last_name,\n
+            \tdefault_DOT_hard_hats.manager,\n
+            \tdefault_DOT_hard_hats.postal_code,\n
+            \tdefault_DOT_hard_hats.state,\n
+            \tdefault_DOT_hard_hats.title \n
+            FROM roads.hard_hats AS default_DOT_hard_hats
+            \n\n)\n\nSELECT  node_query_0.country,
+            \n\tnode_query_0.city \n
+            FROM node_query_0\n\n""",
+            "state": "FINISHED",
+            "results": [
+                {
+                    "sql": """WITH\nnode_query_0 AS
+            (SELECT  default_DOT_hard_hats.address,\n
+            \tdefault_DOT_hard_hats.birth_date,\n
+            \tdefault_DOT_hard_hats.city,\n
+            \tdefault_DOT_hard_hats.contractor_id,\n
+            \tdefault_DOT_hard_hats.country,\n
+            \tdefault_DOT_hard_hats.first_name,\n
+            \tdefault_DOT_hard_hats.hard_hat_id,\n
+            \tdefault_DOT_hard_hats.hire_date,\n
+            \tdefault_DOT_hard_hats.last_name,\n
+            \tdefault_DOT_hard_hats.manager,\n
+            \tdefault_DOT_hard_hats.postal_code,\n
+            \tdefault_DOT_hard_hats.state,\n
+            \tdefault_DOT_hard_hats.title \n
+            FROM roads.hard_hats AS default_DOT_hard_hats
+            \n\n)\n\nSELECT  node_query_0.country,
+            \n\tnode_query_0.city \n
+            FROM node_query_0\n\n""",
+                    "columns": [
+                        {"name": "country", "type": "string"},
+                        {"name": "city", "type": "string"},
+                    ],
+                    "rows": [
+                        ["USA", "Jersey City"],
+                        ["USA", "Middletown"],
+                        ["USA", "Billerica"],
+                        ["USA", "Southampton"],
+                        ["USA", "Southgate"],
+                        ["USA", "Powder Springs"],
+                        ["USA", "Niagara Falls"],
+                        ["USA", "Phoenix"],
+                        ["USA", "Muskogee"],
+                    ],
+                },
+            ],
+            "errors": [],
+        }
+    ),
+    (
+        """
+WITH
+metric_query_0 AS (SELECT  m0_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
+        m0_default_DOT_avg_repair_price.city,
+        m0_default_DOT_avg_repair_price.country
+ FROM (SELECT  default_DOT_hard_hat.city,
+        default_DOT_hard_hat.country,
+        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price
+ FROM roads.repair_order_details AS default_DOT_repair_order_details
+ LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
+        default_DOT_repair_orders.hard_hat_id,
+        default_DOT_repair_orders.municipality_id,
+        default_DOT_repair_orders.repair_order_id
+ FROM roads.repair_orders AS default_DOT_repair_orders)
+ AS default_DOT_repair_order ON
+ default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
+LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
+        default_DOT_hard_hats.country,
+        default_DOT_hard_hats.hard_hat_id,
+        default_DOT_hard_hats.state
+ FROM roads.hard_hats AS default_DOT_hard_hats)
+ AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+ GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
+) AS m0_default_DOT_avg_repair_price
+LIMIT 5
+)
+
+SELECT  Sum(avg_repair_price),
+        city
+ FROM (SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
+        metric_query_0.country,
+        metric_query_0.city
+ FROM metric_query_0
+)
+ GROUP BY  city
+        """
+    )
+    .strip()
+    .replace('"', "")
+    .replace("\n", "")
+    .replace("\t", "")
+    .replace(" ", ""): QueryWithResults(
+        **{
+            "id": "23cc6e9e-0c55-4fcf-b7e6-cbd2bf126326",
+            "submitted_query": """WITH\n
+            node_query_0 AS (SELECT  default_DOT_hard_hats.address,\n
+            \tdefault_DOT_hard_hats.birth_date,\n
+            \tdefault_DOT_hard_hats.city,\n
+            \tdefault_DOT_hard_hats.contractor_id,\n
+            \tdefault_DOT_hard_hats.country,\n
+            \tdefault_DOT_hard_hats.first_name,\n
+            \tdefault_DOT_hard_hats.hard_hat_id,\n
+            \tdefault_DOT_hard_hats.hire_date,\n
+            \tdefault_DOT_hard_hats.last_name,\n
+            \tdefault_DOT_hard_hats.manager,\n
+            \tdefault_DOT_hard_hats.postal_code,\n
+            \tdefault_DOT_hard_hats.state,\n
+            \tdefault_DOT_hard_hats.title \n
+            FROM roads.hard_hats AS default_DOT_hard_hats\n
+            \n)\n\nSELECT  node_query_0.country,\n
+            \tnode_query_0.city
+            \n FROM node_query_0\n\n""",
+            "state": "FINISHED",
+            "results": [
+                {
+                    "sql": """WITH\nmetric_query_0 AS
+                    (SELECT  m0_default_DOT_avg_repair_price.default_DOT_avg_repair_price,\n
+                    \tm0_default_DOT_avg_repair_price.city,\n
+                    \tm0_default_DOT_avg_repair_price.country \n FROM (SELECT  default_DOT_hard_hat.city,\n
+                    \tdefault_DOT_hard_hat.country,\n
+                    \tavg(default_DOT_repair_order_details.price) default_DOT_avg_repair_price
+                    \n FROM roads.repair_order_details AS default_DOT_repair_order_details
+                    LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,\n
+                    \tdefault_DOT_repair_orders.hard_hat_id,\n
+                    \tdefault_DOT_repair_orders.municipality_id,\n
+                    \tdefault_DOT_repair_orders.repair_order_id
+                    \n FROM roads.repair_orders AS default_DOT_repair_orders)
+                    \n AS default_DOT_repair_order ON
+                    default_DOT_repair_order_details.repair_order_id =
+                    default_DOT_repair_order.repair_order_id\n
+                    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,\n
+                    \tdefault_DOT_hard_hats.city,\n
+                    \tdefault_DOT_hard_hats.country,\n
+                    \tdefault_DOT_hard_hats.hard_hat_id,\n
+                    \tdefault_DOT_hard_hats.hire_date,\n
+                    \tdefault_DOT_hard_hats.state
+                    \n FROM roads.hard_hats AS default_DOT_hard_hats)
+                    \n AS default_DOT_hard_hat ON
+                    default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+                    \n GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
+                    \n) AS m0_default_DOT_avg_repair_price
+                    \nLIMIT 5\n)\n\nSELECT  Sum(avg_repair_price),\n
+                    \tcity \n FROM
+                    (SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,\n
+                    \tmetric_query_0.country,\n
+                    \tmetric_query_0.city \n FROM metric_query_0\n)
+                    \n GROUP BY  city\n\n""",
+                    "columns": [
+                        {"name": "country", "type": "string"},
+                        {"name": "city", "type": "string"},
+                    ],
+                    "rows": [
+                        [54672.75, "Jersey City"],
+                        [76555.33333333333, "Billerica"],
+                        [64190.6, "Southgate"],
+                        [65682.0, "Phoenix"],
+                        [54083.5, "Southampton"],
+                    ],
+                },
+            ],
+            "errors": [],
+        }
+    ),
 }

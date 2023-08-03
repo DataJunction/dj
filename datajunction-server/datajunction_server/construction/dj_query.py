@@ -159,15 +159,18 @@ def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
             for built_col in built.columns:
                 built_col.name.namespace = None
             for is_metric, cur_col in curr_cols:
+                if is_metric:
+                    name = amenable_name(cur_col.identifier(False))
+                    ref_type = [
+                        col for col in metric_node.current.columns if col.name == name
+                    ][0].type
+                else:
+                    name = cur_col.name.name
+                    ref_type = [col for col in built.columns if col.name.name == name][
+                        0
+                    ].type
                 swap_col = (
-                    ast.Column(
-                        ast.Name(
-                            amenable_name(cur_col.identifier(False))
-                            if is_metric
-                            else cur_col.name.name,
-                            namespace=cte_name,
-                        ),
-                    )
+                    ast.Column(ast.Name(name), _type=ref_type, _table=built)
                     .set_alias(cur_col.alias and cur_col.alias.copy())
                     .set_as(True)
                 )
@@ -209,7 +212,7 @@ def find_all_other(
         node.apply(lambda n: find_all_other(n, touched_nodes, node_map))
 
 
-def resolve_all(
+def resolve_all(  # pylint: disable=R0914,W0640
     session: Session,
     ctx: ast.CompileContext,
     tree: ast.Query,
@@ -230,29 +233,28 @@ def resolve_all(
         ):
             dj_nodes.append(dj_node)
             cte_name = ast.Name(f"node_query_{len(tree.ctes)}")
-            built = (
-                build_node(
-                    session,
-                    dj_node.current,
-                )
-                .bake_ctes()
-                .set_alias(cte_name)
-                .set_as(True)
-            )
+            current_dj_node = dj_node.current
+            built = build_node(session, current_dj_node).bake_ctes()
+            built.alias = cte_name
+            built.set_as(True)
             built.parenthesized = True
             built.compile(ctx)
             for cur_col in cols:
+                name = cur_col.name.name
+                ref_col = [col for col in current_dj_node.columns if col.name == name][
+                    0
+                ]
                 swap_col = (
-                    ast.Column(
-                        ast.Name(
-                            cur_col.name.name,
-                            namespace=cte_name,
-                        ),
-                    )
+                    ast.Column(ast.Name(name), _table=built, _type=ref_col.type)
                     .set_alias(cur_col.alias and cur_col.alias.copy())
                     .set_as(True)
                 )
                 cur_col.swap(swap_col)
+            for tbl in tree.filter(
+                lambda node: isinstance(node, ast.Table)
+                and node.identifier(False) == dj_node.name,  # type: ignore
+            ):
+                tbl.name = cte_name
             tree.ctes = tree.ctes + [built]
             built.parent = tree
     return tree
@@ -266,7 +268,7 @@ def build_dj_query(session: Session, query: str) -> Tuple[ast.Query, List[Node]]
     ctx = ast.CompileContext(session, ast.DJException())
     tree = parse(query)
     tree = resolve_all(session, ctx, tree, dj_nodes)
+    tree.compile(ctx)
     if not dj_nodes:
         raise ast.DJParseException(f"Found no dj nodes in query `{query}`.")
-    tree.compile(ctx)
     return tree, dj_nodes

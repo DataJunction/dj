@@ -602,7 +602,7 @@ def build_metric_nodes(
                 break
         orderby_mapping[order] = orderby_metric
 
-    for (idx, metric_node) in enumerate(metric_nodes):
+    for idx, metric_node in enumerate(metric_nodes):
         # Build each metric node separately
         curr_orderby = None
 

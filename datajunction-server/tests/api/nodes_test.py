@@ -22,7 +22,7 @@ from tests.sql.utils import compare_query_strings
 def materialization_compare(response, expected):
     """Compares two materialization lists of json
     configs paying special attention to query comparison"""
-    for (materialization_response, materialization_expected) in zip(response, expected):
+    for materialization_response, materialization_expected in zip(response, expected):
         assert compare_query_strings(
             materialization_response["config"]["query"],
             materialization_expected["config"]["query"],

@@ -23,7 +23,7 @@ def list_history(
     offset: int = 0,
     limit: int = Query(default=100, lte=100),
     *,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ) -> List[History]:
     """
     List history for an entity type (i.e. Node) and entity name
@@ -44,7 +44,7 @@ def list_history_by_node_context(
     offset: int = 0,
     limit: int = Query(default=100, lte=100),
     *,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ) -> List[History]:
     """
     List all activity history for a node context
