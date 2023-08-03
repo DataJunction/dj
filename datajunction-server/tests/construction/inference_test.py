@@ -477,9 +477,10 @@ def test_infer_types_array_map(construction_session: Session):
     exc = DJException()
     ctx = CompileContext(session=construction_session, exception=exc)
     query.compile(ctx)
-    with pytest.raises(DJParseException) as exc_info:
-        query.select.projection[0].type  # type: ignore  # pylint: disable=pointless-statement
-    assert "Different number of keys and values for MAP" in str(exc_info)
+    assert query.select.projection[0].type == MapType(  # type: ignore
+        key_type=IntegerType(),
+        value_type=StringType(),
+    )
 
     query = parse(
         """

@@ -13,7 +13,7 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["client"])
 
 
 @router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)
@@ -76,12 +76,11 @@ def client_code_for_creating_node(
         [f"    {k}={params[k]}" for k in sorted(params.keys())] + cube_params,
     )
 
-    client_code = f"""dj = DJClient(DJ_URL)
+    client_code = f"""dj = DJBuilder(DJ_URL)
 
-{node_short_name} = dj.new_{node.type}(
+{node_short_name} = dj.create_{node.type}(
 {formatted_params}
-)
-{node_short_name}.save(NodeMode.{node.current.mode.upper()})"""
+)"""
     return client_code  # type: ignore
 
 
@@ -116,7 +115,7 @@ def client_code_for_adding_materialization(
             for line in json.dumps(user_modified_config, indent=4).split("\n")
         ],
     )
-    client_code = f"""dj = DJClient(DJ_URL)
+    client_code = f"""dj = DJBuilder(DJ_URL)
 
 {node_short_name} = dj.{node.type}(
     "{node.name}"
@@ -151,7 +150,7 @@ def client_code_for_linking_dimension_to_node(
     """
     node_short_name = node_name.split(".")[-1]
     node = get_node_by_name(session, node_name)
-    client_code = f"""dj = DJClient(DJ_URL)
+    client_code = f"""dj = DJBuilder(DJ_URL)
 {node_short_name} = dj.{node.type}(
     "{node.name}"
 )

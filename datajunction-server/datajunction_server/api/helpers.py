@@ -8,6 +8,7 @@ import json
 import logging
 import time
 import uuid
+from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
@@ -33,6 +34,7 @@ from datajunction_server.models import AttributeType, Catalog, Column, Engine
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import (
+    ActivityType,
     EntityType,
     History,
     status_change_history,
@@ -56,7 +58,7 @@ from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.typing import END_JOB_STATES
+from datajunction_server.typing import END_JOB_STATES, UTCDatetime
 
 _logger = logging.getLogger(__name__)
 
@@ -65,7 +67,7 @@ def get_node_namespace(  # pylint: disable=too-many-arguments
     session: Session,
     namespace: str,
     raise_if_not_exists: bool = True,
-) -> str:
+) -> NodeNamespace:
     """
     Get a node namespace
     """
@@ -125,23 +127,6 @@ def raise_if_node_exists(session: Session, name: str) -> None:
         )
 
 
-def raise_if_node_inactive(session: Session, name: str) -> None:
-    """
-    Raise an error if the node with the given name exists and is inactive.
-    """
-    node = get_node_by_name(
-        session,
-        name,
-        raise_if_not_exists=False,
-        include_inactive=True,
-    )
-    if node and node.deactivated_at:
-        raise DJException(
-            message=f"Node `{name}` exists but has been deactivated.",
-            http_status_code=HTTPStatus.CONFLICT,
-        )
-
-
 def get_column(node: NodeRevision, column_name: str) -> Column:
     """
     Get a column from a node revision
@@ -176,7 +161,7 @@ def get_attribute_type(
     return session.exec(statement).one_or_none()
 
 
-def get_catalog(session: Session, name: str) -> Catalog:
+def get_catalog_by_name(session: Session, name: str) -> Catalog:
     """
     Get a catalog by name
     """
@@ -366,9 +351,12 @@ def validate_node_data(  # pylint: disable=too-many-locals
     Dict[NodeRevision, List[ast.Table]],
     Dict[str, List[ast.Table]],
     List[str],
+    List[DJError],
 ]:
     """
-    Validate a node.
+    Validate a node. This function should never raise any errors.
+    It will build the lists of issues (including errors) and return them all
+    for the caller to decide what to do.
     """
 
     if isinstance(data, NodeRevision):
@@ -381,30 +369,13 @@ def validate_node_data(  # pylint: disable=too-many-locals
 
     ctx = ast.CompileContext(session=session, exception=DJException())
 
-    # Try to parse the node's query and extract dependencies
+    # Try to parse the node's query, extract dependencies and missing parents
+    # dependencies_map = missing_parents_map = {}
     try:
         query_ast = parse(validated_node.query)  # type: ignore
         dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)
     except (ValueError, SqlSyntaxError) as raised_exceptions:
         raise DJException(message=str(raised_exceptions)) from raised_exceptions
-
-    # Only raise on missing parents if the node mode is set to published
-    if missing_parents_map and validated_node.mode != NodeMode.DRAFT:
-        _logger.error(
-            "Node %s missing parents %s",
-            validated_node.name,
-            list(missing_parents_map.keys()),
-        )
-        raise DJException(
-            http_status_code=HTTPStatus.BAD_REQUEST,
-            errors=[
-                DJError(
-                    code=ErrorCode.MISSING_PARENT,
-                    message="Node definition contains references to nodes that do not exist",
-                    debug={"missing_parents": list(missing_parents_map.keys())},
-                ),
-            ],
-        )
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
@@ -422,6 +393,10 @@ def validate_node_data(  # pylint: disable=too-many-locals
             column.type = column_type  # type: ignore
         except DJParseException as parse_exc:
             type_inference_failures[column_name] = parse_exc.message
+        except TypeError:
+            type_inference_failures[
+                column_name
+            ] = f"Unknown TypeError on column {column_name}."
         if column:
             validated_node.columns.append(column)
 
@@ -432,72 +407,73 @@ def validate_node_data(  # pylint: disable=too-many-locals
     )
     validated_node.required_dimensions = matched_bound_columns
 
-    # Only raise on missing parents or type inference if the node mode is set to published
+    errors = []
     if missing_parents_map or type_inference_failures or invalid_required_dimensions:
+        # update status (if needed)
         if validated_node.mode == NodeMode.DRAFT:
             validated_node.status = NodeStatus.INVALID
-        else:
-            missing_parents_error = (
-                [
-                    DJError(
-                        code=ErrorCode.MISSING_PARENT,
-                        message="Node definition contains references to nodes that do not exist",
-                        debug={"missing_parents": list(missing_parents_map.keys())},
+        # build errors
+        missing_parents_error = (
+            [
+                DJError(
+                    code=ErrorCode.MISSING_PARENT,
+                    message="Node definition contains references to nodes that do not exist",
+                    debug={"missing_parents": list(missing_parents_map.keys())},
+                ),
+            ]
+            if missing_parents_map
+            else []
+        )
+        type_inference_error = (
+            [
+                DJError(
+                    code=ErrorCode.TYPE_INFERENCE,
+                    message=(
+                        f"Unable to infer type for some columns on node `{data.name}`.\n"
+                        + ("\n\t* " if type_inference_failures else "")
+                        + "\n\t* ".join(
+                            [val[:103] for val in type_inference_failures.values()],
+                        )
                     ),
-                ]
-                if missing_parents_map
-                else []
-            )
-            invalid_required_dimensions_error = (
-                [
-                    DJError(
-                        code=ErrorCode.INVALID_COLUMN,
-                        message=(
-                            "Node definition contains references to columns as "
-                            "required dimensions that are not on parent nodes."
+                    debug={
+                        "columns": type_inference_failures,
+                        "errors": ctx.exception.errors,
+                    },
+                ),
+            ]
+            if type_inference_failures
+            else []
+        )
+        invalid_required_dimensions_error = (
+            [
+                DJError(
+                    code=ErrorCode.INVALID_COLUMN,
+                    message=(
+                        "Node definition contains references to columns as "
+                        "required dimensions that are not on parent nodes."
+                    ),
+                    debug={
+                        "invalid_required_dimensions": list(
+                            invalid_required_dimensions,
                         ),
-                        debug={
-                            "invalid_required_dimensions": list(
-                                invalid_required_dimensions,
-                            ),
-                        },
-                    ),
-                ]
-                if invalid_required_dimensions
-                else []
-            )
-            type_inference_error = (
-                [
-                    DJError(
-                        code=ErrorCode.TYPE_INFERENCE,
-                        message=(
-                            f"Unable to infer type for some columns on node `{data.name}`.\n"
-                            + ("\n\t* " if type_inference_failures else "")
-                            + "\n\t* ".join(
-                                [val[:103] for val in type_inference_failures.values()],
-                            )
-                        ),
-                        debug={
-                            "columns": type_inference_failures,
-                            "errors": ctx.exception.errors,
-                        },
-                    ),
-                ]
-                if type_inference_failures
-                else []
-            )
-            raise DJException(
-                http_status_code=HTTPStatus.BAD_REQUEST,
-                errors=missing_parents_error
-                + type_inference_error
-                + invalid_required_dimensions_error,
-            )
+                    },
+                ),
+            ]
+            if invalid_required_dimensions
+            else []
+        )
+        errors = (
+            missing_parents_error
+            + type_inference_error
+            + invalid_required_dimensions_error
+        )
 
     return (
         validated_node,
         dependencies_map,
         missing_parents_map,
         list(type_inference_failures.keys()),
+        errors,
     )
 
 
@@ -531,13 +507,11 @@ def resolve_downstream_references(
             )
             downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
-            (
-                _,
-                _,
-                missing_parents_map,
-                type_inference_failed_columns,
-            ) = validate_node_data(data=downstream_node_revision, session=session)
-            if not missing_parents_map and not type_inference_failed_columns:
+            (_, _, _, _, errors) = validate_node_data(
+                data=downstream_node_revision,
+                session=session,
+            )
+            if not errors:
                 newly_valid_nodes.append(downstream_node_revision)
             session.add(downstream_node_revision)
             session.commit()
@@ -567,13 +541,11 @@ def propagate_valid_status(
             )
             newly_valid_nodes = []
             for node in downstream_nodes:
-                (
-                    validated_node,
-                    _,
-                    missing_parents_map,
-                    type_inference_failed_columns,
-                ) = validate_node_data(data=node.current, session=session)
-                if not missing_parents_map and not type_inference_failed_columns:
+                (validated_node, _, _, _, errors) = validate_node_data(
+                    data=node.current,
+                    session=session,
+                )
+                if not errors:
                     node.current.columns = validated_node.columns or []
                     node.current.status = NodeStatus.VALID
                     node.current.catalog_id = catalog_id
@@ -763,7 +735,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         materialized=True,
     )
     if cube:
-        catalog = get_catalog(session, cube.availability.catalog)  # type: ignore
+        catalog = get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
         available_engines = catalog.engines + available_engines
 
     # Check if selected engine is available, or if none is provided, select the fastest
@@ -925,3 +897,98 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
         engine,
         leading_metric_node.current.catalog,
     )
+
+
+def deactivate_node(session: Session, name: str, message: str = None):
+    """
+    Deactivates a node and propagates to all downstreams.
+    """
+    node = get_node_by_name(session, name, with_current=True)
+
+    # Find all downstream nodes and mark them as invalid
+    downstreams = get_downstream_nodes(session, node.name)
+    for downstream in downstreams:
+        if downstream.current.status != NodeStatus.INVALID:
+            downstream.current.status = NodeStatus.INVALID
+            session.add(
+                status_change_history(
+                    downstream.current,
+                    NodeStatus.VALID,
+                    NodeStatus.INVALID,
+                    parent_node=node.name,
+                ),
+            )
+            session.add(downstream)
+
+    now = datetime.utcnow()
+    node.deactivated_at = UTCDatetime(
+        year=now.year,
+        month=now.month,
+        day=now.day,
+        hour=now.hour,
+        minute=now.minute,
+        second=now.second,
+    )
+    session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.DELETE,
+            details={"message": message} if message else {},
+        ),
+    )
+    session.commit()
+
+
+def activate_node(session: Session, name: str, message: str = None):
+    """Restores node and revalidate all downstreams."""
+    node = get_node_by_name(session, name, with_current=True, include_inactive=True)
+    if not node.deactivated_at:
+        raise DJException(
+            http_status_code=HTTPStatus.BAD_REQUEST,
+            message=f"Cannot restore `{name}`, node already active.",
+        )
+    node.deactivated_at = None  # type: ignore
+
+    # Find all downstream nodes and revalidate them
+    downstreams = get_downstream_nodes(session, node.name)
+    for downstream in downstreams:
+        old_status = downstream.current.status
+        if downstream.type == NodeType.CUBE:
+            downstream.current.status = NodeStatus.VALID
+            for element in downstream.current.cube_elements:
+                if (
+                    element.node_revisions
+                    and element.node_revisions[-1].status == NodeStatus.INVALID
+                ):  # pragma: no cover
+                    downstream.current.status = NodeStatus.INVALID
+        else:
+            # We should not fail node restoration just because of some nodes
+            # that have been invalid already and stay that way.
+            (_, _, _, _, errors) = validate_node_data(downstream.current, session)
+            if errors:
+                downstream.current.status = NodeStatus.INVALID
+        session.add(downstream)
+        if old_status != downstream.current.status:
+            session.add(
+                status_change_history(
+                    downstream.current,
+                    old_status,
+                    downstream.current.status,
+                    parent_node=node.name,
+                ),
+            )
+
+    session.add(node)
+    session.add(
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=node.name,
+            node=node.name,
+            activity_type=ActivityType.RESTORE,
+            details={"message": message} if message else {},
+        ),
+    )
+    session.commit()

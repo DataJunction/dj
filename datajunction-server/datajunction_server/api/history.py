@@ -13,7 +13,7 @@ from datajunction_server.models.history import EntityType, History
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["history"])
 
 
 @router.get("/history/{entity_type}/{entity_name}/", response_model=List[History])

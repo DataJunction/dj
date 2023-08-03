@@ -274,18 +274,18 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             client.cube("a_cube")
         assert "Cube `a_cube` does not exist" in str(exc_info)
 
-    def test_deactivating_a_node(self, client):  # pylint: disable=unused-argument
+    def test_deactivating_node(self, client):  # pylint: disable=unused-argument
         """
         Verifies that deactivating and reactivating a node works.
         """
         length_metric = client.metric("default.avg_length_of_employment")
-        response = length_metric.deactivate()
-        assert response == "Successfully deactivated `default.avg_length_of_employment`"
+        response = length_metric.delete()
+        assert response is None
         assert "default.avg_length_of_employment" not in client.list_metrics(
             namespace="default",
         )
-        response = length_metric.activate()
-        assert response == "Successfully activated `default.avg_length_of_employment`"
+        response = length_metric.restore()
+        assert response is None
         assert "default.avg_length_of_employment" in client.list_metrics(
             namespace="default",
         )

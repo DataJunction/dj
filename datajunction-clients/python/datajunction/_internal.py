@@ -81,6 +81,17 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
 
         self._show_traceback = show_traceback
 
+        if from_jupyter() and not self._show_traceback:
+            from IPython import get_ipython  # pylint: disable=import-error
+
+            def shortened_error(*args, **kwargs):  # pylint: disable=unused-argument
+                import sys
+
+                etype, value, _ = sys.exc_info()
+                _logger.error("[%s]: %s", etype.__name__, value)
+
+            get_ipython().showtraceback = shortened_error
+
     def request(self, method, url, *args, **kwargs):
         """
         Make the request with the full URL.
@@ -100,14 +111,6 @@ class RequestsSessionWithEndpoint(requests.Session):  # pragma: no cover
                 error_message = (
                     f"Request failed with status code {exc.response.status_code}"
                 )
-            if from_jupyter() and not self._show_traceback:
-                from IPython import get_ipython  # pylint: disable=import-error
-
-                def shortened_error():
-                    print(error_message)
-
-                get_ipython().showtraceback = shortened_error
-
             raise DJClientException(error_message) from exc
 
     def prepare_request(self, request, *args, **kwargs):
@@ -225,25 +228,33 @@ class DJClient:
             )
         return node
 
-    def _deactivate_node(self, node: "Node"):
+    def _delete_node(self, node_name: str) -> None:
         """
-        Deactivate this node
+        Delete (aka deactivate) this node.
         """
-        response = self._session.post(
-            f"/nodes/{node.name}/deactivate/",
+        response = self._session.delete(
+            f"/nodes/{node_name}/",
             timeout=self._timeout,
         )
-        return response
+        json_response = response.json()
+        if not response.ok:
+            raise DJClientException(
+                f"Deleting node `{node_name}` failed: {json_response}",
+            )  # pragma: no cover
 
-    def _activate_node(self, node: "Node"):
+    def _restore_node(self, node_name: str) -> None:
         """
-        Activate this node
+        Restore (aka reactivate) this node.
         """
         response = self._session.post(
-            f"/nodes/{node.name}/activate/",
+            f"/nodes/{node_name}/restore/",
             timeout=self._timeout,
         )
-        return response
+        json_response = response.json()
+        if not response.ok:
+            raise DJClientException(
+                f"Restoring node `{node_name}` failed: {json_response}",
+            )  # pragma: no cover
 
     def _validate_node(self, node: "Node"):
         """

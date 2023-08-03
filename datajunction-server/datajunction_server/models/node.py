@@ -20,7 +20,7 @@ from sqlalchemy.types import Enum
 from sqlmodel import Field, Relationship, SQLModel
 from typing_extensions import TypedDict
 
-from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.errors import DJError, DJInvalidInputException
 from datajunction_server.models.base import (
     BaseSQLModel,
     NodeColumns,
@@ -520,6 +520,11 @@ class NodeNamespace(SQLModel, table=True):  # type: ignore
     """
 
     namespace: str = Field(nullable=False, unique=True, primary_key=True)
+    deactivated_at: UTCDatetime = Field(
+        nullable=True,
+        sa_column=SqlaColumn(DateTime(timezone=True)),
+        default=None,
+    )
 
 
 class Node(NodeBase, table=True):  # type: ignore
@@ -1127,3 +1132,4 @@ class NodeValidation(SQLModel):
     node_revision: NodeRevision
     dependencies: List[NodeRevisionOutput]
     columns: List[Column]
+    errors: List[DJError]
