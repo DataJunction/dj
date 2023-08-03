@@ -377,6 +377,22 @@ class DJClient:
         )
         return response.json()
 
+    def _deactivate_materialization(
+        self,
+        node_name: str,
+        materialization_name: str,
+    ):
+        """
+        Upserts a materialization config for the node.
+        """
+        response = self._session.delete(
+            f"/nodes/{node_name}/materializations/",
+            params={
+                "materialization_name": materialization_name,
+            },
+        )
+        return response.json()
+
     def _add_availability_state(
         self,
         node_name: str,
