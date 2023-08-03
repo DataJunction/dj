@@ -124,6 +124,17 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         mock_materialize,
     )
 
+    mock_deactivate_materialization = MagicMock()
+    mock_deactivate_materialization.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=[],
+    )
+    mocker.patch.object(
+        qs_client,
+        "deactivate_materialization",
+        mock_deactivate_materialization,
+    )
+
     mock_get_materialization_info = MagicMock()
     mock_get_materialization_info.return_value = MaterializationInfo(
         urls=["http://fake.url/job"],
