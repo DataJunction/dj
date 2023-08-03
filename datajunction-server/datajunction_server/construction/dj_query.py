@@ -162,7 +162,7 @@ def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
                 ref_type = [
                     col for col in built.columns if col.alias_or_name.name == name
                 ][0].type
-                
+
                 swap_col = (
                     ast.Column(ast.Name(name), _type=ref_type, _table=built)
                     .set_alias(cur_col.alias and cur_col.alias.copy())
@@ -220,7 +220,7 @@ def resolve_all(  # pylint: disable=R0914,W0640
     node_map: Dict[str, List[ast.Column]] = {}
     find_all_other(tree, touched_nodes, node_map)
     for namespace, cols in node_map.items():
-        if dj_node := try_get_dj_node(# pragma: no cover
+        if dj_node := try_get_dj_node(  # pragma: no cover
             session,
             namespace,
             {NodeType.SOURCE, NodeType.TRANSFORM, NodeType.DIMENSION},

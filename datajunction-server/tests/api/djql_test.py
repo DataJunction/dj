@@ -1,7 +1,7 @@
 """
 Tests for the djql API.
 """
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,C0301
 
 from fastapi.testclient import TestClient
 
@@ -49,7 +49,7 @@ SELECT  node_query_0.country,
  FROM node_query_0"""
 
     assert compare_query_strings(query, expected_query)
-    
+
 
 def test_get_djql_data_only_nested_metrics(
     client_with_query_service: TestClient,
@@ -120,8 +120,8 @@ SELECT  Sum(avg_repair_price),
  GROUP BY  city"""
 
     assert compare_query_strings(query, expected_query)
-    
-    
+
+
 def test_get_djql_data_only_multiple_metrics(
     client_with_query_service: TestClient,
 ) -> None:
@@ -151,38 +151,38 @@ def test_get_djql_data_only_multiple_metrics(
 metric_query_0 AS (SELECT  m0_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
         m1_default_DOT_total_repair_cost.default_DOT_total_repair_cost,
         COALESCE(m0_default_DOT_avg_repair_price.city, m1_default_DOT_total_repair_cost.city) city,
-        COALESCE(m0_default_DOT_avg_repair_price.country, m1_default_DOT_total_repair_cost.country) country 
+        COALESCE(m0_default_DOT_avg_repair_price.country, m1_default_DOT_total_repair_cost.country) country
  FROM (SELECT  default_DOT_hard_hat.city,
         default_DOT_hard_hat.country,
-        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price 
+        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price
  FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id 
+        default_DOT_repair_orders.repair_order_id
  FROM roads.repair_orders AS default_DOT_repair_orders)
  AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
 LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
         default_DOT_hard_hats.country,
         default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state 
+        default_DOT_hard_hats.state
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id 
+ AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
  GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
 ) AS m0_default_DOT_avg_repair_price FULL OUTER JOIN (SELECT  default_DOT_hard_hat.city,
         default_DOT_hard_hat.country,
-        sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost 
+        sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost
  FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id 
+        default_DOT_repair_orders.repair_order_id
  FROM roads.repair_orders AS default_DOT_repair_orders)
  AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
 LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
         default_DOT_hard_hats.country,
         default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state 
+        default_DOT_hard_hats.state
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id 
+ AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
  GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
 ) AS m1_default_DOT_total_repair_cost ON m0_default_DOT_avg_repair_price.city = m1_default_DOT_total_repair_cost.city AND m0_default_DOT_avg_repair_price.country = m1_default_DOT_total_repair_cost.country
 
@@ -191,10 +191,10 @@ LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
 SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
         metric_query_0.default_DOT_total_repair_cost AS total_cost,
         metric_query_0.country,
-        metric_query_0.city 
+        metric_query_0.city
  FROM metric_query_0"""
 
-    assert compare_query_strings(query, expected_query)    
+    assert compare_query_strings(query, expected_query)
 
 
 def test_get_djql_metric_table_exception(
@@ -221,9 +221,12 @@ def test_get_djql_metric_table_exception(
         "/djql/data/",
         params={"query": query},
     )
-    assert response.json()["message"]=='Any SELECT referencing a Metric must source from a single unaliased Table named `metrics`.'
-    
-    
+    assert (
+        response.json()["message"]
+        == "Any SELECT referencing a Metric must source from a single unaliased Table named `metrics`."
+    )
+
+
 def test_get_djql_illegal_clause_metric_query(
     client_with_query_service: TestClient,
 ) -> None:
@@ -248,13 +251,17 @@ def test_get_djql_illegal_clause_metric_query(
         "/djql/data/",
         params={"query": query},
     )
-    assert response.json()["message"]=='HAVING, LATERAL VIEWS, and SET OPERATIONS are not allowed on `metrics` queries.'
-    
+    assert (
+        response.json()["message"]
+        == "HAVING, LATERAL VIEWS, and SET OPERATIONS are not allowed on `metrics` queries."
+    )
+
+
 def test_get_djql_illegal_column_expression(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with metric subquery from non `metrics`
+    Test djql with non col exp in projection
     """
 
     query = """
@@ -273,13 +280,17 @@ def test_get_djql_illegal_column_expression(
         "/djql/data/",
         params={"query": query},
     )
-    assert response.json()["message"]=='Only direct Columns are allowed in `metrics` queries, found `default.hard_hat.id + 5`.'
+    assert (
+        response.json()["message"]
+        == "Only direct Columns are allowed in `metrics` queries, found `default.hard_hat.id + 5`."
+    )
+
 
 def test_get_djql_illegal_column(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with metric subquery from non `metrics`
+    Test djql with bad col in projection
     """
 
     query = """
@@ -298,13 +309,17 @@ def test_get_djql_illegal_column(
         "/djql/data/",
         params={"query": query},
     )
-    assert response.json()["message"]=='You can only select direct METRIC nodes or a column from your GROUP BY on `metrics` queries, found `default.repair_orders.id`'
+    assert (
+        response.json()["message"]
+        == "You can only select direct METRIC nodes or a column from your GROUP BY on `metrics` queries, found `default.repair_orders.id`"
+    )
+
 
 def test_get_djql_illegal_limit(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with metric subquery from non `metrics`
+    Test djql with bad limit
     """
 
     query = """
@@ -321,14 +336,17 @@ def test_get_djql_illegal_limit(
         "/djql/data/",
         params={"query": query},
     )
-    assert response.json()["message"]=='LIMITs on `metrics` queries can only be integers not `1 + 2`.'
+    assert (
+        response.json()["message"]
+        == "LIMITs on `metrics` queries can only be integers not `1 + 2`."
+    )
 
 
 def test_get_djql_no_nodes(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with metric subquery from non `metrics`
+    Test djql without dj node refs
     """
 
     query = """
@@ -339,4 +357,24 @@ def test_get_djql_no_nodes(
         "/djql/data/",
         params={"query": query},
     )
-    assert response.json()["message"].startswith('Found no dj nodes in query')
+    assert response.json()["message"].startswith("Found no dj nodes in query")
+
+
+def test_djql_stream(
+    client_with_query_service: TestClient,
+) -> None:
+    """
+    Test streaming djql
+    """
+    query = """
+    SELECT default.hard_hat.country,
+    default.hard_hat.city
+    FROM default.hard_hat
+        """
+
+    response = client_with_query_service.get(
+        "/djql/stream/",
+        params={"query": query},
+    )
+
+    assert response.status_code == 200

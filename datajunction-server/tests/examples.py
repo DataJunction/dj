@@ -1,4 +1,4 @@
-# pylint: disable=too-many-lines
+# pylint: disable=too-many-lines,C0301
 
 """
 Post requests for all example entities
@@ -2066,8 +2066,7 @@ SELECT  node_query_0.country,
             \n\n)\n\nSELECT  node_query_0.country,
             \n\tnode_query_0.city \n
             FROM node_query_0\n\n""",
-                    "columns": [
-                    ],
+                    "columns": [],
                     "rows": [
                         ["USA", "Jersey City"],
                         ["USA", "Middletown"],
@@ -2182,8 +2181,7 @@ SELECT  Sum(avg_repair_price),
                     \tmetric_query_0.country,\n
                     \tmetric_query_0.city \n FROM metric_query_0\n)
                     \n GROUP BY  city\n\n""",
-                    "columns": [
-                    ],
+                    "columns": [],
                     "rows": [
                         [54672.75, "Jersey City"],
                         [76555.33333333333, "Billerica"],
@@ -2196,44 +2194,44 @@ SELECT  Sum(avg_repair_price),
             "errors": [],
         }
     ),
-        (
+    (
         """
 WITH
 metric_query_0 AS (SELECT  m0_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
         m1_default_DOT_total_repair_cost.default_DOT_total_repair_cost,
         COALESCE(m0_default_DOT_avg_repair_price.city, m1_default_DOT_total_repair_cost.city) city,
-        COALESCE(m0_default_DOT_avg_repair_price.country, m1_default_DOT_total_repair_cost.country) country 
+        COALESCE(m0_default_DOT_avg_repair_price.country, m1_default_DOT_total_repair_cost.country) country
  FROM (SELECT  default_DOT_hard_hat.city,
         default_DOT_hard_hat.country,
-        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price 
+        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price
  FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id 
+        default_DOT_repair_orders.repair_order_id
  FROM roads.repair_orders AS default_DOT_repair_orders)
  AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
 LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
         default_DOT_hard_hats.country,
         default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state 
+        default_DOT_hard_hats.state
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id 
+ AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
  GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
 ) AS m0_default_DOT_avg_repair_price FULL OUTER JOIN (SELECT  default_DOT_hard_hat.city,
         default_DOT_hard_hat.country,
-        sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost 
+        sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost
  FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id 
+        default_DOT_repair_orders.repair_order_id
  FROM roads.repair_orders AS default_DOT_repair_orders)
  AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
 LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
         default_DOT_hard_hats.country,
         default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state 
+        default_DOT_hard_hats.state
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id 
+ AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
  GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
 ) AS m1_default_DOT_total_repair_cost ON m0_default_DOT_avg_repair_price.city = m1_default_DOT_total_repair_cost.city AND m0_default_DOT_avg_repair_price.country = m1_default_DOT_total_repair_cost.country
 
@@ -2242,7 +2240,7 @@ LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
 SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
         metric_query_0.default_DOT_total_repair_cost AS total_cost,
         metric_query_0.country,
-        metric_query_0.city 
+        metric_query_0.city
  FROM metric_query_0
         """
     )
@@ -2253,42 +2251,42 @@ SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
     .replace(" ", ""): QueryWithResults(
         **{
             "id": "23cc6e9e-0c55-4fcf-b7e6-cbd2bf126326",
-            "submitted_query": '''WITH
+            "submitted_query": """WITH
 metric_query_0 AS (SELECT  m0_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
         m1_default_DOT_total_repair_cost.default_DOT_total_repair_cost,
         COALESCE(m0_default_DOT_avg_repair_price.city, m1_default_DOT_total_repair_cost.city) city,
-        COALESCE(m0_default_DOT_avg_repair_price.country, m1_default_DOT_total_repair_cost.country) country 
+        COALESCE(m0_default_DOT_avg_repair_price.country, m1_default_DOT_total_repair_cost.country) country
  FROM (SELECT  default_DOT_hard_hat.city,
         default_DOT_hard_hat.country,
-        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price 
+        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price
  FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id 
+        default_DOT_repair_orders.repair_order_id
  FROM roads.repair_orders AS default_DOT_repair_orders)
  AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
 LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
         default_DOT_hard_hats.country,
         default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state 
+        default_DOT_hard_hats.state
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id 
+ AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
  GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
 ) AS m0_default_DOT_avg_repair_price FULL OUTER JOIN (SELECT  default_DOT_hard_hat.city,
         default_DOT_hard_hat.country,
-        sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost 
+        sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost
  FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id 
+        default_DOT_repair_orders.repair_order_id
  FROM roads.repair_orders AS default_DOT_repair_orders)
  AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
 LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
         default_DOT_hard_hats.country,
         default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state 
+        default_DOT_hard_hats.state
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id 
+ AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
  GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
 ) AS m1_default_DOT_total_repair_cost ON m0_default_DOT_avg_repair_price.city = m1_default_DOT_total_repair_cost.city AND m0_default_DOT_avg_repair_price.country = m1_default_DOT_total_repair_cost.country
 
@@ -2297,45 +2295,47 @@ LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
 SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
         metric_query_0.default_DOT_total_repair_cost AS total_cost,
         metric_query_0.country,
-        metric_query_0.city 
- FROM metric_query_0''',
+        metric_query_0.city
+ FROM metric_query_0""",
             "state": "FINISHED",
-            "results": [{'sql': '''WITH
+            "results": [
+                {
+                    "sql": """WITH
 metric_query_0 AS (SELECT  m0_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
         m1_default_DOT_total_repair_cost.default_DOT_total_repair_cost,
         COALESCE(m0_default_DOT_avg_repair_price.city, m1_default_DOT_total_repair_cost.city) city,
-        COALESCE(m0_default_DOT_avg_repair_price.country, m1_default_DOT_total_repair_cost.country) country 
+        COALESCE(m0_default_DOT_avg_repair_price.country, m1_default_DOT_total_repair_cost.country) country
  FROM (SELECT  default_DOT_hard_hat.city,
         default_DOT_hard_hat.country,
-        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price 
+        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price
  FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id 
+        default_DOT_repair_orders.repair_order_id
  FROM roads.repair_orders AS default_DOT_repair_orders)
  AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
 LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
         default_DOT_hard_hats.country,
         default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state 
+        default_DOT_hard_hats.state
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id 
+ AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
  GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
 ) AS m0_default_DOT_avg_repair_price FULL OUTER JOIN (SELECT  default_DOT_hard_hat.city,
         default_DOT_hard_hat.country,
-        sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost 
+        sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost
  FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id 
+        default_DOT_repair_orders.repair_order_id
  FROM roads.repair_orders AS default_DOT_repair_orders)
  AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
 LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
         default_DOT_hard_hats.country,
         default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state 
+        default_DOT_hard_hats.state
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id 
+ AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
  GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
 ) AS m1_default_DOT_total_repair_cost ON m0_default_DOT_avg_repair_price.city = m1_default_DOT_total_repair_cost.city AND m0_default_DOT_avg_repair_price.country = m1_default_DOT_total_repair_cost.country
 
@@ -2344,18 +2344,19 @@ LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
 SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
         metric_query_0.default_DOT_total_repair_cost AS total_cost,
         metric_query_0.country,
-        metric_query_0.city 
- FROM metric_query_0''',
-   'columns': [],
-   'rows': [[54672.75, 218691.0, 'USA', 'Jersey City'],
-    [76555.33333333333, 229666.0, 'USA', 'Billerica'],
-    [64190.6, 320953.0, 'USA', 'Southgate'],
-    [65682.0, 131364.0, 'USA', 'Phoenix'],
-    [54083.5, 216334.0, 'USA', 'Southampton'],
-    [65595.66666666667, 196787.0, 'USA', 'Powder Springs'],
-    [39301.5, 78603.0, 'USA', 'Middletown'],
-    [70418.0, 70418.0, 'USA', 'Muskogee'],
-    [53374.0, 53374.0, 'USA', 'Niagara Falls'],
+        metric_query_0.city
+ FROM metric_query_0""",
+                    "columns": [],
+                    "rows": [
+                        [54672.75, 218691.0, "USA", "Jersey City"],
+                        [76555.33333333333, 229666.0, "USA", "Billerica"],
+                        [64190.6, 320953.0, "USA", "Southgate"],
+                        [65682.0, 131364.0, "USA", "Phoenix"],
+                        [54083.5, 216334.0, "USA", "Southampton"],
+                        [65595.66666666667, 196787.0, "USA", "Powder Springs"],
+                        [39301.5, 78603.0, "USA", "Middletown"],
+                        [70418.0, 70418.0, "USA", "Muskogee"],
+                        [53374.0, 53374.0, "USA", "Niagara Falls"],
                     ],
                 },
             ],
@@ -2363,4 +2364,3 @@ SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
         }
     ),
 }
-
