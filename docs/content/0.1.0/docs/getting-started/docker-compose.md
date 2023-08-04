@@ -1,8 +1,7 @@
 ---
 weight: 10
+title: "Docker Compose"
 ---
-
-# Docker Compose
 
 ## DataJunction Demo Docker Compose Setup
 
@@ -88,12 +87,12 @@ docker compose up
 
 A DJQS server is now available and the API docs can be found at [localhost:8001](http://localhost:8001/docs).
 
-{{< hint warning >}}
+{{< alert icon="👉" >}}
 You only need to launch DJQS if you want to both generate SQL queries **and** execute them to retrieve data. Generating SQL queries is possible by only launching DJ.
-{{< /hint >}}
-{{< hint info >}}
+{{< /alert >}}
+{{< alert icon="👉" >}}
 Although it's interesting to check out the API docs for DJQS, you don't need to call the DJQS API directly--DJ will call DJQS on your behalf. You can see in the [.env](https://github.com/DataJunction/dj/blob/main/.docker-env/.env#L6) file that the local DJ setup is by default configured to connect to a local DJQS instance running on port 8001.
-{{< /hint >}}
+{{< /alert >}}
 
 ### Example Notebooks
 

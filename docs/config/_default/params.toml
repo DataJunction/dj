@@ -1,0 +1,105 @@
+# Meta Data for SEO
+
+## Homepage
+title = "DataJunction"
+titleSeparator = "-"
+titleAddition = "A metrics platform"
+description = "DJ"
+
+## Documentation
+ docsVersion = "0.1.0"
+
+## Open Graph
+images = ["dj-landing.png"]
+ogLocale = "en_US"
+domainTLD = "datajunction.io"
+titleHome = "DataJunction"
+
+## Twitter Cards
+#twitterSite = "@getdoks"
+#twitterCreator = "@henkverlinde"
+
+## JSON-LD
+# schemaType = "Person"
+schemaType = "Organization"
+schemaName = "DataJunction"
+schemaAuthorGitHub = "https://github.com/DataJunction"
+schemaLocale = "en-US"
+schemaLogo = "dj-logo.png"
+schemaLogoWidth = 512
+schemaLogoHeight = 512
+schemaImage = "doks.png"
+schemaImageWidth = 1280
+schemaImageHeight = 640
+#schemaTwitter = "https://twitter.com/getdoks"
+schemaLinkedIn = ""
+schemaGitHub = "https://github.com/DataJunction/dj"
+#schemaSection = "blog"
+
+## Sitelinks Search Box
+siteLinksSearchBox = false
+
+## Chrome Browser
+themeColor = "#fff"
+
+# Images
+quality = 85
+bgColor = "#fff"
+landscapePhotoWidths = [900, 800, 700, 600, 500]
+portraitPhotoWidths = [800, 700, 600, 500]
+lqipWidth = "20x"
+smallLimit = "300"
+
+# Images
+imageResponsive = true
+imageConvertTo = "webp"
+imageImageSizes = ["480","720","1080","1280","1600","2048"]
+singleSize = false
+imageAddClass = "img-fluid lazyload blur-up"
+
+### Image template
+defaultImage = "dj-landing.png" # put in `./assets/images/`
+fillImage = "1270x740 Center" # normalize image size
+
+# Footer
+footer = ""
+
+# Alert
+alert = false
+alertDismissable = true
+alertText = ""
+
+# Edit Page
+repoHost = "GitHub"
+docsRepo = "https://github.com/DataJunction/dj"
+docsRepoBranch = "main"
+docsRepoSubPath = ""
+editPage = false
+lastMod = false
+
+[sections]
+  sectionNav = ["docs", "guides"]
+
+[options]
+  lazySizes = true
+  clipBoard = true
+  instantPage = true
+  flexSearch = true
+  searchSectionsShow = []
+  searchSectionsIndex = []
+  darkMode = true
+  bootStrapJs = true
+  breadCrumb = false
+  highLight = true
+  kaTex = false
+  multilingualMode = false
+  docsVersioning = true
+  fullWidth = false
+  navbarSticky = true
+  toTopButton = false
+  scrollSpy = false # experimental; needs Bootstrap >= 5.2.0-beta1
+
+[menu]
+  [menu.section]
+    auto = true
+    collapsibleSidebar = false

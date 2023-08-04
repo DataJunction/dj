@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="152.735065px" height="152.735065px" viewBox="0 0 152.735065 152.735065" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>DJ 2</title>
+    <defs>
+        <rect id="path-1" x="20.7106781" y="20.7106781" width="100" height="100" rx="15"></rect>
+        <filter x="-7.0%" y="-5.0%" width="114.0%" height="114.0%" filterUnits="objectBoundingBox" id="filter-2">
+            <feOffset dx="0" dy="2" in="SourceAlpha" result="shadowOffsetOuter1"></feOffset>
+            <feGaussianBlur stdDeviation="2" in="shadowOffsetOuter1" result="shadowBlurOuter1"></feGaussianBlur>
+            <feComposite in="shadowBlurOuter1" in2="SourceAlpha" operator="out" result="shadowBlurOuter1"></feComposite>
+            <feColorMatrix values="0 0 0 0 0   0 0 0 0 0   0 0 0 0 0  0 0 0 0.5 0" type="matrix" in="shadowBlurOuter1"></feColorMatrix>
+        </filter>
+    </defs>
+    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="DJ-2" transform="translate(4.2426, 4.2426)">
+            <g id="DJ" transform="translate(70.7107, 70.7107) rotate(-360) translate(-70.7107, -70.7107)translate(0, 0)">
+                <g id="Rectangle" transform="translate(70.7107, 70.7107) rotate(-45) translate(-70.7107, -70.7107)">
+                    <use fill="black" fill-opacity="1" filter="url(#filter-2)" xlink:href="#path-1"></use>
+                    <rect stroke="#3D3D3D" stroke-width="3" stroke-linejoin="square" fill="#FFE762" fill-rule="evenodd" x="22.2106781" y="22.2106781" width="97" height="97" rx="15"></rect>
+                </g>
+                <line x1="70.8100469" y1="36.1574368" x2="70.8100469" y2="106.157437" id="Line-2" stroke="#454545" stroke-width="10" stroke-linecap="square"></line>
+                <line x1="70.8100469" y1="58.1574368" x2="49.8100469" y2="58.1574368" id="Line-3" stroke="#434343" stroke-width="10" stroke-linecap="square"></line>
+                <line x1="70.8100469" y1="86.1574368" x2="91.8100469" y2="86.1574368" id="Line-4" stroke="#434343" stroke-width="10" stroke-linecap="square"></line>
+            </g>
+        </g>
+    </g>
+</svg>

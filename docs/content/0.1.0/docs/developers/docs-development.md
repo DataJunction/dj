@@ -1,8 +1,7 @@
 ---
+title: "Docs Development"
 weight: 100
 ---
-
-# Docs Development
 
 The DJ project uses the [Hugo](https://gohugo.io/) framework for building the docs site and all of the pages are defined as
 markdown files. The deployed docs site is actually a combination of multiple sites for different versions
@@ -28,9 +27,7 @@ Using hugo, start a local server for the specific DJ docs version you want to vi
 hugo serve --contentDir content/0.1.0/
 ```
 
-{{< hint info >}}
-By default, the docs site will be launched at http://localhost:1313/
-{{< /hint >}}
+{{< alert icon="👉" text="By default, the docs site will be launched at http://localhost:1313/" />}}
 
 In addition to different versions of the docs site, there is a `Versions` page that is deployed as a
 small sub-site to the `/versions/` route. This is a connecting page that all versions of the site
@@ -63,11 +60,13 @@ Here are some tips on deciding on whether you should backport changes to previou
 
   * annotate feature descriptions with version-specific peculiarities
 
-{{< hint info >}}
+
+{{< alert icon="👉" >}}
 The DJ docs site uses a Hugo theme called [hugo-book](https://github.com/alex-shpak/hugo-book). The readme for the
 theme includes many configurations that can be used in the [front matter](https://gohugo.io/content-management/front-matter/)
 for content pages.
-{{< /hint >}}
+
+{{< /alert >}}
 
 ## Updating the DataJunction API Specification Page
 
@@ -78,9 +77,10 @@ Install `dj` from source.
 ```py
 pip install .
 ```
-{{< hint info >}}
+{{< alert icon="👉" >}}
 The generated `openapi.json` file in the next step will be generated from the currently installed DJ library.
-{{< /hint >}}
+
+{{< /alert >}}
 
 Use the `generate-openapi.py` script to update the `openapi.json` file.
 ```py
@@ -205,11 +205,11 @@ Start building sites …
 Total in 2549 ms
 ```
 
-{{< hint warning >}}
+{{< alert icon="👉" >}}
 The important thing to note is that only the latest version should have the SET_AS_LATEST flag set to true and
 that build should be performed first. This is because the latest site is built at the root and starts by cleaning
 out the root directory. Subsequent non-latest builds will happen in sub-directories.
-{{< /hint >}}
+{{< /alert >}}
 
 After the builds are completed, the entire site will be deployed to the `docs/public` directory. Any local server
 can be used to render the entire site from the public directory locally such as the popular
@@ -231,8 +231,8 @@ shortcode.
 ```
 Here's an example of how the excalidraw diagram will appear.
 {{< excalidraw excalidraw_is_awesome >}}
-{{< hint info >}}
+{{< alert icon="👉" >}}
 **Tip: Finding the Center**  
 The excalidraw diagram will always render in the center of the canvas. It may take some repositioning of the components to find
 the exact location where you want the initial rendering to focus when the page is loaded.
-{{< /hint >}}
+{{< /alert >}}

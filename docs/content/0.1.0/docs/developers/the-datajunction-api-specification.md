@@ -1,5 +1,5 @@
 ---
-title: DJ server v0.0.1a15
+title: DJ Server v0.0.1a15
 language_tabs:
   - shell: Shell
   - http: HTTP
@@ -18,8 +18,6 @@ headingLevel: 2
 ---
 
 <!-- Generator: Widdershins v4.0.1 -->
-
-<h1 id="dj-server">DJ server v0.0.1a15</h1>
 
 > Scroll down for code samples, example requests and responses. Select a language for code samples from the tabs above or the mobile navigation menu.
 
