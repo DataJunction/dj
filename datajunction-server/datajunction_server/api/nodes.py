@@ -7,7 +7,7 @@ import os
 from http import HTTPStatus
 from typing import List, Optional, Union, cast
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -22,7 +22,9 @@ from datajunction_server.api.helpers import (
     get_node_by_name,
     get_node_namespace,
     get_upstream_nodes,
+    hard_delete_node,
     raise_if_node_exists,
+    revalidate_node,
     validate_node_data,
 )
 from datajunction_server.api.namespaces import create_node_namespace
@@ -80,6 +82,7 @@ router = APIRouter(tags=["nodes"])
 @router.post("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
     data: Union[NodeRevisionBase, NodeRevision],
+    response: Response,
     session: Session = Depends(get_session),
 ) -> NodeValidation:
     """
@@ -91,8 +94,10 @@ def validate_node(
 
     (validated_node, dependencies_map, _, _, errors) = validate_node_data(data, session)
     if errors:
+        response.status_code = HTTPStatus.UNPROCESSABLE_ENTITY
         status = NodeStatus.INVALID
     else:
+        response.status_code = HTTPStatus.OK
         status = NodeStatus.VALID
 
     return NodeValidation(
@@ -106,60 +111,18 @@ def validate_node(
 
 
 @router.post("/nodes/{name}/validate/", response_model=NodeValidation)
-def revalidate_node(
+def revalidate(
     name: str,
     session: Session = Depends(get_session),
 ) -> NodeValidation:
     """
     Revalidate a single existing node and update its status appropriately
     """
-    node = get_node_by_name(session, name)
-    current_node_revision = node.current
-    if current_node_revision.type == NodeType.SOURCE:
-        if current_node_revision.status != NodeStatus.VALID:  # pragma: no cover
-            current_node_revision.status = NodeStatus.VALID
-            session.add(
-                status_change_history(
-                    current_node_revision,
-                    NodeStatus.INVALID,
-                    NodeStatus.VALID,
-                ),
-            )
-        session.add(current_node_revision)
-        session.commit()
-        return JSONResponse(
-            status_code=HTTPStatus.OK,
-            content={
-                "message": f"source node `{current_node_revision.name}` has been set to valid",
-                "status": NodeStatus.VALID,
-            },
-        )
-
-    (_, _, _, _, errors) = validate_node_data(current_node_revision, session)
-    if errors:
-        status = NodeStatus.INVALID  # pragma: no cover
-    else:
-        status = NodeStatus.VALID
-
-    if current_node_revision.status != status:  # pragma: no cover
-        old_status = current_node_revision.status
-        current_node_revision.status = status
-        session.add(current_node_revision)
-        session.add(
-            status_change_history(
-                current_node_revision,
-                old_status,
-                current_node_revision.status,
-            ),
-        )
-        session.commit()
+    status = revalidate_node(name=name, session=session)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
-            "message": (
-                f"{current_node_revision.type} node `{current_node_revision.name}` "
-                f"has been set to {status}"
-            ),
+            "message": f"Node `{name}` has been set to {status}",
             "status": status,
         },
     )
@@ -218,6 +181,25 @@ def delete_node(name: str, *, session: Session = Depends(get_session)):
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully deleted."},
+    )
+
+
+@router.delete("/nodes/{name}/hard/", name="Hard Delete a DJ Node")
+def hard_delete(
+    name: str,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
+    """
+    Hard delete a node, destroying all links and invalidating all downstream nodes.
+    This should be used with caution, deactivating a node is preferred.
+    """
+    impact = hard_delete_node(name=name, session=session)
+    return JSONResponse(
+        status_code=HTTPStatus.OK,
+        content={
+            "message": f"The node `{name}` has been completely removed.",
+            "impact": impact,
+        },
     )
 
 

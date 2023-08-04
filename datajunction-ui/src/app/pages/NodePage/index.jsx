@@ -146,6 +146,17 @@ export function NodePage() {
             </span>
           </h3>
           <ClientCodePopover code={node?.createNodeClientCode} />
+          <div>
+            <a href={'/nodes/' + node?.name} className="link-table">
+              {node?.name}
+            </a>
+            <span
+              className="rounded-pill badge bg-secondary-soft"
+              style={{ marginLeft: '0.5rem' }}
+            >
+              {node?.version}
+            </span>
+          </div>
           <div className="align-items-center row">
             {tabsList(node).map(buildTabs)}
           </div>

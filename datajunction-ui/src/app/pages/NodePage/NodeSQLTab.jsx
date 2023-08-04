@@ -3,7 +3,6 @@ import Select from 'react-select';
 import DJClientContext from '../../providers/djclient';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
-import { format } from 'sql-formatter';
 
 const NodeSQLTab = djNode => {
   const djClient = useContext(DJClientContext).DataJunctionAPI;

@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """
 Helpers for API endpoints
 """
@@ -55,6 +56,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.dag import get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
@@ -389,8 +391,15 @@ def validate_node_data(  # pylint: disable=too-many-locals
     try:
         query_ast = parse(validated_node.query)  # type: ignore
         dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)
-    except (ValueError, SqlSyntaxError) as raised_exceptions:
-        raise DJException(message=str(raised_exceptions)) from raised_exceptions
+    except (DJParseException, ValueError, SqlSyntaxError) as raised_exceptions:
+        validated_node.status = NodeStatus.INVALID
+        return (
+            validated_node,
+            {},
+            {},
+            [],
+            [DJError(code=ErrorCode.INVALID_SQL_QUERY, message=str(raised_exceptions))],
+        )
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
@@ -964,3 +973,112 @@ def activate_node(session: Session, name: str, message: str = None):
         ),
     )
     session.commit()
+
+
+def revalidate_node(name: str, session: Session, parent_node: str = None):
+    """
+    Revalidate a single existing node and update its status appropriately
+    """
+    node = get_node_by_name(session, name)
+    current_node_revision = node.current
+    if current_node_revision.type == NodeType.SOURCE:
+        if current_node_revision.status != NodeStatus.VALID:  # pragma: no cover
+            current_node_revision.status = NodeStatus.VALID
+            session.add(
+                status_change_history(
+                    current_node_revision,
+                    NodeStatus.INVALID,
+                    NodeStatus.VALID,
+                ),
+            )
+            session.add(current_node_revision)
+            session.commit()
+        return NodeStatus.VALID
+    previous_status = current_node_revision.status
+    (_, _, _, _, errors) = validate_node_data(current_node_revision, session)
+    if errors:
+        status = NodeStatus.INVALID  # pragma: no cover
+    else:
+        status = NodeStatus.VALID
+
+    if previous_status != status:  # pragma: no cover
+        current_node_revision.status = status
+        session.add(current_node_revision)
+        session.add(
+            status_change_history(
+                current_node_revision,
+                previous_status,
+                current_node_revision.status,
+                parent_node=parent_node,
+            ),
+        )
+        session.commit()
+    return status
+
+
+def hard_delete_node(name: str, session: Session):
+    """
+    Hard delete a node, destroying all links and invalidating all downstream nodes.
+    This should be used with caution, deactivating a node is preferred.
+    """
+    node = get_node_by_name(session, name, with_current=True)
+    downstream_nodes = get_downstream_nodes(session=session, node_name=name)
+
+    linked_nodes = []
+    if node.type == NodeType.DIMENSION:
+        linked_nodes = get_nodes_with_dimension(session=session, dimension_node=node)
+
+    session.delete(node)
+    session.commit()
+    impact = []  # Aggregate all impact of this deletion to include in response
+
+    # Revalidate all downstream nodes
+    for node in downstream_nodes:
+        session.add(  # Capture this in the downstream node's history
+            History(
+                entity_type=EntityType.DEPENDENCY,
+                entity_name=name,
+                node=node.name,
+                activity_type=ActivityType.DELETE,
+            ),
+        )
+        status = revalidate_node(name=node.name, session=session, parent_node=name)
+        impact.append(
+            {
+                "name": node.name,
+                "status": status,
+                "effect": "downstream node is now invalid",
+            },
+        )
+
+    # Revalidate all linked nodes
+    for node in linked_nodes:
+        session.add(  # Capture this in the downstream node's history
+            History(
+                entity_type=EntityType.LINK,
+                entity_name=name,
+                node=node.name,
+                activity_type=ActivityType.DELETE,
+            ),
+        )
+        status = revalidate_node(name=node.name, session=session)
+        impact.append(
+            {
+                "name": node.name,
+                "status": status,
+                "effect": "broken link",
+            },
+        )
+    session.add(  # Capture this in the downstream node's history
+        History(
+            entity_type=EntityType.NODE,
+            entity_name=name,
+            node=name,
+            activity_type=ActivityType.DELETE,
+            details={
+                "impact": impact,
+            },
+        ),
+    )
+    session.commit()  # Commit the history events
+    return impact

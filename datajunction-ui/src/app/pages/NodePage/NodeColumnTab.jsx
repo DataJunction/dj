@@ -1,4 +1,4 @@
-import { Component, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import ClientCodePopover from './ClientCodePopover';
 
 export default function NodeColumnTab({ node, djClient }) {

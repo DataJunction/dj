@@ -38,6 +38,7 @@ class EntityType(str, Enum):
     AVAILABILITY = "availability"
     CATALOG = "catalog"
     COLUMN_ATTRIBUTE = "column_attribute"
+    DEPENDENCY = "dependency"
     ENGINE = "engine"
     LINK = "link"
     MATERIALIZATION = "materialization"

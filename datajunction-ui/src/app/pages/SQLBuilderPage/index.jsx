@@ -4,7 +4,6 @@ import { DataJunctionAPI } from '../../services/DJService';
 import DJClientContext from '../../providers/djclient';
 import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
-import { format } from 'sql-formatter';
 import Select from 'react-select';
 import QueryInfo from '../../components/QueryInfo';
 

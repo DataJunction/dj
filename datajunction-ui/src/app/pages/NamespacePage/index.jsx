@@ -75,7 +75,7 @@ export function NamespacePage() {
     <tr>
       <td>
         <a href={'/nodes/' + node.name} className="link-table">
-          {node.display_name}
+          {node.name}
         </a>
         <span
           className="rounded-pill badge bg-secondary-soft"
@@ -83,6 +83,11 @@ export function NamespacePage() {
         >
           {node.version}
         </span>
+      </td>
+      <td>
+        <a href={'/nodes/' + node.name} className="link-table">
+          {node.display_name}
+        </a>
       </td>
       <td>
         <span className={'node_type__' + node.type + ' badge node_type'}>
@@ -138,6 +143,7 @@ export function NamespacePage() {
               <thead>
                 <tr>
                   <th>Name</th>
+                  <th>Display Name</th>
                   <th>Type</th>
                   <th>Status</th>
                   <th>Mode</th>
