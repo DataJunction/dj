@@ -1,5 +1,5 @@
 """
-Tests for the djql API.
+Tests for the djsql API.
 """
 # pylint: disable=too-many-lines,C0301
 
@@ -8,11 +8,11 @@ from fastapi.testclient import TestClient
 from tests.sql.utils import compare_query_strings
 
 
-def test_get_djql_data_only_nodes_query(
+def test_get_djsql_data_only_nodes_query(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with just some non-metric nodes
+    Test djsql with just some non-metric nodes
     """
 
     query = """
@@ -22,7 +22,7 @@ FROM default.hard_hat
     """
 
     response = client_with_query_service.get(
-        "/djql/data/",
+        "/djsql/data/",
         params={"query": query},
     )
     query = response.json()["results"][0]["sql"]
@@ -51,11 +51,11 @@ SELECT  node_query_0.country,
     assert compare_query_strings(query, expected_query)
 
 
-def test_get_djql_data_only_nested_metrics(
+def test_get_djsql_data_only_nested_metrics(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with metric subquery
+    Test djsql with metric subquery
     """
 
     query = """
@@ -80,7 +80,7 @@ def test_get_djql_data_only_nested_metrics(
     """
 
     response = client_with_query_service.get(
-        "/djql/data/",
+        "/djsql/data/",
         params={"query": query},
     )
     query = response.json()["results"][0]["sql"]
@@ -122,11 +122,11 @@ SELECT  Sum(avg_repair_price),
     assert compare_query_strings(query, expected_query)
 
 
-def test_get_djql_data_only_multiple_metrics(
+def test_get_djsql_data_only_multiple_metrics(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with metric subquery
+    Test djsql with metric subquery
     """
 
     query = """
@@ -143,7 +143,7 @@ def test_get_djql_data_only_multiple_metrics(
     """
 
     response = client_with_query_service.get(
-        "/djql/data/",
+        "/djsql/data/",
         params={"query": query},
     )
     query = response.json()["results"][0]["sql"]
@@ -197,11 +197,11 @@ SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
     assert compare_query_strings(query, expected_query)
 
 
-def test_get_djql_metric_table_exception(
+def test_get_djsql_metric_table_exception(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with metric subquery from non `metrics`
+    Test djsql with metric subquery from non `metrics`
     """
 
     query = """
@@ -218,7 +218,7 @@ def test_get_djql_metric_table_exception(
     """
 
     response = client_with_query_service.get(
-        "/djql/data/",
+        "/djsql/data/",
         params={"query": query},
     )
     assert (
@@ -227,11 +227,11 @@ def test_get_djql_metric_table_exception(
     )
 
 
-def test_get_djql_illegal_clause_metric_query(
+def test_get_djsql_illegal_clause_metric_query(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with metric subquery from non `metrics`
+    Test djsql with metric subquery from non `metrics`
     """
 
     query = """
@@ -248,7 +248,7 @@ def test_get_djql_illegal_clause_metric_query(
     """
 
     response = client_with_query_service.get(
-        "/djql/data/",
+        "/djsql/data/",
         params={"query": query},
     )
     assert (
@@ -257,11 +257,11 @@ def test_get_djql_illegal_clause_metric_query(
     )
 
 
-def test_get_djql_illegal_column_expression(
+def test_get_djsql_illegal_column_expression(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with non col exp in projection
+    Test djsql with non col exp in projection
     """
 
     query = """
@@ -277,7 +277,7 @@ def test_get_djql_illegal_column_expression(
     """
 
     response = client_with_query_service.get(
-        "/djql/data/",
+        "/djsql/data/",
         params={"query": query},
     )
     assert (
@@ -286,11 +286,11 @@ def test_get_djql_illegal_column_expression(
     )
 
 
-def test_get_djql_illegal_column(
+def test_get_djsql_illegal_column(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with bad col in projection
+    Test djsql with bad col in projection
     """
 
     query = """
@@ -306,7 +306,7 @@ def test_get_djql_illegal_column(
     """
 
     response = client_with_query_service.get(
-        "/djql/data/",
+        "/djsql/data/",
         params={"query": query},
     )
     assert (
@@ -315,11 +315,11 @@ def test_get_djql_illegal_column(
     )
 
 
-def test_get_djql_illegal_limit(
+def test_get_djsql_illegal_limit(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql with bad limit
+    Test djsql with bad limit
     """
 
     query = """
@@ -333,7 +333,7 @@ def test_get_djql_illegal_limit(
     """
 
     response = client_with_query_service.get(
-        "/djql/data/",
+        "/djsql/data/",
         params={"query": query},
     )
     assert (
@@ -342,11 +342,11 @@ def test_get_djql_illegal_limit(
     )
 
 
-def test_get_djql_no_nodes(
+def test_get_djsql_no_nodes(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test djql without dj node refs
+    Test djsql without dj node refs
     """
 
     query = """
@@ -354,17 +354,17 @@ def test_get_djql_no_nodes(
     """
 
     response = client_with_query_service.get(
-        "/djql/data/",
+        "/djsql/data/",
         params={"query": query},
     )
     assert response.json()["message"].startswith("Found no dj nodes in query")
 
 
-def test_djql_stream(
+def test_djsql_stream(
     client_with_query_service: TestClient,
 ) -> None:
     """
-    Test streaming djql
+    Test streaming djsql
     """
     query = """
     SELECT default.hard_hat.country,
@@ -373,8 +373,11 @@ def test_djql_stream(
         """
 
     response = client_with_query_service.get(
-        "/djql/stream/",
+        "/djsql/stream/",
         params={"query": query},
+        headers={
+            "Accept": "text/event-stream",
+        },
+        stream=True,
     )
-
     assert response.status_code == 200

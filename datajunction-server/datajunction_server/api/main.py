@@ -25,7 +25,7 @@ from datajunction_server.api import (
     cubes,
     data,
     dimensions,
-    djql,
+    djsql,
     engines,
     health,
     history,
@@ -83,7 +83,7 @@ def get_dj_app(
     application.include_router(catalogs.router)
     application.include_router(engines.router)
     application.include_router(metrics.router)
-    application.include_router(djql.router)
+    application.include_router(djsql.router)
     application.include_router(nodes.router)
     application.include_router(namespaces.router)
     application.include_router(materializations.router)

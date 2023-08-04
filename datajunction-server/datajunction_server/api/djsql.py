@@ -16,8 +16,8 @@ from datajunction_server.utils import get_query_service_client, get_session
 router = APIRouter()
 
 
-@router.get("/djql/data", response_model=QueryWithResults)
-def get_data_for_djql(  # pylint: disable=R0914, R0913
+@router.get("/djsql/data", response_model=QueryWithResults)
+def get_data_for_djsql(  # pylint: disable=R0914, R0913
     query: str,
     async_: bool = False,
     *,
@@ -52,8 +52,8 @@ def get_data_for_djql(  # pylint: disable=R0914, R0913
     return result
 
 
-@router.get("/djql/stream/", response_model=QueryWithResults)
-async def get_data_stream_for_djql(  # pylint: disable=R0914, R0913
+@router.get("/djsql/stream/", response_model=QueryWithResults)
+async def get_data_stream_for_djsql(  # pylint: disable=R0914, R0913
     query: str,
     *,
     session: Session = Depends(get_session),

@@ -738,7 +738,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         catalog = get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
         available_engines = catalog.engines + available_engines
 
-    # Check if selected engine is available, or if none is provided, select the fastest
+    # Check if selected engine is available
     engine = (
         get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
@@ -863,7 +863,7 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
     engine_version: Optional[str] = None,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
     """
-    Build SQL for multiple metrics. Used by both /sql and /data endpoints
+    Build SQL for multiple metrics. Used by /djsql endpoints
     """
 
     query_ast, metrics = build_dj_query(session, query)
@@ -871,7 +871,7 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
     leading_metric_node = metrics[0]
     available_engines = leading_metric_node.current.catalog.engines
 
-    # Check if selected engine is available, or if none is provided, select the fastest
+    # Check if selected engine is available
     engine = (
         get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
