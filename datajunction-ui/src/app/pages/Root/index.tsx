@@ -34,7 +34,13 @@ export function Root() {
               </span>
               <span className="menu-link">
                 <span className="menu-title">
-                  <a href="/">Help</a>
+                  <a
+                    href="https://www.datajunction.io"
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    Docs
+                  </a>
                 </span>
               </span>
             </div>

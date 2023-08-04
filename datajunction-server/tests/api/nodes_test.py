@@ -112,9 +112,9 @@ def test_read_nodes(session: Session, client: TestClient) -> None:
     assert set(data) == {"a-metric"}
 
 
-class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
+class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     """
-    Test ``POST /nodes/`` and ``PUT /nodes/{name}``.
+    Test node CRUD
     """
 
     @pytest.fixture
@@ -923,6 +923,94 @@ class TestCreateOrUpdateNodes:  # pylint: disable=too-many-public-methods
             "message": "Cannot restore `default.users`, node already active.",
             "errors": [],
             "warnings": [],
+        }
+
+    def test_hard_deleting_a_node(
+        self,
+        client_with_examples: TestClient,
+    ):
+        """
+        Test raising when restoring an already active node
+        """
+        # Hard deleting a node causes downstream nodes to become invalid
+        response = client_with_examples.delete("/nodes/default.repair_orders/hard/")
+        assert response.ok
+        assert response.json() == {
+            "message": "The node `default.repair_orders` has been completely removed.",
+            "impact": [
+                {
+                    "name": "default.repair_order",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+                {
+                    "name": "default.num_repair_orders",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+                {
+                    "name": "default.avg_time_to_dispatch",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+            ],
+        }
+
+        # Hard deleting a dimension creates broken links
+        response = client_with_examples.delete("/nodes/default.repair_order/hard/")
+        assert response.ok
+        assert response.json() == {
+            "message": "The node `default.repair_order` has been completely removed.",
+            "impact": [
+                {
+                    "name": "default.repair_order_details",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "default.avg_repair_price",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "default.total_repair_cost",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "default.discounted_orders_rate",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "default.total_repair_order_discounts",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "default.avg_repair_order_discounts",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+            ],
+        }
+
+        # Hard deleting an unlinked dimension has no impact
+        response = client_with_examples.delete("/nodes/default.municipality_dim/hard/")
+        assert response.ok
+        assert response.json() == {
+            "message": "The node `default.municipality_dim` has been completely removed.",
+            "impact": [],
+        }
+
+        # Hard delete a metric
+        response = client_with_examples.delete(
+            "/nodes/default.avg_repair_order_discounts/hard/",
+        )
+        assert response.ok
+        assert response.json() == {
+            "message": "The node `default.avg_repair_order_discounts` has been completely removed.",
+            "impact": [],
         }
 
     def test_register_table_without_query_service(
@@ -2639,19 +2727,26 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 500
-        assert data == {
-            "errors": [],
-            "message": "('Parse error 1:0:', \"mismatched input 'SUPER' expecting "
-            "{'(', 'ADD', 'ALTER', 'ANALYZE', 'CACHE', 'CLEAR', 'COMMENT', "
-            "'COMMIT', 'CREATE', 'DELETE', 'DESC', 'DESCRIBE', 'DFS', 'DROP', "
-            "'EXPLAIN', 'EXPORT', 'FROM', 'GRANT', 'IMPORT', 'INSERT', 'LIST', "
-            "'LOAD', 'LOCK', 'MAP', 'MERGE', 'MSCK', 'REDUCE', 'REFRESH', "
-            "'REPAIR', 'REPLACE', 'RESET', 'REVOKE', 'ROLLBACK', 'SELECT', "
-            "'SET', 'SHOW', 'START', 'TABLE', 'TRUNCATE', 'UNCACHE', 'UNLOCK', "
-            "'UPDATE', 'USE', 'VALUES', 'WITH'}\")",
-            "warnings": [],
-        }
+        assert response.status_code == 422
+        assert data["message"] == "Node `foo` is invalid."
+        assert data["status"] == "invalid"
+        assert data["errors"] == [
+            {
+                "code": 201,
+                "message": (
+                    "('Parse error 1:0:', \"mismatched input 'SUPER' expecting "
+                    "{'(', 'ADD', 'ALTER', 'ANALYZE', 'CACHE', 'CLEAR', 'COMMENT', "
+                    "'COMMIT', 'CREATE', 'DELETE', 'DESC', 'DESCRIBE', 'DFS', 'DROP', "
+                    "'EXPLAIN', 'EXPORT', 'FROM', 'GRANT', 'IMPORT', 'INSERT', "
+                    "'LIST', 'LOAD', 'LOCK', 'MAP', 'MERGE', 'MSCK', 'REDUCE', "
+                    "'REFRESH', 'REPAIR', 'REPLACE', 'RESET', 'REVOKE', 'ROLLBACK', "
+                    "'SELECT', 'SET', 'SHOW', 'START', 'TABLE', 'TRUNCATE', 'UNCACHE', "
+                    "'UNLOCK', 'UPDATE', 'USE', 'VALUES', 'WITH'}\")"
+                ),
+                "debug": None,
+                "context": "",
+            },
+        ]
 
     def test_validating_with_missing_parents(self, client: TestClient) -> None:
         """
@@ -2669,7 +2764,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 200
+        assert response.status_code == 422
         assert data == {
             "message": "Node `foo` is invalid.",
             "status": "invalid",
@@ -2726,7 +2821,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
 
-        assert response.status_code == 200
+        assert response.status_code == 422
         assert data["message"] == "Node `foo` is invalid."
         assert data["status"] == "invalid"
         assert data["node_revision"]["mode"] == "draft"

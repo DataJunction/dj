@@ -1,6 +1,5 @@
-import React, { useContext, useEffect, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
-import Collapse from './Collapse';
 
 export function DJNodeDimensions(data) {
   const [dimensions, setDimensions] = useState([]);

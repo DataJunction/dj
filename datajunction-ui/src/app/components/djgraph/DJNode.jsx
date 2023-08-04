@@ -1,6 +1,5 @@
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { Handle, Position } from 'reactflow';
-import { DJNodeDimensions } from './DJNodeDimensions';
 import Collapse from './Collapse';
 
 function capitalize(string) {
