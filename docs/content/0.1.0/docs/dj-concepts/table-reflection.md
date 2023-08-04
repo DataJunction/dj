@@ -1,8 +1,7 @@
 ---
 weight: 90
+title: "Table Reflection"
 ---
-
-# Table Reflection
 
 Source nodes represent external tables that exist in a data warehouse or database. Of course, those tables are not under the management
 of the DJ server and are often the result of upstream data pipelines. This means changes to those tables can happen at any moment such as columns

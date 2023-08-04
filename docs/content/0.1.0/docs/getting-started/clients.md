@@ -1,8 +1,7 @@
 ---
 weight: 5
+title: "Clients"
 ---
-
-# Clients
 
 ## Python
 

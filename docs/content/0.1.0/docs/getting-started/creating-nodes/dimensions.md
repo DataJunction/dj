@@ -1,9 +1,8 @@
 ---
 weight: 30
 mermaid: true
+title: "Dimensions"
 ---
-
-# Dimensions
 
 Dimension nodes are critical for defining the cross edges of the [DJ DAG](../../../dj-concepts/the-dj-dag) and are instrumental in
 many of DJ's core features. They include a query that can select from any other node to create a representation of a dimension. Any
@@ -120,7 +119,24 @@ a `POST` request to the columns. For example, let's assume you have a `hard_hats
 employee information. The state in which the employee works is stored in a separate lookup table
 that includes a mapping of `hard_hat_id` to `state_id`.
 
-{{< excalidraw connecting_a_dimension >}}
+
+{{< mermaid class="bg-light text-center" >}}
+classDiagram
+    direction LR
+    
+    class hard_hat_state {
+      hard_hat_id -> int
+      state_id -> int
+    }
+
+    hard_hats <-- hard_hat_state : hard_hat_id
+
+    hard_hats : hard_hat_id -> int
+    hard_hats : first_name -> str
+    hard_hats : last_name -> str
+    hard_hats : title -> str
+    hard_hats : birth_date -> date
+{{< /mermaid >}}
 
 This connection in DJ can be added using the following request.
 {{< tabs "connecting dimension" >}}
