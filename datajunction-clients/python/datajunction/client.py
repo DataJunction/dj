@@ -1,14 +1,13 @@
 """DataJunction main client module."""
 
 import time
-from typing import List, Optional
+from typing import List, Optional, Union
 from urllib.parse import urlencode
 
 from alive_progress import alive_bar
 
 from datajunction import _internal, models
-from datajunction.exceptions import DJClientException, DJNamespaceAlreadyExists
-from datajunction.nodes import Cube, Dimension, Metric, Namespace, Source, Transform
+from datajunction.exceptions import DJClientException
 
 
 class DJClient(_internal.DJClient):
@@ -17,7 +16,9 @@ class DJClient(_internal.DJClient):
     """
 
     #
-    # List
+    # List objects:
+    # - basic: namespaces, dimensions, metrics, cubes
+    # - TODO (maybe): sources, transforms, nodes...
     #
     def list_namespaces(self, prefix: Optional[str] = None) -> List[str]:
         """
@@ -50,58 +51,59 @@ class DJClient(_internal.DJClient):
             )
         return self._session.get("/metrics/").json()
 
+    def list_cubes(self, namespace: Optional[str] = None) -> List[str]:
+        """
+        List metric nodes for given namespace or all.
+        TODO
+        """
+
     #
     # Get common metrics and dimensions
     #
-    def common_dimensions_with_details(
+    def common_dimensions(
         self,
         metrics: List[str],
-    ) -> List[dict]:  # pragma: no cover # Tested in integration tests
+        name_only: bool = False,
+    ) -> List[Union[str, dict]]:  # pragma: no cover # Tested in integration tests
         """
         Return common dimensions for a set of metrics.
         """
         query_params = []
         for metric in metrics:
             query_params.append((models.NodeType.METRIC.value, metric))
-        response = self._session.get(
+        json_response = self._session.get(
             f"/metrics/common/dimensions/?{urlencode(query_params)}",
-        )
-        return response.json()
+        ).json()
+        if name_only:
+            return [dimension["name"] for dimension in json_response]
+        return json_response
 
-    def common_dimensions(
-        self,
-        metrics: List[str],
-    ) -> List[str]:  # pragma: no cover # Tested in integration tests
-        """
-        Return common dimensions (names only) for a set of metrics.
-        """
-        dimensions = self.common_dimensions_with_details(metrics=metrics)
-        return [dimension["name"] for dimension in dimensions]
-
-    def common_metrics_with_details(
+    def common_metrics(
         self,
         dimensions: List[str],
-    ) -> List[dict]:  # pragma: no cover # Tested in integration tests
+        name_only: bool = False,
+    ) -> List[Union[str, dict]]:  # pragma: no cover # Tested in integration tests
         """
         Return common metrics for a set of dimensions.
         """
         query_params = [("node_type", models.NodeType.METRIC.value)]
         for dim in dimensions:
             query_params.append((models.NodeType.DIMENSION.value, dim))
-        response = self._session.get(
+        json_response = self._session.get(
             f"/dimensions/common/?{urlencode(query_params)}",
-        )
-        return response.json()
-
-    def common_metrics(
-        self,
-        dimensions: List[str],
-    ) -> List[str]:  # pragma: no cover # Tested in integration tests
-        """
-        Return common metrics (names only) for a set of dimensions.
-        """
-        metrics = self.common_metrics_with_details(dimensions=dimensions)
-        return [metric["name"] for metric in metrics]
+        ).json()
+        if name_only:
+            return [metric["name"] for metric in json_response]
+        return [
+            {
+                "name": metric["name"],
+                "display_name": metric["display_name"],
+                "description": metric["description"],
+                "query": metric["query"],
+                # perhaps we should also provide `paths` like we do with common dimensions
+            }
+            for metric in json_response
+        ]
 
     #
     # Get SQL
@@ -215,295 +217,3 @@ class DJClient(_internal.DJClient):
             raise DJClientException(  # pragma: no cover
                 f"Error retrieving data: {response.text}",
             )
-
-
-class DJBuilder(DJClient):
-    """
-    Client class for DJ node manipulation.
-    """
-
-    #
-    # Catalogs and Engines
-    #
-    def list_catalogs(self):
-        """
-        Gets all catalogs.
-        """
-        response = self._session.get("/catalogs/", timeout=self._timeout)
-        return response.json()
-
-    def list_engines(self):
-        """
-        Gets all engines.
-        """
-        response = self._session.get("/engines/", timeout=self._timeout)
-        return response.json()
-
-    #
-    # Namespace
-    #
-    # TODO: add delete namespace (with warnings) # pylint: disable=fixme
-    def namespace(self, namespace: str) -> "Namespace":
-        """
-        Returns the specified node namespace.
-        """
-        try:
-            return self.create_namespace(namespace=namespace)
-        except DJNamespaceAlreadyExists:
-            pass
-        return Namespace(namespace=namespace, dj_client=self)
-
-    def create_namespace(self, namespace: str) -> "Namespace":
-        """
-        Helper function to create a namespace.
-        """
-        response = self._session.post(
-            f"/namespaces/{namespace}/",
-            timeout=self._timeout,
-        )
-        json_response = response.json()
-        if response.status_code == 409:
-            raise DJNamespaceAlreadyExists(json_response["message"])
-        return Namespace(namespace=namespace, dj_client=self)
-
-    #
-    # Nodes: SOURCE
-    #
-    def source(self, node_name: str) -> "Source":
-        """
-        Retrieves a source node with that name if one exists.
-        """
-        node_dict = self._verify_node_exists(
-            node_name,
-            type_=models.NodeType.SOURCE.value,
-        )
-        node = Source(
-            **node_dict,
-            dj_client=self,
-        )
-        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
-        return node
-
-    def create_source(  # pylint: disable=too-many-arguments
-        self,
-        name: str,
-        catalog: str,
-        schema_: str,
-        table: str,
-        description: Optional[str] = None,
-        display_name: Optional[str] = None,
-        columns: Optional[List[models.Column]] = None,
-        primary_key: Optional[List[str]] = None,
-        tags: Optional[List[models.Tag]] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-    ) -> "Source":
-        """
-        Creates a new Source node with given parameters.
-        """
-        new_source = Source(
-            dj_client=self,
-            name=name,
-            description=description,
-            display_name=display_name,
-            tags=tags,
-            primary_key=primary_key,
-            catalog=catalog,
-            schema_=schema_,
-            table=table,
-            columns=columns,
-        )
-        new_source.save(mode=mode)
-        return new_source
-
-    def register_table(self, catalog: str, schema: str, table: str) -> Source:
-        """
-        Register a table as a source node. This will create a source node under the configured
-        `source_node_namespace` (a server-side setting), which defaults to the `source` namespace.
-        """
-        response = self._session.post(f"/register/table/{catalog}/{schema}/{table}/")
-        new_source = Source(
-            **response.json(),
-            dj_client=self,
-        )
-        return new_source
-
-    #
-    # Nodes: TRANSFORM
-    #
-    def transform(self, node_name: str) -> "Transform":
-        """
-        Retrieves a transform node with that name if one exists.
-        """
-        node_dict = self._verify_node_exists(
-            node_name,
-            type_=models.NodeType.TRANSFORM.value,
-        )
-        node = Transform(
-            **node_dict,
-            dj_client=self,
-        )
-        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
-        return node
-
-    def create_transform(  # pylint: disable=too-many-arguments
-        self,
-        name: str,
-        query: str,
-        description: Optional[str] = None,
-        display_name: Optional[str] = None,
-        primary_key: Optional[List[str]] = None,
-        tags: Optional[List[models.Tag]] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-    ) -> "Transform":
-        """
-        Creates a new Transform node with given parameters.
-        """
-        new_node = Transform(
-            dj_client=self,
-            name=name,
-            description=description,
-            display_name=display_name,
-            tags=tags,
-            primary_key=primary_key,
-            query=query,
-        )
-        new_node.save(mode=mode)
-        return new_node
-
-    #
-    # Nodes: DIMENSION
-    #
-    def dimension(self, node_name: str) -> "Dimension":
-        """
-        Retrieves a Dimension node with that name if one exists.
-        """
-        node_dict = self._verify_node_exists(
-            node_name,
-            type_=models.NodeType.DIMENSION.value,
-        )
-        node = Dimension(
-            **node_dict,
-            dj_client=self,
-        )
-        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
-        return node
-
-    def create_dimension(  # pylint: disable=too-many-arguments
-        self,
-        name: str,
-        query: str,
-        primary_key: Optional[List[str]],
-        description: Optional[str] = None,
-        display_name: Optional[str] = None,
-        tags: Optional[List[models.Tag]] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-    ) -> "Transform":
-        """
-        Creates a new Dimension node with given parameters.
-        """
-        new_node = Dimension(
-            dj_client=self,
-            name=name,
-            description=description,
-            display_name=display_name,
-            tags=tags,
-            primary_key=primary_key,
-            query=query,
-        )
-        new_node.save(mode=mode)
-        return new_node
-
-    #
-    # Nodes: METRIC
-    #
-    def metric(self, node_name: str) -> "Metric":
-        """
-        Retrieves a Metric node with that name if one exists.
-        """
-        node_dict = self._verify_node_exists(
-            node_name,
-            type_=models.NodeType.METRIC.value,
-        )
-        node = Metric(
-            **node_dict,
-            dj_client=self,
-        )
-        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
-        return node
-
-    def create_metric(  # pylint: disable=too-many-arguments
-        self,
-        name: str,
-        query: str,
-        description: Optional[str] = None,
-        display_name: Optional[str] = None,
-        primary_key: Optional[List[str]] = None,
-        tags: Optional[List[models.Tag]] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-    ) -> "Transform":
-        """
-        Creates a new Metric node with given parameters.
-        """
-        new_node = Metric(
-            dj_client=self,
-            name=name,
-            description=description,
-            display_name=display_name,
-            tags=tags,
-            primary_key=primary_key,
-            query=query,
-        )
-        new_node.save(mode=mode)
-        return new_node
-
-    #
-    # Nodes: CUBE
-    #
-    def cube(self, node_name: str) -> "Cube":  # pragma: no cover
-        """
-        Retrieves a Cube node with that name if one exists.
-        """
-        node_dict = self._get_cube(node_name)
-        if "name" not in node_dict:
-            raise DJClientException(f"Cube `{node_name}` does not exist")
-        dimensions = [
-            f'{col["node_name"]}.{col["name"]}'
-            for col in node_dict["cube_elements"]
-            if col["type"] != "metric"
-        ]
-        metrics = [
-            f'{col["node_name"]}.{col["name"]}'
-            for col in node_dict["cube_elements"]
-            if col["type"] == "metric"
-        ]
-        return Cube(
-            **node_dict,
-            metrics=metrics,
-            dimensions=dimensions,
-            dj_client=self,
-        )
-
-    def create_cube(  # pylint: disable=too-many-arguments
-        self,
-        name: str,
-        metrics: List[str],
-        dimensions: List[str],
-        filters: Optional[List[str]] = None,
-        description: Optional[str] = None,
-        display_name: Optional[str] = None,
-        mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED,
-    ) -> "Cube":
-        """
-        Instantiates a new cube with the given parameters.
-        """
-        new_node = Cube(  # pragma: no cover
-            dj_client=self,
-            name=name,
-            metrics=metrics,
-            dimensions=dimensions,
-            filters=filters,
-            description=description,
-            display_name=display_name,
-        )
-        new_node.save(mode=mode)  # pragma: no cover
-        return new_node  # pragma: no cover
