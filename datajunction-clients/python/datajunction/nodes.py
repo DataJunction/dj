@@ -56,10 +56,6 @@ class Namespace(ClientEntity):  # pylint: disable=protected-access
             type_=models.NodeType.CUBE.value,
         )
 
-    #
-    # Modify: TODO add after adding server side
-    #
-
 
 class Node(ClientEntity):  # pylint: disable=protected-access
     """
@@ -130,13 +126,13 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         """
         Deletes the node (softly). We still keep it in an inactive state.
         """
-        return self.dj_client._delete_node(self.name)
+        return self.dj_client.delete_node(self.name)
 
     def restore(self):
         """
         Restores (aka reactivates) the node.
         """
-        return self.dj_client._restore_node(self.name)
+        return self.dj_client.restore_node(self.name)
 
     #
     # Node attributes level actions
