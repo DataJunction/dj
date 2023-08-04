@@ -111,7 +111,13 @@ export default function NodeHistory({ node, djClient }) {
         </div>
       );
     }
-    return '';
+    return (
+      <div>
+        {JSON.stringify(event.details) === '{}'
+          ? ''
+          : JSON.stringify(event.details)}
+      </div>
+    );
   };
 
   const tableData = history => {
@@ -125,6 +131,7 @@ export default function NodeHistory({ node, djClient }) {
           </span>
         </td>
         <td>{event.entity_type}</td>
+        <td>{event.entity_name}</td>
         <td>{event.user ? event.user : 'unknown'}</td>
         <td>{event.created_at}</td>
         <td>{eventData(event)}</td>
@@ -161,6 +168,7 @@ export default function NodeHistory({ node, djClient }) {
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
           <th className="text-start">Activity</th>
           <th>Type</th>
+          <th>Name</th>
           <th>User</th>
           <th>Timestamp</th>
           <th>Details</th>

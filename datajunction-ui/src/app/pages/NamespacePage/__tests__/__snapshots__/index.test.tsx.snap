@@ -42,6 +42,9 @@ exports[`<NamespacePage /> should render and match the snapshot 1`] = `
                 Name
               </th>
               <th>
+                Display Name
+              </th>
+              <th>
                 Type
               </th>
               <th>
