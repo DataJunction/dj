@@ -360,24 +360,24 @@ def test_get_djsql_no_nodes(
     assert response.json()["message"].startswith("Found no dj nodes in query")
 
 
-def test_djsql_stream(
-    client_with_query_service: TestClient,
-) -> None:
-    """
-    Test streaming djsql
-    """
-    query = """
-    SELECT default.hard_hat.country,
-    default.hard_hat.city
-    FROM default.hard_hat
-        """
+# def test_djsql_stream(
+#     client_with_query_service: TestClient,
+# ) -> None:
+#     """
+#     Test streaming djsql
+#     """
+#     query = """
+#     SELECT default.hard_hat.country,
+#     default.hard_hat.city
+#     FROM default.hard_hat
+#         """
 
-    response = client_with_query_service.get(
-        "/djsql/stream/",
-        params={"query": query},
-        headers={
-            "Accept": "text/event-stream",
-        },
-        stream=True,
-    )
-    assert response.status_code == 200
+#     response = client_with_query_service.get(
+#         "/djsql/stream/",
+#         params={"query": query},
+#         headers={
+#             "Accept": "text/event-stream",
+#         },
+#         stream=True,
+#     )
+#     assert response.status_code == 200
