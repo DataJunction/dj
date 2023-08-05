@@ -52,9 +52,9 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
     return result
 
 
-# pragma: no cover
+# pylint: disable=R0914, R0913
 @router.get("/djsql/stream/", response_model=QueryWithResults)
-async def get_data_stream_for_djsql(  # pylint: disable=R0914, R0913
+async def get_data_stream_for_djsql(  # pragma: no cover
     query: str,
     *,
     session: Session = Depends(get_session),
@@ -62,7 +62,7 @@ async def get_data_stream_for_djsql(  # pylint: disable=R0914, R0913
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
-) -> QueryWithResults:
+) -> QueryWithResults:  # pragma: no cover
     """
     Return data for a DJ SQL query using server side events
     """
