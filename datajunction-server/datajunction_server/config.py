@@ -1,5 +1,5 @@
 """
-Configuration for the metric repository.
+Configuration for the datajunction server.
 """
 import urllib.parse
 from datetime import timedelta
@@ -60,6 +60,15 @@ class Settings(
     #   {{ dj_logical_timestamp }}
     #   $dj_logical_timestamp
     dj_logical_timestamp_format: Optional[str] = "${dj_logical_timestamp}"
+
+    # Basic OAuth client secret, used to encrypt passwords
+    basic_oauth_client_secret: Optional[str] = None
+
+    # GitHub OAuth application client ID
+    github_oauth_client_id: Optional[str] = None
+
+    # GitHub OAuth application client secret
+    github_oauth_client_secret: Optional[str] = None
 
     @property
     def celery(self) -> Celery:

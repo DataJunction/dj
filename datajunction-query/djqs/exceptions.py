@@ -27,6 +27,7 @@ class ErrorCode(int, Enum):
     INVALID_ARGUMENTS_TO_FUNCTION = 200
 
 
+
 class DebugType(TypedDict, total=False):
     """
     Type for debug information.

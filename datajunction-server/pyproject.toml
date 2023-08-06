@@ -32,6 +32,9 @@ dependencies = [
     "sqlparse<1.0.0,>=0.4.3",
     "sse-starlette>=1.6.0",
     "yarl<2.0.0,>=1.8.2",
+    "python-multipart>=0.0.6",
+    "passlib>=1.7.4",
+    "python-jose>=3.3.0",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"

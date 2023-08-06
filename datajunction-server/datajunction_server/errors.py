@@ -37,6 +37,11 @@ class ErrorCode(int, Enum):
     MISSING_PARENT = 301
     TYPE_INFERENCE = 302
 
+    # Auth
+    UNKNOWN_AUTHENTICATION_ERROR = 400
+    OAUTH_ERROR = 401
+    INVALID_LOGIN_CREDENTIALS = 402
+
 
 class DebugType(TypedDict, total=False):
     """
