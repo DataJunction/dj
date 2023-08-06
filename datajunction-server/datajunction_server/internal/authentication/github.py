@@ -10,6 +10,7 @@ import requests
 from fastapi import Request
 from sqlmodel import select
 
+from datajunction_server.internal.authentication.basic import get_password_hash
 from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.utils import get_session, get_settings
 
@@ -54,7 +55,7 @@ def get_github_user_from_cookie(request: Request) -> Optional[Dict]:
         _logger.info("OAuth user does not exist, creating a new user")
         new_user = User(
             username=user_data["login"],
-            password=secrets.token_urlsafe(13),
+            password=get_password_hash(secrets.token_urlsafe(13)),
             email=user_data["email"],
             name=user_data["name"],
             oauth_provider=OAuthProvider.GITHUB,

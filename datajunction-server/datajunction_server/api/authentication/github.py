@@ -50,7 +50,7 @@ async def get_access_token(code: str, response: Response):
         timeout=10,  # seconds
     ).json()
     if "access_token" not in access_data:
-        message = f"No user access token retrieved from GitHub OAuth API: {access_data}"
+        message = "No user access token retrieved from GitHub OAuth API"
         _logger.error(message)
         raise DJException(
             http_status_code=HTTPStatus.UNAUTHORIZED,
