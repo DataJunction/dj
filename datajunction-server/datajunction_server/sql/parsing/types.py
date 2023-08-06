@@ -221,7 +221,6 @@ class DecimalType(NumberType):
         return cls._instances[key]
 
     def __init__(self, precision: int, scale: int):
-
         if not self._initialized:
             super().__init__(
                 f"decimal({precision}, {scale})",
@@ -399,7 +398,6 @@ class ListType(ColumnType):
         self,
         element_type: ColumnType,
     ):
-
         if not self._initialized:
             super().__init__(
                 f"array<{element_type}>",
@@ -438,7 +436,6 @@ class MapType(ColumnType):
         key_type: ColumnType,
         value_type: ColumnType,
     ):
-
         if not self._initialized:
             super().__init__(
                 f"map<{key_type}, {value_type}>",

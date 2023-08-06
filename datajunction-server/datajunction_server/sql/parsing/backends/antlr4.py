@@ -642,7 +642,6 @@ def _(ctx: sbp.QualifiedNameContext):
 
 @visit.register
 def _(ctx: sbp.StarContext):
-
     namespace = None
     if qual_name := ctx.qualifiedName():
         namespace = visit(qual_name)

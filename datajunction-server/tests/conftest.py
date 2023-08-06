@@ -103,6 +103,7 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
             .replace('"', "")
             .replace("\n", "")
             .replace(" ", "")
+            .replace("\t", "")
         ]
 
     mocker.patch.object(
