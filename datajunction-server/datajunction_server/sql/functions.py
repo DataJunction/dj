@@ -53,7 +53,7 @@ def compare_registers(types, register) -> bool:
     """
     Comparing registers
     """
-    for ((type_a, register_a), (type_b, register_b)) in zip_longest(
+    for (type_a, register_a), (type_b, register_b) in zip_longest(
         types,
         register,
         fillvalue=(-1, None),

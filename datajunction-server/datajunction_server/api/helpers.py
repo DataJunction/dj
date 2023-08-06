@@ -24,7 +24,7 @@ from datajunction_server.construction.build import (
     build_metric_nodes,
     build_node,
 )
-from datajunction_server.construction.dj_query import build_dj_metric_query
+from datajunction_server.construction.dj_query import build_dj_query
 from datajunction_server.errors import (
     DJError,
     DJException,
@@ -219,21 +219,6 @@ def get_query(  # pylint: disable=too-many-arguments
         build_criteria=build_criteria,
     )
 
-    return query_ast
-
-
-def get_dj_query(
-    session: Session,
-    query: str,
-) -> ast.Query:
-    """
-    Get a query for a metric, dimensions, and filters
-    """
-
-    query_ast = build_dj_metric_query(
-        session=session,
-        query=query,
-    )
     return query_ast
 
 
@@ -762,7 +747,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         catalog = get_catalog_by_name(session, cube.availability.catalog)  # type: ignore
         available_engines = catalog.engines + available_engines
 
-    # Check if selected engine is available, or if none is provided, select the fastest
+    # Check if selected engine is available
     engine = (
         get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
@@ -878,6 +863,49 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
 
             query = query_next
         await asyncio.sleep(stream_delay)  # pragma: no cover
+
+
+def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-locals
+    session: Session,
+    query: str,
+    engine_name: Optional[str] = None,
+    engine_version: Optional[str] = None,
+) -> Tuple[TranslatedSQL, Engine, Catalog]:
+    """
+    Build SQL for multiple metrics. Used by /djsql endpoints
+    """
+
+    query_ast, metrics = build_dj_query(session, query)
+
+    leading_metric_node = metrics[0]
+    available_engines = leading_metric_node.current.catalog.engines
+
+    # Check if selected engine is available
+    engine = (
+        get_engine(session, engine_name, engine_version)  # type: ignore
+        if engine_name
+        else available_engines[0]
+    )
+
+    if engine not in available_engines:
+        raise DJInvalidInputException(  # pragma: no cover
+            f"The selected engine is not available for the node {leading_metric_node.name}. "
+            f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
+        )
+
+    columns = [
+        ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
+        for col in query_ast.select.projection
+    ]
+    return (
+        TranslatedSQL(
+            sql=str(query_ast),
+            columns=columns,
+            dialect=engine.dialect if engine else None,
+        ),
+        engine,
+        leading_metric_node.current.catalog,
+    )
 
 
 def deactivate_node(session: Session, name: str, message: str = None):
