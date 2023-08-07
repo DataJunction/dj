@@ -15,7 +15,6 @@
 
 /** Import theme styles */
 @import "common/fonts";
-@import "common/shortcodes";
 @import "common/global";
 @import "common/dark";
 @import "components/alerts";
@@ -34,3 +33,4 @@
 @import "layouts/pages";
 @import "layouts/posts";
 @import "layouts/sidebar";
+@import "common/shortcodes";
