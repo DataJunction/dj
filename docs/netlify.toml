@@ -10,10 +10,10 @@
   command = "npm run build"
 
 [context.deploy-preview]
-  command = "npm run build -- -b $DEPLOY_PRIME_URL"
+  command = "npm run build -- -b $DEPLOY_URL"
 
 [context.branch-deploy]
-  command = "npm run build -- -b $DEPLOY_PRIME_URL"
+  command = "npm run build -- -b $DEPLOY_URL"
 
 [context.next]
   command = "npm run build"
