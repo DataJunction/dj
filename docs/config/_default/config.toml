@@ -1,3 +1,5 @@
+theme = ['doks']
+
 baseurl = "https://datajunction.io/"
 canonifyURLs = true
 disableAliases = true
