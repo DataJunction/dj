@@ -73,7 +73,7 @@ alertText = ""
 repoHost = "GitHub"
 docsRepo = "https://github.com/DataJunction/dj"
 docsRepoBranch = "main"
-docsRepoSubPath = ""
+docsRepoSubPath = "/docs"
 editPage = false
 lastMod = false
 
