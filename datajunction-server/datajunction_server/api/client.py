@@ -38,6 +38,7 @@ def client_code_for_creating_node(
             "node_id",
             "updated_at",
             "query" if node.type == NodeType.CUBE else "",
+            "query_ast",
         },
         exclude_none=True,
     )
