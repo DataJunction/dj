@@ -58,6 +58,7 @@ from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast_json_encoder import ASTEncoder
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
@@ -415,7 +416,7 @@ def validate_node_data(  # pylint: disable=too-many-locals
         dependencies_map,
     )
     validated_node.required_dimensions = matched_bound_columns
-
+    validated_node.query_ast = json.loads(json.dumps(query_ast, cls=ASTEncoder))
     errors = []
     if missing_parents_map or type_inference_failures or invalid_required_dimensions:
         # update status (if needed)

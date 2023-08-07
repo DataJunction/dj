@@ -1402,6 +1402,118 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
         assert data["parents"] == [{"name": "basic.source.users"}]
+        assert data["query_ast"] == {  # type: ignore
+            "__class__": "Query",
+            "alias": None,
+            "as_": None,
+            "ctes": [],
+            "name": {
+                "__class__": "DefaultName",
+                "name": "",
+                "namespace": None,
+                "quote_style": "",
+            },
+            "select": {
+                "__class__": "Select",
+                "alias": None,
+                "as_": None,
+                "from_": {  # type: ignore
+                    "__class__": "From",
+                    "laterals": [],
+                    "relations": [
+                        {"__class__": "Relation", "extensions": [], "primary": None},
+                    ],
+                },
+                "group_by": [],  # type: ignore
+                "having": None,
+                "lateral_views": [],  # type: ignore
+                "limit": None,
+                "organization": {  # type: ignore
+                    "__class__": "Organization",
+                    "order": [],
+                    "sort": [],
+                },
+                "projection": [  # type: ignore
+                    {
+                        "__class__": "Column",
+                        "_table": {
+                            "__class__": "Table",
+                            "_dj_node": {
+                                "__class__": "NodeRevision",
+                                "name": "basic.source.users",
+                                "type": "source",
+                            },
+                            "alias": None,
+                            "as_": None,
+                            "name": {
+                                "__class__": "Name",
+                                "name": "users",
+                                "namespace": {
+                                    "__class__": "Name",
+                                    "name": "source",
+                                    "namespace": {
+                                        "__class__": "Name",
+                                        "name": "basic",
+                                        "namespace": None,
+                                        "quote_style": "",
+                                    },
+                                    "quote_style": "",
+                                },
+                                "quote_style": "",
+                            },
+                        },
+                        "_type": {"__class__": "StringType"},
+                        "alias": None,
+                        "as_": None,
+                        "name": {
+                            "__class__": "Name",
+                            "name": "country",
+                            "namespace": None,
+                            "quote_style": "",
+                        },
+                    },
+                    {
+                        "__class__": "Alias",
+                        "alias": {
+                            "__class__": "Name",
+                            "name": "num_users",
+                            "namespace": None,
+                            "quote_style": "",
+                        },
+                        "as_": True,
+                        "child": {
+                            "__class__": "Function",
+                            "args": [
+                                {
+                                    "__class__": "Column",
+                                    "_table": None,
+                                    "_type": {"__class__": "IntegerType"},
+                                    "alias": None,
+                                    "as_": None,
+                                    "name": {
+                                        "__class__": "Name",
+                                        "name": "id",
+                                        "namespace": None,
+                                        "quote_style": "",
+                                    },
+                                },
+                            ],
+                            "name": {
+                                "__class__": "Name",
+                                "name": "COUNT",
+                                "namespace": None,
+                                "quote_style": "",
+                            },
+                            "over": None,
+                            "quantifier": "DISTINCT",
+                        },
+                    },
+                ],
+                "quantifier": "",
+                "set_op": None,
+                "where": None,
+            },
+        }
 
         # Update the transform node with two minor changes
         response = client.patch(
@@ -2774,7 +2886,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         data = response.json()
 
         assert response.status_code == 422
-        assert data == {
+        assert data == {  # type: ignore
             "message": "Node `foo` is invalid.",
             "status": "invalid",
             "node_revision": {
@@ -2783,6 +2895,74 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "type": "transform",
                 "description": "This is my foo transform node!",
                 "query": "SELECT 1 FROM node_that_does_not_exist",
+                "query_ast": {
+                    "__class__": "Query",
+                    "alias": None,
+                    "as_": None,
+                    "ctes": [],
+                    "name": {
+                        "__class__": "DefaultName",
+                        "name": "",
+                        "namespace": None,
+                        "quote_style": "",
+                    },
+                    "select": {
+                        "__class__": "Select",
+                        "alias": None,
+                        "as_": None,
+                        "from_": {  # type: ignore
+                            "__class__": "From",
+                            "laterals": [],
+                            "relations": [
+                                {
+                                    "__class__": "Relation",
+                                    "extensions": [],
+                                    "primary": {
+                                        "__class__": "Table",
+                                        "_dj_node": None,
+                                        "alias": None,
+                                        "as_": None,
+                                        "name": {
+                                            "__class__": "Name",
+                                            "name": "node_that_does_not_exist",
+                                            "namespace": None,
+                                            "quote_style": "",
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                        "group_by": [],  # type: ignore
+                        "having": None,
+                        "lateral_views": [],  # type: ignore
+                        "limit": None,
+                        "organization": {  # type: ignore
+                            "__class__": "Organization",
+                            "order": [],
+                            "sort": [],
+                        },
+                        "projection": [  # type: ignore
+                            {
+                                "__class__": "Alias",
+                                "alias": {
+                                    "__class__": "Name",
+                                    "name": "col0",
+                                    "namespace": None,
+                                    "quote_style": "",
+                                },
+                                "as_": None,
+                                "child": {
+                                    "__class__": "Number",
+                                    "_type": None,
+                                    "value": 1,
+                                },
+                            },
+                        ],
+                        "quantifier": "",
+                        "set_op": None,
+                        "where": None,
+                    },
+                },
                 "mode": "published",
                 "id": None,
                 "version": "v0.1",

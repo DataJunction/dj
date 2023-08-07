@@ -102,6 +102,10 @@ class Node(ABC):
 
     _is_compiled: bool = False
 
+    @property
+    def json_ignore_keys(self):
+        return ["parent", "parent_key", "_is_compiled"]
+
     def __post_init__(self):
         self.add_self_as_parent()
 
@@ -706,6 +710,12 @@ class Column(Aliasable, Named, Expression):
     _is_compiled: bool = False
 
     @property
+    def json_ignore_keys(self):
+        if set(self._expression.columns).intersection(self.columns):
+            return ["parent", "parent_key", "_is_compiled", "_expression", "columns"]
+        return ["parent", "parent_key", "_is_compiled", "columns"]
+
+    @property
     def type(self):
         if self._type:
             return self._type
@@ -984,6 +994,17 @@ class TableExpression(Aliasable, Expression):
     )  # all those expressions that can be had from the table; usually derived from dj node metadata for Table
     # ref (referenced) columns are columns used elsewhere from this table
     _ref_columns: List[Column] = field(init=False, repr=False, default_factory=list)
+
+    @property
+    def json_ignore_keys(self):
+        return [
+            "parent",
+            "parent_key",
+            "_is_compiled",
+            "_columns",
+            "column_list",
+            "_ref_columns",
+        ]
 
     @property
     def columns(self) -> List[Expression]:
@@ -2002,6 +2023,10 @@ class FunctionTable(FunctionTableExpression):
     """
     Represents a table-valued function used in a statement
     """
+
+    @property
+    def json_ignore_keys(self):
+        return ["parent", "parent_key", "_is_compiled", "_table"]
 
     def __str__(self) -> str:
         alias = f" {self.alias}" if self.alias else ""
