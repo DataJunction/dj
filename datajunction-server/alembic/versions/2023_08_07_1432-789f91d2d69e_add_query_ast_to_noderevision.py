@@ -9,19 +9,19 @@ Create Date: 2023-08-07 14:32:54.290688+00:00
 
 import sqlalchemy as sa
 import sqlmodel
+
 from alembic import op
 
-
 # revision identifiers, used by Alembic.
-revision = '789f91d2d69e'
-down_revision = 'ccc77abcf899'
+revision = "789f91d2d69e"
+down_revision = "ccc77abcf899"
 branch_labels = None
 depends_on = None
 
 
 def upgrade():
-    op.add_column('noderevision', sa.Column('query_ast', sa.JSON(), nullable=True))
+    op.add_column("noderevision", sa.Column("query_ast", sa.JSON(), nullable=True))
 
 
 def downgrade():
-    op.drop_column('noderevision', 'query_ast')
+    op.drop_column("noderevision", "query_ast")
