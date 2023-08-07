@@ -1,9 +1,0 @@
-# Helpful gist to see all available values
-# https://gist.github.com/DavidWells/43884f15aed7e4dcb3a6dad06430b756
-[build]
-  base = "docs/"
-  command = "./build-docs.sh 0.1.0 true $DEPLOY_URL"
-  publish = "public"
-
-[build.environment]
-  HUGO_VERSION = "0.113.0"
