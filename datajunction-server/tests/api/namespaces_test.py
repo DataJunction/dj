@@ -161,7 +161,7 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
     response = client_with_examples.post("/namespaces/foo.bar/restore/?cascade=true")
     assert (
         response.json()["message"]
-        == "Node namespace `foo.bar` already exists and is active"
+        == "Node namespace `foo.bar` already exists and is active."
     )
 
     # Check that nodes in the namespace are restored
