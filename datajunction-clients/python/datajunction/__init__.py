@@ -3,7 +3,8 @@ A DataJunction client for connecting to a DataJunction server
 """
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
-from datajunction.client import DJBuilder, DJClient
+from datajunction.builder import DJBuilder
+from datajunction.client import DJClient
 from datajunction.models import (
     AvailabilityState,
     ColumnAttribute,

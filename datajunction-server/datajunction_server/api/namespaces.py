@@ -2,6 +2,7 @@
 Node namespace related APIs.
 """
 import logging
+from http import HTTPStatus
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -28,7 +29,7 @@ _logger = logging.getLogger(__name__)
 router = APIRouter(tags=["namespaces"])
 
 
-@router.post("/namespaces/{namespace}/", status_code=201)
+@router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
 def create_node_namespace(
     namespace: str,
     session: Session = Depends(get_session),
@@ -49,7 +50,7 @@ def create_node_namespace(
         )
     create_namespace(session, namespace)
     return JSONResponse(
-        status_code=201,
+        status_code=HTTPStatus.CREATED,
         content={
             "message": (f"Node namespace `{namespace}` has been successfully created"),
         },
@@ -91,7 +92,7 @@ def list_nodes_in_namespace(
     return get_nodes_in_namespace(session, namespace, type_)  # type: ignore
 
 
-@router.delete("/namespaces/{namespace}/", status_code=201)
+@router.delete("/namespaces/{namespace}/", status_code=HTTPStatus.OK)
 def deactivate_a_namespace(
     namespace: str,
     cascade: bool = Query(
@@ -120,7 +121,7 @@ def deactivate_a_namespace(
         message = f"Namespace `{namespace}` has been deactivated."
         mark_namespace_deactivated(session, node_namespace, message)
         return JSONResponse(
-            status_code=201,
+            status_code=HTTPStatus.OK,
             content={"message": message},
         )
 
@@ -140,7 +141,7 @@ def deactivate_a_namespace(
         mark_namespace_deactivated(session, node_namespace, message)
 
         return JSONResponse(
-            status_code=201,
+            status_code=HTTPStatus.OK,
             content={
                 "message": message,
             },
@@ -155,7 +156,7 @@ def deactivate_a_namespace(
     )
 
 
-@router.post("/namespaces/{namespace}/restore/", status_code=201)
+@router.post("/namespaces/{namespace}/restore/", status_code=HTTPStatus.CREATED)
 def restore_a_namespace(
     namespace: str,
     cascade: bool = Query(
@@ -174,7 +175,7 @@ def restore_a_namespace(
     )
     if not node_namespace.deactivated_at:
         raise DJAlreadyExistsException(
-            message=f"Node namespace `{namespace}` already exists and is active",
+            message=f"Node namespace `{namespace}` already exists and is active.",
         )
 
     node_names = get_nodes_in_namespace(session, namespace, include_deactivated=True)
@@ -196,7 +197,7 @@ def restore_a_namespace(
         mark_namespace_restored(session, node_namespace, message)
 
         return JSONResponse(
-            status_code=201,
+            status_code=HTTPStatus.CREATED,
             content={
                 "message": message,
             },
@@ -206,6 +207,6 @@ def restore_a_namespace(
     message = f"Namespace `{namespace}` has been restored."
     mark_namespace_restored(session, node_namespace, message)
     return JSONResponse(
-        status_code=201,
+        status_code=HTTPStatus.CREATED,
         content={"message": message},
     )
