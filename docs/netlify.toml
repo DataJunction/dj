@@ -1,0 +1,41 @@
+[build]
+  publish = "public"
+  functions = "functions"
+
+[build.environment]
+  NODE_VERSION = "16.16.0"
+  NPM_VERSION = "8.11.0"
+
+[context.production]
+  command = "npm run build"
+
+[context.deploy-preview]
+  command = "npm run build -- -b $DEPLOY_URL"
+
+[context.branch-deploy]
+  command = "npm run build -- -b $DEPLOY_URL"
+
+[context.next]
+  command = "npm run build"
+
+[context.next.environment]
+  HUGO_ENV = "next"
+
+[[plugins]]
+  package = "netlify-plugin-submit-sitemap"
+
+	[plugins.inputs]
+    baseUrl = "https://datajunction.io/"
+    sitemapPath = "/sitemap.xml"
+    ignorePeriod = 0
+    providers = [
+      "google",
+    ]
+
+[dev]
+  framework = "#custom"
+  command = "npm run start"
+  targetPort = 1313
+  port = 8888
+  publish = "public"
+  autoLaunch = false

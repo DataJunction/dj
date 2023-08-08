@@ -1,10 +1,9 @@
 ---
 weight: 50
+title: "Requesting SQL"
 ---
 
-# Requesting SQL
-
-DJ can generate SQL for one or more metrics with a set of compatible 
+DJ can generate SQL for one or more metrics with a set of compatible
 filters and dimensions.
 
 {{< tabs "retrieving sql multiple" >}}
@@ -41,6 +40,6 @@ dj.sql.get(
 {{< /tab >}}
 {{< /tabs >}}
 
-{{< hint info >}}
+{{< alert icon="👉" >}}
 You can optionally provide an `engine_name` and `engine_version`. A typical DataJunction query service will include a default engine.
-{{< /hint >}}
+{{< /alert >}}

@@ -1,8 +1,7 @@
 ---
 weight: 20
+title: "Metrics"
 ---
-
-# Metrics
 
 Metric nodes represent an aggregation of a measure defined as a single expression in a query that selects from
 a single source, transform, or dimension node.

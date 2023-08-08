@@ -1,5 +1,5 @@
----
+---	
 weight: 40
----
-
-# Debugging Invalid Nodes
+title: "Debugging Invalid Nodes"
+draft: true
+---	

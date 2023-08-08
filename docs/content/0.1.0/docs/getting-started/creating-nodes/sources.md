@@ -1,8 +1,7 @@
 ---
 weight: 10
+title: "Sources"
 ---
-
-# Sources
 
 Source nodes represent external tables in a database or data warehouse and make up the foundational layer on which other nodes
 are built upon.

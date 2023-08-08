@@ -1,8 +1,8 @@
 ---
 weight: 10
+title: "Nodes"
+mermaid: true
 ---
-
-# Nodes
 
 In DJ, nodes play a central role. Understanding the relationships between nodes is key to understanding how DJ works.
 All node types are similar in many ways. Let’s start by covering their similarities.
@@ -33,6 +33,13 @@ never have a query at all and instead must include a reference to an external ta
 
 ## Source Nodes
 
+{{< mermaid class="bg-light text-center" >}}
+graph LR
+  A[example.demo.contractors] --> B(source.example.demo.contractors)
+  style A fill:#79d60020,stroke:#ccc,stroke-width:1px
+  style B fill:#79d60080,stroke:#ccc,stroke-width:1px
+{{< /mermaid >}}
+
 Real tables in a database or data warehouse are represented in DJ as source nodes. Each source node has a name and that
 name can be used by transform and dimension nodes as a “virtual” reference to the real table. In fact, you can change
 the table name in a source node’s definition to use a different real table and as long as the table schema is the same,
@@ -48,6 +55,18 @@ the impacted nodes as “invalid”.
 ---
 
 ## Transform Nodes
+
+{{< mermaid class="bg-light text-center" >}}
+graph LR
+  A(source.example.demo.contractors) --> X(transform.contractors_X)
+  A(source.example.demo.contractors) --> Y(transform.contractors_Y)
+  Y --> Z(transform.contractors_Z)
+  A --> Z
+  style A fill:#79d60080,stroke:#ccc,stroke-width:1px
+  style X fill:#21b8ff80,stroke:#ccc,stroke-width:1px
+  style Y fill:#21b8ff80,stroke:#ccc,stroke-width:1px
+  style Z fill:#21b8ff80,stroke:#ccc,stroke-width:1px
+{{< /mermaid >}}
 
 A lot of the heavy lifting in DJ is done by transform nodes. These nodes contain the queries that join, filter, and
 group data from various source nodes as well as other transform nodes. Although less common, transform nodes can even
@@ -140,6 +159,13 @@ second node at all!
 
 ## Dimension Nodes
 
+{{< mermaid class="bg-light text-center" >}}
+graph LR
+  A(source.example.demo.contractor) --> D(dimension.contractor)
+  style A fill:#79d60080,stroke:#ccc,stroke-width:1px
+  style D fill:#ff930f80,stroke:#ccc,stroke-width:1px
+{{< /mermaid >}}
+
 One of the benefits of DJ is that it can easily find all of the available dimensions that you can use to group metrics
 as well as all of the metrics that can be grouped by a set of dimensions. Defining a dimension node includes a query to
 generate the dimension dataset as well as a label of the dimension’s primary key(s).
@@ -154,6 +180,21 @@ abstracting away the `JOIN` and `GROUP BY` clauses required to bring metrics and
 
 ## Metric Nodes
 
+{{< mermaid class="bg-light text-center" >}}
+graph LR
+  T(transform.contractors_X) --> B(metric.num_contractors)
+  L(source.example.demo.contractors) --> T
+  S(source.repair_orders) --> D(metric.num_repair_orders)
+  A(dimension.contractor) -..-> | dimensions link | B
+  A(dimension.contractor) -..-> | dimensions link | D
+  style A fill:#ff930f80,stroke:#ccc,stroke-width:1px
+  style B fill:#ff0c0c80,stroke:#ccc,stroke-width:1px
+  style L fill:#79d60080,stroke:#ccc,stroke-width:1px
+  style D fill:#ff0c0c80,stroke:#ccc,stroke-width:1px
+  style T fill:#21b8ff80,stroke:#ccc,stroke-wdith:1px
+  style S fill:#79d60080,stroke:#ccc,stroke-wdith:1px
+{{< /mermaid >}}
+
 The primary component of a request for SQL or data from a DJ server is always one or more metrics. A metric node is
 defined as a single column from another existing node as well as an aggregation expression. If the existing node has
 other columns that are connected to dimension nodes, those dimensions will be revealed by DJ as available dimensions
@@ -163,6 +204,31 @@ foreign key(s) to other dimensions.
 ---
 
 ## Cube Nodes
+
+{{< mermaid class="bg-light text-center" >}}
+
+graph LR
+
+  T(transform.contractors_X) --> B(metric.num_contractors)
+  L(source.example.demo.contractors) --> T
+  S(source.repair_orders) --> D(metric.num_repair_orders)
+  A(dimension.contractor) -..-> | dimensions link | B
+  A(dimension.contractor) -..-> | dimensions link | D
+  style A fill:#ff930f80,stroke:#ccc,stroke-width:1px
+  style B fill:#ff0c0c80,stroke:#ccc,stroke-width:1px
+  style L fill:#79d60080,stroke:#ccc,stroke-width:1px
+  style D fill:#ff0c0c80,stroke:#ccc,stroke-width:1px
+  style T fill:#21b8ff80,stroke:#ccc,stroke-wdith:1px
+  style S fill:#79d60080,stroke:#ccc,stroke-wdith:1px
+
+  A(dimension.contractor) -..-> C(default.repairs_cube)
+  B(metric.num_contractors) --> C
+  D(metric.num_repair_orders) --> C
+  style A fill:#ff930f80,stroke:#ccc,stroke-width:1px
+  style B fill:#ff0c0c80,stroke:#ccc,stroke-width:1px
+  style D fill:#ff0c0c80,stroke:#ccc,stroke-width:1px
+  style C fill:#9a00ff80,stroke:#ccc,stroke-width:1px
+{{< /mermaid >}}
 
 In data analytics, a cube is a multi-dimensional dataset of one or more metrics. As more nodes are defined in DJ, a
 single metric can have a wide selection of dimension sets with which it can be grouped by. Also, many metrics will
