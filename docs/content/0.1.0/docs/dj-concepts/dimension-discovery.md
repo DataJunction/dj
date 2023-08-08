@@ -1,8 +1,7 @@
 ---
 weight: 30
+title: "Dimension Discovery"
 ---
-
-# Dimension Discovery
 
 In data warehousing, dimensions are parts of the data model that play a huge role in making data understandable and intuitively composable. If
 you want to learn more about your users, it's convenient to have a `users` dimension table with all of the attributes that belong

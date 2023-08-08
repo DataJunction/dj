@@ -1,19 +1,18 @@
 ---
 weight: 80
+title: "Materialization"
 ---
-
-# Materialization
 
 ## Cube Nodes
 
-When we attach a materialization config to a cube node (instructions 
-[here](../../getting-started/creating-nodes/cubes#adding-materialization-config)), we are requesting DJ to prepare 
-for the materialization of the cube's underlying data into an OLAP database (such as Druid). This enables 
-low-latency metric queries across all defined dimensions in the cube. 
+When we attach a materialization config to a cube node (instructions
+[here](../../getting-started/creating-nodes/cubes#adding-materialization-config)), we are requesting DJ to prepare
+for the materialization of the cube's underlying data into an OLAP database (such as Druid). This enables
+low-latency metric queries across all defined dimensions in the cube.
 
 However, many such databases are only configured to work with simple aggregations, so DJ will break down each
-metric expression into its constituent simple aggregation measures prior to materialization. These measures are 
-ingested into the OLAP database as separate columns and they're combined back together into the original metrics 
+metric expression into its constituent simple aggregation measures prior to materialization. These measures are
+ingested into the OLAP database as separate columns and they're combined back together into the original metrics
 when users request metric data.
 
 A few examples include:
@@ -25,8 +24,8 @@ A few examples include:
 
 ```sql
 SELECT
-  AVG(price) 
-    AS avg_repair_price 
+  AVG(price)
+    AS avg_repair_price
 FROM repair_order_details
 ```
 </td>
@@ -71,8 +70,8 @@ sum(price)
 
 ```sql
 SELECT
-  SUM(price) 
-    AS total_repair_price 
+  SUM(price)
+    AS total_repair_price
 FROM repair_order_details
 ```
 </td>
@@ -132,7 +131,7 @@ FROM repair_order_details
 ```sql
 sum(
   if(
-    discount > 0.0, 
+    discount > 0.0,
     1, 0
   )
 )
@@ -165,8 +164,8 @@ count(*)
 
 ```sql
 SELECT
-  SUM(price1) + 
-    SUM(price2) 
+  SUM(price1) +
+    SUM(price2)
   AS total_cost
 FROM costs
 ```

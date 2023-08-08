@@ -25,7 +25,7 @@
             ),
         );
     };
-    
+
     const {{ .Get 0 | safeJS }} = ReactDOM.createRoot(document.getElementById({{ .Get 0 }}));
     {{ .Get 0 | safeJS }}.render(React.createElement({{ .Get 0 | safeJS }}App));
     });

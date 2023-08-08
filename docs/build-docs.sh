@@ -11,6 +11,9 @@ if [ $# -eq 0 ]; then
     exit 1
 fi
 
+npm install
+npm run build -- -b $BASE_URL
+
 VERSION=$1         # 0.1.0
 SET_AS_LATEST=$2   # false
 BASE_URL=$3        # http://localhost:55555

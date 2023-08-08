@@ -1,8 +1,7 @@
 ---
 weight: 60
+title: "Requesting Data"
 ---
-
-# Requesting Data
 
 DJ can generate SQL for one or more metrics with a set of compatible filters and dimensions.
 
@@ -43,10 +42,10 @@ dj.data.get(
 {{< /tab >}}
 {{< /tabs >}}
 
-{{< hint info >}}
+{{< alert icon="👉" >}}
 You can optionally provide an `engine_name` and `engine_version`. A typical DataJunction query service will include a default engine.
-{{< /hint >}}
-{{< hint info >}}
+{{< /alert >}}
+{{< alert icon="👉" >}}
 When using the python client, retrieving data requires that you have [pandas](https://pandas.pydata.org/) installed locally.
 You can install pandas by running `pip install pandas`.
-{{< /hint >}}
+{{< /alert >}}

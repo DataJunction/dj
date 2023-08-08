@@ -1,8 +1,7 @@
 ---
 weight: 40
+title: "Node Dependencies"
 ---
-
-# Node Dependencies
 
 Relationships between nodes are tracked by a DJ server. A node's position in the DJ DAG is determined by the node's definition,
 particularly the query. Node queries reference other DJ nodes and this is what defines upstream and downstream dependencies
