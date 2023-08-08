@@ -9,10 +9,10 @@ from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlmodel import Session
 
 from datajunction_server.internal.authentication.basic import (
-    create_access_token,
     get_password_hash,
     get_user_info,
 )
+from datajunction_server.internal.authentication.jwt import create_jwt, encrypt
 from datajunction_server.models.user import OAuthProvider, User, UserOutput
 from datajunction_server.utils import get_session
 
@@ -56,12 +56,12 @@ async def login(
         password=form_data.password,
         session=session,
     )
-    token = create_access_token(data={"sub": user.username})
+    jwt = create_jwt(data={"sub": encrypt(user.username)})
     response = JSONResponse(
         content={"message": "Successfully logged in through basic OAuth"},
         status_code=HTTPStatus.OK,
     )
-    response.set_cookie(key="access_token", value=token, httponly=True)
+    response.set_cookie(key="__dj", value=jwt, httponly=True, samesite="strict")
     return response
 
 

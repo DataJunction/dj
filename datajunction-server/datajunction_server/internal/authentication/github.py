@@ -3,14 +3,14 @@ GitHub OAuth helper functions
 """
 import logging
 import secrets
-from typing import Dict, Optional
+from typing import Optional
 from urllib.parse import urljoin
 
 import requests
-from fastapi import Request
 from sqlmodel import select
 
 from datajunction_server.internal.authentication.basic import get_password_hash
+from datajunction_server.internal.authentication.jwt import decrypt
 from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.utils import get_session, get_settings
 
@@ -25,18 +25,16 @@ def get_authorize_url(oauth_client_id: str) -> str:
     redirect_uri = urljoin(settings.url, "/github/token/")
     return (
         f"https://github.com/login/oauth/authorize?client_id={oauth_client_id}"
-        f"&scope=user&redirect_uri={redirect_uri}"
+        f"&scope=read:user&redirect_uri={redirect_uri}"
     )
 
 
-def get_github_user_from_cookie(request: Request) -> Optional[Dict]:
+def get_github_user(encrypted_access_token: str) -> Optional[User]:
     """
     Get the user for a request
     """
-    token = request.cookies.get("access_token")
-    if not token:
-        return None
-    headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+    access_token = decrypt(encrypted_access_token)
+    headers = {"Accept": "application/json", "Authorization": f"Bearer {access_token}"}
     user_data = requests.get(
         "https://api.github.com/user",
         headers=headers,

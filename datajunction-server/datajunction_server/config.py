@@ -61,8 +61,8 @@ class Settings(
     #   $dj_logical_timestamp
     dj_logical_timestamp_format: Optional[str] = "${dj_logical_timestamp}"
 
-    # Basic OAuth client secret, used to encrypt passwords
-    basic_oauth_client_secret: Optional[str] = None
+    # DJ secret, used to encrypt passwords and JSON web tokens
+    secret: Optional[str] = None
 
     # GitHub OAuth application client ID
     github_oauth_client_id: Optional[str] = None

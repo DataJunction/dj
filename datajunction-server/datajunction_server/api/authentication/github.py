@@ -11,6 +11,7 @@ from starlette.responses import JSONResponse, RedirectResponse
 
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.authentication import github
+from datajunction_server.internal.authentication.jwt import create_jwt, encrypt
 from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import get_settings
 
@@ -49,6 +50,19 @@ async def get_access_token(code: str, response: Response):
         headers=headers,
         timeout=10,  # seconds
     ).json()
+    if "error" in access_data:
+        raise DJException(
+            http_status_code=HTTPStatus.UNAUTHORIZED,
+            errors=[
+                DJError(
+                    code=ErrorCode.OAUTH_ERROR,
+                    message=(
+                        "Received an error from the GitHub authorization "
+                        f"server: {access_data['error']}"
+                    ),
+                ),
+            ],
+        )
     if "access_token" not in access_data:
         message = "No user access token retrieved from GitHub OAuth API"
         _logger.error(message)
@@ -61,7 +75,8 @@ async def get_access_token(code: str, response: Response):
         content={"message": "Successfully logged in through GitHub OAuth"},
         status_code=HTTPStatus.OK,
     )
-    response.set_cookie(key="access_token", value=token, httponly=True)
+    jwt = create_jwt({"sub": encrypt(token)})
+    response.set_cookie(key="__dj", value=jwt, httponly=True, samesite="strict")
     return response
 
 
