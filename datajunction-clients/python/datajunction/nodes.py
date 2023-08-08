@@ -92,7 +92,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
 
     def save(self, mode: Optional[models.NodeMode] = models.NodeMode.PUBLISHED) -> dict:
         """
-        Sets the node's mode to PUBLISHED and pushes it to the server.
+        Saves the node to DJ, whether it existed before or not.
         """
         existing_node = self.dj_client._get_node(node_name=self.name)
         if "name" in existing_node:
@@ -105,7 +105,10 @@ class Node(ClientEntity):  # pylint: disable=protected-access
             self.refresh()
         else:
             # create
-            response = self.dj_client._create_node(node=self, mode=mode)
+            response = self.dj_client._create_node(
+                node=self,
+                mode=mode,
+            )  # pragma: no cover
             if not response.ok:  # pragma: no cover
                 raise DJClientException(
                     f"Error creating new node `{self.name}`: {response.text}",

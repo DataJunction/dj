@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from requests.adapters import CaseInsensitiveDict, HTTPAdapter
 
 from datajunction import models
-from datajunction.exceptions import DJClientException
+from datajunction.exceptions import DJClientException, DJNodeAlreadyExists
 
 if TYPE_CHECKING:
     from datajunction.nodes import Node  # pragma: no cover
@@ -246,7 +246,11 @@ class DJClient:
     ):
         """
         Helper function to create a node.
+        Raises an error if node already exsist and is active.
         """
+        existing_node = self._get_node(node_name=node.name)
+        if "name" in existing_node:
+            raise DJNodeAlreadyExists(node_name=node.name)
         node.mode = mode
         response = self._session.post(
             f"/nodes/{node.type}/",
