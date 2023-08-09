@@ -529,6 +529,10 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             and old_revision.display_name != data.display_name
         )
     )
+
+    if node.type == NodeType.METRIC:
+        data.query = NodeRevision.format_metric_alias(data.query, node.name)  # type: ignore
+
     query_changes = (
         old_revision.type != NodeType.SOURCE
         and data

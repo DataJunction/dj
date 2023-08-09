@@ -1531,6 +1531,36 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             ],
         }
 
+    def test_update_metric_node(self, client_with_examples: TestClient):
+        """
+        Verify that during metric node updates, if the query changes, DJ will automatically
+        alias the metric column. If this aliased query is the same as the current revision's
+        query, DJ won't promote the version.
+        """
+        response = client_with_examples.patch(
+            "/nodes/default.total_repair_cost/",
+            json={"query": "SELECT sum(price) FROM default.repair_order_details"},
+        )
+        node_data = response.json()
+        assert node_data["query"] == (
+            "SELECT  sum(price) default_DOT_total_repair_cost \n"
+            " FROM default.repair_order_details\n\n"
+        )
+        response = client_with_examples.get("/nodes/default.total_repair_cost")
+        assert response.json()["version"] == "v1.0"
+
+        response = client_with_examples.patch(
+            "/nodes/default.total_repair_cost/",
+            json={"query": "SELECT count(price) FROM default.repair_order_details"},
+        )
+        node_data = response.json()
+        assert node_data["query"] == (
+            "SELECT  count(price) default_DOT_total_repair_cost \n"
+            " FROM default.repair_order_details\n\n"
+        )
+        response = client_with_examples.get("/nodes/default.total_repair_cost")
+        assert response.json()["version"] == "v2.0"
+
     def test_create_dimension_node_fails(
         self,
         database: Database,  # pylint: disable=unused-argument
