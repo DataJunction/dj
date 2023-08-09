@@ -1404,8 +1404,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["parents"] == [{"name": "basic.source.users"}]
         assert data["query_ast"] == {
             "__class__": "Query",
+            "_is_compiled": True,
             "alias": None,
             "as_": None,
+            "column_list": [],
             "ctes": [],
             "name": {
                 "__class__": "DefaultName",
@@ -1432,8 +1434,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                                     "name": "basic.source.users",
                                     "type": "source",
                                 },
+                                "_is_compiled": True,
                                 "alias": None,
                                 "as_": None,
+                                "column_list": [],
                                 "name": {
                                     "__class__": "Name",
                                     "_is_compiled": True,
@@ -1468,6 +1472,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                         "_expression": {
                             "__class__": "Column",
                             "_expression": None,
+                            "_is_compiled": False,
                             "_table": {
                                 "__class__": "Table",
                                 "_dj_node": {
@@ -1475,8 +1480,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                                     "name": "basic.source.users",
                                     "type": "source",
                                 },
+                                "_is_compiled": True,
                                 "alias": None,
                                 "as_": None,
+                                "column_list": [],
                                 "name": {
                                     "__class__": "Name",
                                     "_is_compiled": True,
@@ -1507,6 +1514,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                                 "quote_style": "",
                             },
                         },
+                        "_is_compiled": True,
                         "_table": {
                             "__class__": "Table",
                             "_dj_node": {
@@ -1514,8 +1522,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                                 "name": "basic.source.users",
                                 "type": "source",
                             },
+                            "_is_compiled": True,
                             "alias": None,
                             "as_": None,
+                            "column_list": [],
                             "name": {
                                 "__class__": "Name",
                                 "_is_compiled": True,
@@ -1565,6 +1575,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                                     "_expression": {
                                         "__class__": "Column",
                                         "_expression": None,
+                                        "_is_compiled": False,
                                         "_table": {
                                             "__class__": "Table",
                                             "_dj_node": {
@@ -1572,8 +1583,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                                                 "name": "basic.source.users",
                                                 "type": "source",
                                             },
+                                            "_is_compiled": True,
                                             "alias": None,
                                             "as_": None,
+                                            "column_list": [],
                                             "name": {
                                                 "__class__": "Name",
                                                 "_is_compiled": True,
@@ -1604,6 +1617,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                                             "quote_style": "",
                                         },
                                     },
+                                    "_is_compiled": True,
                                     "_table": {
                                         "__class__": "Table",
                                         "_dj_node": {
@@ -1611,8 +1625,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                                             "name": "basic.source.users",
                                             "type": "source",
                                         },
+                                        "_is_compiled": True,
                                         "alias": None,
                                         "as_": None,
+                                        "column_list": [],
                                         "name": {
                                             "__class__": "Name",
                                             "_is_compiled": True,

@@ -45,41 +45,42 @@ class ASTEncoder(JSONEncoder):
         json_dict = {
             "__class__": o.__class__.__name__,
         }
-        if hasattr(o, "__json_encode__"):
+        if hasattr(o, "__json_encode__"):  # pragma: no cover
             json_dict = {**json_dict, **o.__json_encode__()}
         return json_dict
 
 
 def ast_decoder(session, json_dict):
-    """Decodes json dict"""
+    """
+    Decodes json dict back into an AST entity
+    """
     class_name = json_dict["__class__"]
-    if not class_name or not hasattr(ast, class_name):
-        return None
     clazz = getattr(ast, class_name)
+
+    # Instantiate the class
+    instance = clazz(
+        **{
+            k: v
+            for k, v in json_dict.items()
+            if k not in {"__class__", "_type", "laterals", "_is_compiled"}
+        },
+    )
+
+    # Set attributes where possible
+    for key, value in json_dict.items():
+        if key not in {"__class__", "_is_compiled"}:
+            if hasattr(instance, key) and class_name not in {"BinaryOpKind"}:
+                setattr(instance, key, value)
+
     if class_name == "NodeRevision":
+        # Overwrite with DB object if it's a node revision
         instance = (
             session.exec(select(Node).where(Node.name == json_dict["name"]))
             .one()
             .current
         )
-    else:
-        instance = clazz(
-            **{
-                k: v
-                for k, v in json_dict.items()
-                if k not in {"__class__", "_type", "laterals", "_is_compiled"}
-            },
-        )
-    for key, value in json_dict.items():
-        if key not in {"__class__", "_is_compiled"}:
-            try:
-                setattr(instance, key, value)
-            except AttributeError:
-                pass
-
-    if class_name == "Table":
-        instance._columns = [  # pylint: disable=protected-access
-            ast.Column(ast.Name(col.name), _table=instance, _type=col.type)
-            for col in instance._dj_node.columns  # pylint: disable=protected-access
-        ]
+    elif class_name == "Column":
+        # Add in a reference to the table from the column
+        instance._table.parent = instance  # pylint: disable=protected-access
+        instance._table.parent_key = "_table"  # pylint: disable=protected-access
     return instance

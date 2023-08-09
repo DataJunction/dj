@@ -1013,7 +1013,7 @@ class TableExpression(Aliasable, Expression):
             "_columns",
             # "column_list",
             "_ref_columns",
-            "columns",
+            # "columns",
         ]
 
     @property

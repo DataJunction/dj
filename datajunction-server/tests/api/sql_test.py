@@ -546,7 +546,6 @@ def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
         params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
     )
     data = response.json()
-    print(data["sql"])
     assert compare_query_strings(data["sql"], sql)
 
 
