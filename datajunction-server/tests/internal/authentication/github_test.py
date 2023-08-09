@@ -1,8 +1,6 @@
 """
 Tests for GitHub OAuth helper functions
 """
-import pytest
-
 from datajunction_server.internal.authentication import github
 
 

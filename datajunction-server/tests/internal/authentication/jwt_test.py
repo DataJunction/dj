@@ -3,7 +3,6 @@ Test JWT helper functions
 """
 from datetime import timedelta
 
-import pytest
 from requests import Request
 
 from datajunction_server.internal.authentication import jwt
