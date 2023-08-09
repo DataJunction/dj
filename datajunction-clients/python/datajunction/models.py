@@ -54,6 +54,16 @@ class NodeType(str, enum.Enum):
     CUBE = "cube"
 
 
+class ColumnAttribute(BaseModel):
+    """
+    Represents a column attribute
+    """
+
+    attribute_type_namespace: Optional[str] = "system"
+    attribute_type_name: str
+    column_name: str
+
+
 class SourceColumn(BaseModel):
     """
     A column used in creation of a source node
@@ -61,7 +71,7 @@ class SourceColumn(BaseModel):
 
     name: str
     type: str
-    attributes: Optional[str]
+    attributes: Optional[List[ColumnAttribute]]
     dimension: Optional[str]
 
 
@@ -126,16 +136,6 @@ class AvailabilityState(BaseModel):
     schema_: Optional[str]
     table: str
     valid_through_ts: int
-
-
-class ColumnAttribute(BaseModel):
-    """
-    Represents a column attribute
-    """
-
-    attribute_type_namespace: Optional[str] = "system"
-    attribute_type_name: str
-    column_name: str
 
 
 class Column(BaseModel):
