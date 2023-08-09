@@ -1,5 +1,6 @@
 """Functions to add to an ast DJ node queries"""
 import collections
+import json
 import logging
 import time
 
@@ -16,6 +17,7 @@ from datajunction_server.models.materialization import GenericCubeConfig
 from datajunction_server.models.node import BuildCriteria, Node, NodeRevision, NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext
+from datajunction_server.sql.parsing.ast_json_encoder import ast_decoder
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.utils import amenable_name
@@ -432,6 +434,8 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
     projection_update += list(projection_addition.values())
 
     query.select.projection = projection_update
+    query.select._is_compiled = False  # pylint: disable=protected-access
+    query._is_compiled = False  # pylint: disable=protected-access
 
     if limit is not None:
         query.select.limit = ast.Number(limit)
@@ -516,7 +520,12 @@ def build_node(  # pylint: disable=too-many-arguments
         ):
             return ast.Query(select=select)  # pragma: no cover
 
-    if node.query:
+    if node.query_ast:
+        query = json.loads(
+            json.dumps(node.query_ast),
+            object_hook=lambda _dict: ast_decoder(session, _dict),
+        )
+    elif node.query:
         query = parse(node.query)
     else:
         query = build_source_node_query(node)
@@ -824,6 +833,8 @@ def build_ast(  # pylint: disable=too-many-arguments
     context = CompileContext(session=session, exception=DJException())
     if hash(query) in memoized_queries:
         query = memoized_queries[hash(query)]  # pragma: no cover
+    elif query.is_compiled():
+        memoized_queries[hash(query)] = query  # pragma: no cover
     else:
         query.compile(context)
         memoized_queries[hash(query)] = query
