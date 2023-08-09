@@ -2,7 +2,11 @@
 import pytest
 
 from datajunction import DJBuilder
-from datajunction.exceptions import DJClientException, DJNamespaceAlreadyExists
+from datajunction.exceptions import (
+    DJClientException,
+    DJNamespaceAlreadyExists,
+    DJNodeAlreadyExists,
+)
 from datajunction.models import (
     AvailabilityState,
     Column,
@@ -238,6 +242,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         """
         Verifies that registering a table works.
         """
+        client.create_namespace("source")
         store_comments = client.register_table(
             catalog="default",
             schema="store",
@@ -246,9 +251,37 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         assert store_comments.name == "source.default.store.comments"
         assert "source.default.store.comments" in client.namespace("source").sources()
 
+    def test_create_and_update_node(self, client):  # pylint: disable=unused-argument
+        """
+        Verifies that creating nodes works.
+        """
+        # create it
+        account_type_table = client.create_source(
+            name="default.account_type_table",
+            description="A source table for account type data",
+            display_name="Default: Account Type Table",
+            catalog="default",
+            schema_="store",
+            table="account_type_table",
+            columns=[
+                Column(name="id", type="int"),
+                Column(name="account_type_name", type="string"),
+                Column(name="account_type_classification", type="int"),
+                Column(name="preferred_payment_method", type="int"),
+            ],
+            mode=NodeMode.DRAFT,
+        )
+        assert account_type_table.name == "default.account_type_table"
+        assert "default.account_type_table" in client.namespace("default").sources()
+
+        # update it
+        account_type_table = client.source(node_name="default.account_type_table")
+        # account_type_table.save(mode=NodeMode.PUBLISHED)
+        # will fix in https://github.com/DataJunction/dj/issues/702
+
     def test_create_nodes(self, client):  # pylint: disable=unused-argument
         """
-        Verifies that creating a new node works.
+        Verifies that creating nodes works.
         """
         # source nodes
         account_type_table = client.create_source(
@@ -269,23 +302,6 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         assert account_type_table.name == "default.account_type_table"
         assert "default.account_type_table" in client.namespace("default").sources()
 
-        payment_type_table = client.create_source(
-            name="default.payment_type_table",
-            description="A source table for different types of payments",
-            display_name="Default: Payment Type Table",
-            catalog="default",
-            schema_="accounting",
-            table="payment_type_table",
-            columns=[
-                Column(name="id", type="int"),
-                Column(name="payment_type_name", type="string"),
-                Column(name="payment_type_classification", type="string"),
-            ],
-            mode=NodeMode.PUBLISHED,
-        )
-        assert payment_type_table.name == "default.payment_type_table"
-        assert "default.payment_type_table" in client.namespace("default").sources()
-
         revenue = client.create_source(
             name="default.revenue",
             description="Record of payments",
@@ -304,6 +320,26 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         )
         assert revenue.name == "default.revenue"
         assert "default.revenue" in client.namespace("default").sources()
+
+        # make sure we get a failure if we try to create same node again
+        with pytest.raises(DJNodeAlreadyExists) as exc_info:
+            revenue = client.create_source(
+                name="default.revenue",
+                description="Record of payments",
+                display_name="Default: Payment Records",
+                catalog="default",
+                schema_="accounting",
+                table="revenue",
+                columns=[
+                    Column(name="payment_id", type="int"),
+                    Column(name="payment_amount", type="float"),
+                    Column(name="payment_type", type="int"),
+                    Column(name="customer_id", type="int"),
+                    Column(name="account_type", type="string"),
+                ],
+                mode=NodeMode.PUBLISHED,
+            )
+        assert "Node `default.revenue` already exists." in str(exc_info.value)
 
         # dimension nodes
         payment_type_dim = client.create_dimension(
@@ -533,8 +569,13 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         """
         Verifies that creating a new namespace works.
         """
-        namespace = client.namespace(namespace="roads.demo")
+        with pytest.raises(DJClientException) as exc_info:
+            client.namespace(namespace="roads.demo")
+        assert "Namespace `roads.demo` does not exist" in str(exc_info.value)
+
+        namespace = client.create_namespace(namespace="roads.demo")
         assert namespace.namespace == "roads.demo"
+
         with pytest.raises(DJNamespaceAlreadyExists) as exc_info:
             client.create_namespace(namespace="roads.demo")
         assert "Node namespace `roads.demo` already exists" in str(exc_info.value)

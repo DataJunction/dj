@@ -21,10 +21,9 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         """
         Returns the specified node namespace.
         """
-        try:
-            return self.create_namespace(namespace=namespace)
-        except DJNamespaceAlreadyExists:
-            pass
+        namespaces = self.list_namespaces(prefix=namespace)
+        if namespace not in namespaces:
+            raise DJClientException(f"Namespace `{namespace}` does not exist.")
         return Namespace(namespace=namespace, dj_client=self)
 
     def create_namespace(self, namespace: str) -> "Namespace":
@@ -40,24 +39,30 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             raise DJNamespaceAlreadyExists(json_response["message"])
         return Namespace(namespace=namespace, dj_client=self)
 
-    def delete_namespace(self, namespace: str) -> None:
+    def delete_namespace(self, namespace: str, cascade: bool = False) -> None:
         """
         Delete a namespace by name.
         """
         response = self._session.delete(
             f"/namespaces/{namespace}/",
             timeout=self._timeout,
+            params={
+                "cascade": cascade,
+            },
         )
         if response.status_code != HTTPStatus.OK:
             raise DJClientException(response.json()["message"])
 
-    def restore_namespace(self, namespace: str) -> None:
+    def restore_namespace(self, namespace: str, cascade: bool = False) -> None:
         """
         Restore a namespace by name.
         """
         response = self._session.post(
             f"/namespaces/{namespace}/restore/",
             timeout=self._timeout,
+            params={
+                "cascade": cascade,
+            },
         )
         if response.status_code != HTTPStatus.CREATED:
             raise DJClientException(response.json()["message"])
@@ -127,7 +132,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         """
         Creates a new Source node with given parameters.
         """
-        new_source = Source(
+        new_node = Source(
             dj_client=self,
             name=name,
             description=description,
@@ -139,8 +144,8 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             table=table,
             columns=columns,
         )
-        new_source.save(mode=mode)
-        return new_source
+        self._create_node(node=new_node, mode=mode)
+        return new_node
 
     def register_table(self, catalog: str, schema: str, table: str) -> Source:
         """
@@ -148,11 +153,11 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
         `source_node_namespace` (a server-side setting), which defaults to the `source` namespace.
         """
         response = self._session.post(f"/register/table/{catalog}/{schema}/{table}/")
-        new_source = Source(
+        new_node = Source(
             **response.json(),
             dj_client=self,
         )
-        return new_source
+        return new_node
 
     #
     # Nodes: TRANSFORM
@@ -194,7 +199,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             primary_key=primary_key,
             query=query,
         )
-        new_node.save(mode=mode)
+        self._create_node(node=new_node, mode=mode)
         return new_node
 
     #
@@ -237,7 +242,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             primary_key=primary_key,
             query=query,
         )
-        new_node.save(mode=mode)
+        self._create_node(node=new_node, mode=mode)
         return new_node
 
     #
@@ -280,7 +285,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             primary_key=primary_key,
             query=query,
         )
-        new_node.save(mode=mode)
+        self._create_node(node=new_node, mode=mode)
         return new_node
 
     #
@@ -332,7 +337,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             description=description,
             display_name=display_name,
         )
-        new_node.save(mode=mode)  # pragma: no cover
+        self._create_node(node=new_node, mode=mode)  # pragma: no cover
         return new_node  # pragma: no cover
 
     #
