@@ -835,6 +835,15 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             )
         )
 
+    def __json_encode__(self):
+        """
+        JSON encoder for node revision
+        """
+        return {
+            "name": self.name,
+            "type": self.type,
+        }
+
 
 class ImmutableNodeFields(BaseSQLModel):
     """
