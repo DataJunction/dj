@@ -305,7 +305,7 @@ def client_with_query_service(  # pylint: disable=too-many-statements
 
 def pytest_addoption(parser):
     """
-    Add a --tpcds flag that enables tpcds query parsing tests
+    Add flags that enable groups of tests
     """
     parser.addoption(
         "--tpcds",
@@ -313,4 +313,12 @@ def pytest_addoption(parser):
         dest="tpcds",
         default=False,
         help="include tests for parsing TPC-DS queries",
+    )
+
+    parser.addoption(
+        "--auth",
+        action="store_true",
+        dest="auth",
+        default=False,
+        help="Run authentication tests",
     )

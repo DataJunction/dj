@@ -71,6 +71,21 @@ config.fileConfig(
     path.join(path.dirname(path.abspath(__file__)), "logging.conf"),
     disable_existing_loggers=False,
 )
+
+dependencies = [Depends(default_attribute_types)]
+
+# Only inject basic auth middleware if a server secret is configured
+if settings.secret:  # pragma: no cover
+    dependencies.append(Depends(parse_basic_auth_cookie))
+if all(
+    [
+        settings.secret,
+        settings.github_oauth_client_id,
+        settings.github_oauth_client_secret,
+    ],
+):  # pragma: no cover
+    dependencies.append(Depends(parse_github_auth_cookie))
+
 app = FastAPI(
     title=settings.name,
     description=settings.description,
@@ -79,11 +94,7 @@ app = FastAPI(
         "name": "MIT License",
         "url": "https://mit-license.org/",
     },
-    dependencies=[
-        Depends(parse_basic_auth_cookie),
-        Depends(parse_github_auth_cookie),
-        Depends(default_attribute_types),
-    ],
+    dependencies=dependencies,
 )
 app.add_middleware(
     CORSMiddleware,
