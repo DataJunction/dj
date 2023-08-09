@@ -74,6 +74,11 @@ class ColumnType(BaseModel):
     def __deepcopy__(self, memo):
         return self
 
+    def __json_encode__(self):
+        return {
+            "__class__": self.__class__.__name__,
+        }
+
     @classmethod
     def __get_validators__(cls) -> Generator[AnyCallable, None, None]:
         """

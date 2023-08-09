@@ -1402,13 +1402,14 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
         assert data["parents"] == [{"name": "basic.source.users"}]
-        assert data["query_ast"] == {  # type: ignore
+        assert data["query_ast"] == {
             "__class__": "Query",
             "alias": None,
             "as_": None,
             "ctes": [],
             "name": {
                 "__class__": "DefaultName",
+                "_is_compiled": True,
                 "name": "",
                 "namespace": None,
                 "quote_style": "",
@@ -1417,25 +1418,95 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "__class__": "Select",
                 "alias": None,
                 "as_": None,
-                "from_": {  # type: ignore
+                "from_": {
                     "__class__": "From",
                     "laterals": [],
                     "relations": [
-                        {"__class__": "Relation", "extensions": [], "primary": None},
+                        {
+                            "__class__": "Relation",
+                            "extensions": [],
+                            "primary": {
+                                "__class__": "Table",
+                                "_dj_node": {
+                                    "__class__": "NodeRevision",
+                                    "name": "basic.source.users",
+                                    "type": "source",
+                                },
+                                "alias": None,
+                                "as_": None,
+                                "name": {
+                                    "__class__": "Name",
+                                    "_is_compiled": True,
+                                    "name": "users",
+                                    "namespace": {
+                                        "__class__": "Name",
+                                        "_is_compiled": True,
+                                        "name": "source",
+                                        "namespace": {
+                                            "__class__": "Name",
+                                            "_is_compiled": True,
+                                            "name": "basic",
+                                            "namespace": None,
+                                            "quote_style": "",
+                                        },
+                                        "quote_style": "",
+                                    },
+                                    "quote_style": "",
+                                },
+                            },
+                        },
                     ],
                 },
-                "group_by": [],  # type: ignore
+                "group_by": [],
                 "having": None,
-                "lateral_views": [],  # type: ignore
+                "lateral_views": [],
                 "limit": None,
-                "organization": {  # type: ignore
-                    "__class__": "Organization",
-                    "order": [],
-                    "sort": [],
-                },
-                "projection": [  # type: ignore
+                "organization": {"__class__": "Organization", "order": [], "sort": []},
+                "projection": [
                     {
                         "__class__": "Column",
+                        "_expression": {
+                            "__class__": "Column",
+                            "_expression": None,
+                            "_table": {
+                                "__class__": "Table",
+                                "_dj_node": {
+                                    "__class__": "NodeRevision",
+                                    "name": "basic.source.users",
+                                    "type": "source",
+                                },
+                                "alias": None,
+                                "as_": None,
+                                "name": {
+                                    "__class__": "Name",
+                                    "_is_compiled": True,
+                                    "name": "users",
+                                    "namespace": {
+                                        "__class__": "Name",
+                                        "_is_compiled": True,
+                                        "name": "source",
+                                        "namespace": {
+                                            "__class__": "Name",
+                                            "_is_compiled": True,
+                                            "name": "basic",
+                                            "namespace": None,
+                                            "quote_style": "",
+                                        },
+                                        "quote_style": "",
+                                    },
+                                    "quote_style": "",
+                                },
+                            },
+                            "_type": {"__class__": "StringType"},
+                            "alias": None,
+                            "as_": None,
+                            "name": {
+                                "__class__": "Name",
+                                "name": "country",
+                                "namespace": None,
+                                "quote_style": "",
+                            },
+                        },
                         "_table": {
                             "__class__": "Table",
                             "_dj_node": {
@@ -1447,12 +1518,15 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                             "as_": None,
                             "name": {
                                 "__class__": "Name",
+                                "_is_compiled": True,
                                 "name": "users",
                                 "namespace": {
                                     "__class__": "Name",
+                                    "_is_compiled": True,
                                     "name": "source",
                                     "namespace": {
                                         "__class__": "Name",
+                                        "_is_compiled": True,
                                         "name": "basic",
                                         "namespace": None,
                                         "quote_style": "",
@@ -1467,6 +1541,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                         "as_": None,
                         "name": {
                             "__class__": "Name",
+                            "_is_compiled": True,
                             "name": "country",
                             "namespace": None,
                             "quote_style": "",
@@ -1476,6 +1551,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                         "__class__": "Alias",
                         "alias": {
                             "__class__": "Name",
+                            "_is_compiled": True,
                             "name": "num_users",
                             "namespace": None,
                             "quote_style": "",
@@ -1486,12 +1562,83 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                             "args": [
                                 {
                                     "__class__": "Column",
-                                    "_table": None,
+                                    "_expression": {
+                                        "__class__": "Column",
+                                        "_expression": None,
+                                        "_table": {
+                                            "__class__": "Table",
+                                            "_dj_node": {
+                                                "__class__": "NodeRevision",
+                                                "name": "basic.source.users",
+                                                "type": "source",
+                                            },
+                                            "alias": None,
+                                            "as_": None,
+                                            "name": {
+                                                "__class__": "Name",
+                                                "_is_compiled": True,
+                                                "name": "users",
+                                                "namespace": {
+                                                    "__class__": "Name",
+                                                    "_is_compiled": True,
+                                                    "name": "source",
+                                                    "namespace": {
+                                                        "__class__": "Name",
+                                                        "_is_compiled": True,
+                                                        "name": "basic",
+                                                        "namespace": None,
+                                                        "quote_style": "",
+                                                    },
+                                                    "quote_style": "",
+                                                },
+                                                "quote_style": "",
+                                            },
+                                        },
+                                        "_type": {"__class__": "IntegerType"},
+                                        "alias": None,
+                                        "as_": None,
+                                        "name": {
+                                            "__class__": "Name",
+                                            "name": "id",
+                                            "namespace": None,
+                                            "quote_style": "",
+                                        },
+                                    },
+                                    "_table": {
+                                        "__class__": "Table",
+                                        "_dj_node": {
+                                            "__class__": "NodeRevision",
+                                            "name": "basic.source.users",
+                                            "type": "source",
+                                        },
+                                        "alias": None,
+                                        "as_": None,
+                                        "name": {
+                                            "__class__": "Name",
+                                            "_is_compiled": True,
+                                            "name": "users",
+                                            "namespace": {
+                                                "__class__": "Name",
+                                                "_is_compiled": True,
+                                                "name": "source",
+                                                "namespace": {
+                                                    "__class__": "Name",
+                                                    "_is_compiled": True,
+                                                    "name": "basic",
+                                                    "namespace": None,
+                                                    "quote_style": "",
+                                                },
+                                                "quote_style": "",
+                                            },
+                                            "quote_style": "",
+                                        },
+                                    },
                                     "_type": {"__class__": "IntegerType"},
                                     "alias": None,
                                     "as_": None,
                                     "name": {
                                         "__class__": "Name",
+                                        "_is_compiled": True,
                                         "name": "id",
                                         "namespace": None,
                                         "quote_style": "",
@@ -1500,6 +1647,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                             ],
                             "name": {
                                 "__class__": "Name",
+                                "_is_compiled": True,
                                 "name": "COUNT",
                                 "namespace": None,
                                 "quote_style": "",
@@ -2897,11 +3045,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "query": "SELECT 1 FROM node_that_does_not_exist",
                 "query_ast": {
                     "__class__": "Query",
+                    "_is_compiled": True,
                     "alias": None,
                     "as_": None,
+                    "column_list": [],
                     "ctes": [],
                     "name": {
                         "__class__": "DefaultName",
+                        "_is_compiled": True,
                         "name": "",
                         "namespace": None,
                         "quote_style": "",
@@ -2920,10 +3071,13 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                                     "primary": {
                                         "__class__": "Table",
                                         "_dj_node": None,
+                                        "_is_compiled": True,
                                         "alias": None,
                                         "as_": None,
+                                        "column_list": [],
                                         "name": {
                                             "__class__": "Name",
+                                            "_is_compiled": True,
                                             "name": "node_that_does_not_exist",
                                             "namespace": None,
                                             "quote_style": "",

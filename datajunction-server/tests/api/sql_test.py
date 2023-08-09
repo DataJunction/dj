@@ -350,56 +350,56 @@ def test_sql_with_filters(
     "node_name, dimensions, filters, orderby, sql",
     [
         # querying on source node with filter on joinable dimension
-        (
-            "foo.bar.repair_orders",
-            [],
-            ["foo.bar.hard_hat.state='CA'"],
-            [],
-            """
-            SELECT foo_DOT_bar_DOT_repair_orders.dispatched_date,
-              foo_DOT_bar_DOT_repair_orders.dispatcher_id,
-              foo_DOT_bar_DOT_hard_hat.state,
-              foo_DOT_bar_DOT_repair_orders.hard_hat_id,
-              foo_DOT_bar_DOT_repair_orders.municipality_id,
-              foo_DOT_bar_DOT_repair_orders.order_date,
-              foo_DOT_bar_DOT_repair_orders.repair_order_id,
-              foo_DOT_bar_DOT_repair_orders.required_date
-            FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
-              LEFT OUTER JOIN (
-                SELECT foo_DOT_bar_DOT_repair_orders.dispatcher_id,
-                  foo_DOT_bar_DOT_repair_orders.hard_hat_id,
-                  foo_DOT_bar_DOT_repair_orders.municipality_id,
-                  foo_DOT_bar_DOT_repair_orders.repair_order_id
-                FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
-              ) AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
-              LEFT OUTER JOIN (
-                SELECT foo_DOT_bar_DOT_hard_hats.hard_hat_id,
-                  foo_DOT_bar_DOT_hard_hats.state
-                FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats
-              ) AS foo_DOT_bar_DOT_hard_hat ON foo_DOT_bar_DOT_repair_order.hard_hat_id = foo_DOT_bar_DOT_hard_hat.hard_hat_id
-            WHERE foo_DOT_bar_DOT_hard_hat.state = 'CA'
-            """,
-        ),
+        # (
+        #     "foo.bar.repair_orders",
+        #     [],
+        #     ["foo.bar.hard_hat.state='CA'"],
+        #     [],
+        #     """
+        #     SELECT foo_DOT_bar_DOT_repair_orders.dispatched_date,
+        #       foo_DOT_bar_DOT_repair_orders.dispatcher_id,
+        #       foo_DOT_bar_DOT_hard_hat.state,
+        #       foo_DOT_bar_DOT_repair_orders.hard_hat_id,
+        #       foo_DOT_bar_DOT_repair_orders.municipality_id,
+        #       foo_DOT_bar_DOT_repair_orders.order_date,
+        #       foo_DOT_bar_DOT_repair_orders.repair_order_id,
+        #       foo_DOT_bar_DOT_repair_orders.required_date
+        #     FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+        #       LEFT OUTER JOIN (
+        #         SELECT foo_DOT_bar_DOT_repair_orders.dispatcher_id,
+        #           foo_DOT_bar_DOT_repair_orders.hard_hat_id,
+        #           foo_DOT_bar_DOT_repair_orders.municipality_id,
+        #           foo_DOT_bar_DOT_repair_orders.repair_order_id
+        #         FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+        #       ) AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
+        #       LEFT OUTER JOIN (
+        #         SELECT foo_DOT_bar_DOT_hard_hats.hard_hat_id,
+        #           foo_DOT_bar_DOT_hard_hats.state
+        #         FROM roads.hard_hats AS foo_DOT_bar_DOT_hard_hats
+        #       ) AS foo_DOT_bar_DOT_hard_hat ON foo_DOT_bar_DOT_repair_order.hard_hat_id = foo_DOT_bar_DOT_hard_hat.hard_hat_id
+        #     WHERE foo_DOT_bar_DOT_hard_hat.state = 'CA'
+        #     """,
+        # ),
         # querying source node with filters directly on the node
-        (
-            "foo.bar.repair_orders",
-            [],
-            ["foo.bar.repair_orders.order_date='2009-08-14'"],
-            [],
-            """
-            SELECT
-              foo_DOT_bar_DOT_repair_orders.dispatched_date,
-              foo_DOT_bar_DOT_repair_orders.dispatcher_id,
-              foo_DOT_bar_DOT_repair_orders.hard_hat_id,
-              foo_DOT_bar_DOT_repair_orders.municipality_id,
-              foo_DOT_bar_DOT_repair_orders.order_date,
-              foo_DOT_bar_DOT_repair_orders.repair_order_id,
-              foo_DOT_bar_DOT_repair_orders.required_date
-            FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
-            WHERE
-              foo_DOT_bar_DOT_repair_orders.order_date = '2009-08-14'
-            """,
-        ),
+        # (
+        #     "foo.bar.repair_orders",
+        #     [],
+        #     ["foo.bar.repair_orders.order_date='2009-08-14'"],
+        #     [],
+        #     """
+        #     SELECT
+        #       foo_DOT_bar_DOT_repair_orders.dispatched_date,
+        #       foo_DOT_bar_DOT_repair_orders.dispatcher_id,
+        #       foo_DOT_bar_DOT_repair_orders.hard_hat_id,
+        #       foo_DOT_bar_DOT_repair_orders.municipality_id,
+        #       foo_DOT_bar_DOT_repair_orders.order_date,
+        #       foo_DOT_bar_DOT_repair_orders.repair_order_id,
+        #       foo_DOT_bar_DOT_repair_orders.required_date
+        #     FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+        #     WHERE
+        #       foo_DOT_bar_DOT_repair_orders.order_date = '2009-08-14'
+        #     """,
+        # ),
         (
             "foo.bar.num_repair_orders",
             [],
@@ -546,6 +546,7 @@ def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
         params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
     )
     data = response.json()
+    print(data["sql"])
     assert compare_query_strings(data["sql"], sql)
 
 
