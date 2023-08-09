@@ -20,6 +20,8 @@ class OAuthProvider(Enum):
 class User(SQLModel, table=True):  # type: ignore
     """Class for a user."""
 
+    __tablename__ = "users"
+
     id: Optional[int] = Field(default=None, primary_key=True)
     username: str
     password: Optional[str]

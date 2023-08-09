@@ -1,7 +1,6 @@
 """
 GitHub OAuth Authentication Router
 """
-
 import logging
 from http import HTTPStatus
 
@@ -20,7 +19,7 @@ router = APIRouter(tags=["GitHub OAuth2"])
 
 
 @router.get("/github/login/", status_code=HTTPStatus.FOUND)
-async def login():
+async def login():  # pragma: no cover
     """
     Login
     """
@@ -33,7 +32,7 @@ async def login():
 
 
 @router.get("/github/token/")
-async def get_access_token(code: str, response: Response):
+async def get_access_token(code: str, response: Response):  # pragma: no cover
     """
     Get an access token using OAuth code
     """
@@ -81,7 +80,7 @@ async def get_access_token(code: str, response: Response):
 
 
 @router.get("/github/whoami/", response_model=UserOutput)
-async def get_current_user(request: Request) -> UserOutput:
+async def get_current_user(request: Request) -> UserOutput:  # pragma: no cover
     """
     Returns the current authenticated user
     """

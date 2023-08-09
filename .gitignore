@@ -114,3 +114,6 @@ djqs.db
 .DS_Store
 .pdm-python
 .pdm.toml
+
+# oauth credentials
+client_secret.json

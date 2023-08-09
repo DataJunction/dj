@@ -8,7 +8,6 @@ Main DJ server app.
 # pylint: disable=unused-import,ungrouped-imports
 
 import logging
-from http import HTTPStatus
 from logging import config
 from os import path
 from typing import TYPE_CHECKING
@@ -41,13 +40,15 @@ from datajunction_server.api import (
 )
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.errors import DJError, DJException
+from datajunction_server.internal.authentication.basic import parse_basic_auth_cookie
+from datajunction_server.internal.authentication.github import parse_github_auth_cookie
 from datajunction_server.models.catalog import Catalog
 from datajunction_server.models.column import Column
 from datajunction_server.models.engine import Engine
 from datajunction_server.models.node import NodeRevision
 from datajunction_server.models.table import Table
 from datajunction_server.models.user import User
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:  # pragma: no cover
     from opentelemetry import trace
@@ -64,16 +65,7 @@ UNAUTHENTICATED_ENDPOINTS = [
     "/github/token/",
 ]
 BASIC_OAUTH_CONFIGURED = settings.secret or False
-GITHUB_OAUTH_CONFIGURED = (
-    all(
-        [
-            settings.secret,
-            settings.github_oauth_client_id,
-            settings.github_oauth_client_secret,
-        ],
-    )
-    or False
-)
+
 
 config.fileConfig(
     path.join(path.dirname(path.abspath(__file__)), "logging.conf"),
@@ -87,7 +79,11 @@ app = FastAPI(
         "name": "MIT License",
         "url": "https://mit-license.org/",
     },
-    dependencies=[Depends(default_attribute_types)],
+    dependencies=[
+        Depends(parse_basic_auth_cookie),
+        Depends(parse_github_auth_cookie),
+        Depends(default_attribute_types),
+    ],
 )
 app.add_middleware(
     CORSMiddleware,
@@ -131,91 +127,20 @@ async def dj_exception_handler(  # pylint: disable=unused-argument
     )
 
 
-if GITHUB_OAUTH_CONFIGURED:
-    _logger.info(
-        "GITHUB_OAUTH_CLIENT_ID and GITHUB_OAUTH_CLIENT_SECRET configured, "
-        "enabling GitHub OAuth router and middleware",
-    )
-    from datajunction_server.api.authentication import github
-    from datajunction_server.internal.authentication.github import get_github_user
-
-    app.include_router(github.router)
-
-    @app.middleware("http")
-    async def parse_github_auth_cookie(request: Request, call_next):
-        """
-        Parse a "__dj" cookie for GitHub auth
-        """
-        if not hasattr(request.state, "user") or not request.state.user:
-            _logger.info(
-                "Attempting to get GitHub authenticated user from request cookie",
-            )
-            jwt = None
-            try:
-                jwt = get_jwt(request=request)
-            except (JWTError, AttributeError):
-                pass
-            encrypted_access_token = jwt.get("sub") if jwt else None
-            user = (
-                get_github_user(encrypted_access_token=encrypted_access_token)
-                if encrypted_access_token
-                else None
-            )
-            if not user:
-                if request.url.path not in UNAUTHENTICATED_ENDPOINTS:
-                    # We must respond as unauthorized here if user is None
-                    # because there are no more layers of auth middleware
-                    return Response(
-                        status_code=HTTPStatus.UNAUTHORIZED,
-                    )
-            request.state.user = user
-        else:
-            _logger.info(
-                "GitHub authentication not checked, user already "
-                "set through a higher ranked auth scheme",
-            )
-        response = await call_next(request)
-        return response
-
-
-if BASIC_OAUTH_CONFIGURED:
-    _logger.info(
-        "SECRET configured, enabling basic OAuth router and middleware",
-    )
-    from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-
+# Only mount basic auth router if a server secret is configured
+if settings.secret:  # pragma: no cover
     from datajunction_server.api.authentication import basic
-    from datajunction_server.internal.authentication.jwt import decrypt, get_jwt
-
-    oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
     app.include_router(basic.router)
 
-    @app.middleware("http")
-    async def parse_basic_auth_cookie(request: Request, call_next):
-        """
-        Parse an "__dj" cookie for basic auth
-        """
-        _logger.info("Attempting to get basic authenticated user from request cookie")
-        jwt = None
-        try:
-            jwt = get_jwt(request=request)
-        except (JWTError, AttributeError):
-            pass
-        encrypted_username = jwt.get("sub") if jwt else None
-        username = decrypt(encrypted_username) if encrypted_username else None
-        session = next(get_session())
-        user = session.exec(select(User).where(User.username == username)).one_or_none()
-        if (
-            not user
-            and not any([GITHUB_OAUTH_CONFIGURED])
-            and request.url.path not in UNAUTHENTICATED_ENDPOINTS
-        ):
-            # We must respond as unauthorized here if user is None
-            # because there are no more layers of auth middleware
-            return Response(
-                status_code=HTTPStatus.UNAUTHORIZED,
-            )
-        request.state.user = user
-        response = await call_next(request)
-        return response
+# Only mount github auth router if a github client id and secret are configured
+if all(
+    [
+        settings.secret,
+        settings.github_oauth_client_id,
+        settings.github_oauth_client_secret,
+    ],
+):  # pragma: no cover
+    from datajunction_server.api.authentication import github
+
+    app.include_router(github.router)

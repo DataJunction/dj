@@ -11,20 +11,24 @@ from unittest.mock import MagicMock
 
 import pytest
 from cachelib.simple import SimpleCache
+from fastapi import Request
 from fastapi.testclient import TestClient
 from pytest_mock import MockerFixture
+from requests.cookies import RequestsCookieJar
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
 
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
-from datajunction_server.models import Column, Engine
+from datajunction_server.internal.authentication.basic import parse_basic_auth_cookie
+from datajunction_server.models import Column, Engine, User
 from datajunction_server.models.materialization import (
     DruidMaterializationInput,
     GenericMaterializationInput,
     MaterializationInfo,
 )
 from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.user import OAuthProvider
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_query_service_client,
@@ -48,6 +52,7 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
         celery_broker=None,
         redis_cache=None,
         query_service=None,
+        secret="a-fake-secretkey",
     )
 
     mocker.patch(
@@ -69,7 +74,6 @@ def session() -> Iterator[Session]:
         poolclass=StaticPool,
     )
     SQLModel.metadata.create_all(engine)
-
     with Session(engine, autoflush=False) as session:
         yield session
 
@@ -161,6 +165,16 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
     yield qs_client
 
 
+async def parse_basic_auth_cookie_override(request: Request):
+    """
+    Override the auth cookie parser to inject a "dj" user
+    """
+    request.state.user = User(
+        username="dj",
+        oauth_provider=OAuthProvider.BASIC,
+    )
+
+
 @pytest.fixture
 def client(  # pylint: disable=too-many-statements
     session: Session,
@@ -178,7 +192,7 @@ def client(  # pylint: disable=too-many-statements
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
-
+    app.dependency_overrides[parse_basic_auth_cookie] = parse_basic_auth_cookie_override
     with TestClient(app) as client:
         yield client
 
@@ -279,6 +293,7 @@ def client_with_query_service(  # pylint: disable=too-many-statements
     app.dependency_overrides[
         get_query_service_client
     ] = get_query_service_client_override
+    app.dependency_overrides[parse_basic_auth_cookie] = parse_basic_auth_cookie_override
 
     with TestClient(app) as client:
         for endpoint, json in EXAMPLES:

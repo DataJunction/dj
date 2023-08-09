@@ -6,8 +6,9 @@ from http import HTTPStatus
 from fastapi import APIRouter, Depends, Form, Request
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
-from sqlmodel import Session
+from sqlmodel import Session, select
 
+from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.authentication.basic import (
     get_password_hash,
     get_user_info,
@@ -29,6 +30,16 @@ async def create_a_user(
     """
     Create a new user
     """
+    if session.exec(select(User).where(User.username == username)).one_or_none():
+        raise DJException(
+            http_status_code=HTTPStatus.CONFLICT,
+            errors=[
+                DJError(
+                    code=ErrorCode.ALREADY_EXISTS,
+                    message=f"User {username} already exists.",
+                ),
+            ],
+        )
     new_user = User(
         username=username,
         password=get_password_hash(password),

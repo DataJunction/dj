@@ -15,3 +15,12 @@ DEFAULT_DIMENSION_COLUMN = "id"
 # used by the SQLAlchemy client
 QUERY_EXECUTE_TIMEOUT = timedelta(seconds=60)
 GET_COLUMNS_TIMEOUT = timedelta(seconds=60)
+
+UNAUTHENTICATED_ENDPOINTS = [
+    "/docs",
+    "/openapi.json",
+    "/basic/user/",
+    "/basic/login/",
+    "/github/login/",
+    "/github/token/",
+]
