@@ -13,7 +13,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Build and launch DJ demo environment
-        run: docker-compose --profile demo up -d
+        run: DOTENV_FILE="/code/datajunction-server/.env.integration" docker-compose --profile demo up -d
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
         with:

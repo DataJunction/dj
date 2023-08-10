@@ -406,14 +406,14 @@ of the DJ conatainers, you may notice an error like:
   dj            | ModuleNotFoundError: No module named 'sse_starlette'
 
 Remember it is not your local env that needs to be patched but one of the DJ docker conatainers. 
-Try running `docker compose build` and your `docker compose up` should work just fine.
+Try running ``docker compose build``` and your ``docker compose up`` should work just fine.
 
 
 Alembic migration error
 ----------------------------------------
 
 If during development your alembic migrations get into a spot where the automatic upgrade (or downgrade) is stuck you may see something
-similar to the following output in your `db_migration` agent log:
+similar to the following output in your ``db_migration`` agent log:
 
 .. code-block:: sh
 
