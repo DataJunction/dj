@@ -1,5 +1,5 @@
 """
-Configuration for the metric repository.
+Configuration for the query service
 """
 
 from datetime import timedelta
@@ -11,7 +11,7 @@ from pydantic import BaseSettings
 
 class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     """
-    Configuration for the metric repository.
+    Configuration for the query service
     """
 
     name: str = "DJQS"
