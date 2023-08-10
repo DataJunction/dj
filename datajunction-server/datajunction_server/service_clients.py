@@ -1,7 +1,6 @@
 """Clients for various configurable services."""
 from typing import TYPE_CHECKING, List, Optional, Union
 from urllib.parse import urljoin
-from uuid import UUID
 
 import requests
 from requests.adapters import HTTPAdapter
@@ -118,7 +117,6 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
                 message=f"Error response from query service: {response_data['message']}",
             )
         query_info = response.json()
-        query_info["id"] = UUID(query_info["id"])
         return QueryWithResults(**query_info)
 
     def get_query(
