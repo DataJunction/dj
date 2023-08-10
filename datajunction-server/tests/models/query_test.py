@@ -3,7 +3,6 @@ Tests for the query model.
 """
 
 from datetime import datetime
-from uuid import UUID
 
 import msgpack
 
@@ -25,7 +24,7 @@ def test_msgpack() -> None:
     query_with_results = QueryWithResults(
         catalog=None,
         schema=None,
-        id=UUID("5599b970-23f0-449b-baea-c87a2735423b"),
+        id="5599b970-23f0-449b-baea-c87a2735423b",
         submitted_query="SELECT 42 AS answer",
         executed_query="SELECT 42 AS answer",
         scheduled=datetime(2021, 1, 1),
@@ -54,7 +53,7 @@ def test_msgpack() -> None:
     )
     decoded = msgpack.unpackb(encoded, ext_hook=decode_results)
     assert decoded == {
-        "id": UUID("5599b970-23f0-449b-baea-c87a2735423b"),
+        "id": "5599b970-23f0-449b-baea-c87a2735423b",
         "submitted_query": "SELECT 42 AS answer",
         "executed_query": "SELECT 42 AS answer",
         "engine_name": None,
