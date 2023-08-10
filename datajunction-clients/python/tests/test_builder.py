@@ -276,8 +276,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
 
         # update it
         account_type_table = client.source(node_name="default.account_type_table")
-        # account_type_table.save(mode=NodeMode.PUBLISHED)
-        # will fix in https://github.com/DataJunction/dj/issues/702
+        account_type_table.save(mode=NodeMode.PUBLISHED)
 
     def test_create_nodes(self, client):  # pylint: disable=unused-argument
         """
@@ -447,15 +446,15 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             namespace="default",
         )
 
-        # TODO: cube nodes, fixme  # pylint: disable=fixme
-        # cube_one = client.create_cube(
-        #     name="default.cube_one",
-        #     description="Ice ice cube.",
-        #     metrics=["default.number_of_account_types"],
-        #     dimensions=["default.payment_type"],
-        #     mode=NodeMode.PUBLISHED,
-        # )
-        # assert cube_one.name == "default.cube_one"
+        # cube nodes
+        cube_one = client.create_cube(
+            name="default.cube_one",
+            description="Ice ice cube.",
+            metrics=["default.number_of_account_types"],
+            dimensions=["default.payment_type"],
+            mode=NodeMode.PUBLISHED,
+        )
+        assert cube_one.name == "default.cube_one"
 
     def test_link_unlink_dimension(self, client):  # pylint: disable=unused-argument
         """
