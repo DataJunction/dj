@@ -16,6 +16,7 @@ from datajunction_server.models import (
     History,
     NodeRevision,
     Table,
+    User,
 )
 from datajunction_server.utils import get_settings
 
