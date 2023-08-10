@@ -75,7 +75,7 @@ def get_github_user(encrypted_access_token: str) -> Optional[User]:  # pragma: n
     return user
 
 
-async def parse_github_auth_cookie(request: Request):  # pragma: no cover
+async def parse_github_auth_cookie(request: Request) -> None:  # pragma: no cover
     """
     Middleware for parsing a "__dj" cookie for GitHub auth
     """

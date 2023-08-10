@@ -12,7 +12,7 @@ from datajunction_server.utils import get_settings
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-def create_jwt(data: dict, expires_delta: Optional[timedelta] = None):
+def create_jwt(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Return an encoded JSON web token for a dictionary
     """
@@ -49,7 +49,7 @@ def get_jwt(request: Request) -> Optional[Dict]:
     return data
 
 
-def encrypt(value: str):
+def encrypt(value: str) -> str:
     """
     Encrypt a string value using the configured SECRET
     """
@@ -62,7 +62,7 @@ def encrypt(value: str):
     ).decode("utf-8")
 
 
-def decrypt(value: str):
+def decrypt(value: str) -> str:
     """
     Decrypt a string value using the configured SECRET
     """

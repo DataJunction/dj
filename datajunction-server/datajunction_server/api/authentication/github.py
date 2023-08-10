@@ -19,20 +19,32 @@ router = APIRouter(tags=["GitHub OAuth2"])
 
 
 @router.get("/github/login/", status_code=HTTPStatus.FOUND)
-async def login():  # pragma: no cover
+async def login() -> RedirectResponse:  # pragma: no cover
     """
     Login
     """
     settings = get_settings()
-    oauth_client_id = settings.github_oauth_client_id
+    if not settings.github_oauth_client_id:
+        raise DJException(
+            http_status_code=HTTPStatus.NOT_IMPLEMENTED,
+            errors=[
+                DJError(
+                    code=ErrorCode.OAUTH_ERROR,
+                    message="GITHUB_OAUTH_CLIENT_ID is not set",
+                ),
+            ],
+        )
     return RedirectResponse(
-        url=github.get_authorize_url(oauth_client_id=oauth_client_id),
+        url=github.get_authorize_url(oauth_client_id=settings.github_oauth_client_id),
         status_code=HTTPStatus.FOUND,
     )
 
 
 @router.get("/github/token/")
-async def get_access_token(code: str, response: Response):  # pragma: no cover
+async def get_access_token(
+    code: str,
+    response: Response,
+) -> JSONResponse:  # pragma: no cover
     """
     Get an access token using OAuth code
     """

@@ -20,14 +20,14 @@ _logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
-def verify_password(plain_password, hashed_password):
+def verify_password(plain_password, hashed_password) -> bool:
     """
     Verify a plain-text password against a hashed password
     """
     return pwd_context.verify(plain_password, hashed_password)
 
 
-def get_password_hash(password):
+def get_password_hash(password) -> str:
     """
     Returns a hashed version of a plain-text password
     """
@@ -55,7 +55,7 @@ def get_user_info(username: str, password: str, session: Session) -> User:
 async def parse_basic_auth_cookie(
     request: Request,
     session: Session = Depends(get_session),
-):
+) -> None:
     """
     Parse an "__dj" cookie for basic auth
     """
