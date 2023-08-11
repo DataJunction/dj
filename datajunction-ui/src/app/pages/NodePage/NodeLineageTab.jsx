@@ -37,9 +37,14 @@ const NodeColumnLineage = djNode => {
 
       let node = createDJNode(current);
       if (node.id in nodesMapping) {
-        nodesMapping[node.id].data.column_names = nodesMapping[
-          node.id
-        ].data.column_names.concat(node.data.column_names);
+        nodesMapping[node.id].data.column_names = Array.from(
+          new Set([
+            ...nodesMapping[node.id].data.column_names.map(x => x.name),
+            ...node.data.column_names.map(x => x.name),
+          ]),
+        ).map(x => {
+          return { name: x, type: '' };
+        });
       } else {
         nodesMapping[node.id] = node;
       }
