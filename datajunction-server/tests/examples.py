@@ -3,8 +3,6 @@
 """
 Post requests for all example entities
 """
-import uuid
-
 from datajunction_server.models import Column
 from datajunction_server.models.query import QueryWithResults
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
@@ -1835,7 +1833,7 @@ QUERY_DATA_MAPPINGS = {
     .replace("\t", "")
     .replace(" ", ""): QueryWithResults(
         **{
-            "id": uuid.UUID("bd98d6be-e2d2-413e-94c7-96d9411ddee2"),
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
             "submitted_query": (
                 "SELECT  avg(repair_order_details.price) AS "
                 "default_DOT_avg_repair_price,\\n\\tdispatcher.company_name,"
@@ -1881,7 +1879,7 @@ QUERY_DATA_MAPPINGS = {
     .replace("\t", "")
     .replace(" ", ""): QueryWithResults(
         **{
-            "id": uuid.UUID("0cb5478c-fd7d-4159-a414-68c50f4b9914"),
+            "id": "0cb5478c-fd7d-4159-a414-68c50f4b9914",
             "submitted_query": (
                 "SELECT  payment_type_table.id,\n\tpayment_type_table."
                 "payment_type_classification,\n\t"
@@ -1916,7 +1914,7 @@ QUERY_DATA_MAPPINGS = {
     .replace("\t", "")
     .replace(" ", ""): QueryWithResults(
         **{
-            "id": uuid.UUID("ee41ea6c-2303-4fe1-8bf0-f0ce3d6a35ca"),
+            "id": "ee41ea6c-2303-4fe1-8bf0-f0ce3d6a35ca",
             "submitted_query": (
                 'SELECT  COUNT(1) basic_DOT_num_comments \n FROM "basic"."comments" '
                 "AS basic_DOT_source_DOT_comments"
@@ -1940,7 +1938,7 @@ QUERY_DATA_MAPPINGS = {
     .replace("\t", "")
     .replace(" ", ""): QueryWithResults(
         **{
-            "id": uuid.UUID("8a8bb03a-74c8-448a-8630-e9439bd5a01b"),
+            "id": "8a8bb03a-74c8-448a-8630-e9439bd5a01b",
             "submitted_query": ('SELECT  * \n FROM "accounting"."revenue"'),
             "state": QueryState.FINISHED,
             "results": [
@@ -1968,7 +1966,7 @@ QUERY_DATA_MAPPINGS = {
     .replace("\t", "")
     .replace(" ", ""): QueryWithResults(
         **{
-            "id": uuid.UUID("1b049fb1-652e-458a-ba9d-3669412b34bd"),
+            "id": "1b049fb1-652e-458a-ba9d-3669412b34bd",
             "submitted_query": (
                 "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
                 '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n '

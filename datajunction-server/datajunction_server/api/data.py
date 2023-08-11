@@ -1,7 +1,7 @@
 """
 Data related APIs.
 """
-
+from http import HTTPStatus
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -17,7 +17,11 @@ from datajunction_server.api.helpers import (
     query_event_stream,
     validate_orderby,
 )
-from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.errors import (
+    DJException,
+    DJInvalidInputException,
+    DJQueryServiceClientException,
+)
 from datajunction_server.models import History
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL
@@ -172,6 +176,28 @@ def get_data(  # pylint: disable=too-many-locals
     if result.results.__root__:  # pragma: no cover
         result.results.__root__[0].columns = columns
     return result
+
+
+@router.get(
+    "/data/query/{query_id}",
+    response_model=QueryWithResults,
+    name="Get Data For Query ID",
+)
+def get_data_for_query(
+    query_id: str,
+    *,
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+) -> QueryWithResults:
+    """
+    Return data for a specific query ID.
+    """
+    try:
+        return query_service_client.get_query(query_id=query_id)
+    except DJQueryServiceClientException as exc:
+        raise DJException(
+            message=str(exc.message),
+            http_status_code=HTTPStatus.NOT_FOUND,
+        ) from exc
 
 
 @router.get("/data/", response_model=QueryWithResults, name="Get Data For Metrics")

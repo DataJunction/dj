@@ -208,7 +208,9 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         )
 
         query_service_client = QueryServiceClient(uri=self.endpoint)
-        query_service_client.get_query("ef209eef-c31a-4089-aae6-833259a08e22")
+        query_service_client.get_query(
+            "ef209eef-c31a-4089-aae6-833259a08e22",
+        )
 
         mock_request.assert_called_with(
             "/queries/ef209eef-c31a-4089-aae6-833259a08e22/",
@@ -312,7 +314,9 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         query_service_client = QueryServiceClient(uri=self.endpoint)
 
         with pytest.raises(DJQueryServiceClientException) as exc_info:
-            query_service_client.get_query("ef209eef-c31a-4089-aae6-833259a08e22")
+            query_service_client.get_query(
+                "ef209eef-c31a-4089-aae6-833259a08e22",
+            )
         assert "Error response from query service" in str(exc_info.value)
         query_create = QueryCreate(
             catalog_name="hive",
