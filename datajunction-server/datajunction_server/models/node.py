@@ -1133,3 +1133,25 @@ class NodeValidation(SQLModel):
     dependencies: List[NodeRevisionOutput]
     columns: List[Column]
     errors: List[DJError]
+
+
+class LineageColumn(BaseModel):
+    """
+    Column in lineage graph
+    """
+
+    name: str
+    node: Optional["LineageNode"] = None
+
+
+class LineageNode(BaseModel):
+    """
+    Node in lineage graph
+    """
+
+    name: str
+    type: NodeType
+    columns: List[LineageColumn]
+
+
+LineageColumn.update_forward_refs()
