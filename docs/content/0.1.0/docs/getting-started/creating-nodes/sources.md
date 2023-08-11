@@ -95,8 +95,38 @@ dj.catalogs.addEngine("warehouse", "duckdb", "0.7.1").then(data => console.log(d
 {{< /tab >}}
 {{< /tabs >}}
 
-## Creating a Source Node
+## Registering Tables as Source Nodes
 
+Assuming that you've configured a reflection service and query service to interface with your data 
+warehouse setup, you can just register a table as a source node by telling DJ about the table. 
+The reflection service will automatically add the column names and types to all source nodes and 
+update them whenever the external table changes.
+
+To read more about DJRS, see the [Table Reflection](../../../dj-concepts/table-reflection/) page.
+
+{{< tabs "creating source nodes with DJRS" >}}
+{{< tab "curl" >}}
+```sh
+curl -X POST http://localhost:8000//register/table/warehouse/roads/repair_orders/
+```
+{{< /tab >}}
+{{< tab "python" >}}
+
+```py
+table = dj.register_table(
+    catalog="warehouse",
+    schema_="roads",
+    table="repair_orders",
+)
+```
+{{< /tab >}}
+{{< tab "javascript" >}}
+```js
+```
+{{< /tab >}}
+{{< /tabs >}}
+
+## Create Source Node Manually
 {{< tabs "creating source nodes" >}}
 {{< tab "curl" >}}
 ```sh
@@ -124,7 +154,7 @@ curl -X POST http://localhost:8000/nodes/source/ \
 {{< tab "python" >}}
 
 ```py
-source = dj.new_source(
+source = dj.create_source(
     name="default.repair_orders",
     description="Repair orders",
     catalog="warehouse",
@@ -139,7 +169,7 @@ source = dj.new_source(
         {"name": "dispatched_date", "type": "timestamp"},
         {"name": "dispatcher_id", "type": "int"},
     ],
-).save()
+)
 ```
 {{< /tab >}}
 {{< tab "javascript" >}}
@@ -164,52 +194,3 @@ dj.sources.create({
 ```
 {{< /tab >}}
 {{< /tabs >}}
-
-## Automatic Column Reflection Using DJRS
-
-To make creating and maintaining source nodes easier, you can optionally run a DataJunction Reflection Service (DJRS). A reflection
-service automatically adds the column names and types to all source nodes and updates them whenever the external table changes. This allows
-you to exclude the columns when adding a source node.
-
-{{< tabs "creating source nodes with DJRS" >}}
-{{< tab "curl" >}}
-```sh
-curl -X POST http://localhost:8000/nodes/source/ \
--H 'Content-Type: application/json' \
--d '{
-    "name": "default.repair_orders",
-    "description": "Repair orders",
-    "mode": "published",
-    "catalog": "warehouse",
-    "schema_": "roads",
-    "table": "repair_orders"
-}'
-```
-{{< /tab >}}
-{{< tab "python" >}}
-
-```py
-dj.new_source(
-    name="default.repair_orders",
-    description="Repair orders",
-    catalog="warehouse",
-    schema_="roads",
-    table="repair_orders",
-).save(NodeMode.PUBLISHED)
-```
-{{< /tab >}}
-{{< tab "javascript" >}}
-```js
-dj.sources.create({
-    name: "default.repair_orders",
-    description: "Repair orders",
-    mode: "published",
-    catalog: "warehouse",
-    schema_: "roads",
-    table: "repair_orders"
-}).then(data => console.log(data))
-```
-{{< /tab >}}
-{{< /tabs >}}
-
-To read more about DJRS, see the [Table Reflection](../../../dj-concepts/table-reflection/) page.

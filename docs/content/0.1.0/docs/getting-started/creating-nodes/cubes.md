@@ -42,10 +42,14 @@ curl -X POST http://localhost:8000/nodes/cube/ \
 {{< tab "python" >}}
 
 ```py
-dj.new_cube(
+from datajunction import DJBuilder, NodeMode
+dj = DJBuilder(DJ_URL)
+
+repairs_cube = dj.create_cube(
     name="repairs_cube",
     display_name="Repairs Cube",
     description="Cube of various metrics related to repairs",
+    mode=NodeMode.PUBLISHED,
     metrics=[
         "num_repair_orders",
         "avg_repair_price",
@@ -60,7 +64,7 @@ dj.new_cube(
         "municipality_dim.local_region"
     ],
     filters=["hard_hat.state='AZ'"]
-).save()
+)
 ```
 {{< /tab >}}
 {{< tab "javascript" >}}

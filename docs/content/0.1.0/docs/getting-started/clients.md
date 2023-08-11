@@ -6,16 +6,24 @@ title: "Clients"
 ## Python
 
 The DataJunction python client can be installed using [pip](https://pip.pypa.io/en/stable/).
+See the [PyPI client library](https://pypi.org/project/datajunction/).
 
 ```sh
 pip install datajunction
 ```
 
+To use the read-only client:
 ```py
 from datajunction import DJClient
 
 dj = DJClient("http://localhost:8000")
-print(dj.metrics())
+```
+
+To use the full client:
+```py
+from datajunction import DJBuilder
+
+dj = DJBuilder("http://localhost:8000")
 ```
 
 ## Javascript
