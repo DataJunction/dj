@@ -29,6 +29,7 @@ from datajunction_server.errors import (
     DJError,
     DJException,
     DJInvalidInputException,
+    DJNodeNotFound,
     ErrorCode,
 )
 from datajunction_server.models import AttributeType, Catalog, Column, Engine
@@ -107,7 +108,7 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
         node = session.exec(statement).one_or_none()
     if raise_if_not_exists:
         if not node:
-            raise DJException(
+            raise DJNodeNotFound(
                 message=(
                     f"A {'' if not node_type else node_type + ' '}"
                     f"node with name `{name}` does not exist."
@@ -572,7 +573,7 @@ def propagate_valid_status(
         valid_nodes = resolved_nodes
 
 
-def validate_cube(
+def validate_cube(  # pylint: disable=too-many-locals
     session: Session,
     metric_names: List[str],
     dimension_names: List[str],
@@ -615,7 +616,13 @@ def validate_cube(
     # Verify that the provided dimension attributes exist
     for dimension_attribute in dimension_names:
         node_name, column_name = dimension_attribute.rsplit(".", 1)
-        dimension_node = get_node_by_name(session=session, name=node_name)
+        try:
+            dimension_node = get_node_by_name(session=session, name=node_name)
+        except DJNodeNotFound as exc:  # pragma: no cover
+            raise DJException(
+                f"{exc.message} Please make sure that `{column_name}` "
+                f"is an attribute on a dimension node `{node_name}`.",
+            ) from exc
         dimension_nodes.append(dimension_node)
         columns = {col.name: col for col in dimension_node.current.columns}
         if column_name in columns:  # pragma: no cover

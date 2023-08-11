@@ -16,9 +16,7 @@ class DJClient(_internal.DJClient):
     """
 
     #
-    # List objects:
-    # - basic: namespaces, dimensions, metrics, cubes
-    # - TODO (maybe): sources, transforms, nodes...
+    # List basic objects: namespaces, dimensions, metrics, cubes
     #
     def list_namespaces(self, prefix: Optional[str] = None) -> List[str]:
         """
@@ -31,31 +29,76 @@ class DJClient(_internal.DJClient):
 
     def list_dimensions(self, namespace: Optional[str] = None) -> List[str]:
         """
-        List dimension nodes under given namespace or all.
+        List dimension nodes for a given namespace or all.
         """
         if namespace:
             return self._get_nodes_in_namespace(
                 namespace=namespace,
-                type_=models.NodeType.DIMENSION.value,
+                type_=models.NodeType.DIMENSION,
             )
-        return self._session.get("/dimensions/").json()
+        return self._get_all_nodes(type_=models.NodeType.DIMENSION)
 
     def list_metrics(self, namespace: Optional[str] = None) -> List[str]:
         """
-        List metric nodes for given namespace or all.
+        List metric nodes for a given namespace or all.
         """
         if namespace:
             return self._get_nodes_in_namespace(
                 namespace=namespace,
-                type_=models.NodeType.METRIC.value,
+                type_=models.NodeType.METRIC,
             )
-        return self._session.get("/metrics/").json()
+        return self._get_all_nodes(type_=models.NodeType.METRIC)
 
     def list_cubes(self, namespace: Optional[str] = None) -> List[str]:
         """
-        List metric nodes for given namespace or all.
-        TODO
+        List cube nodes for a given namespace or all.
         """
+        if namespace:
+            return self._get_nodes_in_namespace(
+                namespace=namespace,
+                type_=models.NodeType.CUBE,
+            )
+        return self._get_all_nodes(type_=models.NodeType.CUBE)
+
+    #
+    # List other nodes: sources, transforms, all.
+    #
+    def list_sources(self, namespace: Optional[str] = None) -> List[str]:
+        """
+        List source nodes for a given namespace or all.
+        """
+        if namespace:
+            return self._get_nodes_in_namespace(
+                namespace=namespace,
+                type_=models.NodeType.SOURCE,
+            )
+        return self._get_all_nodes(type_=models.NodeType.SOURCE)
+
+    def list_transforms(self, namespace: Optional[str] = None) -> List[str]:
+        """
+        List transform nodes for a given namespace or all.
+        """
+        if namespace:
+            return self._get_nodes_in_namespace(
+                namespace=namespace,
+                type_=models.NodeType.TRANSFORM,
+            )
+        return self._get_all_nodes(type_=models.NodeType.TRANSFORM)
+
+    def list_nodes(
+        self,
+        type_: Optional[models.NodeType] = None,
+        namespace: Optional[str] = None,
+    ) -> List[str]:
+        """
+        List any nodes for a given node type and/or namespace.
+        """
+        if namespace:
+            return self._get_nodes_in_namespace(
+                namespace=namespace,
+                type_=type_,
+            )
+        return self._get_all_nodes(type_=type_)
 
     #
     # Get common metrics and dimensions
