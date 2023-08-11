@@ -35,6 +35,7 @@ from datajunction_server.internal.materializations import schedule_materializati
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
     _update_node,
+    column_level_lineage,
     create_cube_node_revision,
     create_node_revision,
     save_node,
@@ -53,6 +54,7 @@ from datajunction_server.models.node import (
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
+    LineageNode,
     Node,
     NodeMode,
     NodeOutput,
@@ -826,3 +828,22 @@ def list_node_dag(
     downstreams = get_downstream_nodes(session, name)
     upstreams = get_upstream_nodes(session, name)
     return list(set(cast(List[Node], dimension_nodes) + downstreams + upstreams))  # type: ignore
+
+
+@router.get(
+    "/nodes/{name}/lineage/",
+    response_model=LineageNode,
+    name="List column level lineage of node",
+)
+def column_lineage(
+    name: str, *, session: Session = Depends(get_session)
+) -> LineageNode:
+    """
+    List column-level lineage of a node in a graph
+    """
+    node = get_node_by_name(session, name)
+    return column_level_lineage(
+        session,
+        node.current,
+        frozenset([col.name for col in node.current.columns]),
+    )
