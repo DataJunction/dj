@@ -1045,9 +1045,7 @@ class TableExpression(Aliasable, Expression):
 
         for col in self.columns:
             if isinstance(col, (Aliasable, Named)):
-                current_col_name = col.alias_or_name.identifier(False)
-
-                if column.name.name == current_col_name:
+                if column.name.name == col.alias_or_name.name:
                     self._ref_columns.append(column)
                     column.add_table(self)
                     column.add_expression(col)
@@ -1061,7 +1059,7 @@ class TableExpression(Aliasable, Expression):
                     column_namespace = ".".join(
                         [name.name for name in column.namespace],
                     )
-                    if column_namespace == current_col_name:
+                    if column_namespace == col.alias_or_name.identifier(False):
                         for type_field in col.type.fields:
                             if type_field.name.name == column.name.name:
                                 column.add_table(self)

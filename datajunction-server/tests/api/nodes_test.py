@@ -3184,6 +3184,69 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.us_state",
         }
 
+    def test_node_column_lineage(self, client_with_examples: TestClient):
+        """
+        Test endpoint to retrieve a node's column-level lineage
+        """
+        response = client_with_examples.get(
+            "/nodes/default.num_repair_orders/lineage/",
+        )
+        assert response.json() == {
+            "name": "default.num_repair_orders",
+            "type": "metric",
+            "columns": [
+                {
+                    "name": "repair_order_id",
+                    "node": {
+                        "name": "default.repair_orders",
+                        "type": "source",
+                        "columns": [{"name": "repair_order_id", "node": None}],
+                    },
+                },
+            ],
+        }
+
+        client_with_examples.post(
+            "/nodes/metric/",
+            json={
+                "name": "default.discounted_repair_orders",
+                "query": (
+                    """
+                    SELECT
+                      cast(sum(if(discount > 0.0, 1, 0)) as double) / count(repair_order_id)
+                    FROM default.repair_order_details
+                    """
+                ),
+                "mode": "published",
+                "description": "Discounted Repair Orders",
+            },
+        )
+        response = client_with_examples.get(
+            "/nodes/default.discounted_repair_orders/lineage/",
+        )
+        assert response.json() == {
+            "columns": [
+                {
+                    "name": "repair_order_id",
+                    "node": {
+                        "columns": [{"name": "repair_order_id", "node": None}],
+                        "name": "default.repair_order_details",
+                        "type": "source",
+                    },
+                },
+                {
+                    "name": "discount",
+                    "node": {
+                        "columns": [{"name": "discount", "node": None}],
+                        "name": "default.repair_order_details",
+                        "type": "source",
+                    },
+                },
+            ],
+            "name": "default.discounted_repair_orders",
+            "type": "metric",
+        }
+
     def test_revalidating_existing_nodes(self, client_with_examples: TestClient):
         """
         Test revalidating all example nodes and confirm that they are set to valid

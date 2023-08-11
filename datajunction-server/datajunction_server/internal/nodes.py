@@ -1,8 +1,9 @@
 """Nodes endpoint helper functions"""
 import logging
 from collections import defaultdict
+from functools import lru_cache
 from http import HTTPStatus
-from typing import List, Optional
+from typing import FrozenSet, List, Optional
 
 from fastapi import Depends
 from sqlmodel import Session, select
@@ -55,6 +56,8 @@ from datajunction_server.models.node import (
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
+    LineageColumn,
+    LineageNode,
     MissingParent,
     NodeMode,
     NodeStatus,
@@ -62,6 +65,9 @@ from datajunction_server.models.node import (
     UpdateNode,
 )
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import CompileContext
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import (
     Version,
@@ -684,3 +690,60 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             query_service_client,
         )
     return new_revision
+
+
+@lru_cache(maxsize=None)
+def column_level_lineage(
+    session,
+    node_rev: NodeRevision,
+    columns: FrozenSet[str],
+) -> LineageNode:
+    """
+    Determines the column-level lineage for a node.
+    """
+    if node_rev.type == NodeType.SOURCE:
+        return LineageNode(
+            name=node_rev.name,
+            type=node_rev.type,
+            columns=[LineageColumn(name=col) for col in columns],
+        )
+
+    lineage_node = LineageNode(
+        name=node_rev.name,
+        type=node_rev.type,
+        columns=[],
+    )
+
+    ctx = CompileContext(session, DJException())
+    query_ast = parse(node_rev.query)
+    query_ast.compile(ctx)
+
+    # For every column on this node, trace through the column's lineage
+    for col in query_ast.select.projection:
+        if col != ast.Null() and col.alias_or_name.name in columns:  # type: ignore  # pragma: no cover
+            if isinstance(col, ast.Alias):  # pragma: no cover
+                col = col.child
+
+            # At every layer, expand the lineage search tree with all columns referenced
+            # by the current column's expression. If we reach an actual table with a DJ
+            # node attached, save this to the lineage record. Otherwise, continue the search
+            column_expr = col.expression if hasattr(col, "expression") else col  # type: ignore
+            processed = list(column_expr.find_all(ast.Column))
+            while processed:
+                current = processed.pop()
+                if hasattr(current, "table") and isinstance(current.table, ast.Table):
+                    lineage_node.columns.append(
+                        LineageColumn(
+                            name=current.name.name,
+                            node=column_level_lineage(
+                                session,
+                                current.table.dj_node,
+                                frozenset([current.name.name]),
+                            ),
+                        ),
+                    )
+                else:
+                    expr_column_deps = list(current.expression.find_all(ast.Column))  # pragma: no cover
+                    for col_dep in expr_column_deps:
+                        processed.append(col_dep)
+    return lineage_node
