@@ -720,7 +720,9 @@ def column_level_lineage(
 
     # For every column on this node, trace through the column's lineage
     for col in query_ast.select.projection:
-        if col != ast.Null() and col.alias_or_name.name in columns:  # type: ignore  # pragma: no cover
+        if (  # pragma: no cover
+            col != ast.Null() and col.alias_or_name.name in columns  # type: ignore
+        ):
             if isinstance(col, ast.Alias):  # pragma: no cover
                 col = col.child
 
@@ -743,7 +745,9 @@ def column_level_lineage(
                         ),
                     )
                 else:
-                    expr_column_deps = list(current.expression.find_all(ast.Column))  # pragma: no cover
+                    expr_column_deps = list(
+                        current.expression.find_all(ast.Column),
+                    )  # pragma: no cover
                     for col_dep in expr_column_deps:
                         processed.append(col_dep)
     return lineage_node
