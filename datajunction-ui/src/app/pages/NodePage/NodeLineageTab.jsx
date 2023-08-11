@@ -36,20 +36,15 @@ const NodeColumnLineage = djNode => {
       let current = processing.pop();
 
       let node = createDJNode(current);
-      nodesMapping[node.id] = node;
-
+      if (node.id in nodesMapping) {
+        nodesMapping[node.id].data.column_names = nodesMapping[
+          node.id
+        ].data.column_names.concat(node.data.column_names);
+      } else {
+        nodesMapping[node.id] = node;
+      }
       current.columns.forEach(col => {
         if (col.node !== null) {
-          nodesMapping[String(col.node.name)] = {
-            id: String(col.node.name),
-            type: 'DJNode',
-            data: {
-              label: col.node.name,
-              name: col.node.name,
-              display_name: col.node.name,
-              column_names: col.node.columns.map(col => col.name),
-            },
-          };
           edgesMapping[current.name + '-' + col.node.name] = {
             id: current.name + '-' + col.node.name,
             source: col.node.name,
@@ -65,10 +60,6 @@ const NodeColumnLineage = djNode => {
               stroke: '#b0b9c2',
             },
           };
-        }
-      });
-      current.columns.forEach(col => {
-        if (col.node !== null) {
           processing.push(col.node);
         }
       });
