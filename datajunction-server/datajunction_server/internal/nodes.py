@@ -1,10 +1,11 @@
 """Nodes endpoint helper functions"""
 import logging
 from collections import defaultdict
-from functools import lru_cache
 from http import HTTPStatus
 from typing import FrozenSet, List, Optional
 
+from cachetools import cached  # type: ignore
+from cachetools.keys import hashkey  # type: ignore
 from fastapi import Depends
 from sqlmodel import Session, select
 
@@ -692,9 +693,9 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     return new_revision
 
 
-@lru_cache(maxsize=None)
+@cached(cache={}, key=lambda session, node_rev, columns: hashkey(node_rev, columns))
 def column_level_lineage(
-    session,
+    session: Session,
     node_rev: NodeRevision,
     columns: FrozenSet[str],
 ) -> LineageNode:
@@ -745,9 +746,9 @@ def column_level_lineage(
                         ),
                     )
                 else:
-                    expr_column_deps = list(
+                    expr_column_deps = list(  # pragma: no cover
                         current.expression.find_all(ast.Column),
-                    )  # pragma: no cover
-                    for col_dep in expr_column_deps:
-                        processed.append(col_dep)
+                    )
+                    for col_dep in expr_column_deps:  # pragma: no cover
+                        processed.append(col_dep)  # pragma: no cover
     return lineage_node
