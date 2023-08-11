@@ -18,6 +18,9 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         """
         return DJClient(requests_session=session_with_examples)  # type: ignore
 
+    #
+    # List basic objects: namespaces, dimensions, metrics, cubes
+    #
     def test_list_namespaces(self, client):
         """
         Check that `client.list_namespaces()` works as expected.
@@ -32,10 +35,46 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         result = client.list_namespaces(prefix="foo")
         assert result == partial
 
+    def test_list_dimensions(self, client):
+        """
+        Check that `client.list_dimensions()` works as expected.
+        """
+        # full list
+        dims = client.list_dimensions()
+        assert dims == [
+            "default.repair_order",
+            "default.contractor",
+            "default.hard_hat",
+            "default.local_hard_hats",
+            "default.us_state",
+            "default.dispatcher",
+            "default.municipality_dim",
+            "foo.bar.repair_order",
+            "foo.bar.contractor",
+            "foo.bar.hard_hat",
+            "foo.bar.local_hard_hats",
+            "foo.bar.us_state",
+            "foo.bar.dispatcher",
+            "foo.bar.municipality_dim",
+        ]
+
+        # partial list
+        dims = client.list_dimensions(namespace="foo.bar")
+        assert dims == [
+            "foo.bar.repair_order",
+            "foo.bar.contractor",
+            "foo.bar.hard_hat",
+            "foo.bar.local_hard_hats",
+            "foo.bar.us_state",
+            "foo.bar.dispatcher",
+            "foo.bar.municipality_dim",
+        ]
+
     def test_list_metrics(self, client):
         """
         Check that `client.list_metrics()` works as expected.
         """
+        # full list
         metrics = client.list_metrics()
         assert metrics == [
             "default.num_repair_orders",
@@ -54,6 +93,200 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.avg_time_to_dispatch",
         ]
 
+        # partial list
+        metrics = client.list_metrics(namespace="foo.bar")
+        assert metrics == [
+            "foo.bar.num_repair_orders",
+            "foo.bar.avg_repair_price",
+            "foo.bar.total_repair_cost",
+            "foo.bar.avg_length_of_employment",
+            "foo.bar.total_repair_order_discounts",
+            "foo.bar.avg_repair_order_discounts",
+            "foo.bar.avg_time_to_dispatch",
+        ]
+
+    def test_list_cubes(self, client):
+        """
+        Check that `client.list_cubes()` works as expected.
+        """
+        # full list
+        cubes = client.list_cubes()
+        assert cubes == ["foo.bar.cube_one", "default.cube_two"]
+
+        # partial list
+        cubes = client.list_cubes(namespace="foo.bar")
+        assert cubes == ["foo.bar.cube_one"]
+
+    #
+    # List other nodes: sources, transforms, all.
+    #
+    def test_list_sources(self, client):
+        """
+        Check that `client.list_sources()` works as expected.
+        """
+        # full list
+        nodes = client.list_sources()
+        assert nodes == [
+            "default.repair_orders",
+            "default.repair_order_details",
+            "default.repair_type",
+            "default.contractors",
+            "default.municipality_municipality_type",
+            "default.municipality_type",
+            "default.municipality",
+            "default.dispatchers",
+            "default.hard_hats",
+            "default.hard_hat_state",
+            "default.us_states",
+            "default.us_region",
+            "foo.bar.repair_orders",
+            "foo.bar.repair_order_details",
+            "foo.bar.repair_type",
+            "foo.bar.contractors",
+            "foo.bar.municipality_municipality_type",
+            "foo.bar.municipality_type",
+            "foo.bar.municipality",
+            "foo.bar.dispatchers",
+            "foo.bar.hard_hats",
+            "foo.bar.hard_hat_state",
+            "foo.bar.us_states",
+            "foo.bar.us_region",
+        ]
+
+        # partial list
+        nodes = client.list_sources(namespace="foo.bar")
+        assert nodes == [
+            "foo.bar.repair_orders",
+            "foo.bar.repair_order_details",
+            "foo.bar.repair_type",
+            "foo.bar.contractors",
+            "foo.bar.municipality_municipality_type",
+            "foo.bar.municipality_type",
+            "foo.bar.municipality",
+            "foo.bar.dispatchers",
+            "foo.bar.hard_hats",
+            "foo.bar.hard_hat_state",
+            "foo.bar.us_states",
+            "foo.bar.us_region",
+        ]
+
+    def test_list_transforms(self, client):
+        """
+        Check that `client.list_transforms)()` works as expected.
+        """
+        # full list
+        nodes = client.list_transforms()
+        assert nodes == ["default.repair_orders_thin", "foo.bar.repair_orders_thin"]
+
+        # partial list
+        nodes = client.list_transforms(namespace="foo.bar")
+        assert nodes == ["foo.bar.repair_orders_thin"]
+
+    def test_list_nodes(self, client):
+        """
+        Check that `client.list_nodes)()` works as expected.
+        """
+        # full list
+        nodes = client.list_nodes()
+        assert nodes == [
+            "default.repair_orders",
+            "default.repair_order_details",
+            "default.repair_type",
+            "default.contractors",
+            "default.municipality_municipality_type",
+            "default.municipality_type",
+            "default.municipality",
+            "default.dispatchers",
+            "default.hard_hats",
+            "default.hard_hat_state",
+            "default.us_states",
+            "default.us_region",
+            "default.repair_order",
+            "default.contractor",
+            "default.hard_hat",
+            "default.local_hard_hats",
+            "default.us_state",
+            "default.dispatcher",
+            "default.municipality_dim",
+            "default.num_repair_orders",
+            "default.avg_repair_price",
+            "default.total_repair_cost",
+            "default.avg_length_of_employment",
+            "default.total_repair_order_discounts",
+            "default.avg_repair_order_discounts",
+            "default.avg_time_to_dispatch",
+            "foo.bar.repair_orders",
+            "foo.bar.repair_order_details",
+            "foo.bar.repair_type",
+            "foo.bar.contractors",
+            "foo.bar.municipality_municipality_type",
+            "foo.bar.municipality_type",
+            "foo.bar.municipality",
+            "foo.bar.dispatchers",
+            "foo.bar.hard_hats",
+            "foo.bar.hard_hat_state",
+            "foo.bar.us_states",
+            "foo.bar.us_region",
+            "foo.bar.repair_order",
+            "foo.bar.contractor",
+            "foo.bar.hard_hat",
+            "foo.bar.local_hard_hats",
+            "foo.bar.us_state",
+            "foo.bar.dispatcher",
+            "foo.bar.municipality_dim",
+            "foo.bar.num_repair_orders",
+            "foo.bar.avg_repair_price",
+            "foo.bar.total_repair_cost",
+            "foo.bar.avg_length_of_employment",
+            "foo.bar.total_repair_order_discounts",
+            "foo.bar.avg_repair_order_discounts",
+            "foo.bar.avg_time_to_dispatch",
+            "foo.bar.cube_one",
+            "default.cube_two",
+            "default.repair_orders_thin",
+            "foo.bar.repair_orders_thin",
+        ]
+
+        # partial list
+        nodes = client.list_nodes(namespace="foo.bar")
+        assert nodes == [
+            "foo.bar.repair_orders",
+            "foo.bar.repair_order_details",
+            "foo.bar.repair_type",
+            "foo.bar.contractors",
+            "foo.bar.municipality_municipality_type",
+            "foo.bar.municipality_type",
+            "foo.bar.municipality",
+            "foo.bar.dispatchers",
+            "foo.bar.hard_hats",
+            "foo.bar.hard_hat_state",
+            "foo.bar.us_states",
+            "foo.bar.us_region",
+            "foo.bar.repair_order",
+            "foo.bar.contractor",
+            "foo.bar.hard_hat",
+            "foo.bar.local_hard_hats",
+            "foo.bar.us_state",
+            "foo.bar.dispatcher",
+            "foo.bar.municipality_dim",
+            "foo.bar.num_repair_orders",
+            "foo.bar.avg_repair_price",
+            "foo.bar.total_repair_cost",
+            "foo.bar.avg_length_of_employment",
+            "foo.bar.total_repair_order_discounts",
+            "foo.bar.avg_repair_order_discounts",
+            "foo.bar.avg_time_to_dispatch",
+            "foo.bar.cube_one",
+            "foo.bar.repair_orders_thin",
+        ]
+
+    #
+    # Get common metrics and dimensions
+    #
+
+    #
+    # SQL and data
+    #
     def test_data(self, client):
         """
         Test data retreval for a metric and dimension(s)

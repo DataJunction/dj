@@ -203,13 +203,25 @@ class DJClient:
     def _get_nodes_in_namespace(
         self,
         namespace: str,
-        type_: Optional[str] = None,
+        type_: Optional[models.NodeType] = None,
     ):
         """
-        Retrieves all nodes in the namespace
+        Retrieves all nodes in given namespace.
         """
         response = self._session.get(
-            f"/namespaces/{namespace}/" + (f"?type_={type_}" if type_ else ""),
+            f"/namespaces/{namespace}/" + (f"?type_={type_.value}" if type_ else ""),
+        )
+        return response.json()
+
+    def _get_all_nodes(
+        self,
+        type_: Optional[models.NodeType] = None,
+    ):
+        """
+        Retrieve all nodes of a given type.
+        """
+        response = self._session.get(
+            "/nodes/" + (f"?node_type={type_.value}" if type_ else ""),
         )
         return response.json()
 

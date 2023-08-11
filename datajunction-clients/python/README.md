@@ -103,10 +103,10 @@ List of all available DJ client methods:
   - list_namespaces( prefix: Optional[str])
   - list_dimensions( namespace: Optional[str])
   - list_metrics( namespace: Optional[str])
-  - list_sources() # TODO
-  - list_transforms() # TODO
-  - list_cubes() # TODO
-  - list_nodes() # TODO
+  - list_cubes( namespace: Optional[str])
+  - list_sources( namespace: Optional[str])
+  - list_transforms( namespace: Optional[str])
+  - list_nodes( namespace: Optional[str], type_: Optional[NodeType])
 
   ### find
   - common_dimensions( metrics: List[str], name_only: bool = False)

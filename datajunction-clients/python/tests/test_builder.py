@@ -60,6 +60,8 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             "foo.bar.total_repair_order_discounts",
             "foo.bar.avg_repair_order_discounts",
             "foo.bar.avg_time_to_dispatch",
+            "foo.bar.cube_one",
+            "foo.bar.repair_orders_thin",
         }
         assert set(client.namespace("foo.bar").sources()) == {
             "foo.bar.repair_orders",
@@ -93,8 +95,10 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             "foo.bar.avg_repair_order_discounts",
             "foo.bar.avg_time_to_dispatch",
         }
-        assert client.namespace("foo.bar").transforms() == []
-        assert client.namespace("foo.bar").cubes() == []
+        assert client.namespace("foo.bar").transforms() == [
+            "foo.bar.repair_orders_thin",
+        ]
+        assert client.namespace("foo.bar").cubes() == ["foo.bar.cube_one"]
 
     def test_all_nodes(self, client):
         """
@@ -128,6 +132,8 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             "default.total_repair_order_discounts",
             "default.avg_repair_order_discounts",
             "default.avg_time_to_dispatch",
+            "default.cube_two",
+            "default.repair_orders_thin",
         }
         result_names_only = client.namespace("default").nodes()
         assert set(result_names_only) == expected_names_only
@@ -193,7 +199,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
 
         # transforms
         result = client.namespace("default").transforms()
-        assert result == []
+        assert result == ["default.repair_orders_thin"]
 
         # metrics
         result_names_only = client.list_metrics(namespace="default")
@@ -217,7 +223,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
 
         # cubes
         result = client.namespace("default").cubes()
-        assert result == []
+        assert result == ["default.cube_two"]
         with pytest.raises(DJClientException) as exc_info:
             client.cube("a_cube")
         assert "Cube `a_cube` does not exist" in str(exc_info)
