@@ -4,7 +4,6 @@ Fixtures for testing.
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 
 import re
-import uuid
 from http.client import HTTPException
 from typing import Collection, Iterator, List, Optional
 from unittest.mock import MagicMock
@@ -20,6 +19,7 @@ from sqlmodel.pool import StaticPool
 
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
+from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.internal.authentication.basic import parse_basic_auth_cookie
 from datajunction_server.models import Column, Engine, User
 from datajunction_server.models.materialization import (
@@ -117,8 +117,10 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
     )
 
     def mock_get_query(
-        query_id: uuid.UUID,
+        query_id: str,
     ) -> Collection[Collection[str]]:
+        if query_id == "foo-bar-baz":
+            raise DJQueryServiceClientException("Query foo-bar-baz not found.")
         for _, response in QUERY_DATA_MAPPINGS.items():
             if response.id == query_id:
                 return response

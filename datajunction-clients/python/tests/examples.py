@@ -1,7 +1,6 @@
 """
 Roads database examples loaded into DJ test session
 """
-import uuid
 from typing import Dict, Union
 
 from datajunction_server.errors import DJException, DJQueryServiceClientException
@@ -1108,7 +1107,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     .replace("\n", "")
     .replace(" ", ""): QueryWithResults(
         **{
-            "id": uuid.UUID("bd98d6be-e2d2-413e-94c7-96d9411ddee2"),
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
             "submitted_query": "...",
             "state": QueryState.FINISHED,
             "results": [
@@ -1143,7 +1142,7 @@ QUERY_DATA_MAPPINGS: Dict[str, Union[DJException, QueryWithResults]] = {
     .replace("\n", "")
     .replace(" ", ""): QueryWithResults(
         **{
-            "id": uuid.UUID("bd98d6be-e2d2-413e-94c7-96d9411ddee2"),
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
             "submitted_query": "...",
             "state": QueryState.FINISHED,
             "results": [],

@@ -287,6 +287,37 @@ class TestDataForNode:
         )
         assert response.status_code == 200
 
+    def test_get_data_for_query_id(
+        self,
+        client_with_query_service: TestClient,
+    ) -> None:
+        """
+        Test retrieving data for a query ID
+        """
+        # run some query
+        response = client_with_query_service.get("/data/basic.num_comments/")
+        data = response.json()
+        assert response.status_code == 200
+        assert data["id"] == "ee41ea6c-2303-4fe1-8bf0-f0ce3d6a35ca"
+
+        # and try to get the results by the query id only
+        new_response = client_with_query_service.get(f"/data/query/{data['id']}/")
+        new_data = response.json()
+        assert new_response.status_code == 200
+        assert new_data["results"] == [
+            {
+                "sql": "",
+                "columns": [{"name": "basic_DOT_num_comments", "type": "bigint"}],
+                "rows": [[1]],
+                "row_count": 0,
+            },
+        ]
+
+        # and repeat for a bogus query id
+        yet_another_response = client_with_query_service.get("/data/query/foo-bar-baz/")
+        assert yet_another_response.status_code == 404
+        assert "Query foo-bar-baz not found." in yet_another_response.text
+
 
 class TestAvailabilityState:  # pylint: disable=too-many-public-methods
     """
