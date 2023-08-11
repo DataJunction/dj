@@ -36,6 +36,13 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  node_lineage: async function (name) {
+    const data = await (
+      await fetch(DJ_URL + '/nodes/' + name + '/lineage/')
+    ).json();
+    return data;
+  },
+
   metric: async function (name) {
     const data = await (await fetch(DJ_URL + '/metrics/' + name + '/')).json();
     return data;

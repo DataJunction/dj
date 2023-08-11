@@ -12,6 +12,7 @@ import NodeSQLTab from './NodeSQLTab';
 import NodeMaterializationTab from './NodeMaterializationTab';
 import ClientCodePopover from './ClientCodePopover';
 import NodesWithDimension from './NodesWithDimension';
+import NodeColumnLineage from './NodeLineageTab';
 
 export function NodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -95,6 +96,11 @@ export function NodePage() {
         name: 'Linked Nodes',
         display: node?.type === 'dimension',
       },
+      {
+        id: 7,
+        name: 'Lineage',
+        display: node?.type === 'metric',
+      },
     ];
   };
 
@@ -123,6 +129,9 @@ export function NodePage() {
       break;
     case 6:
       tabToDisplay = <NodesWithDimension node={node} djClient={djClient} />;
+      break;
+    case 7:
+      tabToDisplay = <NodeColumnLineage djNode={node} djClient={djClient} />;
       break;
     default:
       tabToDisplay = <NodeInfoTab node={node} />;
