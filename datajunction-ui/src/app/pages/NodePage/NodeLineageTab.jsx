@@ -1,25 +1,23 @@
-import React, { useContext } from 'react';
+import { useContext } from 'react';
 import { MarkerType } from 'reactflow';
 
 import '../../../styles/dag.css';
 import 'reactflow/dist/style.css';
-import DJNode from '../../components/djgraph/DJNode';
 import DJClientContext from '../../providers/djclient';
 import LayoutFlow from '../../components/djgraph/LayoutFlow';
 
 const createDJNode = node => {
   return {
-    id: String(node.name),
+    id: node.node_name,
     type: 'DJNode',
     data: {
-      label: node.name,
-      name: node.name,
-      type: node.type,
-      table: node.type === 'source' ? node.name : '',
-      display_name: node.name,
-      column_names: node.columns.map(col => {
-        return { name: col.name, type: '' };
-      }),
+      label: node.node_name,
+      name: node.node_name,
+      type: node.node_type,
+      table: node.node_type === 'source' ? node.node_name : '',
+      display_name:
+        node.node_type === 'source' ? node.node_name : node.display_name,
+      column_names: [{ name: node.column_name, type: '' }],
       primary_key: [],
     },
   };
@@ -31,10 +29,9 @@ const NodeColumnLineage = djNode => {
     let relatedNodes = await djClient.node_lineage(djNode.djNode.name);
     let nodesMapping = {};
     let edgesMapping = {};
-    let processing = [relatedNodes];
+    let processing = relatedNodes;
     while (processing.length > 0) {
       let current = processing.pop();
-
       let node = createDJNode(current);
       if (node.id in nodesMapping) {
         nodesMapping[node.id].data.column_names = Array.from(
@@ -48,25 +45,27 @@ const NodeColumnLineage = djNode => {
       } else {
         nodesMapping[node.id] = node;
       }
-      current.columns.forEach(col => {
-        if (col.node !== null) {
-          edgesMapping[current.name + '-' + col.node.name] = {
-            id: current.name + '-' + col.node.name,
-            source: col.node.name,
-            sourceHandle: col.node.name,
-            target: current.name,
-            targetHandle: current.name,
-            animated: true,
-            markerEnd: {
-              type: MarkerType.Arrow,
-            },
-            style: {
-              strokeWidth: 3,
-              stroke: '#b0b9c2',
-            },
-          };
-          processing.push(col.node);
-        }
+
+      current.lineage.forEach(lineageColumn => {
+        const sourceHandle =
+          lineageColumn.node_name + '.' + lineageColumn.column_name;
+        const targetHandle = current.node_name + '.' + current.column_name;
+        edgesMapping[sourceHandle + '->' + targetHandle] = {
+          id: sourceHandle + '->' + targetHandle,
+          source: lineageColumn.node_name,
+          sourceHandle: sourceHandle,
+          target: current.node_name,
+          targetHandle: targetHandle,
+          animated: true,
+          markerEnd: {
+            type: MarkerType.Arrow,
+          },
+          style: {
+            strokeWidth: 3,
+            stroke: '#b0b9c2',
+          },
+        };
+        processing.push(lineageColumn);
       });
     }
 
