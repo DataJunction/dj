@@ -764,15 +764,15 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             )
 
         # must query from a single table
-        if (
-            len(tree.select.from_.relations) != 1
-            or tree.select.from_.relations[0].extensions
-        ):
-            raise DJInvalidInputException(
-                http_status_code=HTTPStatus.BAD_REQUEST,
-                message=f"Metric {self.name} selects from more than one node, "
-                "should only select from a single node",
-            )
+        # if (
+        #     len(tree.select.from_.relations) != 1
+        #     or tree.select.from_.relations[0].extensions
+        # ):
+        #     raise DJInvalidInputException(
+        #         http_status_code=HTTPStatus.BAD_REQUEST,
+        #         message=f"Metric {self.name} selects from more than one node, "
+        #         "should only select from a single node",
+        #     )
 
     def extra_validation(self) -> None:
         """
@@ -1140,18 +1140,11 @@ class LineageColumn(BaseModel):
     Column in lineage graph
     """
 
-    name: str
-    node: Optional["LineageNode"] = None
-
-
-class LineageNode(BaseModel):
-    """
-    Node in lineage graph
-    """
-
-    name: str
-    type: NodeType
-    columns: List[LineageColumn]
+    column_name: str
+    node_name: Optional[str] = None
+    node_type: Optional[str] = None
+    display_name: Optional[str] = None
+    lineage: Optional[List["LineageColumn"]] = None
 
 
 LineageColumn.update_forward_refs()

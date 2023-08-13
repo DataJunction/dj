@@ -840,6 +840,26 @@ def infer_type(
     return ct.ListType(element_type=arg.type)
 
 
+class Concat(Function):
+    """
+    concat(col1, col2, ..., colN) - Returns the concatenation of col1, col2, ..., colN.
+    """
+
+
+@Concat.register  # type: ignore
+def infer_type(
+    *strings: ct.StringType,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+@Concat.register  # type: ignore
+def infer_type(
+    *arrays: ct.ListType,
+) -> ct.ListType:
+    return arrays[0].type
+
+
 class ConcatWs(Function):
     """
     concat_ws(separator, [str | array(str)]+) - Returns the concatenation of the
@@ -1195,13 +1215,13 @@ def infer_type(
     return ct.DateType()
 
 
-class DateDiff(Function):
+class Datediff(Function):
     """
     Computes the difference in days between two dates.
     """
 
 
-@DateDiff.register  # type: ignore
+@Datediff.register  # type: ignore
 def infer_type(
     start_date: ct.DateType,
     end_date: ct.DateType,
@@ -1209,7 +1229,7 @@ def infer_type(
     return ct.IntegerType()
 
 
-@DateDiff.register  # type: ignore
+@Datediff.register  # type: ignore
 def infer_type(
     start_date: ct.StringType,
     end_date: ct.StringType,
@@ -1217,7 +1237,15 @@ def infer_type(
     return ct.IntegerType()
 
 
-@DateDiff.register  # type: ignore
+@Datediff.register  # type: ignore
+def infer_type(
+    start_date: ct.TimestampType,
+    end_date: ct.TimestampType,
+) -> ct.IntegerType:
+    return ct.IntegerType()
+
+
+@Datediff.register  # type: ignore
 def infer_type(
     start_date: ct.IntegerType,
     end_date: ct.IntegerType,
