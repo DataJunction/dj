@@ -24,6 +24,9 @@ def test_list_nodes_with_dimension(client_with_examples: TestClient) -> None:
     roads_nodes = [
         "default.repair_orders",
         "default.repair_order_details",
+        "default.regional_level_agg",
+        "default.national_level_agg",
+        "default.regional_repair_efficiency",
         "default.num_repair_orders",
         "default.avg_repair_price",
         "default.total_repair_cost",
@@ -50,6 +53,8 @@ def test_list_nodes_with_dimension(client_with_examples: TestClient) -> None:
     data = response.json()
     assert [node["name"] for node in data] == [
         "default.repair_type",
+        "default.regional_level_agg",
+        "default.regional_repair_efficiency",
     ]
 
     response = client_with_examples.get(
@@ -57,6 +62,7 @@ def test_list_nodes_with_dimension(client_with_examples: TestClient) -> None:
     )
     data = response.json()
     assert [node["name"] for node in data] == [
+        "default.regional_repair_efficiency",
         "default.num_repair_orders",
         "default.avg_repair_price",
         "default.total_repair_cost",
@@ -78,6 +84,9 @@ def test_list_nodes_with_common_dimension(client_with_examples: TestClient) -> N
     roads_nodes = [
         "default.repair_orders",
         "default.repair_order_details",
+        "default.regional_level_agg",
+        "default.national_level_agg",
+        "default.regional_repair_efficiency",
         "default.num_repair_orders",
         "default.avg_repair_price",
         "default.total_repair_cost",
@@ -108,6 +117,7 @@ def test_list_nodes_with_common_dimension(client_with_examples: TestClient) -> N
     )
     data = response.json()
     assert [node["name"] for node in data] == [
+        "default.regional_repair_efficiency",
         "default.num_repair_orders",
         "default.avg_repair_price",
         "default.total_repair_cost",

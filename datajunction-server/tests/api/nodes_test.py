@@ -945,6 +945,16 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "effect": "downstream node is now invalid",
                 },
                 {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.regional_level_agg",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.regional_repair_efficiency",
+                    "status": "valid",
+                },
+                {
                     "name": "default.num_repair_orders",
                     "status": "invalid",
                     "effect": "downstream node is now invalid",
@@ -967,6 +977,21 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "name": "default.repair_order_details",
                     "status": "valid",
                     "effect": "broken link",
+                },
+                {
+                    "effect": "broken link",
+                    "name": "default.regional_level_agg",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "broken link",
+                    "name": "default.national_level_agg",
+                    "status": "valid",
+                },
+                {
+                    "effect": "broken link",
+                    "name": "default.regional_repair_efficiency",
+                    "status": "invalid",
                 },
                 {
                     "name": "default.avg_repair_price",
@@ -3191,20 +3216,23 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_examples.get(
             "/nodes/default.num_repair_orders/lineage/",
         )
-        assert response.json() == {
-            "name": "default.num_repair_orders",
-            "type": "metric",
-            "columns": [
-                {
-                    "name": "repair_order_id",
-                    "node": {
-                        "name": "default.repair_orders",
-                        "type": "source",
-                        "columns": [{"name": "repair_order_id", "node": None}],
+        assert response.json() == [
+            {
+                "column_name": "default_DOT_num_repair_orders",
+                "node_name": "default.num_repair_orders",
+                "node_type": "metric",
+                "display_name": "Default: Num Repair Orders",
+                "lineage": [
+                    {
+                        "column_name": "repair_order_id",
+                        "node_name": "default.repair_orders",
+                        "node_type": "source",
+                        "display_name": "Default: Repair Orders",
+                        "lineage": [],
                     },
-                },
-            ],
-        }
+                ],
+            },
+        ]
 
         client_with_examples.post(
             "/nodes/metric/",
@@ -3224,28 +3252,30 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_examples.get(
             "/nodes/default.discounted_repair_orders/lineage/",
         )
-        assert response.json() == {
-            "columns": [
-                {
-                    "name": "repair_order_id",
-                    "node": {
-                        "columns": [{"name": "repair_order_id", "node": None}],
-                        "name": "default.repair_order_details",
-                        "type": "source",
+        assert response.json() == [
+            {
+                "column_name": "default_DOT_discounted_repair_orders",
+                "node_name": "default.discounted_repair_orders",
+                "node_type": "metric",
+                "display_name": "Default: Discounted Repair Orders",
+                "lineage": [
+                    {
+                        "column_name": "repair_order_id",
+                        "node_name": "default.repair_order_details",
+                        "node_type": "source",
+                        "display_name": "Default: Repair Order Details",
+                        "lineage": [],
                     },
-                },
-                {
-                    "name": "discount",
-                    "node": {
-                        "columns": [{"name": "discount", "node": None}],
-                        "name": "default.repair_order_details",
-                        "type": "source",
+                    {
+                        "column_name": "discount",
+                        "node_name": "default.repair_order_details",
+                        "node_type": "source",
+                        "display_name": "Default: Repair Order Details",
+                        "lineage": [],
                     },
-                },
-            ],
-            "name": "default.discounted_repair_orders",
-            "type": "metric",
-        }
+                ],
+            },
+        ]
 
     def test_revalidating_existing_nodes(self, client_with_examples: TestClient):
         """
@@ -3260,6 +3290,202 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         for node in client_with_examples.get("/nodes/").json():
             node = client_with_examples.get(f"/nodes/{node}").json()
             assert node["status"] == "valid"
+
+    def test_lineage_on_complex_transforms(self, client_with_examples: TestClient):
+        """
+        Test metric lineage on more complex transforms and metrics
+        """
+        response = client_with_examples.get("/nodes/default.regional_level_agg/").json()
+        assert response["columns"] == [
+            {
+                "name": "us_region_id",
+                "type": "int",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
+            {
+                "name": "state_name",
+                "type": "string",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
+            {
+                "name": "location_hierarchy",
+                "type": "string",
+                "attributes": [],
+                "dimension": None,
+            },
+            {
+                "name": "order_year",
+                "type": "int",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
+            {
+                "name": "order_month",
+                "type": "int",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
+            {
+                "name": "order_day",
+                "type": "int",
+                "attributes": [
+                    {"attribute_type": {"namespace": "system", "name": "primary_key"}},
+                ],
+                "dimension": None,
+            },
+            {
+                "name": "completed_repairs",
+                "type": "bigint",
+                "attributes": [],
+                "dimension": None,
+            },
+            {
+                "name": "total_repairs_dispatched",
+                "type": "bigint",
+                "attributes": [],
+                "dimension": None,
+            },
+            {
+                "name": "total_amount_in_region",
+                "type": "double",
+                "attributes": [],
+                "dimension": None,
+            },
+            {
+                "name": "avg_repair_amount_in_region",
+                "type": "double",
+                "attributes": [],
+                "dimension": None,
+            },
+            {
+                "name": "avg_dispatch_delay",
+                "type": "double",
+                "attributes": [],
+                "dimension": None,
+            },
+            {
+                "name": "unique_contractors",
+                "type": "bigint",
+                "attributes": [],
+                "dimension": None,
+            },
+        ]
+
+        response = client_with_examples.get(
+            "/nodes/default.regional_repair_efficiency/",
+        ).json()
+        assert response["columns"] == [
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "default_DOT_regional_repair_efficiency",
+                "type": "double",
+            },
+        ]
+        response = client_with_examples.get(
+            "/nodes/default.regional_repair_efficiency/lineage/",
+        ).json()
+        assert response == [
+            {
+                "column_name": "default_DOT_regional_repair_efficiency",
+                "node_name": "default.regional_repair_efficiency",
+                "node_type": "metric",
+                "display_name": "Default: Regional Repair Efficiency",
+                "lineage": [
+                    {
+                        "column_name": "total_amount_nationwide",
+                        "node_name": "default.national_level_agg",
+                        "node_type": "transform",
+                        "display_name": "Default: National Level Agg",
+                        "lineage": [
+                            {
+                                "column_name": "quantity",
+                                "node_name": "default.repair_order_details",
+                                "node_type": "source",
+                                "display_name": "Default: Repair Order Details",
+                                "lineage": [],
+                            },
+                            {
+                                "column_name": "price",
+                                "node_name": "default.repair_order_details",
+                                "node_type": "source",
+                                "display_name": "Default: Repair Order Details",
+                                "lineage": [],
+                            },
+                        ],
+                    },
+                    {
+                        "column_name": "total_amount_in_region",
+                        "node_name": "default.regional_level_agg",
+                        "node_type": "transform",
+                        "display_name": "Default: Regional Level Agg",
+                        "lineage": [
+                            {
+                                "column_name": "quantity",
+                                "node_name": "default.repair_order_details",
+                                "node_type": "source",
+                                "display_name": "Default: Repair Order Details",
+                                "lineage": [],
+                            },
+                            {
+                                "column_name": "price",
+                                "node_name": "default.repair_order_details",
+                                "node_type": "source",
+                                "display_name": "Default: Repair Order Details",
+                                "lineage": [],
+                            },
+                        ],
+                    },
+                    {
+                        "column_name": "total_repairs_dispatched",
+                        "node_name": "default.regional_level_agg",
+                        "node_type": "transform",
+                        "display_name": "Default: Regional Level Agg",
+                        "lineage": [
+                            {
+                                "column_name": "repair_order_id",
+                                "node_name": "default.repair_orders",
+                                "node_type": "source",
+                                "display_name": "Default: Repair Orders",
+                                "lineage": [],
+                            },
+                        ],
+                    },
+                    {
+                        "column_name": "completed_repairs",
+                        "node_name": "default.regional_level_agg",
+                        "node_type": "transform",
+                        "display_name": "Default: Regional Level Agg",
+                        "lineage": [
+                            {
+                                "column_name": "repair_order_id",
+                                "node_name": "default.repair_orders",
+                                "node_type": "source",
+                                "display_name": "Default: Repair Orders",
+                                "lineage": [],
+                            },
+                            {
+                                "column_name": "dispatched_date",
+                                "node_name": "default.repair_orders",
+                                "node_type": "source",
+                                "display_name": "Default: Repair Orders",
+                                "lineage": [],
+                            },
+                        ],
+                    },
+                ],
+            },
+        ]
 
 
 def test_node_similarity(session: Session, client: TestClient):
