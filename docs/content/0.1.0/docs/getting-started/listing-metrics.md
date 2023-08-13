@@ -15,6 +15,8 @@ curl -X GET http://localhost:8000/metrics/
 {{< tab "python" >}}
 
 ```py
+from datajunction import DJClient
+dj = DJClient(DJ_URL)
 metrics = dj.metrics()
 ```
 {{< /tab >}}
@@ -50,7 +52,8 @@ curl -X GET http://localhost:8000/metrics/default.num_repair_orders/
 {{< /tab >}}
 {{< tab "python" >}}
 ```py
-dj = DJClient("http://localhost:8000/")
+from datajunction import DJClient
+dj = DJClient("http://localhost:8000")
 metric = dj.metric("default.num_repair_orders")
 ```
 {{< /tab >}}
