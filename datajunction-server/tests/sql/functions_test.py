@@ -649,6 +649,21 @@ def test_coalesce_infer_type() -> None:
     )
 
 
+def test_concat_func(session: Session):
+    """
+    Test the `concat` function
+    """
+    query = parse(
+        "SELECT concat('hello', '+', 'world'), concat(array(1, 2), array(3))",
+    )
+    exc = DJException()
+    ctx = ast.CompileContext(session=session, exception=exc)
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.ListType(ct.IntegerType())  # type: ignore
+
+
 def test_concat_ws_func(session: Session):
     """
     Test the `concat_ws` function
