@@ -46,7 +46,29 @@ curl -X 'POST' \
 {{< /tab >}}
 {{< tab "python" >}}
 ```py
+from datajunction import DJBuilder, NodeMode
+dj = DJBuilder(DJ_URL)
 
+contractor = dj.create_dimension(
+    description="Contractor dimension",
+    display_name="Default: Contractor",
+    name="default.contractor",
+    primary_key=['contractor_id'],
+    mode=NodeMode.PUBLISHED,  # for draft nodes, use `mode=NodeMode.DRAFT`
+    query="""
+    SELECT
+        contractor_id,
+        company_name,
+        contact_name,
+        contact_title,
+        address,
+        city,
+        state,
+        postal_code,
+        country
+    FROM default.contractors
+    """
+)
 ```
 {{< /tab >}}
 {{< tab "javascript" >}}

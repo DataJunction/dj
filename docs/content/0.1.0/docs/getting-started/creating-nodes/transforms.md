@@ -34,7 +34,10 @@ curl -X POST http://localhost:8000/nodes/transform/ \
 {{< tab "python" >}}
 
 ```py
-dj.new_transform(
+from datajunction import DJBuilder, NodeMode
+dj = DJBuilder(DJ_URL)
+
+transform_node = dj.create_transform(
     name="repair_orders_w_dispatchers",
     description="Repair orders that have a dispatcher",
     query="""
@@ -46,7 +49,8 @@ dj.new_transform(
         FROM default.repair_orders
         WHERE dispatcher_id IS NOT NULL
     """,
-).save()
+    mode=NodeMode.PUBLISHED,  # for draft nodes, use `mode=NodeMode.DRAFT`
+)
 ```
 {{< /tab >}}
 {{< tab "javascript" >}}

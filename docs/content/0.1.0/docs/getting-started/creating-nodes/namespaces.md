@@ -31,7 +31,7 @@ curl -X POST http://localhost:8000/namespaces/default/
 {{< tab "python" >}}
 
 ```py
-dj.new_namespace("default")
+dj.create_namespace("default")
 ```
 {{< /tab >}}
 {{< tab "javascript" >}}
