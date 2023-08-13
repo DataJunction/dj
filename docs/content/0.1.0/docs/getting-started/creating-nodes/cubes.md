@@ -49,7 +49,7 @@ repairs_cube = dj.create_cube(
     name="repairs_cube",
     display_name="Repairs Cube",
     description="Cube of various metrics related to repairs",
-    mode=NodeMode.PUBLISHED,
+    mode=NodeMode.PUBLISHED,  # for draft nodes, use `mode=NodeMode.DRAFT`
     metrics=[
         "num_repair_orders",
         "avg_repair_price",

@@ -39,6 +39,7 @@ metric = dj.create_metric(
     name="default.num_repair_orders",
     description="Number of repair orders",
     query="SELECT count(repair_order_id) FROM repair_orders",
+    mode=NodeMode.PUBLISHED,  # for draft nodes, use `mode=NodeMode.DRAFT`
 )
 print(metric.name)
 ```

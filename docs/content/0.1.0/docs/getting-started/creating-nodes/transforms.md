@@ -49,7 +49,7 @@ transform_node = dj.create_transform(
         FROM default.repair_orders
         WHERE dispatcher_id IS NOT NULL
     """,
-    mode=NodeMode.PUBLISHED,
+    mode=NodeMode.PUBLISHED,  # for draft nodes, use `mode=NodeMode.DRAFT`
 )
 ```
 {{< /tab >}}

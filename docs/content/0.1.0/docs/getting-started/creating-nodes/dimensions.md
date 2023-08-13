@@ -54,7 +54,7 @@ contractor = dj.create_dimension(
     display_name="Default: Contractor",
     name="default.contractor",
     primary_key=['contractor_id'],
-    mode=NodeMode.PUBLISHED,
+    mode=NodeMode.PUBLISHED,  # for draft nodes, use `mode=NodeMode.DRAFT`
     query="""
     SELECT
         contractor_id,
