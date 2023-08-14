@@ -207,6 +207,12 @@ class DJException(Exception):
         )
 
 
+class DJNodeNotFound(DJException):
+    """
+    Exception raised when a given node name is not found.
+    """
+
+
 class DJInvalidInputException(DJException):
     """
     Exception raised when the input provided by the user is invalid.
