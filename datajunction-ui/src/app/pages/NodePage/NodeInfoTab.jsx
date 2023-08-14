@@ -17,7 +17,7 @@ export default function NodeInfoTab({ node }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   useEffect(() => {
     const fetchData = async () => {
-      const data = await djClient.compiledSql(node.name);
+      const data = djClient.compiledSql(node.name);
       if (data.sql) {
         setCompiledSQL(data.sql);
       } else {

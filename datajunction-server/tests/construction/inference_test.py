@@ -633,8 +633,8 @@ def test_infer_types_datetime(construction_session: Session):
           DATE_SUB('2020-01-01', 10),
           DATE_SUB(CURRENT_DATE(), 10),
 
-          DATE_DIFF('2020-01-01', '2021-01-01'),
-          DATE_DIFF(CURRENT_DATE(), CURRENT_DATE()),
+          DATEDIFF('2020-01-01', '2021-01-01'),
+          DATEDIFF(CURRENT_DATE(), CURRENT_DATE()),
 
 
           EXTRACT(YEAR FROM '2020-01-01 00:00:00'),
