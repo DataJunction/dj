@@ -9,7 +9,7 @@ retrieval of metrics data across different dimensions and filters.
 
 [Documentation](http://datajunction.io)
 
-![DataJunction](docs/static/datajunction-illustration.png)
+![DataJunction](docs/images/dj-landing.png)
 
 ## Getting Started
 
