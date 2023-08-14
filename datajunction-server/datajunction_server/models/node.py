@@ -763,17 +763,6 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 "should have a single aggregation",
             )
 
-        # must query from a single table
-        # if (
-        #     len(tree.select.from_.relations) != 1
-        #     or tree.select.from_.relations[0].extensions
-        # ):
-        #     raise DJInvalidInputException(
-        #         http_status_code=HTTPStatus.BAD_REQUEST,
-        #         message=f"Metric {self.name} selects from more than one node, "
-        #         "should only select from a single node",
-        #     )
-
     def extra_validation(self) -> None:
         """
         Extra validation for node data.
