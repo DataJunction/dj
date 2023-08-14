@@ -54,7 +54,7 @@ from datajunction_server.models.node import (
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
-    LineageNode,
+    LineageColumn,
     Node,
     NodeMode,
     NodeOutput,
@@ -832,18 +832,21 @@ def list_node_dag(
 
 @router.get(
     "/nodes/{name}/lineage/",
-    response_model=LineageNode,
+    response_model=List[LineageColumn],
     name="List column level lineage of node",
 )
 def column_lineage(
     name: str, *, session: Session = Depends(get_session)
-) -> LineageNode:
+) -> List[LineageColumn]:
     """
     List column-level lineage of a node in a graph
     """
     node = get_node_by_name(session, name)
-    return column_level_lineage(
-        session,
-        node.current,
-        frozenset([col.name for col in node.current.columns]),
-    )
+    return [
+        column_level_lineage(
+            session,
+            node.current,
+            col.name,
+        )
+        for col in node.current.columns
+    ]
