@@ -1076,6 +1076,50 @@ EXAMPLES = (  # type: ignore
         ),
         {},
     ),
+    (
+        "/nodes/cube/",
+        {
+            "description": "Cube #1 for metrics and dimensions.",
+            "mode": "published",
+            "name": "foo.bar.cube_one",
+            "metrics": ["foo.bar.num_repair_orders"],
+            "dimensions": ["foo.bar.municipality_dim.local_region"],
+        },
+    ),
+    (
+        "/nodes/cube/",
+        {
+            "description": "Cube #2 for metrics and dimensions.",
+            "mode": "published",
+            "name": "default.cube_two",
+            "metrics": ["default.num_repair_orders"],
+            "dimensions": ["default.municipality_dim.local_region"],
+        },
+    ),
+    (
+        "/nodes/transform/",
+        {
+            "description": "3 columns from default.repair_orders",
+            "query": (
+                "SELECT repair_order_id, municipality_id, hard_hat_id "
+                "FROM default.repair_orders"
+            ),
+            "mode": "published",
+            "name": "default.repair_orders_thin",
+        },
+    ),
+    (
+        "/nodes/transform/",
+        {
+            "description": "3 columns from foo.bar.repair_orders",
+            "query": (
+                "SELECT repair_order_id, municipality_id, hard_hat_id "
+                "FROM foo.bar.repair_orders"
+            ),
+            "mode": "published",
+            "name": "foo.bar.repair_orders_thin",
+        },
+    ),
 )
 
 COLUMN_MAPPINGS = {

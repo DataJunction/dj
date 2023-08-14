@@ -35,7 +35,7 @@ class Namespace(ClientEntity):  # pylint: disable=protected-access
         """
         return self.dj_client._get_nodes_in_namespace(
             self.namespace,
-            type_=models.NodeType.SOURCE.value,
+            type_=models.NodeType.SOURCE,
         )
 
     def transforms(self):
@@ -44,7 +44,7 @@ class Namespace(ClientEntity):  # pylint: disable=protected-access
         """
         return self.dj_client._get_nodes_in_namespace(
             self.namespace,
-            type_=models.NodeType.TRANSFORM.value,
+            type_=models.NodeType.TRANSFORM,
         )
 
     def cubes(self):
@@ -53,7 +53,7 @@ class Namespace(ClientEntity):  # pylint: disable=protected-access
         """
         return self.dj_client._get_nodes_in_namespace(
             self.namespace,
-            type_=models.NodeType.CUBE.value,
+            type_=models.NodeType.CUBE,
         )
 
 
