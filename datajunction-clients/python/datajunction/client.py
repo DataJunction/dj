@@ -260,3 +260,23 @@ class DJClient(_internal.DJClient):
             raise DJClientException(  # pragma: no cover
                 f"Error retrieving data: {response.text}",
             )
+
+    #
+    # Data Catalog and Engines
+    #
+    def list_catalogs(self) -> List[str]:
+        """
+        List all catalogs.
+        """
+        json_response = self._session.get("/catalogs/", timeout=self._timeout).json()
+        return [catalog["name"] for catalog in json_response]
+
+    def list_engines(self) -> List[dict]:
+        """
+        List all engines.
+        """
+        json_response = self._session.get("/engines/", timeout=self._timeout).json()
+        return [
+            {"name": engine["name"], "version": engine["version"]}
+            for engine in json_response
+        ]
