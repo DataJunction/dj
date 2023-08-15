@@ -701,6 +701,7 @@ class Column(Aliasable, Named, Expression):
         repr=False,
         default=None,
     )
+    _struct_subscript: Optional["Name"] = field(repr=False, default=None)
     _type: Optional["ColumnType"] = field(repr=False, default=None)
     _expression: Optional[Expression] = field(repr=False, default=None)
     _is_compiled: bool = False
@@ -747,6 +748,9 @@ class Column(Aliasable, Named, Expression):
         """
         self._expression = expression
         return self
+
+    def add_struct_subscript(self, struct_subscript: "Name"):
+        self._struct_subscript = struct_subscript
 
     def add_table(self, table: "TableExpression"):
         self._table = table
@@ -930,7 +934,12 @@ class Column(Aliasable, Named, Expression):
         as_ = " AS " if self.as_ else " "
         alias = "" if not self.alias else f"{as_}{self.alias}"
         if self.table is not None and not isinstance(self.table, FunctionTable):
-            ret = f"{self.name.quote_style}{self.name.name}{self.name.quote_style}"
+            name = (
+                self._struct_subscript.name
+                if self._struct_subscript
+                else self.name.name
+            )
+            ret = f"{self.name.quote_style}{name}{self.name.quote_style}"
             if table_name := self.table.alias_or_name:
                 ret = table_name.identifier() + "." + ret
         else:
@@ -1043,7 +1052,7 @@ class TableExpression(Aliasable, Expression):
                         column.add_type(col.type)
                         return True
 
-        for col in self.columns:
+        for col in self._columns:
             if isinstance(col, (Aliasable, Named)):
                 if column.name.name == col.alias_or_name.name:
                     self._ref_columns.append(column)
@@ -1056,15 +1065,19 @@ class TableExpression(Aliasable, Expression):
                 # the search column's namespace and if there's a nested field that matches the
                 # search column's name
                 if isinstance(col.type, StructType):
+                    # struct column name
                     column_namespace = ".".join(
                         [name.name for name in column.namespace],
                     )
                     if column_namespace == col.alias_or_name.identifier(False):
                         for type_field in col.type.fields:
                             if type_field.name.name == column.name.name:
+                                self._ref_columns.append(column)
+                                column.add_struct_subscript(Name(str(column.name)))
                                 column.add_table(self)
                                 column.add_expression(col)
                                 column.add_type(type_field.type)
+                                return True
         return False
 
     def is_compiled(self) -> bool:
