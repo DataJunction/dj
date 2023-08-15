@@ -1,8 +1,14 @@
 import { Outlet } from 'react-router-dom';
 import logo from './assets/dj-logo.png';
 import { Helmet } from 'react-helmet-async';
+import { useCookies } from 'react-cookie';
 
 export function Root() {
+  const [, , removeCookie] = useCookies(['__dj']);
+
+  const logout = () => {
+    removeCookie('__dj', { path: '/' });
+  };
   return (
     <>
       <Helmet>
@@ -46,6 +52,17 @@ export function Root() {
             </div>
           </div>
         </div>
+        {process.env.REACT_DISABLE_AUTH === 'true' ? (
+          ''
+        ) : (
+          <span className="menu-link">
+            <span className="menu-title">
+              <a href="/" onClick={logout}>
+                Logout
+              </a>
+            </span>
+          </span>
+        )}
       </div>
       <Outlet />
     </>
