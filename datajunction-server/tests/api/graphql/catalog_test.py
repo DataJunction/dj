@@ -53,8 +53,10 @@ def test_catalog_list(
             name
         }
     }
-    """       
+    """
 
     response = client.post("/graphql", json={"query": query})
     assert response.status_code == 200
-    assert response.json() ==  {'data': {'listCatalogs': [{'name': 'dev'}, {'name': 'test'}, {'name': 'prod'}]}}
+    assert response.json() == {
+        "data": {"listCatalogs": [{"name": "dev"}, {"name": "test"}, {"name": "prod"}]},
+    }
