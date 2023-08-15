@@ -1,88 +1,9 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
 exports[`<App /> should render and match the snapshot 1`] = `
-<BrowserRouter>
-  <Helmet
-    defaultTitle="DataJunction: A Metrics Platform"
-    defer={true}
-    encodeSpecialCharacters={true}
-    prioritizeSeoTags={false}
-    titleTemplate="DataJunction: %s"
-  >
-    <meta
-      content="DataJunction serves as a semantic layer to help manage metrics"
-      name="description"
-    />
-  </Helmet>
-  <Context.Provider
-    value={
-      Object {
-        "DataJunctionAPI": Object {
-          "clientCode": [Function],
-          "columns": [Function],
-          "commonDimensions": [Function],
-          "compiledSql": [Function],
-          "cube": [Function],
-          "dag": [Function],
-          "data": [Function],
-          "downstreams": [Function],
-          "history": [Function],
-          "lineage": [Function],
-          "materializations": [Function],
-          "metric": [Function],
-          "metrics": [Function],
-          "namespace": [Function],
-          "namespaces": [Function],
-          "node": [Function],
-          "node_dag": [Function],
-          "node_lineage": [Function],
-          "nodesWithDimension": [Function],
-          "revisions": [Function],
-          "sql": [Function],
-          "sqls": [Function],
-          "stream": [Function],
-          "upstreams": [Function],
-        },
-      }
-    }
-  >
-    <Routes>
-      <Route
-        element={<Unknown />}
-        path="/"
-      >
-        <React.Fragment>
-          <Route
-            path="nodes"
-          >
-            <Route
-              element={<NodePage />}
-              path=":name"
-            />
-          </Route>
-          <Route
-            element={<NamespacePage />}
-            path="/"
-          />
-          <Route
-            path="namespaces"
-          >
-            <Route
-              element={<NamespacePage />}
-              path=":namespace"
-            />
-          </Route>
-          <Route
-            element={<SQLBuilderPage />}
-            path="sql"
-          />
-        </React.Fragment>
-      </Route>
-      <Route
-        element={<Unknown />}
-        path="*"
-      />
-    </Routes>
-  </Context.Provider>
-</BrowserRouter>
+<CookiesProvider>
+  <LoginPage
+    onLogin={[Function]}
+  />
+</CookiesProvider>
 `;
