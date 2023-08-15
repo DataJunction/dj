@@ -95,11 +95,11 @@ def test_failing_parse_basic_auth_cookie(session: Session):
     assert "This endpoint requires authentication." in str(exc_info.value)
 
 
-def test_basic_whoami(client: TestClient):
+def test_whoami(client: TestClient):
     """
-    Test the /basic/whoami/ endpoint
+    Test the /whoami/ endpoint
     """
-    response = client.get("/basic/whoami/")
+    response = client.get("/whoami/")
     assert response.ok
     assert response.json() == {
         "id": None,
