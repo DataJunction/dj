@@ -26,10 +26,18 @@ from datajunction_server.models.materialization import (
 from datajunction_server.models.node import NodeType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import get_query_service_client, get_session
+from datajunction_server.utils import (
+    get_query_service_client,
+    get_session,
+    get_settings,
+)
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["materializations"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["materializations"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 @router.post(

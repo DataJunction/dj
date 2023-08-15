@@ -11,10 +11,14 @@ from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_history
 from datajunction_server.models.history import EntityType, History
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["history"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["history"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 @router.get("/history/{entity_type}/{entity_name}/", response_model=List[History])

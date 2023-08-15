@@ -24,10 +24,14 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_restored,
 )
 from datajunction_server.models.node import NodeNameList, NodeNamespace, NodeType
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["namespaces"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["namespaces"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)

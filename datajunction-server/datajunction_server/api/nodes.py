@@ -30,7 +30,6 @@ from datajunction_server.api.helpers import (
 )
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tag_by_name
-from datajunction_server.config import Settings
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.materializations import schedule_materialization_jobs
 from datajunction_server.internal.nodes import (
@@ -79,7 +78,11 @@ from datajunction_server.utils import (
 )
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["nodes"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["nodes"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
@@ -446,7 +449,6 @@ def register_table(  # pylint: disable=too-many-arguments
     schema_: str,
     table: str,
     session: Session = Depends(get_session),
-    settings: Settings = Depends(get_settings),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
     """

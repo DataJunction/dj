@@ -16,9 +16,13 @@ from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.models.metric import Metric
 from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
-router = APIRouter(tags=["metrics"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["metrics"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 def get_metric(session: Session, name: str) -> Node:

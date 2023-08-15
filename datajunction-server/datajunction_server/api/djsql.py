@@ -12,9 +12,17 @@ from sse_starlette.sse import EventSourceResponse
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.utils import get_query_service_client, get_session
+from datajunction_server.utils import (
+    get_query_service_client,
+    get_session,
+    get_settings,
+)
 
-router = APIRouter(tags=["DJSQL"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["DJSQL"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 @router.get("/djsql/data", response_model=QueryWithResults)

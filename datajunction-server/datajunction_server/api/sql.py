@@ -16,10 +16,14 @@ from datajunction_server.api.helpers import (
 )
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["sql"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["sql"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 @router.get(

@@ -37,9 +37,17 @@ from datajunction_server.models.query import (
     QueryWithResults,
 )
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.utils import get_query_service_client, get_session
+from datajunction_server.utils import (
+    get_query_service_client,
+    get_session,
+    get_settings,
+)
 
-router = APIRouter(tags=["data"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["data"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 @router.post("/data/{node_name}/availability/", name="Add Availability State to Node")

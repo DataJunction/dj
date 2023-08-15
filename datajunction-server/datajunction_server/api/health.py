@@ -10,9 +10,13 @@ from fastapi.security import HTTPBearer
 from sqlalchemy import select
 from sqlmodel import Session, SQLModel
 
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
-router = APIRouter(tags=["health"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["health"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 class HealthcheckStatus(str, enum.Enum):

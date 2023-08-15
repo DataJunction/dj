@@ -16,10 +16,14 @@ from datajunction_server.models.attribute import (
     MutableAttributeTypeFields,
 )
 from datajunction_server.models.node import NodeType
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["attributes"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["attributes"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 @router.get("/attributes/", response_model=List[AttributeType])

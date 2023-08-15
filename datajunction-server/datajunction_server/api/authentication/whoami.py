@@ -5,8 +5,13 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPBearer
 
 from datajunction_server.models.user import UserOutput
+from datajunction_server.utils import get_settings
 
-router = APIRouter(tags=["Who am I?"], dependencies=[Depends(HTTPBearer())])
+settings = get_settings()
+router = APIRouter(
+    tags=["Who am I?"],
+    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
+)
 
 
 @router.get("/whoami/", response_model=UserOutput)
