@@ -6,13 +6,14 @@ from http import HTTPStatus
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.security import HTTPBearer
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_engine
 from datajunction_server.models.engine import Engine, EngineInfo
 from datajunction_server.utils import get_session
 
-router = APIRouter(tags=["engines"])
+router = APIRouter(tags=["engines"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.get("/engines/", response_model=List[EngineInfo])

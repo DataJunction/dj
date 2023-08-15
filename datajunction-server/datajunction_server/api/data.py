@@ -6,6 +6,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer
 from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
@@ -38,7 +39,7 @@ from datajunction_server.models.query import (
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import get_query_service_client, get_session
 
-router = APIRouter(tags=["data"])
+router = APIRouter(tags=["data"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.post("/data/{node_name}/availability/", name="Add Availability State to Node")

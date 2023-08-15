@@ -5,6 +5,7 @@ Data related APIs.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
+from fastapi.security import HTTPBearer
 from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
@@ -13,7 +14,7 @@ from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import get_query_service_client, get_session
 
-router = APIRouter()
+router = APIRouter(tags=["DJSQL"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.get("/djsql/data", response_model=QueryWithResults)

@@ -9,6 +9,7 @@ from typing import List, Optional, Union, cast
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from starlette.requests import Request
@@ -78,7 +79,7 @@ from datajunction_server.utils import (
 )
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["nodes"])
+router = APIRouter(tags=["nodes"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)

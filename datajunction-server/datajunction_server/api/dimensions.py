@@ -5,6 +5,7 @@ import logging
 from typing import List, Union
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.security import HTTPBearer
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from typing_extensions import Annotated
@@ -18,7 +19,7 @@ from datajunction_server.sql.dag import (
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["dimensions"])
+router = APIRouter(tags=["dimensions"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.get("/dimensions/", response_model=List[str])

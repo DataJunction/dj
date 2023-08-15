@@ -5,13 +5,12 @@ import logging
 from http import HTTPStatus
 
 import requests
-from fastapi import APIRouter, Request, Response
-from starlette.responses import JSONResponse, RedirectResponse
+from fastapi import APIRouter, Response
+from fastapi.responses import JSONResponse, RedirectResponse
 
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.authentication import github
-from datajunction_server.internal.authentication.jwt import create_jwt, encrypt
-from datajunction_server.models.user import UserOutput
+from datajunction_server.internal.authentication.jwt import encrypt
 from datajunction_server.utils import get_settings
 
 _logger = logging.getLogger(__name__)
@@ -81,19 +80,19 @@ async def get_access_token(
             http_status_code=HTTPStatus.UNAUTHORIZED,
             errors=[DJError(message=message, code=ErrorCode.OAUTH_ERROR)],
         )
-    token = access_data["access_token"]
-    response = JSONResponse(
-        content={"message": "Successfully logged in through GitHub OAuth"},
-        status_code=HTTPStatus.OK,
+    user = github.get_github_user(access_data["access_token"])
+    response = RedirectResponse(
+        url=settings.frontend_host,
     )
-    jwt = create_jwt({"sub": encrypt(token)})
-    response.set_cookie(key="__dj", value=jwt, httponly=True, samesite="strict")
+    if not user:
+        raise DJException(
+            http_status_code=HTTPStatus.UNAUTHORIZED,
+            errors=DJError(
+                code=ErrorCode.OAUTH_ERROR,
+                message=(
+                    "Could not retrieve user using the GitHub provided access token"
+                ),
+            ),
+        )
+    response.set_cookie(key="__dj", value=encrypt(user.username))
     return response
-
-
-@router.get("/github/whoami/", response_model=UserOutput)
-async def get_current_user(request: Request) -> UserOutput:  # pragma: no cover
-    """
-    Returns the current authenticated user
-    """
-    return request.state.user

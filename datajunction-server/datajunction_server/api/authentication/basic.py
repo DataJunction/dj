@@ -3,7 +3,7 @@ Basic OAuth Authentication Router
 """
 from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Form, Request
+from fastapi import APIRouter, Depends, Form
 from fastapi.responses import JSONResponse
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlmodel import Session, select
@@ -13,8 +13,8 @@ from datajunction_server.internal.authentication.basic import (
     get_password_hash,
     get_user_info,
 )
-from datajunction_server.internal.authentication.jwt import create_jwt, encrypt
-from datajunction_server.models.user import OAuthProvider, User, UserOutput
+from datajunction_server.internal.authentication.jwt import encrypt
+from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.utils import get_session
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/basic/login/")
@@ -67,18 +67,7 @@ async def login(
         password=form_data.password,
         session=session,
     )
-    jwt = create_jwt(data={"sub": encrypt(user.username)})
-    response = JSONResponse(
-        content={"message": "Successfully logged in through basic OAuth"},
+    return JSONResponse(
+        content={"token": encrypt(user.username)},
         status_code=HTTPStatus.OK,
     )
-    response.set_cookie(key="__dj", value=jwt, httponly=True, samesite="strict")
-    return response
-
-
-@router.get("/basic/whoami/", response_model=UserOutput)
-async def get_current_user(request: Request) -> UserOutput:
-    """
-    Returns the current authenticated user
-    """
-    return request.state.user

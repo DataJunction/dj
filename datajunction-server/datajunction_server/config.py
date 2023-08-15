@@ -62,6 +62,9 @@ class Settings(
     dj_logical_timestamp_format: Optional[str] = "${dj_logical_timestamp}"
 
     # DJ secret, used to encrypt passwords and JSON web tokens
+    frontend_host: Optional[str] = "http://localhost:3000"
+
+    # DJ secret, used to encrypt passwords and JSON web tokens
     secret: Optional[str] = None
 
     # GitHub OAuth application client ID

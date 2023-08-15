@@ -10,9 +10,9 @@ from passlib.context import CryptContext
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import Session, select
 
-from datajunction_server.constants import UNAUTHENTICATED_ENDPOINTS
+from datajunction_server.constants import SSE_ENDPOINTS, UNAUTHENTICATED_ENDPOINTS
 from datajunction_server.errors import DJError, DJException, ErrorCode
-from datajunction_server.internal.authentication.jwt import decrypt, get_jwt
+from datajunction_server.internal.authentication.jwt import decrypt, get_token
 from datajunction_server.models import User
 from datajunction_server.utils import get_session, get_settings
 
@@ -71,18 +71,21 @@ async def parse_basic_auth_cookie(
         or False
     )
     _logger.info("Attempting to get basic authenticated user from request cookie")
-    jwt = None
+    auth_token = None
     try:
-        jwt = get_jwt(request=request)
-    except (JWTError, AttributeError):
-        pass
-    encrypted_username = jwt.get("sub") if jwt else None
-    username = decrypt(encrypted_username) if encrypted_username else None
+        if any(request.url.path.startswith(endpoint) for endpoint in SSE_ENDPOINTS):
+            auth_token = request.query_params.get("token")
+        else:
+            auth_token = await get_token(request.headers.get("Authorization"))
+    except (JWTError, AttributeError) as exc:
+        _logger.error(str(exc))
+    username = decrypt(auth_token) if auth_token else None
+    _logger.info("User detected as %s", username)
     user = None
     try:
         user = session.exec(select(User).where(User.username == username)).one()
     except NoResultFound:
-        pass
+        _logger.error("Cannot find user %s", username)
     if (
         not user
         and not any([github_oauth_configured])

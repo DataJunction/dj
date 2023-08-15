@@ -1,14 +1,16 @@
 """JWT related functions"""
 
+import logging
 from datetime import datetime, timedelta
 from typing import Dict, Optional
 
-from fastapi import Request
+from fastapi import Header, Request
 from jose import jwe, jwt
 from passlib.context import CryptContext
 
 from datajunction_server.utils import get_settings
 
+_logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
@@ -31,7 +33,19 @@ def create_jwt(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     return encoded_jwt
 
 
-def get_jwt(request: Request) -> Optional[Dict]:
+async def decode_jwt(token: str) -> dict:
+    """
+    Decodes a JWT token
+    """
+    settings = get_settings()
+    return jwt.decode(
+        token,
+        settings.secret,
+        algorithms=["HS256"],
+    )
+
+
+async def get_jwt(request: Request) -> Optional[Dict]:
     """
     Get a DJ user from a request object by parsing the "__dj" cookie
 
@@ -39,14 +53,11 @@ def get_jwt(request: Request) -> Optional[Dict]:
         JWTError: If the JWT token is malformed or the signature fails
         AttributeError: If no "__dj" cookie is found on the request
     """
-    settings = get_settings()
-    token = request.cookies.get("__dj")
-    data = jwt.decode(
-        token,
-        settings.secret,
-        algorithms=["HS256"],
+    _logger.info(
+        "Checking for an authorization headers",
     )
-    return data
+    token = await get_token(request.headers.get("Authorization"))
+    return await decode_jwt(token)
 
 
 def encrypt(value: str) -> str:
@@ -68,3 +79,13 @@ def decrypt(value: str) -> str:
     """
     settings = get_settings()
     return jwe.decrypt(value, settings.secret).decode("utf-8")
+
+
+async def get_token(
+    authorization: str = Header(default="Bearer "),
+) -> str:
+    """
+    Get an authorization bearer token from an authorization header
+    """
+    _, token = authorization.split(" ")
+    return token

@@ -6,6 +6,7 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, Depends
+from fastapi.security import HTTPBearer
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJAlreadyExistsException, DJException
@@ -18,7 +19,7 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["attributes"])
+router = APIRouter(tags=["attributes"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.get("/attributes/", response_model=List[AttributeType])

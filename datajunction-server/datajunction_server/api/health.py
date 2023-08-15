@@ -6,12 +6,13 @@ import enum
 from typing import List
 
 from fastapi import APIRouter, Depends
+from fastapi.security import HTTPBearer
 from sqlalchemy import select
 from sqlmodel import Session, SQLModel
 
 from datajunction_server.utils import get_session
 
-router = APIRouter(tags=["health"])
+router = APIRouter(tags=["health"], dependencies=[Depends(HTTPBearer())])
 
 
 class HealthcheckStatus(str, enum.Enum):

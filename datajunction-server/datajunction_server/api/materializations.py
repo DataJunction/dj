@@ -9,6 +9,7 @@ from typing import List
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import get_node_by_name
@@ -28,7 +29,7 @@ from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import get_query_service_client, get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["materializations"])
+router = APIRouter(tags=["materializations"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.post(

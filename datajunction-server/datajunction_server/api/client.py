@@ -6,6 +6,7 @@ import json
 import logging
 
 from fastapi import APIRouter, Depends
+from fastapi.security import HTTPBearer
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import get_node_by_name
@@ -13,7 +14,7 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["client"])
+router = APIRouter(tags=["client"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)

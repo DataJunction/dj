@@ -40,9 +40,9 @@ from datajunction_server.api import (
 )
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.api.graphql.main import graphql_app
+from datajunction_server.api.authentication import whoami
 from datajunction_server.errors import DJError, DJException
 from datajunction_server.internal.authentication.basic import parse_basic_auth_cookie
-from datajunction_server.internal.authentication.github import parse_github_auth_cookie
 from datajunction_server.models.catalog import Catalog
 from datajunction_server.models.column import Column
 from datajunction_server.models.engine import Engine
@@ -57,17 +57,6 @@ if TYPE_CHECKING:  # pragma: no cover
 _logger = logging.getLogger(__name__)
 settings = get_settings()
 
-UNAUTHENTICATED_ENDPOINTS = [
-    "/docs",
-    "/openapi.json",
-    "/basic/user/",
-    "/basic/login/",
-    "/github/login/",
-    "/github/token/",
-]
-BASIC_OAUTH_CONFIGURED = settings.secret or False
-
-
 config.fileConfig(
     path.join(path.dirname(path.abspath(__file__)), "logging.conf"),
     disable_existing_loggers=False,
@@ -78,14 +67,6 @@ dependencies = [Depends(default_attribute_types)]
 # Only inject basic auth middleware if a server secret is configured
 if settings.secret:  # pragma: no cover
     dependencies.append(Depends(parse_basic_auth_cookie))
-if all(
-    [
-        settings.secret,
-        settings.github_oauth_client_id,
-        settings.github_oauth_client_secret,
-    ],
-):  # pragma: no cover
-    dependencies.append(Depends(parse_github_auth_cookie))
 
 app = FastAPI(
     title=settings.name,
@@ -122,6 +103,7 @@ app.include_router(sql.router)
 app.include_router(client.router)
 app.include_router(dimensions.router)
 app.include_router(graphql_app, prefix="/graphql")
+app.include_router(whoami.router)
 
 
 @app.exception_handler(DJException)

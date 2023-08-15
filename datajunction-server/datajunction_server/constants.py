@@ -24,3 +24,5 @@ UNAUTHENTICATED_ENDPOINTS = [
     "/github/login/",
     "/github/token/",
 ]
+
+SSE_ENDPOINTS = ["/stream", "/djsql/stream"]

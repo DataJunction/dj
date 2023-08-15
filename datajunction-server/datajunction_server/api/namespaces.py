@@ -7,6 +7,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
+from fastapi.security import HTTPBearer
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
@@ -26,7 +27,7 @@ from datajunction_server.models.node import NodeNameList, NodeNamespace, NodeTyp
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["namespaces"])
+router = APIRouter(tags=["namespaces"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)

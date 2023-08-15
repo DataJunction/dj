@@ -5,6 +5,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
+from fastapi.security import HTTPBearer
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import (
@@ -18,7 +19,7 @@ from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["sql"])
+router = APIRouter(tags=["sql"], dependencies=[Depends(HTTPBearer())])
 
 
 @router.get(
