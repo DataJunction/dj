@@ -751,7 +751,9 @@ def column_level_lineage(
                 column_level_lineage(
                     session,
                     current.table.dj_node,
-                    current.name.name,
+                    current.name.name
+                    if not current.is_struct_ref
+                    else current.struct_column_name,
                 ),
             )
         else:
