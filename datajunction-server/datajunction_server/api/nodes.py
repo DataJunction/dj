@@ -505,7 +505,10 @@ def link_dimension(
         name=dimension,
         node_type=NodeType.DIMENSION,
     )
-    if node.current.catalog.name != dimension_node.current.catalog.name:
+    if (
+        dimension_node.current.catalog is not None
+        and node.current.catalog.name != dimension_node.current.catalog.name
+    ):
         raise DJException(
             message=(
                 "Cannot add dimension to column, because catalogs do not match: "
