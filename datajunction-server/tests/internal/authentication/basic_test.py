@@ -61,16 +61,24 @@ def test_fail_on_user_already_exists(client: TestClient):
     }
 
 
-def test_parse_basic_auth_cookie(client: TestClient, session: Session):
+def test_parse_basic_auth_header(client: TestClient, session: Session):
     """
-    Test parsing a basic auth cookie
+    Test parsing a basic auth header
     """
     response = client.post("/basic/user/", data={"username": "dj", "password": "dj"})
     assert response.ok
     response = client.post("/basic/login/", data={"username": "dj", "password": "dj"})
     assert response.ok
-    request = Request("GET", "/metrics/", cookies=response.cookies)
-    request.url = MagicMock()
+    token = response.json()["token"]
+    request = Request(
+        "GET",
+        "/metrics/",
+        cookies=response.cookies,
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    url = MagicMock()
+    url.path = "/metrics/"
+    request.url = url
     request.state = MagicMock()  # type: ignore
     asyncio.run(basic.parse_basic_auth_cookie(request=request, session=session))
     assert request.state.user.username == "dj"  # type: ignore

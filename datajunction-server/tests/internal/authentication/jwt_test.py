@@ -1,6 +1,7 @@
 """
 Test JWT helper functions
 """
+import asyncio
 from datetime import timedelta
 
 from requests import Request
@@ -16,8 +17,13 @@ def test_create_and_get_jwt():
         data={"foo": "bar"},
         expires_delta=timedelta(minutes=30),
     )
-    request = Request("GET", "/metrics/", cookies={"__dj": jwt_string})
-    data = jwt.get_jwt(request=request)
+    request = Request(
+        "GET",
+        "/metrics/",
+        cookies={"__dj": jwt_string},
+        headers={"Authorization": f"Bearer {jwt_string}"},
+    )
+    data = asyncio.run(jwt.get_jwt(request=request))
     assert data["foo"] == "bar"
 
 

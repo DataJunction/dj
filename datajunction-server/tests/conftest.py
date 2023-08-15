@@ -196,6 +196,7 @@ def client(  # pylint: disable=too-many-statements
     app.dependency_overrides[get_settings] = get_settings_override
     app.dependency_overrides[parse_basic_auth_cookie] = parse_basic_auth_cookie_override
     with TestClient(app) as client:
+        client.headers.update({"Authorization": "Bearer foo"})
         yield client
 
     app.dependency_overrides.clear()
@@ -298,6 +299,7 @@ def client_with_query_service(  # pylint: disable=too-many-statements
     app.dependency_overrides[parse_basic_auth_cookie] = parse_basic_auth_cookie_override
 
     with TestClient(app) as client:
+        client.headers.update({"Authorization": "Bearer foo"})
         for endpoint, json in EXAMPLES:
             post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
         yield client
