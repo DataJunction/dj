@@ -317,3 +317,23 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
                 dimensions=["default.hard_hat.postal_code"],
             )
         assert "Error response from query service" in str(exc_info)
+
+    #
+    # Data Catalog and Engines
+    #
+    def test_list_catalogs(self, client):
+        """
+        Check that `client.list_catalogs()` works as expected.
+        """
+        result = client.list_catalogs()
+        assert result == ["draft", "default", "public"]
+
+    def test_list_engines(self, client):
+        """
+        Check that `client.list_engines()` works as expected.
+        """
+        result = client.list_engines()
+        assert result == [
+            {"name": "spark", "version": "3.1.1"},
+            {"name": "postgres", "version": "15.2"},
+        ]
