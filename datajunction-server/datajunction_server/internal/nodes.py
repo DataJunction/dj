@@ -234,7 +234,7 @@ def create_node_revision(
     ]
     new_parents = [node.name for node in dependencies_map]
     catalog_ids = [node.catalog_id for node in dependencies_map]
-    if node_revision.mode == NodeMode.PUBLISHED and not len(set(catalog_ids)) == 1:
+    if node_revision.mode == NodeMode.PUBLISHED and not len(set(catalog_ids)) <= 1:
         raise DJException(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
         )

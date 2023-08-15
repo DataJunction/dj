@@ -216,6 +216,55 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         session.commit()
         return node
 
+    def test_create_dimension_without_catalog(
+        self,
+        client_with_examples: TestClient,
+    ):
+        """
+        Test that creating a dimension that's purely query-based and therefore
+        doesn't reference a catalog works.
+        """
+        response = client_with_examples.post(
+            "/nodes/dimension/",
+            json={
+                "description": "Title",
+                "query": (
+                    "SELECT 0 AS title_code, 'Agha' AS title "
+                    "UNION ALL SELECT 1, 'Abbot' "
+                    "UNION ALL SELECT 2, 'Akhoond' "
+                    "UNION ALL SELECT 3, 'Apostle'"
+                ),
+                "mode": "published",
+                "name": "default.title",
+                "primary_key": ["title"],
+            },
+        )
+        assert response.json()["columns"] == [
+            {"attributes": [], "dimension": None, "name": "title_code", "type": "int"},
+            {
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "name": "title",
+                "type": "string",
+            },
+        ]
+
+        # Link the dimension to a column on the source node
+        response = client_with_examples.post(
+            "/nodes/default.hard_hats/columns/title/"
+            "?dimension=default.title&dimension_column=title",
+        )
+        assert response.ok
+        response = client_with_examples.get("/nodes/default.hard_hats/")
+        assert {
+            "attributes": [],
+            "dimension": {"name": "default.title"},
+            "name": "title",
+            "type": "string",
+        } in response.json()["columns"]
+
     def test_deleting_node(
         self,
         client_with_examples: TestClient,
