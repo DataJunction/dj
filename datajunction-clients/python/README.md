@@ -1,6 +1,6 @@
 # DataJunction Python Client
 
-This is a short introduction into the Python version of the Data Junction (DJ) client.
+This is a short introduction into the Python version of the DataJunction (DJ) client.
 For a full comprehensive intro into the DJ functionality please check out [datajunction.io](https://datajunction.io/).
 
 ## Installation
@@ -10,9 +10,17 @@ To install:
 pip install datajunction
 ```
 
+## Intro
+
+We have three top level client classes that help you choose the right path for your DataJunction actions.
+
+1. `DJClient` for basic read only access to metrics, dimensions, SQL and data.
+2. `DJBuilder` for those who would like to modify their DJ data model, build new nodes and/or modify the existing ones.
+3. `DJAdmin` for the administrators of the system to define the connections to your data catalog and engines.
+
 ## DJ Client : Basic Access
 
-Here you can see how to access and use the most common Data Junction features.
+Here you can see how to access and use the most common DataJunction features.
 
 ### Examples
 
@@ -108,6 +116,9 @@ List of all available DJ client methods:
   - list_transforms( namespace: Optional[str])
   - list_nodes( namespace: Optional[str], type_: Optional[NodeType])
 
+  - list_catalogs()
+  - list_engines()
+
   ### find
   - common_dimensions( metrics: List[str], name_only: bool = False)
   - common_metrics( dimensions: List[str], name_only: bool = False)
@@ -136,7 +147,7 @@ To initialize the DJ builder:
 ```python
 from datajunction import DJBuilder
 
-djb = DJBuilder("http://localhost:8000")
+djbuilder = DJBuilder("http://localhost:8000")
 ```
 
 **NOTE**
@@ -147,12 +158,12 @@ If you are running in our demo docker container please change the above URL to "
 To access a namespace or check if it exists you can use the same simple call:
 
 ```python
-djb.namespace("default")
+djbuilder.namespace("default")
 
 Namespace(dj_client=..., namespace='default')
 ```
 ```python
-djb.namespace("foo")
+djbuilder.namespace("foo")
 
 [DJClientException]: Namespace `foo` does not exist.
 ```
@@ -160,7 +171,7 @@ djb.namespace("foo")
 To create a namespace:
 
 ```python
-djb.create_namespace("foo")
+djbuilder.create_namespace("foo")
 
 Namespace(dj_client=..., namespace='foo')
 ```
@@ -168,9 +179,9 @@ Namespace(dj_client=..., namespace='foo')
 To delete (or restore) a namespace:
 
 ```python
-djb.delete_namespace("foo")
+djbuilder.delete_namespace("foo")
 
-djb.restore_namespace("foo")
+djbuilder.restore_namespace("foo")
 ```
 
 **NOTE:**
@@ -186,22 +197,22 @@ in the **DJ Client : Basic Access** section or you can use the namespace based m
 
 All nodes for a given namespace can be found with:
 ```python
-djb.namespace("default").nodes()
+djbuilder.namespace("default").nodes()
 ```
 
 Specific node types can be retrieved with:
 ```python
-djb.namespace("default").sources()
-djb.namespace("default").dimensions()
-djb.namespace("default").metrics()
-djb.namespace("default").transforms()
-djb.namespace("default").cubes()
+djbuilder.namespace("default").sources()
+djbuilder.namespace("default").dimensions()
+djbuilder.namespace("default").metrics()
+djbuilder.namespace("default").transforms()
+djbuilder.namespace("default").cubes()
 ```
 
 To create a source node:
 
 ```python
-repair_orders = djb.create_source(
+repair_orders = djbuilder.create_source(
     name="repair_orders",
     display_name="Repair Orders",
     description="Repair orders",
@@ -214,7 +225,7 @@ repair_orders = djb.create_source(
 Nodes can also be created in draft mode:
 
 ```python
-repair_orders = djb.create_source(
+repair_orders = djbuilder.create_source(
     ...,
     mode=NodeMode.DRAFT
 )
@@ -223,7 +234,7 @@ repair_orders = djb.create_source(
 To create a dimension node:
 
 ```python
-repair_order = djb.create_dimension(
+repair_order = djbuilder.create_dimension(
     name="default.repair_order_dim",
     query="""
     SELECT
@@ -240,7 +251,7 @@ repair_order = djb.create_dimension(
 
 To create a transform node:
 ```python
-large_revenue_payments_only = djb.create_transform(
+large_revenue_payments_only = djbuilder.create_transform(
     name="default.large_revenue_payments_only",
     query="""
     SELECT
@@ -257,7 +268,7 @@ large_revenue_payments_only = djb.create_transform(
 
 To create a metric:
 ```python
-num_repair_orders = djb.create_metric(
+num_repair_orders = djbuilder.create_metric(
     name="default.num_repair_orders",
     query="""
     SELECT
@@ -308,12 +319,27 @@ List of all available DJ builder methods:
 
 ## DJ System Administration
 
+In this section we'll describe how to manage your catalog and engines.
+
+### Start Here
+
+To initialize the DJ admin:
+
+```python
+from datajunction import DJAdmin
+
+djadmin = DJAdmin("http://localhost:8000")
+```
+
+**NOTE**
+If you are running in our demo docker container please change the above URL to "http://dj:8000".
+
 ### Examples
 
 To list available catalogs:
 
 ```python
-djb.list_catalogs()
+djadmin.list_catalogs()
 
 ['warehouse']
 ```
@@ -321,52 +347,50 @@ djb.list_catalogs()
 To list available engines:
 
 ```python
-djb.list_engines()
+djadmin.list_engines()
 
 [{'name': 'duckdb', 'version': '0.7.1'}]
 ```
 
-To create a catalog: (TODO)
+To create a catalog:
 
 ```python
-from datajunction import Catalog
-
-catalog = Catalog(
-    name="prod"
-)
-catalog.publish()
+djadmin.add_catalog(name="my-new-catalog")
 ```
 
-To create an engine: (TODO)
+To create a new engine:
 
 ```python
-from datajunction import Engine
-
-engine = Engine(
-    name="spark",
-    version="3.2.2",
-    uri="..."
+djadmin.add_engine(
+  name="Spark",
+  version="3.2.1",
+  uri="http:/foo",
+  dialect="spark"
 )
-engine.publish()
 ```
 
-To attach an engine to a catalog: (TODO)
+To linke an engine to a catalog:
 ```python
-catalog.add_engine(engine)
+djadmin.link_engine_to_catalog(
+  engine="Spark", version="3.2.1", catalog="my-new-catalog"
+)
 ```
 
 ### Reference
 
 List of all available DJ builder methods:
 
-- DJBuilder:
+- DJAdmin:
 
-  ### catalogs
-  - list_catalogs()
+  ### Catalogs
+  - list_catalogs()  # in DJClient
   - get_catalog( name: str)
-  - add_catalog( data: str) - TODO
+  - add_catalog( name: str)
 
-  ### catalogs
-  - list_engines()
+  ### Engines
+  - list_engines()  # in DJClient
   - get_engine( name: str)
-  - add_engine( data: str) - TODO
+  - add_engine( name: str,version: str, uri: Optional[str], dialect: Optional[str])
+
+  ### Together
+  - link_engine_to_catalog( engine_name: str, engine_version: str, catalog: str)
