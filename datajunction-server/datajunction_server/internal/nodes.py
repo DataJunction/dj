@@ -4,7 +4,7 @@ from collections import defaultdict
 from http import HTTPStatus
 from typing import List, Optional
 
-from cachetools import TTLCache, cached  # type: ignore
+from cachetools import cached, LRUCache  # type: ignore
 from cachetools.keys import hashkey  # type: ignore
 from fastapi import Depends
 from sqlmodel import Session, select
@@ -693,7 +693,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
 
 @cached(
-    cache=TTLCache(maxsize=200, ttl=300),
+    cache=LRUCache(maxsize=1000),
     key=lambda session, node_rev, column_name: hashkey(node_rev, column_name),
 )
 def column_level_lineage(
