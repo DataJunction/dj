@@ -1857,6 +1857,157 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
+    def test_node_with_struct(self, client_with_examples: TestClient):
+        """
+        Test that building a query string with structs yields a correctly formatted struct
+        reference.
+        """
+        response = client_with_examples.post(
+            "/nodes/transform/",
+            json={
+                "description": "Regional level agg with structs",
+                "query": """SELECT
+    usr.us_region_id,
+    us.state_name,
+    CONCAT(us.state_name, '-', usr.us_region_description) AS location_hierarchy,
+    EXTRACT(YEAR FROM ro.order_date) AS order_year,
+    EXTRACT(MONTH FROM ro.order_date) AS order_month,
+    EXTRACT(DAY FROM ro.order_date) AS order_day,
+    STRUCT(
+        COUNT(DISTINCT CASE WHEN ro.dispatched_date IS NOT NULL THEN ro.repair_order_id ELSE NULL END) AS completed_repairs,
+        COUNT(DISTINCT ro.repair_order_id) AS total_repairs_dispatched,
+        SUM(rd.price * rd.quantity) AS total_amount_in_region,
+        AVG(rd.price * rd.quantity) AS avg_repair_amount_in_region,
+        AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay,
+        COUNT(DISTINCT c.contractor_id) AS unique_contractors
+    ) AS measures
+FROM default.repair_orders ro
+JOIN
+    default.municipality m ON ro.municipality_id = m.municipality_id
+JOIN
+    default.us_states us ON m.state_id = us.state_id
+JOIN
+    default.us_states us ON m.state_id = us.state_id
+JOIN
+    default.us_region usr ON us.state_region = usr.us_region_id
+JOIN
+    default.repair_order_details rd ON ro.repair_order_id = rd.repair_order_id
+JOIN
+    default.repair_type rt ON rd.repair_type_id = rt.repair_type_id
+JOIN
+    default.contractors c ON rt.contractor_id = c.contractor_id
+GROUP BY
+    usr.us_region_id,
+    EXTRACT(YEAR FROM ro.order_date),
+    EXTRACT(MONTH FROM ro.order_date),
+    EXTRACT(DAY FROM ro.order_date)""",
+                "mode": "published",
+                "name": "default.regional_level_agg_structs",
+                "primary_key": [
+                    "us_region_id",
+                    "state_name",
+                    "order_year",
+                    "order_month",
+                    "order_day",
+                ],
+            },
+        )
+        assert {
+            "attributes": [],
+            "dimension": None,
+            "name": "measures",
+            "type": "struct<completed_repairs: bigint, "
+            "total_repairs_dispatched: bigint, "
+            "total_amount_in_region: double, "
+            "avg_repair_amount_in_region: double, "
+            "avg_dispatch_delay: double, unique_contractors: "
+            "bigint>",
+        } in response.json()["columns"]
+
+        client_with_examples.post(
+            "/nodes/transform/",
+            json={
+                "description": "Total Repair Amounts during the COVID-19 Pandemic",
+                "name": "default.total_amount_in_region_from_struct_transform",
+                "query": "SELECT SUM(IF(order_year = 2020, measures.total_amount_in_region, 0)) "
+                "FROM default.regional_level_agg_structs",
+                "mode": "published",
+            },
+        )
+        response = client_with_examples.get(
+            "/sql/default.total_amount_in_region_from_struct_transform?filters="
+            "&dimensions=default.regional_level_agg_structs.location_hierarchy",
+        )
+        assert compare_query_strings(
+            response.json()["sql"],
+            """SELECT SUM(
+    IF(
+      default_DOT_regional_level_agg_structs.order_year = 2020,
+      default_DOT_regional_level_agg_structs.measures.total_amount_in_region,
+      0
+    )
+  ) col0,
+  default_DOT_regional_level_agg_structs.location_hierarchy
+FROM (
+    SELECT CONCAT(
+        default_DOT_us_states.state_name,
+        '-',
+        default_DOT_us_region.us_region_description
+      ) AS location_hierarchy,
+      struct(
+        COUNT(
+          DISTINCT CASE
+            WHEN default_DOT_repair_orders.dispatched_date IS NOT NULL
+            THEN default_DOT_repair_orders.repair_order_id
+            ELSE NULL
+          END
+        ) AS completed_repairs,
+        COUNT(
+          DISTINCT default_DOT_repair_orders.repair_order_id
+        ) AS total_repairs_dispatched,
+        SUM(
+          default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity
+        ) AS total_amount_in_region,
+        AVG(
+          default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity
+        ) AS avg_repair_amount_in_region,
+        AVG(
+          DATEDIFF(
+            default_DOT_repair_orders.dispatched_date,
+            default_DOT_repair_orders.order_date
+          )
+        ) AS avg_dispatch_delay,
+        COUNT(DISTINCT default_DOT_contractors.contractor_id) AS unique_contractors
+      ) AS measures,
+      EXTRACT(DAY, default_DOT_repair_orders.order_date) AS order_day,
+      EXTRACT(MONTH, default_DOT_repair_orders.order_date) AS order_month,
+      EXTRACT(YEAR, default_DOT_repair_orders.order_date) AS order_year,
+      default_DOT_us_states.state_name,
+      default_DOT_us_region.us_region_id
+    FROM roads.repair_orders AS default_DOT_repair_orders
+      JOIN roads.municipality AS default_DOT_municipality
+        ON default_DOT_repair_orders.municipality_id = default_DOT_municipality.municipality_id
+      JOIN roads.us_states AS default_DOT_us_states
+        ON default_DOT_municipality.state_id = default_DOT_us_states.state_id
+      JOIN roads.us_states AS default_DOT_us_states
+        ON default_DOT_municipality.state_id = default_DOT_us_states.state_id
+      JOIN roads.us_region AS default_DOT_us_region
+        ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_id
+      JOIN roads.repair_order_details AS default_DOT_repair_order_details
+        ON default_DOT_repair_orders.repair_order_id =
+            default_DOT_repair_order_details.repair_order_id
+      JOIN roads.repair_type AS default_DOT_repair_type
+        ON default_DOT_repair_order_details.repair_type_id = default_DOT_repair_type.repair_type_id
+      JOIN roads.contractors AS default_DOT_contractors
+        ON default_DOT_repair_type.contractor_id = default_DOT_contractors.contractor_id
+    GROUP BY default_DOT_us_region.us_region_id,
+      EXTRACT(YEAR, default_DOT_repair_orders.order_date),
+      EXTRACT(MONTH, default_DOT_repair_orders.order_date),
+      EXTRACT(DAY, default_DOT_repair_orders.order_date)
+  ) AS default_DOT_regional_level_agg_structs
+GROUP BY default_DOT_regional_level_agg_structs.location_hierarchy""",
+        )
+
     def test_node_with_incremental_materialization(
         self,
         client_with_query_service: TestClient,
