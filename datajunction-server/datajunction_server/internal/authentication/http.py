@@ -31,7 +31,7 @@ class DJHTTPBearer(HTTPBearer):
                 session=session
             )
             return
-            
+
         authorization: str = request.headers.get("Authorization")
         scheme, credentials = get_authorization_scheme_param(authorization)
         if not (authorization and scheme and credentials):

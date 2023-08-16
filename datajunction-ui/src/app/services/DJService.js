@@ -1,22 +1,28 @@
 import { MarkerType } from 'reactflow';
-import Cookies from 'js-cookie';
 
-const getAuthorizationHeaders = () => {
-  const bearer_token = Cookies.get('__dj');
-  return new Headers({
-    Authorization: `Bearer ${bearer_token}`,
-    'Content-Type': 'application/x-www-form-urlencoded',
-  });
-};
 const DJ_URL = process.env.REACT_APP_DJ_URL
   ? process.env.REACT_APP_DJ_URL
   : 'http://localhost:8000';
 
 export const DataJunctionAPI = {
+  whoami: async function () {
+    const data = await (
+      await fetch(DJ_URL + '/whoami/', { credentials: 'include' })
+    ).json();
+    return data;
+  },
+
+  logout: async function () {
+    await await fetch(DJ_URL + '/basic/logout/', {
+      credentials: 'include',
+      method: 'POST',
+    });
+  },
+
   node: async function (name) {
     const data = await (
       await fetch(DJ_URL + '/nodes/' + name + '/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     data.primary_key = data.columns
@@ -30,7 +36,7 @@ export const DataJunctionAPI = {
   upstreams: async function (name) {
     const data = await (
       await fetch(DJ_URL + '/nodes/' + name + '/upstream/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -39,7 +45,7 @@ export const DataJunctionAPI = {
   downstreams: async function (name) {
     const data = await (
       await fetch(DJ_URL + '/nodes/' + name + '/downstream/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -48,7 +54,7 @@ export const DataJunctionAPI = {
   node_dag: async function (name) {
     const data = await (
       await fetch(DJ_URL + '/nodes/' + name + '/dag/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -56,7 +62,9 @@ export const DataJunctionAPI = {
 
   node_lineage: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/nodes/' + name + '/lineage/')
+      await fetch(DJ_URL + '/nodes/' + name + '/lineage/', {
+        credentials: 'include',
+      })
     ).json();
     return data;
   },
@@ -64,7 +72,7 @@ export const DataJunctionAPI = {
   metric: async function (name) {
     const data = await (
       await fetch(DJ_URL + '/metrics/' + name + '/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -73,7 +81,7 @@ export const DataJunctionAPI = {
   clientCode: async function (name) {
     const data = await (
       await fetch(DJ_URL + '/datajunction-clients/python/new_node/' + name, {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -82,7 +90,7 @@ export const DataJunctionAPI = {
   cube: async function (name) {
     const data = await (
       await fetch(DJ_URL + '/cubes/' + name + '/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -91,7 +99,7 @@ export const DataJunctionAPI = {
   metrics: async function (name) {
     const data = await (
       await fetch(DJ_URL + '/metrics/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -101,7 +109,7 @@ export const DataJunctionAPI = {
     const metricsQuery = '?' + metrics.map(m => `metric=${m}`).join('&');
     const data = await (
       await fetch(DJ_URL + '/metrics/common/dimensions/' + metricsQuery, {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -115,7 +123,7 @@ export const DataJunctionAPI = {
           name +
           `&offset=${offset ? offset : 0}&limit=${limit ? limit : 100}`,
         {
-          headers: getAuthorizationHeaders(),
+          credentials: 'include',
         },
       )
     ).json();
@@ -124,9 +132,7 @@ export const DataJunctionAPI = {
 
   revisions: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/nodes/' + name + '/revisions/', {
-        headers: getAuthorizationHeaders(),
-      })
+      await fetch(DJ_URL + '/nodes/' + name + '/revisions/')
     ).json();
     return data;
   },
@@ -134,7 +140,7 @@ export const DataJunctionAPI = {
   namespace: async function (nmspce) {
     const data = await (
       await fetch(DJ_URL + '/namespaces/' + nmspce + '/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -143,7 +149,7 @@ export const DataJunctionAPI = {
   namespaces: async function () {
     const data = await (
       await fetch(DJ_URL + '/namespaces/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -154,7 +160,7 @@ export const DataJunctionAPI = {
       await fetch(
         DJ_URL + '/sql/' + metric_name + '?' + new URLSearchParams(selection),
         {
-          headers: getAuthorizationHeaders(),
+          credentials: 'include',
         },
       )
     ).json();
@@ -164,7 +170,7 @@ export const DataJunctionAPI = {
   nodesWithDimension: async function (name) {
     const data = await (
       await fetch(DJ_URL + '/dimensions/' + name + '/nodes/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -173,7 +179,7 @@ export const DataJunctionAPI = {
   materializations: async function (node) {
     const data = await (
       await fetch(DJ_URL + `/nodes/${node}/materializations/`, {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
 
@@ -184,7 +190,7 @@ export const DataJunctionAPI = {
             DJ_URL +
               `/datajunction-clients/python/add_materialization/${node}/${materialization.name}`,
             {
-              headers: getAuthorizationHeaders(),
+              credentials: 'include',
             },
           )
         ).json();
@@ -202,7 +208,7 @@ export const DataJunctionAPI = {
               DJ_URL +
                 `/datajunction-clients/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
               {
-                headers: getAuthorizationHeaders(),
+                credentials: 'include',
               },
             )
           ).json();
@@ -218,7 +224,7 @@ export const DataJunctionAPI = {
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
     const data = await (
       await fetch(DJ_URL + '/sql/?' + params, {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -230,7 +236,7 @@ export const DataJunctionAPI = {
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
     const data = await (
       await fetch(DJ_URL + '/data/?' + params + '&limit=10000', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -240,9 +246,11 @@ export const DataJunctionAPI = {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
-    params.append('token', Cookies.get('__dj'));
     return new EventSource(
       DJ_URL + '/stream/?' + params + '&limit=10000&async_=true',
+      {
+        withCredentials: true,
+      },
     );
   },
 
@@ -251,7 +259,7 @@ export const DataJunctionAPI = {
   compiledSql: async function (node) {
     const data = await (
       await fetch(DJ_URL + `/sql/${node}/`, {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
     return data;
@@ -261,7 +269,7 @@ export const DataJunctionAPI = {
     const edges = [];
     const data = await (
       await fetch(DJ_URL + '/nodes/', {
-        headers: getAuthorizationHeaders(),
+        credentials: 'include',
       })
     ).json();
 

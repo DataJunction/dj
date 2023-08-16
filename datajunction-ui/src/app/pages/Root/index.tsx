@@ -1,13 +1,15 @@
+import { useContext } from 'react';
 import { Outlet } from 'react-router-dom';
 import logo from './assets/dj-logo.png';
 import { Helmet } from 'react-helmet-async';
-import { useCookies } from 'react-cookie';
+import DJClientContext from '../../providers/djclient';
 
 export function Root() {
-  const [, , removeCookie] = useCookies(['__dj']);
+  const djClient = useContext(DJClientContext).DataJunctionAPI;
 
-  const logout = () => {
-    removeCookie('__dj', { path: '/' });
+  const handleLogout = async () => {
+    await djClient.logout();
+    window.location.reload();
   };
   return (
     <>
@@ -57,9 +59,7 @@ export function Root() {
         ) : (
           <span className="menu-link">
             <span className="menu-title">
-              <a href="/" onClick={logout}>
-                Logout
-              </a>
+              <button onClick={handleLogout}>Logout</button>
             </span>
           </span>
         )}

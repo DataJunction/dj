@@ -4,29 +4,28 @@ import '../../../styles/login.css';
 import logo from '../Root/assets/dj-logo.png';
 import GitHubLoginButton from './assets/sign-in-with-github.png';
 
-export function LoginPage({ onLogin }) {
+export function LoginPage() {
   const [, setError] = useState('');
   const githubLoginURL = new URL('/github/login/', process.env.REACT_APP_DJ_URL)
     .href;
-  function handleBasicLogin({ username, password }) {
+
+  const handleBasicLogin = async ({ username, password }) => {
     const data = new FormData();
     data.append('username', username);
     data.append('password', password);
-    fetch(`${process.env.REACT_APP_DJ_URL}/basic/login/`, {
+    await fetch(`${process.env.REACT_APP_DJ_URL}/basic/login/`, {
       method: 'POST',
       body: data,
       credentials: 'include',
-    })
-      .then(response => response.json())
-      .then(data => onLogin(data.token))
-      .catch(error => {
-        setError(error ? JSON.stringify(error) : '');
-      });
-  }
+    }).catch(error => {
+      setError(error ? JSON.stringify(error) : '');
+    });
+    window.location.reload();
+  };
 
   return (
-    <div class="container">
-      <div class="login">
+    <div className="container">
+      <div className="login">
         <center>
           <Formik
             initialValues={{ username: '', password: '' }}

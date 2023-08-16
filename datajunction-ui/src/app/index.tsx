@@ -16,56 +16,59 @@ import { Root } from './pages/Root/Loadable';
 import DJClientContext from './providers/djclient';
 import { DataJunctionAPI } from './services/DJService';
 import { CookiesProvider, useCookies } from 'react-cookie';
+import * as Constants from './constants';
 
 export function App() {
-  const [cookies, setCookie] = useCookies(['__dj']);
-  function handleLogin(jwt) {
-    console.log(jwt);
-    setCookie('__dj', jwt, { path: '/' });
-  }
+  const [cookies] = useCookies([Constants.DJ_LOGGED_IN_FLAG_COOKIE]);
   return (
     <CookiesProvider>
-      {cookies.__dj || process.env.REACT_DISABLE_AUTH === 'true' ? (
-        <BrowserRouter>
-          <Helmet
-            titleTemplate="DataJunction: %s"
-            defaultTitle="DataJunction: A Metrics Platform"
-          >
-            <meta
-              name="description"
-              content="DataJunction serves as a semantic layer to help manage metrics"
-            />
-          </Helmet>
-          <DJClientContext.Provider value={{ DataJunctionAPI }}>
-            <Routes>
-              <Route
-                path="/"
-                element={<Root />}
-                children={
-                  <>
-                    <Route path="nodes" key="nodes">
-                      <Route path=":name" element={<NodePage />} />
-                    </Route>
-
-                    <Route path="/" element={<NamespacePage />} key="index" />
-                    <Route path="namespaces">
-                      <Route
-                        path=":namespace"
-                        element={<NamespacePage />}
-                        key="namespaces"
-                      />
-                    </Route>
-                    <Route path="sql" key="sql" element={<SQLBuilderPage />} />
-                  </>
-                }
+      <BrowserRouter>
+        {cookies.__djlif || process.env.REACT_DISABLE_AUTH === 'true' ? (
+          <>
+            <Helmet
+              titleTemplate="DataJunction: %s"
+              defaultTitle="DataJunction: A Metrics Platform"
+            >
+              <meta
+                name="description"
+                content="DataJunction serves as a semantic layer to help manage metrics"
               />
-              <Route path="*" element={<NotFoundPage />} />
-            </Routes>
-          </DJClientContext.Provider>
-        </BrowserRouter>
-      ) : (
-        <LoginPage onLogin={handleLogin} />
-      )}
+            </Helmet>
+            <DJClientContext.Provider value={{ DataJunctionAPI }}>
+              <Routes>
+                <Route
+                  path="/"
+                  element={<Root />}
+                  children={
+                    <>
+                      <Route path="nodes" key="nodes">
+                        <Route path=":name" element={<NodePage />} />
+                      </Route>
+
+                      <Route path="/" element={<NamespacePage />} key="index" />
+                      <Route path="namespaces">
+                        <Route
+                          path=":namespace"
+                          element={<NamespacePage />}
+                          key="namespaces"
+                        />
+                      </Route>
+                      <Route
+                        path="sql"
+                        key="sql"
+                        element={<SQLBuilderPage />}
+                      />
+                    </>
+                  }
+                />
+                <Route path="*" element={<NotFoundPage />} />
+              </Routes>
+            </DJClientContext.Provider>
+          </>
+        ) : (
+          <LoginPage />
+        )}
+      </BrowserRouter>
     </CookiesProvider>
   );
 }
