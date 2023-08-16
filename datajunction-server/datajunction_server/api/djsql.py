@@ -5,11 +5,11 @@ Data related APIs.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
-from fastapi.security import HTTPBearer
 from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
@@ -19,10 +19,8 @@ from datajunction_server.utils import (
 )
 
 settings = get_settings()
-router = APIRouter(
-    tags=["DJSQL"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["DJSQL"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 @router.get("/djsql/data", response_model=QueryWithResults)

@@ -6,10 +6,10 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, Depends
-from fastapi.security import HTTPBearer
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJAlreadyExistsException, DJException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.attribute import (
     RESERVED_ATTRIBUTE_NAMESPACE,
     AttributeType,
@@ -20,10 +20,8 @@ from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(
-    tags=["attributes"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["attributes"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 @router.get("/attributes/", response_model=List[AttributeType])

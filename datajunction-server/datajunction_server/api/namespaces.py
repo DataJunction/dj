@@ -7,7 +7,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
@@ -17,6 +16,7 @@ from datajunction_server.api.helpers import (
     get_node_namespace,
 )
 from datajunction_server.errors import DJAlreadyExistsException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.internal.namespaces import (
     create_namespace,
     get_nodes_in_namespace,
@@ -28,10 +28,8 @@ from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(
-    tags=["namespaces"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["namespaces"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)

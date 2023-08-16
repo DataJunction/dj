@@ -5,7 +5,6 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.security import HTTPBearer
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import (
@@ -14,16 +13,15 @@ from datajunction_server.api.helpers import (
     get_query,
     validate_orderby,
 )
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(
-    tags=["sql"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["sql"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 @router.get(

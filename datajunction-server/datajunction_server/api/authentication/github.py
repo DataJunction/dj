@@ -2,15 +2,17 @@
 GitHub OAuth Authentication Router
 """
 import logging
+from datetime import timedelta
 from http import HTTPStatus
 
 import requests
 from fastapi import APIRouter, Response
 from fastapi.responses import JSONResponse, RedirectResponse
 
+from datajunction_server.constants import DJ_AUTH_COOKIE, DJ_LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.authentication import github
-from datajunction_server.internal.authentication.jwt import encrypt
+from datajunction_server.internal.authentication.tokens import create_token
 from datajunction_server.utils import get_settings
 
 _logger = logging.getLogger(__name__)
@@ -94,5 +96,13 @@ async def get_access_token(
                 ),
             ),
         )
-    response.set_cookie(key="__dj", value=encrypt(user.username))
+    response.set_cookie(
+        DJ_AUTH_COOKIE,
+        create_token({"username": user.username}, expires_delta=timedelta(days=365)),
+        httponly=True,
+    )
+    response.set_cookie(
+        DJ_LOGGED_IN_FLAG_COOKIE,
+        "true",
+    )
     return response

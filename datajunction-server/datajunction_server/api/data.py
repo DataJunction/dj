@@ -6,7 +6,6 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer
 from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
@@ -23,6 +22,7 @@ from datajunction_server.errors import (
     DJInvalidInputException,
     DJQueryServiceClientException,
 )
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models import History
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL
@@ -44,10 +44,8 @@ from datajunction_server.utils import (
 )
 
 settings = get_settings()
-router = APIRouter(
-    tags=["data"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["data"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 @router.post("/data/{node_name}/availability/", name="Add Availability State to Node")

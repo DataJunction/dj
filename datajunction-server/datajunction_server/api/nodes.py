@@ -9,7 +9,6 @@ from typing import List, Optional, Union, cast
 
 from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from starlette.requests import Request
@@ -31,6 +30,7 @@ from datajunction_server.api.helpers import (
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tag_by_name
 from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.internal.materializations import schedule_materialization_jobs
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
@@ -79,10 +79,8 @@ from datajunction_server.utils import (
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(
-    tags=["nodes"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["nodes"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)

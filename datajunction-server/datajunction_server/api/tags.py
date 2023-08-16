@@ -5,11 +5,11 @@ Tag related APIs.
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends
-from fastapi.security import HTTPBearer
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models import History
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeType
@@ -17,10 +17,8 @@ from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
 from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
-router = APIRouter(
-    tags=["tags"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["tags"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 def get_tag_by_name(

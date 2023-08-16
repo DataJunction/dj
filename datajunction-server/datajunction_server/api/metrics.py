@@ -6,23 +6,21 @@ from http import HTTPStatus
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.security import HTTPBearer
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJError, DJException, ErrorCode
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.metric import Metric
 from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
-router = APIRouter(
-    tags=["metrics"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["metrics"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 def get_metric(session: Session, name: str) -> Node:

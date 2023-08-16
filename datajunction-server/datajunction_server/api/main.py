@@ -41,8 +41,7 @@ from datajunction_server.api import (
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.api.authentication import whoami
-from datajunction_server.errors import DJError, DJException
-from datajunction_server.internal.authentication.basic import parse_basic_auth_cookie
+from datajunction_server.errors import DJException
 from datajunction_server.models.catalog import Catalog
 from datajunction_server.models.column import Column
 from datajunction_server.models.engine import Engine
@@ -63,10 +62,6 @@ config.fileConfig(
 )
 
 dependencies = [Depends(default_attribute_types)]
-
-# Only inject basic auth middleware if a server secret is configured
-if settings.secret:  # pragma: no cover
-    dependencies.append(Depends(parse_basic_auth_cookie))
 
 app = FastAPI(
     title=settings.name,

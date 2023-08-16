@@ -6,19 +6,17 @@ import logging
 from typing import List
 
 from fastapi import APIRouter, Depends, Query
-from fastapi.security import HTTPBearer
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_history
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.history import EntityType, History
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(
-    tags=["history"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["history"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 @router.get("/history/{entity_type}/{entity_name}/", response_model=List[History])

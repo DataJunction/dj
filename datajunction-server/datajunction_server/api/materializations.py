@@ -9,11 +9,11 @@ from typing import List
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse
-from fastapi.security import HTTPBearer
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
@@ -34,10 +34,8 @@ from datajunction_server.utils import (
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-router = APIRouter(
-    tags=["materializations"],
-    dependencies=[Depends(HTTPBearer())] if settings.secret else [],
-)
+tags = ["materializations"]
+router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
 
 
 @router.post(
