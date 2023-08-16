@@ -4,7 +4,7 @@ from collections import defaultdict
 from http import HTTPStatus
 from typing import List, Optional
 
-from cachetools import cached, LRUCache  # type: ignore
+from cachetools import LRUCache, cached  # type: ignore
 from cachetools.keys import hashkey  # type: ignore
 from fastapi import Depends
 from sqlmodel import Session, select
