@@ -42,7 +42,7 @@ def get_github_user(access_token: str) -> Optional[User]:  # pragma: no cover
     if "message" in user_data and user_data["message"] == "Bad credentials":
         return None
     session = next(get_session())
-    existing_user = None
+    existing_user: Optional[User] = None
     try:
         existing_user = session.exec(
             select(User).where(User.username == user_data["login"]),
@@ -51,7 +51,7 @@ def get_github_user(access_token: str) -> Optional[User]:  # pragma: no cover
         pass
     if existing_user:
         _logger.info("OAuth user found")
-        user = existing_user  # type: ignore
+        user = existing_user
     else:
         _logger.info("OAuth user does not exist, creating a new user")
         new_user = User(
