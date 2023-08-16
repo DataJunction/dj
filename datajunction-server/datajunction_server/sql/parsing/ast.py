@@ -701,6 +701,7 @@ class Column(Aliasable, Named, Expression):
         repr=False,
         default=None,
     )
+    _is_struct_ref: bool = False
     _type: Optional["ColumnType"] = field(repr=False, default=None)
     _expression: Optional[Expression] = field(repr=False, default=None)
     _is_compiled: bool = False
@@ -747,6 +748,13 @@ class Column(Aliasable, Named, Expression):
         """
         self._expression = expression
         return self
+
+    def set_struct_ref(self):
+        """
+        Marks this column as a struct dereference. This implies that we treat the name
+        and namespace values on this object as struct column and struct subscript values.
+        """
+        self._is_struct_ref = True
 
     def add_table(self, table: "TableExpression"):
         self._table = table
@@ -926,11 +934,26 @@ class Column(Aliasable, Named, Expression):
             source_table.add_ref_column(self, ctx)
         self._is_compiled = True
 
+    @property
+    def struct_column_name(self) -> str:
+        """If this is a struct reference, the struct type's column name"""
+        return self.namespace[0].name
+
+    @property
+    def struct_subscript(self) -> str:
+        """If this is a struct reference, the struct type's field name"""
+        return self.name.name
+
     def __str__(self) -> str:
         as_ = " AS " if self.as_ else " "
         alias = "" if not self.alias else f"{as_}{self.alias}"
         if self.table is not None and not isinstance(self.table, FunctionTable):
-            ret = f"{self.name.quote_style}{self.name.name}{self.name.quote_style}"
+            name = (
+                self.struct_column_name + "." + self.struct_subscript
+                if self._is_struct_ref
+                else self.name.name
+            )
+            ret = f"{self.name.quote_style}{name}{self.name.quote_style}"
             if table_name := self.table.alias_or_name:
                 ret = table_name.identifier() + "." + ret
         else:
@@ -938,6 +961,10 @@ class Column(Aliasable, Named, Expression):
         if self.parenthesized:
             ret = f"({ret})"
         return ret + alias
+
+    @property
+    def is_struct_ref(self):
+        return self._is_struct_ref
 
 
 @dataclass(eq=False)
@@ -1056,15 +1083,19 @@ class TableExpression(Aliasable, Expression):
                 # the search column's namespace and if there's a nested field that matches the
                 # search column's name
                 if isinstance(col.type, StructType):
+                    # struct column name
                     column_namespace = ".".join(
                         [name.name for name in column.namespace],
                     )
                     if column_namespace == col.alias_or_name.identifier(False):
                         for type_field in col.type.fields:
                             if type_field.name.name == column.name.name:
+                                self._ref_columns.append(column)
+                                column.set_struct_ref()
                                 column.add_table(self)
                                 column.add_expression(col)
                                 column.add_type(type_field.type)
+                                return True
         return False
 
     def is_compiled(self) -> bool:
