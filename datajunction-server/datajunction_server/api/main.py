@@ -39,6 +39,7 @@ from datajunction_server.api import (
     tags,
 )
 from datajunction_server.api.attributes import default_attribute_types
+from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.errors import DJError, DJException
 from datajunction_server.internal.authentication.basic import parse_basic_auth_cookie
 from datajunction_server.internal.authentication.github import parse_github_auth_cookie
@@ -120,6 +121,7 @@ app.include_router(attributes.router)
 app.include_router(sql.router)
 app.include_router(client.router)
 app.include_router(dimensions.router)
+app.include_router(graphql_app, prefix="/graphql")
 
 
 @app.exception_handler(DJException)
