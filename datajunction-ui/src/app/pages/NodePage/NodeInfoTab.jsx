@@ -11,21 +11,8 @@ SyntaxHighlighter.registerLanguage('sql', sql);
 foundation.hljs['padding'] = '2rem';
 
 export default function NodeInfoTab({ node }) {
-  const [compiledSQL, setCompiledSQL] = useState('');
   const [checked, setChecked] = useState(false);
   const nodeTags = node?.tags.map(tag => <div>{tag}</div>);
-  const djClient = useContext(DJClientContext).DataJunctionAPI;
-  useEffect(() => {
-    const fetchData = async () => {
-      const data = djClient.compiledSql(node.name);
-      if (data.sql) {
-        setCompiledSQL(data.sql);
-      } else {
-        setCompiledSQL('/* Ran into an issue while generating compiled SQL */');
-      }
-    };
-    fetchData().catch(console.error);
-  }, [node, djClient]);
   function toggle(value) {
     return !value;
   }
@@ -38,18 +25,8 @@ export default function NodeInfoTab({ node }) {
           }}
         >
           <h6 className="mb-0 w-100">Query</h6>
-          {['metric', 'dimension', 'transform'].indexOf(node?.type) > -1 ? (
-            <ToggleSwitch
-              id="toggleSwitch"
-              checked={checked}
-              onChange={() => setChecked(toggle)}
-              toggleName="Show Compiled SQL"
-            />
-          ) : (
-            <></>
-          )}
           <SyntaxHighlighter language="sql" style={foundation}>
-            {checked ? compiledSQL : node?.query}
+            {node?.query}
           </SyntaxHighlighter>
         </div>
       </div>
