@@ -17,15 +17,19 @@ export default function NodeInfoTab({ node }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   useEffect(() => {
     const fetchData = async () => {
-      const data = djClient.compiledSql(node.name);
-      if (data.sql) {
-        setCompiledSQL(data.sql);
-      } else {
-        setCompiledSQL('/* Ran into an issue while generating compiled SQL */');
+      if (checked === true) {
+        const data = await djClient.compiledSql(node.name);
+        if (data.sql) {
+          setCompiledSQL(data.sql);
+        } else {
+          setCompiledSQL(
+            '/* Ran into an issue while generating compiled SQL */',
+          );
+        }
       }
     };
     fetchData().catch(console.error);
-  }, [node, djClient]);
+  }, [node, djClient, checked]);
   function toggle(value) {
     return !value;
   }
