@@ -39,8 +39,8 @@ from datajunction_server.api import (
     tags,
 )
 from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.api.authentication import whoami
+from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.errors import DJException
 from datajunction_server.models.catalog import Catalog
 from datajunction_server.models.column import Column

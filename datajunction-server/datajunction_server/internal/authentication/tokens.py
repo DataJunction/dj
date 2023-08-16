@@ -4,9 +4,8 @@ Helper functions for authentication tokens
 
 import logging
 from datetime import datetime, timedelta
-from typing import Dict, Optional
+from typing import Optional
 
-from fastapi import Header, Request
 from jose import jwe, jwt
 from passlib.context import CryptContext
 
@@ -14,6 +13,7 @@ from datajunction_server.utils import get_settings
 
 _logger = logging.getLogger(__name__)
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
 
 def encrypt(value: str) -> str:
     """
@@ -39,11 +39,12 @@ def decrypt(value: str) -> str:
 def create_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     """
     Encode data into a signed JWT that's then encrypted using JWE.
-    
-    Tokens are created by encoding data (typically a user's information) into a signed JWT that's then encrypted
-    using JWE. The resulting string can then be stored in a cookie or authorization headers. When returning a
-    token in any form other than an HTTP-only cookie, it's important that a reasonably small expires_delta is
-    provided, such as 24 hours.
+
+    Tokens are created by encoding data (typically a user's information) into
+    a signed JWT that's then encrypted using JWE. The resulting string can
+    then be stored in a cookie or authorization headers. When returning a token
+    in any form other than an HTTP-only cookie, it's important that a reasonably
+    small expires_delta is provided, such as 24 hours.
     """
     settings = get_settings()
     to_encode = data.copy()
