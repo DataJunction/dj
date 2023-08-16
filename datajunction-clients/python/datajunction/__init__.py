@@ -3,6 +3,7 @@ A DataJunction client for connecting to a DataJunction server
 """
 from importlib.metadata import PackageNotFoundError, version  # pragma: no cover
 
+from datajunction.admin import DJAdmin
 from datajunction.builder import DJBuilder
 from datajunction.client import DJClient
 from datajunction.models import (
@@ -35,6 +36,7 @@ finally:
 __all__ = [
     "DJClient",
     "DJBuilder",
+    "DJAdmin",
     "AvailabilityState",
     "ColumnAttribute",
     "Source",
