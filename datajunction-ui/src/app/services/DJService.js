@@ -7,13 +7,13 @@ const DJ_URL = process.env.REACT_APP_DJ_URL
 export const DataJunctionAPI = {
   whoami: async function () {
     const data = await (
-      await fetch(DJ_URL + '/whoami/', { credentials: 'include' })
+      await fetch(`${DJ_URL}/whoami/`, { credentials: 'include' })
     ).json();
     return data;
   },
 
   logout: async function () {
-    await await fetch(DJ_URL + '/basic/logout/', {
+    await await fetch(`${DJ_URL}/basic/logout/`, {
       credentials: 'include',
       method: 'POST',
     });
@@ -21,7 +21,7 @@ export const DataJunctionAPI = {
 
   node: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/nodes/' + name + '/', {
+      await fetch(`${DJ_URL}/nodes/` + name + '/', {
         credentials: 'include',
       })
     ).json();
@@ -35,7 +35,7 @@ export const DataJunctionAPI = {
 
   upstreams: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/nodes/' + name + '/upstream/', {
+      await fetch(`${DJ_URL}/nodes/` + name + '/upstream/', {
         credentials: 'include',
       })
     ).json();
@@ -44,7 +44,7 @@ export const DataJunctionAPI = {
 
   downstreams: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/nodes/' + name + '/downstream/', {
+      await fetch(`${DJ_URL}/nodes/` + name + '/downstream/', {
         credentials: 'include',
       })
     ).json();
@@ -53,7 +53,7 @@ export const DataJunctionAPI = {
 
   node_dag: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/nodes/' + name + '/dag/', {
+      await fetch(`${DJ_URL}/nodes/` + name + '/dag/', {
         credentials: 'include',
       })
     ).json();
@@ -62,7 +62,7 @@ export const DataJunctionAPI = {
 
   node_lineage: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/nodes/' + name + '/lineage/', {
+      await fetch(`${DJ_URL}/nodes/` + name + '/lineage/', {
         credentials: 'include',
       })
     ).json();
@@ -71,7 +71,7 @@ export const DataJunctionAPI = {
 
   metric: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/metrics/' + name + '/', {
+      await fetch(`${DJ_URL}/metrics/` + name + '/', {
         credentials: 'include',
       })
     ).json();
@@ -80,7 +80,7 @@ export const DataJunctionAPI = {
 
   clientCode: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/datajunction-clients/python/new_node/' + name, {
+      await fetch(`${DJ_URL}/datajunction-clients/python/new_node/` + name, {
         credentials: 'include',
       })
     ).json();
@@ -89,7 +89,7 @@ export const DataJunctionAPI = {
 
   cube: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/cubes/' + name + '/', {
+      await fetch(`${DJ_URL}/cubes/` + name + '/', {
         credentials: 'include',
       })
     ).json();
@@ -98,7 +98,7 @@ export const DataJunctionAPI = {
 
   metrics: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/metrics/', {
+      await fetch(`${DJ_URL}/metrics/`, {
         credentials: 'include',
       })
     ).json();
@@ -108,7 +108,7 @@ export const DataJunctionAPI = {
   commonDimensions: async function (metrics) {
     const metricsQuery = '?' + metrics.map(m => `metric=${m}`).join('&');
     const data = await (
-      await fetch(DJ_URL + '/metrics/common/dimensions/' + metricsQuery, {
+      await fetch(`${DJ_URL}/metrics/common/dimensions/` + metricsQuery, {
         credentials: 'include',
       })
     ).json();
@@ -118,8 +118,7 @@ export const DataJunctionAPI = {
   history: async function (type, name, offset, limit) {
     const data = await (
       await fetch(
-        DJ_URL +
-          '/history?node=' +
+        `${DJ_URL}/history?node=` +
           name +
           `&offset=${offset ? offset : 0}&limit=${limit ? limit : 100}`,
         {
@@ -132,14 +131,14 @@ export const DataJunctionAPI = {
 
   revisions: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/nodes/' + name + '/revisions/')
+      await fetch(`${DJ_URL}/nodes/` + name + '/revisions/')
     ).json();
     return data;
   },
 
   namespace: async function (nmspce) {
     const data = await (
-      await fetch(DJ_URL + '/namespaces/' + nmspce + '/', {
+      await fetch(`${DJ_URL}/namespaces/` + nmspce + '/', {
         credentials: 'include',
       })
     ).json();
@@ -148,7 +147,7 @@ export const DataJunctionAPI = {
 
   namespaces: async function () {
     const data = await (
-      await fetch(DJ_URL + '/namespaces/', {
+      await fetch(`${DJ_URL}/namespaces/`, {
         credentials: 'include',
       })
     ).json();
@@ -158,7 +157,7 @@ export const DataJunctionAPI = {
   sql: async function (metric_name, selection) {
     const data = await (
       await fetch(
-        DJ_URL + '/sql/' + metric_name + '?' + new URLSearchParams(selection),
+        `${DJ_URL}/sql/` + metric_name + '?' + new URLSearchParams(selection),
         {
           credentials: 'include',
         },
@@ -169,7 +168,7 @@ export const DataJunctionAPI = {
 
   nodesWithDimension: async function (name) {
     const data = await (
-      await fetch(DJ_URL + '/dimensions/' + name + '/nodes/', {
+      await fetch(`${DJ_URL}/dimensions/` + name + '/nodes/', {
         credentials: 'include',
       })
     ).json();
@@ -178,7 +177,7 @@ export const DataJunctionAPI = {
 
   materializations: async function (node) {
     const data = await (
-      await fetch(DJ_URL + `/nodes/${node}/materializations/`, {
+      await fetch(`${DJ_URL}/nodes/${node}/materializations/`, {
         credentials: 'include',
       })
     ).json();
@@ -187,8 +186,7 @@ export const DataJunctionAPI = {
       data.map(async materialization => {
         materialization.clientCode = await (
           await fetch(
-            DJ_URL +
-              `/datajunction-clients/python/add_materialization/${node}/${materialization.name}`,
+            `${DJ_URL}/datajunction-clients/python/add_materialization/${node}/${materialization.name}`,
             {
               credentials: 'include',
             },
@@ -205,8 +203,7 @@ export const DataJunctionAPI = {
         if (col.dimension !== null) {
           col.clientCode = await (
             await fetch(
-              DJ_URL +
-                `/datajunction-clients/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
+              `${DJ_URL}/datajunction-clients/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
               {
                 credentials: 'include',
               },
@@ -223,7 +220,7 @@ export const DataJunctionAPI = {
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
     const data = await (
-      await fetch(DJ_URL + '/sql/?' + params, {
+      await fetch(`${DJ_URL}/sql/?` + params, {
         credentials: 'include',
       })
     ).json();
@@ -235,7 +232,7 @@ export const DataJunctionAPI = {
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
     const data = await (
-      await fetch(DJ_URL + '/data/?' + params + '&limit=10000', {
+      await fetch(`${DJ_URL}/data/?` + params + '&limit=10000', {
         credentials: 'include',
       })
     ).json();
@@ -247,7 +244,7 @@ export const DataJunctionAPI = {
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
     return new EventSource(
-      DJ_URL + '/stream/?' + params + '&limit=10000&async_=true',
+      `${DJ_URL}/stream/?${params}&limit=10000&async_=true`,
       {
         withCredentials: true,
       },
@@ -258,7 +255,7 @@ export const DataJunctionAPI = {
 
   compiledSql: async function (node) {
     const data = await (
-      await fetch(DJ_URL + `/sql/${node}/`, {
+      await fetch(`${DJ_URL}/sql/${node}/`, {
         credentials: 'include',
       })
     ).json();
@@ -268,7 +265,7 @@ export const DataJunctionAPI = {
   dag: async function (namespace = 'default') {
     const edges = [];
     const data = await (
-      await fetch(DJ_URL + '/nodes/', {
+      await fetch(`${DJ_URL}/nodes/`, {
         credentials: 'include',
       })
     ).json();
