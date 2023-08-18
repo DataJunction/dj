@@ -8,6 +8,7 @@ from alive_progress import alive_bar
 
 from datajunction import _internal, models
 from datajunction.exceptions import DJClientException
+from datajunction.nodes import Cube, Dimension, Metric, Source, Transform
 
 
 class DJClient(_internal.DJClient):
@@ -280,3 +281,88 @@ class DJClient(_internal.DJClient):
             {"name": engine["name"], "version": engine["version"]}
             for engine in json_response
         ]
+
+    # Read nodes
+    def source(self, node_name: str) -> Source:
+        """
+        Retrieves a source node with that name if one exists.
+        """
+        node_dict = self._verify_node_exists(
+            node_name,
+            type_=models.NodeType.SOURCE.value,
+        )
+        node = Source(
+            **node_dict,
+            dj_client=self,
+        )
+        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
+        return node
+
+    def transform(self, node_name: str) -> Transform:
+        """
+        Retrieves a transform node with that name if one exists.
+        """
+        node_dict = self._verify_node_exists(
+            node_name,
+            type_=models.NodeType.TRANSFORM.value,
+        )
+        node = Transform(
+            **node_dict,
+            dj_client=self,
+        )
+        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
+        return node
+
+    def dimension(self, node_name: str) -> "Dimension":
+        """
+        Retrieves a Dimension node with that name if one exists.
+        """
+        node_dict = self._verify_node_exists(
+            node_name,
+            type_=models.NodeType.DIMENSION.value,
+        )
+        node = Dimension(
+            **node_dict,
+            dj_client=self,
+        )
+        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
+        return node
+
+    def metric(self, node_name: str) -> "Metric":
+        """
+        Retrieves a Metric node with that name if one exists.
+        """
+        node_dict = self._verify_node_exists(
+            node_name,
+            type_=models.NodeType.METRIC.value,
+        )
+        node = Metric(
+            **node_dict,
+            dj_client=self,
+        )
+        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
+        return node
+
+    def cube(self, node_name: str) -> "Cube":  # pragma: no cover
+        """
+        Retrieves a Cube node with that name if one exists.
+        """
+        node_dict = self._get_cube(node_name)
+        if "name" not in node_dict:
+            raise DJClientException(f"Cube `{node_name}` does not exist")
+        dimensions = [
+            f'{col["node_name"]}.{col["name"]}'
+            for col in node_dict["cube_elements"]
+            if col["type"] != "metric"
+        ]
+        metrics = [
+            f'{col["node_name"]}.{col["name"]}'
+            for col in node_dict["cube_elements"]
+            if col["type"] == "metric"
+        ]
+        return Cube(
+            **node_dict,
+            metrics=metrics,
+            dimensions=dimensions,
+            dj_client=self,
+        )

@@ -407,6 +407,16 @@ class DJClient:
         )
         return response.json()
 
+    def _find_nodes_with_dimension(
+        self,
+        node_name,
+    ):
+        """
+        Find all nodes with this dimension
+        """
+        response = self._session.get(f"/dimensions/{node_name}/nodes/")
+        return response.json()
+
 
 class ClientEntity(BaseModel):
     """

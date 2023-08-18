@@ -327,6 +327,15 @@ class Dimension(NodeWithQuery):
     query: str
     columns: Optional[List[models.Column]]
 
+    def linked_nodes(self):
+        """
+        Find all nodes linked to this dimension
+        """
+        return [
+            node["name"]
+            for node in self.dj_client._find_nodes_with_dimension(self.name)
+        ]
+
 
 class Cube(Node):  # pylint: disable=abstract-method
     """

@@ -280,9 +280,30 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "foo.bar.repair_orders_thin",
         ]
 
+    def test_find_nodes_with_dimension(self, client):
+        """
+        Check that `dimension.linked_nodes()` works as expected.
+        """
+        repair_order_dim = client.dimension("default.repair_order")
+        assert repair_order_dim.linked_nodes() == [
+            "default.repair_order_details",
+            "default.avg_repair_price",
+            "default.total_repair_cost",
+            "default.total_repair_order_discounts",
+            "default.avg_repair_order_discounts",
+        ]
+
     #
     # Get common metrics and dimensions
     #
+    def test_common_dimensions(self, client):
+        """
+        Test that getting common dimensions for metrics works
+        """
+        dims = client.common_dimensions(
+            metrics=["default.num_repair_orders", "default.avg_repair_price"],
+        )
+        assert len(dims) == 8
 
     #
     # SQL and data
