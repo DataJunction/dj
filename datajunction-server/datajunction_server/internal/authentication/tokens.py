@@ -53,6 +53,7 @@ def create_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
     else:  # pragma: no cover
         expire = datetime.utcnow() + timedelta(minutes=15)
     to_encode.update({"exp": expire})
+    to_encode.update({"iss": settings.url})
     encoded_jwt = jwt.encode(
         to_encode,
         settings.secret,
@@ -67,8 +68,10 @@ async def decode_token(token: str) -> dict:
     """
     settings = get_settings()
     decrypted_token = decrypt(token)
-    return jwt.decode(
+    decoded_jwt = jwt.decode(
         decrypted_token,
         settings.secret,
         algorithms=["HS256"],
+        issuer=settings.url,
     )
+    return decoded_jwt

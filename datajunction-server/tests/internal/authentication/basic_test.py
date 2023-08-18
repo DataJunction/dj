@@ -65,6 +65,14 @@ def test_get_user_raise_on_user_not_found(session: Session):
     assert "User dj not found" in str(exc_info.value)
 
 
+def test_login_raise_on_user_not_found(client: TestClient):
+    """
+    Test raising when trying to login as a user that doesn't exist
+    """
+    response = client.post("/basic/login/", data={"username": "foo", "password": "bar"})
+    assert response.status_code == 401
+
+
 def test_fail_invalid_credentials(client: TestClient, session: Session):
     """
     Test failing on invalid user credentials

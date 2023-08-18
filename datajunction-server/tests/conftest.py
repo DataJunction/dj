@@ -33,9 +33,11 @@ from .construction.fixtures import build_expectation, construction_session
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS
 
 EXAMPLE_TOKEN = (
-    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..-w7EJW7ZZzaX5pfW1dGcGQ.JcyKwLTOru1nVAre63kF1rw"
-    "jTmv3sfshaujyhEeaY7Y_G-LUwSfarz2jM5S8oKYQsDLH4PSEcrY7APOLLpkjTIndCRnBz4UigCDAE9g-aLpw0ju4Fl4rz"
-    "N1CUJ_Tas-VFxwN05B9sX5pA8m2pE2xhYStvIFDxQsrbqUVQejO3w.syaacHYmeNgo18xP2aqMhg"
+    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..pMoQFVS0VMSAFsG5X0itfw.Lc"
+    "8mo22qxeD1NQROlHkjFnmLiDXJGuhlSPcBOoQVlpQGbovHRHT7EJ9_vFGBqDGihul1"
+    "BcABiJT7kJtO6cZCJNkykHx-Cbz7GS_6ZQs1_kR5FzsvrJt5_X-dqehVxCFATjv64-"
+    "Lokgj9ciOudO2YoBW61UWoLdpmzX1A_OPgv9PlAX23owZrFbPcptcXSJPJQVwvvy8h"
+    "DgZ1M6YtqZt_T7o0G2QmFukk.e0ZFTP0H5zP4_wZA3sIrxw"
 )
 
 

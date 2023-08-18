@@ -7,6 +7,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
+from jose.exceptions import JWEError, JWTError
 from sqlmodel import Session
 
 from datajunction_server.constants import DJ_AUTH_COOKIE
@@ -29,8 +30,22 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
         # First check for a JWT sent in a cookie
         jwt = request.cookies.get(DJ_AUTH_COOKIE)
         if jwt:
-            data = await decode_token(jwt)
-            request.state.user = get_user(username=data["username"], session=session)
+            try:
+                jwt_data = await decode_token(jwt)
+            except (JWEError, JWTError) as exc:
+                raise DJException(
+                    http_status_code=HTTPStatus.UNAUTHORIZED,
+                    errors=[
+                        DJError(
+                            message="Cannot decode authorization token",
+                            code=ErrorCode.AUTHENTICATION_ERROR,
+                        ),
+                    ],
+                ) from exc
+            request.state.user = get_user(
+                username=jwt_data["username"],
+                session=session,
+            )
             return
 
         authorization: str = request.headers.get("Authorization")
@@ -59,8 +74,8 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
                     ],
                 )
             return  # pragma: no cover
-        data = await decode_token(credentials)
-        request.state.user = get_user(username=data["username"], session=session)
+        jwt_data = await decode_token(credentials)
+        request.state.user = get_user(username=jwt_data["username"], session=session)
         return
 
 

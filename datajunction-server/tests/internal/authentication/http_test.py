@@ -11,9 +11,11 @@ from datajunction_server.internal.authentication.http import DJHTTPBearer
 from datajunction_server.models.user import OAuthProvider, User
 
 EXAMPLE_TOKEN = (
-    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..-w7EJW7ZZzaX5pfW1dGcGQ.JcyKwLTOru1nVAre63kF1rw"
-    "jTmv3sfshaujyhEeaY7Y_G-LUwSfarz2jM5S8oKYQsDLH4PSEcrY7APOLLpkjTIndCRnBz4UigCDAE9g-aLpw0ju4Fl4rz"
-    "N1CUJ_Tas-VFxwN05B9sX5pA8m2pE2xhYStvIFDxQsrbqUVQejO3w.syaacHYmeNgo18xP2aqMhg"
+    "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..pMoQFVS0VMSAFsG5X0itfw.Lc"
+    "8mo22qxeD1NQROlHkjFnmLiDXJGuhlSPcBOoQVlpQGbovHRHT7EJ9_vFGBqDGihul1"
+    "BcABiJT7kJtO6cZCJNkykHx-Cbz7GS_6ZQs1_kR5FzsvrJt5_X-dqehVxCFATjv64-"
+    "Lokgj9ciOudO2YoBW61UWoLdpmzX1A_OPgv9PlAX23owZrFbPcptcXSJPJQVwvvy8h"
+    "DgZ1M6YtqZt_T7o0G2QmFukk.e0ZFTP0H5zP4_wZA3sIrxw"
 )
 
 
@@ -56,6 +58,19 @@ def test_dj_http_bearer_raise_with_unsupported_scheme():
     assert "Invalid authentication credentials" in str(exc_info.value)
 
 
+def test_dj_http_bearer_raise_with_non_jwt_token():
+    """
+    Test raising when the token can't be parsed as a JWT
+    """
+    bearer = DJHTTPBearer()
+    request = MagicMock()
+    request.cookies.get.return_value = None
+    request.headers.get.return_value = "Foo NotAJWT"
+    with pytest.raises(DJException) as exc_info:
+        asyncio.run(bearer(request))
+    assert "Invalid authentication credentials" in str(exc_info.value)
+
+
 def test_dj_http_bearer_w_cookie():
     """
     Test using the DJHTTPBearer middleware with a cookie
@@ -93,3 +108,15 @@ def test_dj_http_bearer_w_auth_headers():
         oauth_provider=OAuthProvider.BASIC,
         is_admin=False,
     )
+
+
+def test_raise_on_non_jwt_cookie():
+    """
+    Test using the DJHTTPBearer middleware with a cookie
+    """
+    bearer = DJHTTPBearer()
+    request = MagicMock()
+    request.cookies.get.return_value = "NotAJWT"
+    with pytest.raises(DJException) as exc_info:
+        asyncio.run(bearer(request))
+    assert "Cannot decode authorization token" in str(exc_info.value)
