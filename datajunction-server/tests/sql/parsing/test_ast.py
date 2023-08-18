@@ -2,11 +2,20 @@
 testing ast Nodes and their methods
 """
 
+import json
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
 from datajunction_server.errors import DJException
+from datajunction_server.models import NodeRevision
+from datajunction_server.models.node import Node
 from datajunction_server.sql.parsing import ast, types
+from datajunction_server.sql.parsing.ast import (
+    CompileContext,
+    deserialize_ast,
+    serialize_ast,
+)
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
@@ -892,3 +901,75 @@ def test_ast_compile_lateral_view_explode8(session: Session):
         quote_style="",
         namespace=None,
     )
+
+
+def test_serde_uncompiled():
+    """
+    tests that serialization-deserialization preserves the query
+    """
+    tree = parse(
+        """
+    SELECT
+        customer_id,
+        COUNT(DISTINCT order_id) AS order_count,
+        SUM(order_total) AS total_sales
+    FROM
+        orders
+    WHERE
+        order_date >= '2023-01-01' AND order_date < '2024-01-01'
+    GROUP BY
+        customer_id
+    HAVING
+        order_count >= 3
+    ORDER BY
+        total_sales DESC
+    LIMIT 10
+    """,
+    )
+    serialized = serialize_ast(tree)
+    deserialized = deserialize_ast(id(tree), serialized)
+    assert tree.compare(deserialized)
+
+
+def test_serde_jsonable():
+    """
+    tests that serialized ast is json serializable
+    """
+    tree = parse(
+        """
+    SELECT
+        customer_id,
+        COUNT(DISTINCT order_id) AS order_count,
+        SUM(order_total) AS total_sales
+    FROM
+        orders
+    WHERE
+        order_date >= '2023-01-01' AND order_date < '2024-01-01'
+    GROUP BY
+        customer_id
+    HAVING
+        order_count >= 3
+    ORDER BY
+        total_sales DESC
+    LIMIT 10
+    """,
+    )
+    json.dumps(serialize_ast(tree))
+
+
+def test_compile_node_serde(construction_session: Session):
+    """
+    Test compiling a node
+    """
+    node_a = Node(name="A", current_version="1")
+    node_a_rev = NodeRevision(
+        node=node_a,
+        version="1",
+        query="SELECT country FROM basic.transform.country_agg",
+    )
+    tree = parse(node_a_rev.query)
+    ctx = CompileContext(session=construction_session, exception=DJException())
+    tree.compile(ctx)
+    serialized = serialize_ast(tree)
+    deserialized = deserialize_ast(id(tree), serialized)
+    assert tree.compare(deserialized)

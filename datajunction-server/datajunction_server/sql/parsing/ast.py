@@ -501,13 +501,13 @@ class Node(ABC):
         return self._is_compiled
 
 
-class DJEnum(Enum):
+class DJEnum(str, Enum):
     """
     A DJ AST enum
     """
 
-    def __repr__(self) -> str:
-        return str(self)
+    def __str__(self):
+        return self.value
 
 
 @dataclass(eq=False)
@@ -1220,9 +1220,6 @@ class UnaryOpKind(DJEnum):
     Exists = "EXISTS"
     Not = "NOT"
 
-    def __str__(self):
-        return self.value
-
 
 @dataclass(eq=False)
 class UnaryOp(Operation):
@@ -1347,7 +1344,7 @@ class BinaryOp(Operation):
                 right = self.right.copy().use_alias_as_name()
             if isinstance(self.left, Column) and self.left.alias:
                 left = self.left.copy().use_alias_as_name()
-        ret = f"{left} {self.op.value} {right}"
+        ret = f"{left} {self.op} {right}"
 
         if self.parenthesized:
             return f"({ret})"
@@ -2475,6 +2472,8 @@ def serialize_value(
         return {"kind": "node", "value": node_key}
     if isinstance(value, ColumnType):
         return {"kind": "type", "value": str(value)}
+    if isinstance(value, DJEnum):
+        return {"kind": "primitive", "value": value.value}
     if type(value) in PRIMITIVES:
         return {"kind": "primitive", "value": value}
     if isinstance(value, list):
@@ -2556,7 +2555,9 @@ def deserialize_value(
             or serialization[node_key]
         )
     elif value["kind"] == "type":
-        return ColumnType(value["value"])
+        from datajunction_server.sql.parsing.backends.antlr4 import parse
+
+        return parse(f"select CAST(x as {value['value']})").select.projection[0].type  # type: ignore
     elif value["kind"] == "primitive":
         return value["value"]
     elif value["kind"] == "list":
@@ -2648,6 +2649,7 @@ def _deserialize_ast(
         cls_name, data = value
     visited.add(node_id)
     cls = globals().get(cls_name)
+    # get the fields we can feed the class init
     init_fields = {field.name for field in fields(cls) if field.init == True}
     attrs = []
     kwargs = {}
@@ -2665,6 +2667,7 @@ def _deserialize_ast(
         else:
             attrs.append(key)
     ret = cls(**kwargs)  # type: ignore
+    # set the rest of the attributes from data
     for key in attrs:
         deserialized_value = deserialize_value(
             node_id,
