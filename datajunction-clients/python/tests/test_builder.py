@@ -255,7 +255,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             table="comments",
         )
         assert store_comments.name == "source.default.store.comments"
-        assert "source.default.store.comments" in client.namespace("source").sources()
+        assert "source.default.store.comments" in client.namespace("source.default.store").sources()
 
     def test_create_and_update_node(self, client):  # pylint: disable=unused-argument
         """
@@ -611,7 +611,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         assert response is None
         with pytest.raises(DJClientException) as exc_info:
             client.restore_namespace(namespace="roads.demo")
-        assert "Node namespace `roads.demo` already exists and is active." in str(
+        assert "Node namespace `roads.demo` already exists and is active" in str(
             exc_info.value,
         )
 

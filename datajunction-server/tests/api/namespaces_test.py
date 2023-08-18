@@ -10,19 +10,18 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
     """
     response = client_with_examples.get("/namespaces/")
     assert response.ok
-    assert set(response.json()) == {
-        "default",
-        "foo.bar",
-        "basic",
-        "basic.source",
-        "basic.transform",
-        "basic.dimension",
-        "dbt.source",
-        "dbt.source.jaffle_shop",
-        "dbt.transform",
-        "dbt.dimension",
-        "dbt.source.stripe",
-    }
+    assert response.json() == [
+        {"namespace": "basic", "num_nodes": 8},
+        {"namespace": "basic.dimension", "num_nodes": 2},
+        {"namespace": "basic.source", "num_nodes": 2},
+        {"namespace": "basic.transform", "num_nodes": 1},
+        {"namespace": "dbt.dimension", "num_nodes": 1},
+        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
+        {"namespace": "dbt.source.stripe", "num_nodes": 1},
+        {"namespace": "dbt.transform", "num_nodes": 1},
+        {"namespace": "default", "num_nodes": 54},
+        {"namespace": "foo.bar", "num_nodes": 26},
+    ]
 
 
 def test_list_nodes_by_namespace(client_with_examples: TestClient) -> None:
@@ -31,11 +30,14 @@ def test_list_nodes_by_namespace(client_with_examples: TestClient) -> None:
     """
     response = client_with_examples.get("/namespaces/basic.source/")
     assert response.ok
-    assert set(response.json()) == {"basic.source.users", "basic.source.comments"}
+    assert {n["name"] for n in response.json()} == {
+        "basic.source.users",
+        "basic.source.comments",
+    }
 
     response = client_with_examples.get("/namespaces/basic/")
     assert response.ok
-    assert set(response.json()) == {
+    assert {n["name"] for n in response.json()} == {
         "basic.source.users",
         "basic.dimension.users",
         "basic.source.comments",
@@ -53,7 +55,7 @@ def test_list_nodes_by_namespace(client_with_examples: TestClient) -> None:
 
     response = client_with_examples.get("/namespaces/basic/?type_=dimension")
     assert response.ok
-    assert set(response.json()) == {
+    assert {n["name"] for n in response.json()} == {
         "basic.dimension.users",
         "basic.dimension.countries",
         "basic.paint_colors_spark",
@@ -62,7 +64,7 @@ def test_list_nodes_by_namespace(client_with_examples: TestClient) -> None:
 
     response = client_with_examples.get("/namespaces/basic/?type_=source")
     assert response.ok
-    assert set(response.json()) == {
+    assert {n["name"] for n in response.json()} == {
         "basic.source.comments",
         "basic.murals",
         "basic.source.users",
@@ -99,18 +101,17 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
     # Check that the namespace is no longer listed
     response = client_with_examples.get("/namespaces/")
     assert response.ok
-    assert response.json() == [
+    assert {n["namespace"] for n in response.json()} == {
         "default",
         "basic",
         "basic.source",
         "basic.transform",
         "basic.dimension",
-        "dbt.source",
         "dbt.source.jaffle_shop",
         "dbt.transform",
         "dbt.dimension",
         "dbt.source.stripe",
-    ]
+    }
 
     response = client_with_examples.delete("/namespaces/foo.bar/?cascade=false")
     assert response.json()["message"] == "Namespace `foo.bar` is already deactivated."
@@ -124,19 +125,17 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
     # Check that the namespace is back
     response = client_with_examples.get("/namespaces/")
     assert response.ok
-    assert response.json() == [
-        "default",
-        "foo.bar",
+    assert {n["namespace"] for n in response.json()} == {
         "basic",
+        "basic.dimension",
         "basic.source",
         "basic.transform",
-        "basic.dimension",
-        "dbt.source",
-        "dbt.source.jaffle_shop",
-        "dbt.transform",
         "dbt.dimension",
+        "dbt.source.jaffle_shop",
         "dbt.source.stripe",
-    ]
+        "dbt.transform",
+        "default",
+    }
 
     # Check that nodes in the namespace remain deactivated
     response = client_with_examples.get("/namespaces/foo.bar/")
@@ -148,14 +147,15 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
     response = client_with_examples.post("/namespaces/foo.bar/restore/?cascade=true")
     assert response.json() == {
         "message": "Namespace `foo.bar` has been restored. The following nodes have "
-        "also been restored: foo.bar.avg_length_of_employment,foo.bar.avg_repair_order_discounts,"
-        "foo.bar.avg_repair_price,foo.bar.avg_time_to_dispatch,foo.bar.contractor,"
-        "foo.bar.contractors,foo.bar.dispatcher,foo.bar.dispatchers,foo.bar.hard_hat,foo.bar."
-        "hard_hat_state,foo.bar.hard_hats,foo.bar.local_hard_hats,foo.bar.municipality,foo.bar."
-        "municipality_dim,foo.bar.municipality_municipality_type,foo.bar.municipality_type,foo.bar"
-        ".num_repair_orders,foo.bar.repair_order,foo.bar.repair_order_details,foo.bar.repair_orders"
-        ",foo.bar.repair_type,foo.bar.total_repair_cost,foo.bar.total_repair_order_discounts,"
-        "foo.bar.us_region,foo.bar.us_state,foo.bar.us_states",
+        "also been restored: foo.bar.repair_orders,foo.bar.repair_order_details,foo."
+        "bar.repair_type,foo.bar.contractors,foo.bar.municipality_municipality_type,"
+        "foo.bar.municipality_type,foo.bar.municipality,foo.bar.dispatchers,foo.bar."
+        "hard_hats,foo.bar.hard_hat_state,foo.bar.us_states,foo.bar.us_region,foo.ba"
+        "r.repair_order,foo.bar.contractor,foo.bar.hard_hat,foo.bar.local_hard_hats,"
+        "foo.bar.us_state,foo.bar.dispatcher,foo.bar.municipality_dim,foo.bar.num_re"
+        "pair_orders,foo.bar.avg_repair_price,foo.bar.total_repair_cost,foo.bar.avg_"
+        "length_of_employment,foo.bar.total_repair_order_discounts,foo.bar.avg_repai"
+        "r_order_discounts,foo.bar.avg_time_to_dispatch",
     }
     # Calling restore again will raise
     response = client_with_examples.post("/namespaces/foo.bar/restore/?cascade=true")
@@ -167,7 +167,7 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
     # Check that nodes in the namespace are restored
     response = client_with_examples.get("/namespaces/foo.bar/")
     assert response.ok
-    assert response.json() == [
+    assert {n["name"] for n in response.json()} == {
         "foo.bar.repair_orders",
         "foo.bar.repair_order_details",
         "foo.bar.repair_type",
@@ -194,7 +194,7 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         "foo.bar.total_repair_order_discounts",
         "foo.bar.avg_repair_order_discounts",
         "foo.bar.avg_time_to_dispatch",
-    ]
+    }
 
     response = client_with_examples.get("/history/namespace/foo.bar/")
     assert [
@@ -204,17 +204,19 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         (
             "delete",
             {
-                "message": "Namespace `foo.bar` has been deactivated. The following nodes "
-                "have also been deactivated: "
-                "foo.bar.repair_orders,foo.bar.repair_order_details,foo.bar.repair_type,"
-                "foo.bar.contractors,foo.bar.municipality_municipality_type,foo.bar.munic"
-                "ipality_type,foo.bar.municipality,foo.bar.dispatchers,foo.bar.hard_hats,"
-                "foo.bar.hard_hat_state,foo.bar.us_states,foo.bar.us_region,foo.bar.repair_order,"
-                "foo.bar.contractor,foo.bar.hard_hat,foo.bar.local_hard_hats,foo.bar.us_state,"
-                "foo.bar.dispatcher,foo.bar.municipality_dim,foo.bar.num_repair_orders,"
-                "foo.bar.avg_repair_price,foo.bar.total_repair_cost,foo.bar."
-                "avg_length_of_employment,foo.bar.total_repair_order_discounts,foo.bar."
-                "avg_repair_order_discounts,foo.bar.avg_time_to_dispatch",
+                "message": (
+                    "Namespace `foo.bar` has been deactivated. The following nodes have "
+                    "also been deactivated: foo.bar.repair_orders,foo.bar.repair_order_d"
+                    "etails,foo.bar.repair_type,foo.bar.contractors,foo.bar.municipality"
+                    "_municipality_type,foo.bar.municipality_type,foo.bar.municipality,f"
+                    "oo.bar.dispatchers,foo.bar.hard_hats,foo.bar.hard_hat_state,foo.bar"
+                    ".us_states,foo.bar.us_region,foo.bar.repair_order,foo.bar.contracto"
+                    "r,foo.bar.hard_hat,foo.bar.local_hard_hats,foo.bar.us_state,foo.bar"
+                    ".dispatcher,foo.bar.municipality_dim,foo.bar.num_repair_orders,foo."
+                    "bar.avg_repair_price,foo.bar.total_repair_cost,foo.bar.avg_length_o"
+                    "f_employment,foo.bar.total_repair_order_discounts,foo.bar.avg_repai"
+                    "r_order_discounts,foo.bar.avg_time_to_dispatch"
+                ),
             },
         ),
         ("restore", {"message": "Namespace `foo.bar` has been restored."}),
@@ -222,17 +224,19 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         (
             "restore",
             {
-                "message": "Namespace `foo.bar` has been restored. The following nodes have "
-                "also been restored: "
-                "foo.bar.avg_length_of_employment,foo.bar.avg_repair_order_discounts,foo.bar."
-                "avg_repair_price,foo.bar.avg_time_to_dispatch,foo.bar.contractor,"
-                "foo.bar.contractors,foo.bar.dispatcher,foo.bar.dispatchers,foo.bar.hard_hat,"
-                "foo.bar.hard_hat_state,foo.bar.hard_hats,foo.bar.local_hard_hats,foo.bar."
-                "municipality,foo.bar.municipality_dim,foo.bar.municipality_municipality_type,"
-                "foo.bar.municipality_type,foo.bar.num_repair_orders,foo.bar.repair_order,"
-                "foo.bar.repair_order_details,foo.bar.repair_orders,foo.bar.repair_type,"
-                "foo.bar.total_repair_cost,foo.bar.total_repair_order_discounts,foo.bar.us_region,"
-                "foo.bar.us_state,foo.bar.us_states",
+                "message": (
+                    "Namespace `foo.bar` has been restored. The following nodes have also "
+                    "been restored: foo.bar.repair_orders,foo.bar.repair_order_details,foo"
+                    ".bar.repair_type,foo.bar.contractors,foo.bar.municipality_municipalit"
+                    "y_type,foo.bar.municipality_type,foo.bar.municipality,foo.bar.dispatc"
+                    "hers,foo.bar.hard_hats,foo.bar.hard_hat_state,foo.bar.us_states,foo.b"
+                    "ar.us_region,foo.bar.repair_order,foo.bar.contractor,foo.bar.hard_hat"
+                    ",foo.bar.local_hard_hats,foo.bar.us_state,foo.bar.dispatcher,foo.bar."
+                    "municipality_dim,foo.bar.num_repair_orders,foo.bar.avg_repair_price,"
+                    "foo.bar.total_repair_cost,foo.bar.avg_length_of_employment,foo.bar.t"
+                    "otal_repair_order_discounts,foo.bar.avg_repair_order_discounts,foo.b"
+                    "ar.avg_time_to_dispatch"
+                ),
             },
         ),
     ]
@@ -246,6 +250,6 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         ("create", {}),
         ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
         ("delete", {"message": "Cascaded from deactivating namespace `foo.bar`"}),
-        ("restore", {"message": "Cascaded from restoring namespace `foo.bar`"}),
         ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
+        ("restore", {"message": "Cascaded from restoring namespace `foo.bar`"}),
     ]

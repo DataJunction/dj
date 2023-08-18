@@ -76,16 +76,18 @@ def list_namespaces(
     List namespaces with the number of nodes contained in them
     """
     return session.exec(
-        select(Node.namespace, func.count(Node.id).label("num_nodes")).where(
+        select(Node.namespace, func.count(Node.id).label("num_nodes"))
+        .where(
             is_(Node.deactivated_at, None),
-        ),
+        )
+        .group_by(Node.namespace),
     ).all()
 
 
 @router.get(
     "/namespaces/{namespace}/",
     response_model=List[NodeMinimumDetail],
-    status_code=200,
+    status_code=HTTPStatus.OK,
 )
 def list_nodes_in_namespace(
     namespace: str,
@@ -125,7 +127,8 @@ def deactivate_a_namespace(
         )
 
     # If there are no active nodes in the namespace, we can safely deactivate this namespace
-    node_names = get_nodes_in_namespace(session, namespace)
+    node_list = get_nodes_in_namespace(session, namespace)
+    node_names = [n["name"] for n in node_list]
     if len(node_names) == 0:
         message = f"Namespace `{namespace}` has been deactivated."
         mark_namespace_deactivated(session, node_namespace, message)
@@ -187,8 +190,8 @@ def restore_a_namespace(
             message=f"Node namespace `{namespace}` already exists and is active.",
         )
 
-    node_names = get_nodes_in_namespace(session, namespace, include_deactivated=True)
-
+    node_list = get_nodes_in_namespace(session, namespace, include_deactivated=True)
+    node_names = [n["name"] for n in node_list]
     # If cascade=true is set, we'll restore all nodes in this namespace and then
     # subsequently restore this namespace
     if cascade:
