@@ -864,6 +864,19 @@ class NodeNameList(SQLModel):
     __root__: List[str]
 
 
+class NodeMinimumDetail(SQLModel):
+    """
+    List of high level node details
+    """
+
+    name: str
+    display_name: str
+    type: NodeType
+    status: NodeStatus
+    mode: NodeMode
+    updated_at: UTCDatetime
+
+
 class AttributeTypeName(BaseSQLModel):
     """
     Attribute type name.
@@ -1137,3 +1150,12 @@ class LineageColumn(BaseModel):
 
 
 LineageColumn.update_forward_refs()
+
+
+class NamespaceOutput(OutputModel):
+    """
+    Output for a namespace that includes the number of nodes
+    """
+
+    namespace: str
+    num_nodes: int

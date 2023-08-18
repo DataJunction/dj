@@ -8,7 +8,7 @@ from typing import List, Optional
 from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from datajunction_server.api.helpers import (
     activate_node,
@@ -23,7 +23,12 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_deactivated,
     mark_namespace_restored,
 )
-from datajunction_server.models.node import NodeNameList, NodeNamespace, NodeType
+from datajunction_server.models.node import (
+    NamespaceOutput,
+    Node,
+    NodeMinimumDetail,
+    NodeType,
+)
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -61,23 +66,25 @@ def create_node_namespace(
 
 @router.get(
     "/namespaces/",
-    response_model=List[str],
+    response_model=List[NamespaceOutput],
     status_code=200,
 )
 def list_namespaces(
     session: Session = Depends(get_session),
-) -> List[str]:
+) -> List[NamespaceOutput]:
     """
-    List namespaces
+    List namespaces with the number of nodes contained in them
     """
     return session.exec(
-        select(NodeNamespace.namespace).where(is_(NodeNamespace.deactivated_at, None)),
+        select(Node.namespace, func.count(Node.id).label("num_nodes")).where(
+            is_(Node.deactivated_at, None),
+        ),
     ).all()
 
 
 @router.get(
     "/namespaces/{namespace}/",
-    response_model=NodeNameList,
+    response_model=List[NodeMinimumDetail],
     status_code=200,
 )
 def list_nodes_in_namespace(
@@ -87,7 +94,7 @@ def list_nodes_in_namespace(
         description="Filter the list of nodes to this type",
     ),
     session: Session = Depends(get_session),
-) -> NodeNameList:
+) -> List[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
