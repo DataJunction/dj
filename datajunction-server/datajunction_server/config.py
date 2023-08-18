@@ -61,6 +61,9 @@ class Settings(
     #   $dj_logical_timestamp
     dj_logical_timestamp_format: Optional[str] = "${dj_logical_timestamp}"
 
+    # DJ UI host, used for OAuth redirection
+    frontend_host: Optional[str] = "http://localhost:3000"
+
     # DJ secret, used to encrypt passwords and JSON web tokens
     secret: Optional[str] = None
 

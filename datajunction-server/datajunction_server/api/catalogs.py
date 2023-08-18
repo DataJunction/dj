@@ -6,17 +6,19 @@ import logging
 from http import HTTPStatus
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends, HTTPException
 from sqlmodel import Session, select
 
 from datajunction_server.api.engines import EngineInfo, get_engine
 from datajunction_server.api.helpers import get_catalog_by_name
 from datajunction_server.errors import DJException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.catalog import Catalog, CatalogInfo
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["catalogs"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["catalogs"])
 
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])

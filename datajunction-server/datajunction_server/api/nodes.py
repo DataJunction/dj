@@ -7,7 +7,7 @@ import os
 from http import HTTPStatus
 from typing import List, Optional, Union, cast
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import Depends, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -29,8 +29,8 @@ from datajunction_server.api.helpers import (
 )
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tag_by_name
-from datajunction_server.config import Settings
 from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.internal.materializations import schedule_materialization_jobs
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
@@ -78,7 +78,8 @@ from datajunction_server.utils import (
 )
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["nodes"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["nodes"])
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
@@ -445,7 +446,6 @@ def register_table(  # pylint: disable=too-many-arguments
     schema_: str,
     table: str,
     session: Session = Depends(get_session),
-    settings: Settings = Depends(get_settings),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
     """

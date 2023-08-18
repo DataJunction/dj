@@ -5,7 +5,7 @@ import logging
 from http import HTTPStatus
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -16,6 +16,7 @@ from datajunction_server.api.helpers import (
     get_node_namespace,
 )
 from datajunction_server.errors import DJAlreadyExistsException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.internal.namespaces import (
     create_namespace,
     get_nodes_in_namespace,
@@ -23,10 +24,11 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_restored,
 )
 from datajunction_server.models.node import NodeNameList, NodeNamespace, NodeType
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["namespaces"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["namespaces"])
 
 
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)

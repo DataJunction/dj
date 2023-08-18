@@ -7,12 +7,13 @@ from datetime import datetime
 from http import HTTPStatus
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import Depends
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
@@ -25,10 +26,15 @@ from datajunction_server.models.materialization import (
 from datajunction_server.models.node import NodeType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import get_query_service_client, get_session
+from datajunction_server.utils import (
+    get_query_service_client,
+    get_session,
+    get_settings,
+)
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["materializations"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["materializations"])
 
 
 @router.post(

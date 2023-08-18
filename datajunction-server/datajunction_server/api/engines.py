@@ -5,14 +5,16 @@ Engine related APIs.
 from http import HTTPStatus
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends, HTTPException
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_engine
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.engine import Engine, EngineInfo
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
-router = APIRouter(tags=["engines"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["engines"])
 
 
 @router.get("/engines/", response_model=List[EngineInfo])

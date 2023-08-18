@@ -1,23 +1,24 @@
 """
 Basic OAuth Authentication Router
 """
+from datetime import timedelta
 from http import HTTPStatus
 
-from fastapi import APIRouter, Depends, Form, Request
-from fastapi.responses import JSONResponse
-from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
+from fastapi import APIRouter, Depends, Form
+from fastapi.responses import JSONResponse, Response
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 
+from datajunction_server.constants import DJ_AUTH_COOKIE, DJ_LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.authentication.basic import (
     get_password_hash,
-    get_user_info,
+    validate_user_password,
 )
-from datajunction_server.internal.authentication.jwt import create_jwt, encrypt
-from datajunction_server.models.user import OAuthProvider, User, UserOutput
+from datajunction_server.internal.authentication.tokens import create_token
+from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.utils import get_session
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/basic/login/")
 router = APIRouter(tags=["Basic OAuth2"])
 
 
@@ -62,23 +63,30 @@ async def login(
     """
     Get a JWT token and set it as an HTTP only cookie
     """
-    user = get_user_info(
+    user = validate_user_password(
         username=form_data.username,
         password=form_data.password,
         session=session,
     )
-    jwt = create_jwt(data={"sub": encrypt(user.username)})
-    response = JSONResponse(
-        content={"message": "Successfully logged in through basic OAuth"},
-        status_code=HTTPStatus.OK,
+    response = Response(status_code=HTTPStatus.OK)
+    response.set_cookie(
+        DJ_AUTH_COOKIE,
+        create_token({"username": user.username}, expires_delta=timedelta(days=365)),
+        httponly=True,
     )
-    response.set_cookie(key="__dj", value=jwt, httponly=True, samesite="strict")
+    response.set_cookie(
+        DJ_LOGGED_IN_FLAG_COOKIE,
+        "true",
+    )
     return response
 
 
-@router.get("/basic/whoami/", response_model=UserOutput)
-async def get_current_user(request: Request) -> UserOutput:
+@router.post("/basic/logout/")
+async def logout():
     """
-    Returns the current authenticated user
+    Logout a user by deleting the auth cookie
     """
-    return request.state.user
+    response = Response(status_code=HTTPStatus.OK)
+    response.delete_cookie(DJ_AUTH_COOKIE, httponly=True)
+    response.delete_cookie(DJ_LOGGED_IN_FLAG_COOKIE)
+    return response

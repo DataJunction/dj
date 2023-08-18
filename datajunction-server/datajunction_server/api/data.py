@@ -4,7 +4,7 @@ Data related APIs.
 from http import HTTPStatus
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
@@ -22,6 +22,7 @@ from datajunction_server.errors import (
     DJInvalidInputException,
     DJQueryServiceClientException,
 )
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models import History
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL
@@ -36,9 +37,14 @@ from datajunction_server.models.query import (
     QueryWithResults,
 )
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.utils import get_query_service_client, get_session
+from datajunction_server.utils import (
+    get_query_service_client,
+    get_session,
+    get_settings,
+)
 
-router = APIRouter(tags=["data"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["data"])
 
 
 @router.post("/data/{node_name}/availability/", name="Add Availability State to Node")

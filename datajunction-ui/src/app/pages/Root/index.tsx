@@ -1,8 +1,16 @@
+import { useContext } from 'react';
 import { Outlet } from 'react-router-dom';
 import logo from './assets/dj-logo.png';
 import { Helmet } from 'react-helmet-async';
+import DJClientContext from '../../providers/djclient';
 
 export function Root() {
+  const djClient = useContext(DJClientContext).DataJunctionAPI;
+
+  const handleLogout = async () => {
+    await djClient.logout();
+    window.location.reload();
+  };
   return (
     <>
       <Helmet>
@@ -46,6 +54,15 @@ export function Root() {
             </div>
           </div>
         </div>
+        {process.env.REACT_DISABLE_AUTH === 'true' ? (
+          ''
+        ) : (
+          <span className="menu-link">
+            <span className="menu-title">
+              <button onClick={handleLogout}>Logout</button>
+            </span>
+          </span>
+        )}
       </div>
       <Outlet />
     </>
