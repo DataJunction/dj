@@ -7,7 +7,7 @@ import os
 from http import HTTPStatus
 from typing import List, Optional, Union, cast
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import Depends, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -79,8 +79,7 @@ from datajunction_server.utils import (
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-tags = ["nodes"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["nodes"])
 
 
 @router.post("/nodes/validate/", response_model=NodeValidation)

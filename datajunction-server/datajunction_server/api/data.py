@@ -4,7 +4,7 @@ Data related APIs.
 from http import HTTPStatus
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
@@ -44,8 +44,7 @@ from datajunction_server.utils import (
 )
 
 settings = get_settings()
-tags = ["data"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["data"])
 
 
 @router.post("/data/{node_name}/availability/", name="Add Availability State to Node")

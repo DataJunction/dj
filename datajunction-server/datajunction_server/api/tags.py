@@ -4,7 +4,7 @@ Tag related APIs.
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import Depends
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
@@ -17,8 +17,7 @@ from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
 from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
-tags = ["tags"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["tags"])
 
 
 def get_tag_by_name(

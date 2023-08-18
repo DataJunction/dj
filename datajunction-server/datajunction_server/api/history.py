@@ -5,7 +5,7 @@ History related APIs.
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import Depends, Query
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_history
@@ -15,8 +15,7 @@ from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-tags = ["history"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["history"])
 
 
 @router.get("/history/{entity_type}/{entity_name}/", response_model=List[History])

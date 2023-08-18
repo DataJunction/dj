@@ -5,7 +5,7 @@ Metric related APIs.
 from http import HTTPStatus
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -19,8 +19,7 @@ from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
-tags = ["metrics"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["metrics"])
 
 
 def get_metric(session: Session, name: str) -> Node:

@@ -7,7 +7,7 @@ from datetime import datetime
 from http import HTTPStatus
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import Depends
 from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
@@ -34,8 +34,7 @@ from datajunction_server.utils import (
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-tags = ["materializations"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["materializations"])
 
 
 @router.post(

@@ -4,7 +4,7 @@ Dimensions related APIs.
 import logging
 from typing import List, Union
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import Depends, Query
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 from typing_extensions import Annotated
@@ -20,8 +20,7 @@ from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
 _logger = logging.getLogger(__name__)
-tags = ["dimensions"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["dimensions"])
 
 
 @router.get("/dimensions/", response_model=List[str])

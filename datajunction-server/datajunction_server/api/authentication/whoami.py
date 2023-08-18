@@ -4,7 +4,7 @@ Router for getting the current active user
 from datetime import timedelta
 from http import HTTPStatus
 
-from fastapi import APIRouter, Request
+from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from datajunction_server.internal.authentication.http import SecureAPIRouter
@@ -13,8 +13,7 @@ from datajunction_server.models.user import UserOutput
 from datajunction_server.utils import get_settings
 
 settings = get_settings()
-tags = ["Who am I?"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["Who am I?"])
 
 
 @router.get("/whoami/", response_model=UserOutput)

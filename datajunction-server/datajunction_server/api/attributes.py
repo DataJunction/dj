@@ -5,7 +5,7 @@ Attributes related APIs.
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import Depends
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJAlreadyExistsException, DJException
@@ -20,8 +20,7 @@ from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-tags = ["attributes"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["attributes"])
 
 
 @router.get("/attributes/", response_model=List[AttributeType])

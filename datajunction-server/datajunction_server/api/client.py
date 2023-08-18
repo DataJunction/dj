@@ -5,7 +5,7 @@ APIs related to generating client code used for performing various actions in DJ
 import json
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import Depends
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import get_node_by_name
@@ -15,8 +15,7 @@ from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-tags = ["client"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["client"])
 
 
 @router.get("/datajunction-clients/python/new_node/{node_name}", response_model=str)

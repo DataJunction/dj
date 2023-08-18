@@ -5,7 +5,7 @@ import logging
 from http import HTTPStatus
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -28,8 +28,7 @@ from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-tags = ["namespaces"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["namespaces"])
 
 
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)

@@ -5,7 +5,7 @@ Engine related APIs.
 from http import HTTPStatus
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import Depends, HTTPException
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_engine
@@ -14,8 +14,7 @@ from datajunction_server.models.engine import Engine, EngineInfo
 from datajunction_server.utils import get_session, get_settings
 
 settings = get_settings()
-tags = ["engines"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["engines"])
 
 
 @router.get("/engines/", response_model=List[EngineInfo])

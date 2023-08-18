@@ -3,7 +3,7 @@ Cube related APIs.
 """
 import logging
 
-from fastapi import APIRouter, Depends
+from fastapi import Depends
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import get_node_by_name
@@ -14,8 +14,7 @@ from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
-tags = ["cubes"]
-router = SecureAPIRouter(tags=tags) if settings.secret else APIRouter(tags=tags)
+router = SecureAPIRouter(tags=["cubes"])
 
 
 @router.get("/cubes/{name}/", response_model=CubeRevisionMetadata, name="Get a Cube")
