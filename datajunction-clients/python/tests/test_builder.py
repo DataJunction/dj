@@ -255,7 +255,10 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             table="comments",
         )
         assert store_comments.name == "source.default.store.comments"
-        assert "source.default.store.comments" in client.namespace("source.default.store").sources()
+        assert (
+            "source.default.store.comments"
+            in client.namespace("source.default.store").sources()
+        )
 
     def test_create_and_update_node(self, client):  # pylint: disable=unused-argument
         """
