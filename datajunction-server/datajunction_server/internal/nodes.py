@@ -66,7 +66,7 @@ from datajunction_server.models.node import (
 )
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
-from datajunction_server.sql.parsing.ast import CompileContext
+from datajunction_server.sql.parsing.ast import CompileContext, deserialize_ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.utils import (
@@ -713,9 +713,13 @@ def column_level_lineage(
             lineage=[],
         )
 
-    ctx = CompileContext(session, DJException())
-    query_ast = parse(node_rev.query)
-    query_ast.compile(ctx)
+    if node_rev.query_ast:
+        print(node_rev.query_ast)
+        query_ast = deserialize_ast(node_rev.ast_id, node_rev.query_ast)
+    else:
+        ctx = CompileContext(session, DJException())
+        query_ast = parse(node_rev.query)
+        query_ast.compile(ctx)
 
     lineage_column = LineageColumn(
         column_name=column_name,

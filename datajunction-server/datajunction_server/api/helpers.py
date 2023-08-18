@@ -59,6 +59,7 @@ from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.ast import CompileContext, serialize_ast, deserialize_ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
@@ -477,6 +478,20 @@ def validate_node_data(  # pylint: disable=too-many-locals
             + type_inference_error
             + invalid_required_dimensions_error
         )
+
+    ctx = CompileContext(session, DJException())
+    # query_ast = parse(validated_node.query)
+    query_ast.compile(ctx)
+
+    print("start serializing", time.time())
+    validated_node.query_ast = serialize_ast(query_ast)
+    validated_node.ast_id = id(validated_node.query_ast)
+    print("finished serializing", time.time())
+
+    print("start deserializing", time.time())
+    ultimate_test = deserialize_ast(id(query_ast), validated_node.query_ast)
+    print("finished deserializing", time.time())
+    print("ultimate_test ", ultimate_test)
 
     return (
         validated_node,
@@ -1030,11 +1045,19 @@ def revalidate_node(name: str, session: Session, parent_node: str = None):
             session.commit()
         return NodeStatus.VALID
     previous_status = current_node_revision.status
-    (_, _, _, _, errors) = validate_node_data(current_node_revision, session)
+    previous_ast = current_node_revision.query_ast
+
+    (validated_node, _, _, _, errors) = validate_node_data(current_node_revision, session)
     if errors:
         status = NodeStatus.INVALID  # pragma: no cover
     else:
         status = NodeStatus.VALID
+
+    # if previous_ast != validated_node.query_ast:
+    current_node_revision.ast_id = validated_node.ast_id
+    current_node_revision.query_ast = validated_node.query_ast
+    session.add(current_node_revision)
+    session.commit()
 
     if previous_status != status:  # pragma: no cover
         current_node_revision.status = status

@@ -602,6 +602,12 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
     schema_: Optional[str] = None
     table: Optional[str] = None
 
+    ast_id: Optional[int] = None
+    query_ast: Dict = Field(
+        default=None,
+        sa_column=SqlaColumn(JSON),
+    )
+
     # A list of columns from the metric's parent that
     # are required for grouping when using the metric
     required_dimensions: List["Column"] = Relationship(
