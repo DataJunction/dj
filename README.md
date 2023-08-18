@@ -1,5 +1,8 @@
 # DataJunction
 
+![test workflow](https://github.com/DataJunction/dj/actions/workflows/test.yml/badge.svg?branch=main)
+![client-integration-tests workflow](https://github.com/DataJunction/dj/actions/workflows/client-integration-tests.yml/badge.svg?branch=main)
+
 ## Introduction
 
 DataJunction (DJ) is an open source **metrics platform** that allows users to define
