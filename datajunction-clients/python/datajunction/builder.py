@@ -101,21 +101,6 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     #
     # Nodes: SOURCE
     #
-    def source(self, node_name: str) -> "Source":
-        """
-        Retrieves a source node with that name if one exists.
-        """
-        node_dict = self._verify_node_exists(
-            node_name,
-            type_=models.NodeType.SOURCE.value,
-        )
-        node = Source(
-            **node_dict,
-            dj_client=self,
-        )
-        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
-        return node
-
     def create_source(  # pylint: disable=too-many-arguments
         self,
         name: str,
@@ -145,6 +130,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             columns=columns,
         )
         self._create_node(node=new_node, mode=mode)
+        new_node.refresh()
         return new_node
 
     def register_table(self, catalog: str, schema: str, table: str) -> Source:
@@ -162,21 +148,6 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
     #
     # Nodes: TRANSFORM
     #
-    def transform(self, node_name: str) -> "Transform":
-        """
-        Retrieves a transform node with that name if one exists.
-        """
-        node_dict = self._verify_node_exists(
-            node_name,
-            type_=models.NodeType.TRANSFORM.value,
-        )
-        node = Transform(
-            **node_dict,
-            dj_client=self,
-        )
-        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
-        return node
-
     def create_transform(  # pylint: disable=too-many-arguments
         self,
         name: str,
@@ -200,26 +171,12 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             query=query,
         )
         self._create_node(node=new_node, mode=mode)
+        new_node.refresh()
         return new_node
 
     #
     # Nodes: DIMENSION
     #
-    def dimension(self, node_name: str) -> "Dimension":
-        """
-        Retrieves a Dimension node with that name if one exists.
-        """
-        node_dict = self._verify_node_exists(
-            node_name,
-            type_=models.NodeType.DIMENSION.value,
-        )
-        node = Dimension(
-            **node_dict,
-            dj_client=self,
-        )
-        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
-        return node
-
     def create_dimension(  # pylint: disable=too-many-arguments
         self,
         name: str,
@@ -243,26 +200,12 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             query=query,
         )
         self._create_node(node=new_node, mode=mode)
+        new_node.refresh()
         return new_node
 
     #
     # Nodes: METRIC
     #
-    def metric(self, node_name: str) -> "Metric":
-        """
-        Retrieves a Metric node with that name if one exists.
-        """
-        node_dict = self._verify_node_exists(
-            node_name,
-            type_=models.NodeType.METRIC.value,
-        )
-        node = Metric(
-            **node_dict,
-            dj_client=self,
-        )
-        node.primary_key = self._primary_key_from_columns(node_dict["columns"])
-        return node
-
     def create_metric(  # pylint: disable=too-many-arguments
         self,
         name: str,
@@ -286,35 +229,12 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             query=query,
         )
         self._create_node(node=new_node, mode=mode)
+        new_node.refresh()
         return new_node
 
     #
     # Nodes: CUBE
     #
-    def cube(self, node_name: str) -> "Cube":  # pragma: no cover
-        """
-        Retrieves a Cube node with that name if one exists.
-        """
-        node_dict = self._get_cube(node_name)
-        if "name" not in node_dict:
-            raise DJClientException(f"Cube `{node_name}` does not exist")
-        dimensions = [
-            f'{col["node_name"]}.{col["name"]}'
-            for col in node_dict["cube_elements"]
-            if col["type"] != "metric"
-        ]
-        metrics = [
-            f'{col["node_name"]}.{col["name"]}'
-            for col in node_dict["cube_elements"]
-            if col["type"] == "metric"
-        ]
-        return Cube(
-            **node_dict,
-            metrics=metrics,
-            dimensions=dimensions,
-            dj_client=self,
-        )
-
     def create_cube(  # pylint: disable=too-many-arguments
         self,
         name: str,
@@ -338,4 +258,5 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
             display_name=display_name,
         )
         self._create_node(node=new_node, mode=mode)  # pragma: no cover
+        new_node.refresh()
         return new_node  # pragma: no cover
