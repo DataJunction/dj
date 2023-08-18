@@ -378,6 +378,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             mode=NodeMode.PUBLISHED,
         )
         assert account_type_dim.name == "default.account_type"
+        assert len(account_type_dim.columns) == 3
         assert "default.account_type" in client.list_dimensions(namespace="default")
 
         # transform nodes
@@ -395,6 +396,8 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             "default.large_revenue_payments_only"
             in client.namespace("default").transforms()
         )
+        assert len(large_revenue_payments_only.columns) == 4
+
         client.transform("default.large_revenue_payments_only")
 
         result = large_revenue_payments_only.add_materialization(
