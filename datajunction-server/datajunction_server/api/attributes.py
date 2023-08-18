@@ -5,20 +5,22 @@ Attributes related APIs.
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import Depends
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJAlreadyExistsException, DJException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.attribute import (
     RESERVED_ATTRIBUTE_NAMESPACE,
     AttributeType,
     MutableAttributeTypeFields,
 )
 from datajunction_server.models.node import NodeType
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["attributes"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["attributes"])
 
 
 @router.get("/attributes/", response_model=List[AttributeType])

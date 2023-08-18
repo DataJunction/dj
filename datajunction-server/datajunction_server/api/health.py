@@ -9,7 +9,9 @@ from fastapi import APIRouter, Depends
 from sqlalchemy import select
 from sqlmodel import Session, SQLModel
 
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
+
+settings = get_settings()
 
 router = APIRouter(tags=["health"])
 

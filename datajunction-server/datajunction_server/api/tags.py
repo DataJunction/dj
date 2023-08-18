@@ -4,18 +4,20 @@ Tag related APIs.
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import Depends
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJException
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models import History
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeType
 from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
-router = APIRouter(tags=["tags"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["tags"])
 
 
 def get_tag_by_name(

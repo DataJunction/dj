@@ -5,19 +5,21 @@ Metric related APIs.
 from http import HTTPStatus
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import Depends, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJError, DJException, ErrorCode
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.metric import Metric
 from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
-router = APIRouter(tags=["metrics"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["metrics"])
 
 
 def get_metric(session: Session, name: str) -> Node:

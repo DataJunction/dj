@@ -1,9 +1,8 @@
-import React, { useContext } from 'react';
+import { useContext } from 'react';
 import { MarkerType } from 'reactflow';
 
 import '../../../styles/dag.css';
 import 'reactflow/dist/style.css';
-import DJNode from '../../components/djgraph/DJNode';
 import DJClientContext from '../../providers/djclient';
 import LayoutFlow from '../../components/djgraph/LayoutFlow';
 

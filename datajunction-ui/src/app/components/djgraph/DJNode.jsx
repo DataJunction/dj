@@ -1,4 +1,4 @@
-import { memo, useLayoutEffect, useRef, useState } from 'react';
+import { memo } from 'react';
 import { Handle, Position } from 'reactflow';
 import Collapse from './Collapse';
 

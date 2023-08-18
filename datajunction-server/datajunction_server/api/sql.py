@@ -4,7 +4,7 @@ SQL related APIs.
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import Depends, Query
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import (
@@ -13,12 +13,14 @@ from datajunction_server.api.helpers import (
     get_query,
     validate_orderby,
 )
+from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.utils import get_session
+from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["sql"])
+settings = get_settings()
+router = SecureAPIRouter(tags=["sql"])
 
 
 @router.get(
