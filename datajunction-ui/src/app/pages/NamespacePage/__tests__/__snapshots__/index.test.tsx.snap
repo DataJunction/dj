@@ -54,9 +54,6 @@ exports[`<NamespacePage /> should render and match the snapshot 1`] = `
                 Mode
               </th>
               <th>
-                Tags
-              </th>
-              <th>
                 Last Updated
               </th>
             </tr>
