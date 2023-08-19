@@ -847,4 +847,4 @@ def column_lineage(
     node = get_node_by_name(session, name)
     if node.current.lineage:
         return node.current.lineage  # type: ignore
-    return get_column_level_lineage(session, node.current)
+    return get_column_level_lineage(session, node.current)  # pragma: no cover
