@@ -3040,6 +3040,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "query": "SELECT 1 FROM node_that_does_not_exist",
                 "mode": "published",
                 "id": None,
+                "lineage": [],
                 "version": "v0.1",
                 "node_id": None,
                 "catalog_id": None,
