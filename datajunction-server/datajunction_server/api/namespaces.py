@@ -8,7 +8,7 @@ from typing import List, Optional
 from fastapi import Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, select
+from sqlmodel import Session, func, select
 
 from datajunction_server.api.helpers import (
     activate_node,
@@ -23,7 +23,12 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_deactivated,
     mark_namespace_restored,
 )
-from datajunction_server.models.node import NodeNameList, NodeNamespace, NodeType
+from datajunction_server.models.node import (
+    NamespaceOutput,
+    Node,
+    NodeMinimumDetail,
+    NodeType,
+)
 from datajunction_server.utils import get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -61,24 +66,28 @@ def create_node_namespace(
 
 @router.get(
     "/namespaces/",
-    response_model=List[str],
+    response_model=List[NamespaceOutput],
     status_code=200,
 )
 def list_namespaces(
     session: Session = Depends(get_session),
-) -> List[str]:
+) -> List[NamespaceOutput]:
     """
-    List namespaces
+    List namespaces with the number of nodes contained in them
     """
     return session.exec(
-        select(NodeNamespace.namespace).where(is_(NodeNamespace.deactivated_at, None)),
+        select(Node.namespace, func.count(Node.id).label("num_nodes"))
+        .where(
+            is_(Node.deactivated_at, None),
+        )
+        .group_by(Node.namespace),
     ).all()
 
 
 @router.get(
     "/namespaces/{namespace}/",
-    response_model=NodeNameList,
-    status_code=200,
+    response_model=List[NodeMinimumDetail],
+    status_code=HTTPStatus.OK,
 )
 def list_nodes_in_namespace(
     namespace: str,
@@ -87,7 +96,7 @@ def list_nodes_in_namespace(
         description="Filter the list of nodes to this type",
     ),
     session: Session = Depends(get_session),
-) -> NodeNameList:
+) -> List[NodeMinimumDetail]:
     """
     List node names in namespace, filterable to a given type if desired.
     """
@@ -118,7 +127,8 @@ def deactivate_a_namespace(
         )
 
     # If there are no active nodes in the namespace, we can safely deactivate this namespace
-    node_names = get_nodes_in_namespace(session, namespace)
+    node_list = get_nodes_in_namespace(session, namespace)
+    node_names = [n["name"] for n in node_list]
     if len(node_names) == 0:
         message = f"Namespace `{namespace}` has been deactivated."
         mark_namespace_deactivated(session, node_namespace, message)
@@ -180,8 +190,8 @@ def restore_a_namespace(
             message=f"Node namespace `{namespace}` already exists and is active.",
         )
 
-    node_names = get_nodes_in_namespace(session, namespace, include_deactivated=True)
-
+    node_list = get_nodes_in_namespace(session, namespace, include_deactivated=True)
+    node_names = [n["name"] for n in node_list]
     # If cascade=true is set, we'll restore all nodes in this namespace and then
     # subsequently restore this namespace
     if cascade:

@@ -211,7 +211,9 @@ class DJClient:
         response = self._session.get(
             f"/namespaces/{namespace}/" + (f"?type_={type_.value}" if type_ else ""),
         )
-        return response.json()
+        node_details_list = response.json()
+        nodes = [n["name"] for n in node_details_list]
+        return nodes
 
     def _get_all_nodes(
         self,

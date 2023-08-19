@@ -20,7 +20,7 @@ export function NamespacePage() {
     const hierarchy = [];
 
     for (const item of namespaceList) {
-      const namespaces = item.split('.');
+      const namespaces = item.namespace.split('.');
       let currentLevel = hierarchy;
 
       let path = '';
@@ -58,10 +58,7 @@ export function NamespacePage() {
       if (namespace === undefined && namespaceHierarchy !== undefined) {
         namespace = namespaceHierarchy.children[0].path;
       }
-      const djNodes = await djClient.namespace(namespace);
-      const nodes = djNodes.map(node => {
-        return djClient.node(node);
-      });
+      const nodes = await djClient.namespace(namespace);
       const foundNodes = await Promise.all(nodes);
       setState({
         namespace: namespace,
@@ -99,9 +96,6 @@ export function NamespacePage() {
       </td>
       <td>
         <span className="status">{node.mode}</span>
-      </td>
-      <td>
-        <span className="status">{node.tags}</span>
       </td>
       <td>
         <span className="status">
@@ -147,7 +141,6 @@ export function NamespacePage() {
                   <th>Type</th>
                   <th>Status</th>
                   <th>Mode</th>
-                  <th>Tags</th>
                   <th>Last Updated</th>
                 </tr>
               </thead>

@@ -50,7 +50,7 @@ class DJBuilder(DJClient):  # pylint: disable=too-many-public-methods
                 "cascade": cascade,
             },
         )
-        if response.status_code != HTTPStatus.OK:
+        if not response.ok:
             raise DJClientException(response.json()["message"])
 
     def restore_namespace(self, namespace: str, cascade: bool = False) -> None:

@@ -2,15 +2,14 @@
 Helper methods for namespaces endpoints.
 """
 from datetime import datetime
-from typing import List
+from typing import Dict, List
 
-from sqlalchemy import and_
 from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, select
+from sqlmodel import Session, col, select
 
 from datajunction_server.models import History
 from datajunction_server.models.history import ActivityType, EntityType
-from datajunction_server.models.node import Node, NodeNamespace, NodeType
+from datajunction_server.models.node import Node, NodeNamespace, NodeRevision, NodeType
 from datajunction_server.typing import UTCDatetime
 
 
@@ -19,26 +18,23 @@ def get_nodes_in_namespace(
     namespace: str,
     node_type: NodeType = None,
     include_deactivated: bool = False,
-) -> List[str]:
+) -> List[Dict]:
     """
     Gets a list of node names in the namespace
     """
-    where_clause = (
-        and_(
-            Node.namespace.like(  # type: ignore  # pylint: disable=no-member
-                f"{namespace}%",
-            ),
-            Node.type == node_type,
-        )
-        if node_type
-        else Node.namespace.like(  # type: ignore  # pylint: disable=no-member
-            f"{namespace}%",
-        )
+    list_nodes_query = select(
+        Node.name,
+        Node.display_name,
+        Node.type,
+        NodeRevision.status,
+        NodeRevision.mode,
+        NodeRevision.updated_at,
+    ).where(
+        col(Node.namespace).contains(namespace),  # pylint: disable=no-member
+        Node.current_version == NodeRevision.version,
+        Node.name == NodeRevision.name,
+        Node.type == node_type if node_type else True,
     )
-
-    list_nodes_query = select(Node.name).where(
-        where_clause,
-    )  # .where(is_(Node.deactivated_at, None))
     if include_deactivated is False:
         list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
     return session.exec(list_nodes_query).all()

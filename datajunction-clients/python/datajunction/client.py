@@ -24,9 +24,10 @@ class DJClient(_internal.DJClient):
         List namespaces starting with a given prefix.
         """
         namespaces = self._session.get("/namespaces/").json()
+        namespace_list = [n["namespace"] for n in namespaces]
         if prefix:
-            namespaces = [n for n in namespaces if n.startswith(prefix)]
-        return namespaces
+            namespace_list = [n for n in namespace_list if n.startswith(prefix)]
+        return namespace_list
 
     def list_dimensions(self, namespace: Optional[str] = None) -> List[str]:
         """
