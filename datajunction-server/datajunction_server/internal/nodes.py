@@ -4,8 +4,6 @@ from collections import defaultdict
 from http import HTTPStatus
 from typing import List, Optional
 
-from cachetools import LRUCache, cached  # type: ignore
-from cachetools.keys import hashkey  # type: ignore
 from fastapi import Depends
 from sqlmodel import Session, select
 
@@ -39,7 +37,7 @@ from datajunction_server.models import (
     NodeRevision,
 )
 from datajunction_server.models.attribute import UniquenessScope
-from datajunction_server.models.base import generate_display_name
+from datajunction_server.models.base import labelize
 from datajunction_server.models.column import ColumnAttributeInput
 from datajunction_server.models.history import (
     ActivityType,
@@ -202,9 +200,7 @@ def create_node_revision(
     node_revision = NodeRevision(
         name=data.name,
         namespace=data.namespace,
-        display_name=data.display_name
-        if data.display_name
-        else generate_display_name(data.name),
+        display_name=data.display_name if data.display_name else labelize(data.name),
         description=data.description,
         type=node_type,
         status=NodeStatus.VALID,
@@ -380,6 +376,12 @@ def save_node(
     node.current_version = node_revision.version
     node_revision.extra_validation()
 
+    if node_revision.type == NodeType.METRIC:
+        node_revision.lineage = [
+            lineage.dict()
+            for lineage in get_column_level_lineage(session, node_revision)
+        ]
+
     session.add(node)
     session.add(
         History(
@@ -437,6 +439,12 @@ def _update_node(
     node.current_version = new_revision.version
 
     new_revision.extra_validation()
+
+    if new_revision.type == NodeType.METRIC:
+        new_revision.lineage = [
+            lineage.dict()
+            for lineage in get_column_level_lineage(session, new_revision)
+        ]
 
     session.add(new_revision)
     session.add(node)
@@ -692,17 +700,30 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     return new_revision
 
 
-@cached(
-    cache=LRUCache(maxsize=1000),
-    key=lambda session, node_rev, column_name: hashkey(node_rev, column_name),
-)
-def column_level_lineage(
+def get_column_level_lineage(
+    session: Session,
+    node_revision: NodeRevision,
+) -> List[LineageColumn]:
+    """
+    Gets the column-level lineage for the node
+    """
+    return [
+        column_lineage(
+            session,
+            node_revision,
+            col.name,
+        )
+        for col in node_revision.columns
+    ]
+
+
+def column_lineage(
     session: Session,
     node_rev: NodeRevision,
     column_name: str,
 ) -> LineageColumn:
     """
-    Determines the column-level lineage for a column on a node.
+    Helper function to determine the lineage for a column on a node.
     """
     if node_rev.type == NodeType.SOURCE:
         return LineageColumn(
@@ -746,9 +767,13 @@ def column_level_lineage(
     processed = list(column_expr.find_all(ast.Column))
     while processed:
         current = processed.pop()
-        if hasattr(current, "table") and isinstance(current.table, ast.Table):
+        if (
+            hasattr(current, "table")
+            and isinstance(current.table, ast.Table)
+            and current.table.dj_node
+        ):
             lineage_column.lineage.append(  # type: ignore
-                column_level_lineage(
+                column_lineage(
                     session,
                     current.table.dj_node,
                     current.name.name
