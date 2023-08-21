@@ -1,65 +1,67 @@
 .login form {
-    border-radius: 25px;
-    border: 2px solid #000000;
-    background: linear-gradient(120deg, #ffed7c, #fef7c8);
-    width: 40vw;
-    height: 30rem;
-    box-sizing: border-box;
-    padding: 2rem;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1rem;
-    margin:auto;
-    position:absolute;
-    top:0;bottom:0;
-    left:0;right:0;
-  }
+  border-radius: 25px;
+  border: 2px solid #000000;
+  background: linear-gradient(120deg, #ffed7c, #fef7c8);
+  width: 40vw;
+  height: 30rem;
+  box-sizing: border-box;
+  padding: 2rem;
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin: auto;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  right: 0;
+}
 
-  .login form button {
-    width: 15vw;
-    margin:auto;
-  }
+.login form button {
+  width: 15vw;
+  margin: auto;
+}
 
-  .login form span {
-    padding: 0.5rem;
-  }
+.login form span {
+  padding: 0.5rem;
+}
 
-  .login input[type=text], select {
-    width: 20vw;
-    padding: 12px 20px;
-    margin:auto;
-    display: inline-block;
-    border: 2px solid #000000;
-    border-radius: 4px;
-    box-sizing: border-box;
-  }
+.login input[type='text'] {
+  width: 20vw;
+  padding: 12px 20px;
+  margin: auto;
+  display: inline-block;
+  border: 2px solid #000000;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
 
-  .login input[type=password], select {
-    -webkit-text-security: disc;
-    width: 20vw;
-    padding: 12px 20px;
-    margin:auto;
-    display: inline-block;
-    border: 2px solid #000000;
-    border-radius: 4px;
-    box-sizing: border-box;
-  }
+.login input[type='password'] {
+  -webkit-text-security: disc;
+  width: 20vw;
+  padding: 12px 20px;
+  margin: auto;
+  display: inline-block;
+  border: 2px solid #000000;
+  border-radius: 4px;
+  box-sizing: border-box;
+}
 
-  .login button[type=submit] {
-    width: 10vw;
-    background-color: #01B268;
-    border: 2px solid #000000;
-    color: white;
-    padding: 14px 20px;
-    border-radius: 4px;
-    cursor: pointer;
-  }
+.login button[type='submit'] {
+  width: 10vw;
+  background-color: #01b268;
+  border: 2px solid #000000;
+  color: white;
+  padding: 14px 20px;
+  border-radius: 4px;
+  cursor: pointer;
+}
 
-  .login .logo-title {
-    display: flex;
-    margin: auto;
-  }
+.login .logo-title {
+  display: flex;
+  margin: auto;
+}
 
-  .login .logo-title img {
-    padding: 0.5rem;
-  }
+.login .logo-title img {
+  padding: 0.5rem;
+}

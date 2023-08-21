@@ -21,7 +21,7 @@ export const DataJunctionAPI = {
 
   node: async function (name) {
     const data = await (
-      await fetch(`${DJ_URL}/nodes/` + name + '/', {
+      await fetch(`${DJ_URL}/nodes/${name}/`, {
         credentials: 'include',
       })
     ).json();
@@ -35,7 +35,7 @@ export const DataJunctionAPI = {
 
   upstreams: async function (name) {
     const data = await (
-      await fetch(`${DJ_URL}/nodes/` + name + '/upstream/', {
+      await fetch(`${DJ_URL}/nodes/${name}/upstream/`, {
         credentials: 'include',
       })
     ).json();
@@ -200,7 +200,7 @@ export const DataJunctionAPI = {
   columns: async function (node) {
     return await Promise.all(
       node.columns.map(async col => {
-        if (col.dimension !== null) {
+        if (col.dimension) {
           col.clientCode = await (
             await fetch(
               `${DJ_URL}/datajunction-clients/python/link_dimension/${node.name}/${col.name}/${col.dimension?.name}`,
@@ -215,16 +215,16 @@ export const DataJunctionAPI = {
     );
   },
 
-  sqls: async function (metricSelection, dimensionSelection) {
+  sqls: async function (metricSelection, dimensionSelection, filters) {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
-    const data = await (
-      await fetch(`${DJ_URL}/sql/?` + params, {
+    params.append('filters', filters);
+    return await (
+      await fetch(`${DJ_URL}/sql/?${params}`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   data: async function (metricSelection, dimensionSelection) {
@@ -239,10 +239,11 @@ export const DataJunctionAPI = {
     return data;
   },
 
-  stream: async function (metricSelection, dimensionSelection) {
+  stream: async function (metricSelection, dimensionSelection, filters) {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
+    params.append('filters', filters);
     return new EventSource(
       `${DJ_URL}/stream/?${params}&limit=10000&async_=true`,
       {

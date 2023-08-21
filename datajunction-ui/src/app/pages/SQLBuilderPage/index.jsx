@@ -6,10 +6,15 @@ import { Light as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { foundation } from 'react-syntax-highlighter/src/styles/hljs';
 import Select from 'react-select';
 import QueryInfo from '../../components/QueryInfo';
+import 'react-querybuilder/dist/query-builder.scss';
+import QueryBuilder, { formatQuery } from 'react-querybuilder';
+import 'styles/styles.scss';
 
 export function SQLBuilderPage() {
   const DEFAULT_NUM_ROWS = 100;
+  const a = 'b';
   const djClient = useContext(DJClientContext).DataJunctionAPI;
+  const validator = ruleType => !!ruleType.value;
   const [stagedMetrics, setStagedMetrics] = useState([]);
   const [metrics, setMetrics] = useState([]);
   const [commonDimensionsList, setCommonDimensionsList] = useState([]);
@@ -17,6 +22,8 @@ export function SQLBuilderPage() {
   const [stagedDimensions, setStagedDimensions] = useState([]);
   const [selectedMetrics, setSelectedMetrics] = useState([]);
   const [query, setQuery] = useState('');
+  const [fields, setFields] = useState([]);
+  const [filters, setFilters] = useState({ combinator: 'and', rules: [] });
   const [queryInfo, setQueryInfo] = useState({});
   const [data, setData] = useState(null);
   const [loadingData, setLoadingData] = useState(false);
@@ -48,7 +55,11 @@ export function SQLBuilderPage() {
     setQueryInfo({});
     const fetchData = async () => {
       if (process.env.REACT_USE_SSE) {
-        const sse = await djClient.stream(selectedMetrics, selectedDimensions);
+        const sse = await djClient.stream(
+          selectedMetrics,
+          selectedDimensions,
+          formatQuery(filters, { format: 'sql', parseNumbers: true }),
+        );
         sse.onmessage = e => {
           const messageData = JSON.parse(JSON.parse(e.data));
           setQueryInfo(messageData);
@@ -99,6 +110,24 @@ export function SQLBuilderPage() {
     fetchData().catch(console.error);
   }, [djClient, djClient.metrics]);
 
+  const attributeToFormInput = dimension => {
+    const attribute = {
+      name: dimension.name,
+      label: `${dimension.name} (via ${dimension.path.join(' ▶ ')})`,
+      placeholder: `from ${dimension.path}`,
+      defaultOperator: '=',
+      validator,
+    };
+    if (dimension.type === 'bool') {
+      attribute.valueEditorType = 'checkbox';
+    }
+    if (dimension.type === 'timestamp') {
+      attribute.inputType = 'datetime-local';
+      attribute.defaultOperator = 'between';
+    }
+    return [dimension.name, attribute];
+  };
+
   // Get common dimensions
   useEffect(() => {
     const fetchData = async () => {
@@ -113,8 +142,15 @@ export function SQLBuilderPage() {
             path: d.path.join(' ▶ '),
           })),
         );
+        const uniqueFields = Object.fromEntries(
+          new Map(
+            commonDimensions.map(dimension => attributeToFormInput(dimension)),
+          ),
+        );
+        setFields(Object.keys(uniqueFields).map(f => uniqueFields[f]));
       } else {
         setCommonDimensionsList([]);
+        setFields([]);
       }
     };
     fetchData().catch(console.error);
@@ -123,15 +159,22 @@ export function SQLBuilderPage() {
   // Get SQL
   useEffect(() => {
     const fetchData = async () => {
-      if (selectedMetrics.length && selectedDimensions.length) {
-        const query = await djClient.sqls(selectedMetrics, selectedDimensions);
-        setQuery(query.sql);
+      if (
+        selectedMetrics.length > 0 &&
+        (selectedDimensions.length > 0 || filters.rules.length > 0)
+      ) {
+        const result = await djClient.sqls(
+          selectedMetrics,
+          selectedDimensions,
+          formatQuery(filters, { format: 'sql', parseNumbers: true }),
+        );
+        setQuery(result.sql);
       } else {
         resetView();
       }
     };
     fetchData().catch(console.error);
-  }, [selectedMetrics, selectedDimensions, djClient]);
+  }, [djClient, filters, selectedDimensions, selectedMetrics]);
 
   // Set number of rows to display
   useEffect(() => {
@@ -166,9 +209,7 @@ export function SQLBuilderPage() {
               name="metrics"
               options={metrics}
               isDisabled={
-                selectedMetrics.length && selectedDimensions.length
-                  ? true
-                  : false
+                !!(selectedMetrics.length && selectedDimensions.length)
               }
               noOptionsMessage={() => 'No metrics found.'}
               placeholder={`${metrics.length} Available Metrics`}
@@ -205,6 +246,12 @@ export function SQLBuilderPage() {
               onMenuClose={() => {
                 setSelectedDimensions(stagedDimensions);
               }}
+            />
+            <h4>Filter By</h4>
+            <QueryBuilder
+              fields={fields}
+              query={filters}
+              onQueryChange={q => setFilters(q)}
             />
           </div>
           <div className="card-header">
