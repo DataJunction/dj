@@ -27,6 +27,7 @@ from datajunction_server.models.node import (
     NamespaceOutput,
     Node,
     NodeMinimumDetail,
+    NodeNamespace,
     NodeType,
 )
 from datajunction_server.utils import get_session, get_settings
@@ -76,11 +77,12 @@ def list_namespaces(
     List namespaces with the number of nodes contained in them
     """
     return session.exec(
-        select(Node.namespace, func.count(Node.id).label("num_nodes"))
+        select(NodeNamespace.namespace, func.count(Node.id).label("num_nodes"))
+        .join(Node, onclause=NodeNamespace.namespace == Node.namespace, isouter=True)
         .where(
-            is_(Node.deactivated_at, None),
+            is_(NodeNamespace.deactivated_at, None),
         )
-        .group_by(Node.namespace),
+        .group_by(NodeNamespace.namespace),
     ).all()
 
 

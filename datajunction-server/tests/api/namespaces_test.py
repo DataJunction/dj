@@ -16,6 +16,7 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
         {"namespace": "basic.source", "num_nodes": 2},
         {"namespace": "basic.transform", "num_nodes": 1},
         {"namespace": "dbt.dimension", "num_nodes": 1},
+        {'namespace': 'dbt.source', 'num_nodes': 0},
         {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
@@ -107,6 +108,7 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         "basic.source",
         "basic.transform",
         "basic.dimension",
+        "dbt.source",
         "dbt.source.jaffle_shop",
         "dbt.transform",
         "dbt.dimension",
@@ -131,10 +133,12 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         "basic.source",
         "basic.transform",
         "dbt.dimension",
+        "dbt.source",
         "dbt.source.jaffle_shop",
         "dbt.source.stripe",
         "dbt.transform",
         "default",
+        "foo.bar",
     }
 
     # Check that nodes in the namespace remain deactivated

@@ -871,6 +871,7 @@ class NodeMinimumDetail(SQLModel):
 
     name: str
     display_name: str
+    version: str
     type: NodeType
     status: NodeStatus
     mode: NodeMode
