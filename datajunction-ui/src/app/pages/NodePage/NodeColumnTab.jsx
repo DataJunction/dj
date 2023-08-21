@@ -20,7 +20,7 @@ export default function NodeColumnTab({ node, djClient }) {
           </span>
         </td>
         <td>
-          {col.dimension ? (
+          {col.dimension !== undefined && col.dimension !== null ? (
             <>
               <a href={`/nodes/${col.dimension.name}`}>{col.dimension.name}</a>
               <ClientCodePopover code={col.clientCode} />
