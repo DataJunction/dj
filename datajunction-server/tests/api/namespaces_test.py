@@ -16,7 +16,7 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
         {"namespace": "basic.source", "num_nodes": 2},
         {"namespace": "basic.transform", "num_nodes": 1},
         {"namespace": "dbt.dimension", "num_nodes": 1},
-        {'namespace': 'dbt.source', 'num_nodes': 0},
+        {"namespace": "dbt.source", "num_nodes": 0},
         {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
