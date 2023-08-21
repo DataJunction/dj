@@ -12,7 +12,6 @@ import 'styles/styles.scss';
 
 export function SQLBuilderPage() {
   const DEFAULT_NUM_ROWS = 100;
-  const a = 'b';
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const validator = ruleType => !!ruleType.value;
   const [stagedMetrics, setStagedMetrics] = useState([]);
