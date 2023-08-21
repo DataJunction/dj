@@ -376,7 +376,7 @@ def save_node(
     node.current_version = node_revision.version
     node_revision.extra_validation()
 
-    if node_revision.type == NodeType.METRIC:
+    if node_revision.type not in (NodeType.SOURCE, NodeType.CUBE):
         node_revision.lineage = [
             lineage.dict()
             for lineage in get_column_level_lineage(session, node_revision)
@@ -440,7 +440,7 @@ def _update_node(
 
     new_revision.extra_validation()
 
-    if new_revision.type == NodeType.METRIC:
+    if new_revision.type not in (NodeType.SOURCE, NodeType.CUBE):
         new_revision.lineage = [
             lineage.dict()
             for lineage in get_column_level_lineage(session, new_revision)
@@ -765,8 +765,11 @@ def column_lineage(
     # by the current column's expression. If we reach an actual table with a DJ
     # node attached, save this to the lineage record. Otherwise, continue the search
     processed = list(column_expr.find_all(ast.Column))
+    seen = set()
     while processed:
         current = processed.pop()
+        if current in seen:
+            continue
         if (
             hasattr(current, "table")
             and isinstance(current.table, ast.Table)
@@ -787,4 +790,5 @@ def column_lineage(
             )
             for col_dep in expr_column_deps:
                 processed.append(col_dep)
+        seen.update({current})
     return lineage_column
