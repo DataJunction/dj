@@ -26,6 +26,9 @@ def get_nodes_in_namespace(
         Node.name,
         Node.display_name,
         Node.type,
+        Node.current_version.label(  # type: ignore # pylint: disable=no-member
+            "version",
+        ),
         NodeRevision.status,
         NodeRevision.mode,
         NodeRevision.updated_at,
