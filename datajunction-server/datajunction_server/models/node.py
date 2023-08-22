@@ -636,7 +636,12 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         },
     )
 
-    parent_links: List[NodeRelationship] = Relationship()
+    parent_links: List[NodeRelationship] = Relationship(
+        sa_relationship_kwargs={
+            "primaryjoin": "NodeRevision.id==NodeRelationship.child_id",
+            "cascade": "all, delete",
+        },
+    )
 
     missing_parents: List[MissingParent] = Relationship(
         link_model=NodeMissingParents,
