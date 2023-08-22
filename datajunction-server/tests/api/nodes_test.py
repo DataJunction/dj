@@ -1930,7 +1930,7 @@ GROUP BY
                 "description": "Total Repair Amounts during the COVID-19 Pandemic",
                 "name": "default.total_amount_in_region_from_struct_transform",
                 "query": "SELECT SUM(IF(order_year = 2020, measures.total_amount_in_region, 0)) "
-                "FROM default.regional_level_agg_structs",
+                "col0 FROM default.regional_level_agg_structs",
                 "mode": "published",
             },
         )
