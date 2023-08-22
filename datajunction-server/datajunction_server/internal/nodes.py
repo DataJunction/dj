@@ -376,11 +376,16 @@ def save_node(
     node.current_version = node_revision.version
     node_revision.extra_validation()
 
-    if node_revision.type not in (NodeType.SOURCE, NodeType.CUBE):
+    if node_revision.status == NodeStatus.VALID and node_revision.type not in (
+        NodeType.SOURCE,
+        NodeType.CUBE,
+    ):
         node_revision.lineage = [
             lineage.dict()
             for lineage in get_column_level_lineage(session, node_revision)
         ]
+    else:
+        node_revision.lineage = []
 
     session.add(node)
     session.add(
@@ -440,11 +445,16 @@ def _update_node(
 
     new_revision.extra_validation()
 
-    if new_revision.type not in (NodeType.SOURCE, NodeType.CUBE):
+    if new_revision.status == NodeStatus.VALID and new_revision.type not in (
+        NodeType.SOURCE,
+        NodeType.CUBE,
+    ):
         new_revision.lineage = [
             lineage.dict()
             for lineage in get_column_level_lineage(session, new_revision)
         ]
+    else:
+        new_revision.lineage = []
 
     session.add(new_revision)
     session.add(node)
