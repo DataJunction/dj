@@ -1,0 +1,44 @@
+@use 'sass:color';
+
+.svg-font-color svg > path {
+  fill: var(--ifm-font-color-base);
+}
+select {
+  border-radius: 0.25rem;
+  font-size: 0.875rem;
+  padding-bottom: 0.25rem;
+  padding-left: 0.5rem;
+  padding-top: 0.25rem;
+  max-width: 20vw;
+}
+.queryBuilder {
+  min-width: 420px;
+
+  .ruleGroup div select,
+  .ruleGroup div input {
+    -webkit-text-security: none;
+    border-radius: 0.25rem;
+    font-size: 0.875rem;
+    padding-bottom: 0.35rem;
+    padding-left: 0.5rem;
+    padding-top: 0.35rem;
+    border: none;
+  }
+
+  .ruleGroup div button {
+    background-color: #f0f8ff;
+    color: #24518f;
+    border: 1px solid #365b8f;
+    border-radius: 0.25rem;
+    cursor: pointer;
+    display: inline-block;
+    font-size: 0.875rem;
+    font-weight: 400;
+    line-height: 1.5;
+    padding: 0.25rem 0.5rem;
+    text-align: center;
+    text-decoration: none;
+    transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out,
+      border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
+  }
+}
