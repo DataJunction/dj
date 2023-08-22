@@ -8,12 +8,19 @@ from unittest import mock
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlmodel import Session
+from sqlmodel import Session, select
 
+from datajunction_server.api.helpers import get_upstream_nodes
 from datajunction_server.internal.materializations import decompose_expression
 from datajunction_server.models import Database, Table
 from datajunction_server.models.column import Column
-from datajunction_server.models.node import Node, NodeRevision, NodeStatus, NodeType
+from datajunction_server.models.node import (
+    Node,
+    NodeRelationship,
+    NodeRevision,
+    NodeStatus,
+    NodeType,
+)
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from tests.sql.utils import compare_query_strings
@@ -974,6 +981,117 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "errors": [],
             "warnings": [],
         }
+
+    def verify_complete_hard_delete(
+        self,
+        session: Session,
+        client_with_examples: TestClient,
+        node_name: str,
+    ):
+        """
+        Verify that after hard deleting a node, all node revisions and node relationship
+        references are removed.
+        """
+        # Record its upstream nodes
+        upstream_names = [
+            node.name for node in get_upstream_nodes(session, node_name=node_name)
+        ]
+
+        # Hard delete the node
+        response = client_with_examples.delete(f"/nodes/{node_name}/hard/")
+        assert response.ok
+
+        # Check that all revisions (and their relations) for the node have been deleted
+        nodes = session.exec(select(Node).where(Node.name == node_name)).unique().all()
+        revisions = (
+            session.exec(
+                select(NodeRevision).where(NodeRevision.name == node_name),
+            )
+            .unique()
+            .all()
+        )
+        relations = (
+            session.exec(
+                select(NodeRelationship).where(
+                    NodeRelationship.child_id.in_(  # type: ignore  # pylint: disable=no-member
+                        [rev.id for rev in revisions],
+                    ),
+                ),
+            )
+            .unique()
+            .all()
+        )
+        assert nodes == []
+        assert revisions == []
+        assert relations == []
+
+        # Check that upstreams and downstreams of the node still remain
+        upstreams = (
+            session.exec(
+                select(Node).where(
+                    Node.name.in_(upstream_names),  # type: ignore  # pylint: disable=no-member
+                ),
+            )
+            .unique()
+            .all()
+        )
+        assert len(upstreams) == len(upstream_names)
+
+    def test_hard_deleting_node_with_versions(
+        self,
+        client_with_examples: TestClient,
+        session: Session,
+    ):
+        """
+        Test that hard deleting a node will remove all previous node revisions.
+        """
+        # Create a few revisions for the `default.repair_order` dimension
+        client_with_examples.patch(
+            "/nodes/default.repair_order/",
+            json={"query": """SELECT repair_order_id FROM default.repair_orders"""},
+        )
+        client_with_examples.patch(
+            "/nodes/default.repair_order/",
+            json={
+                "query": """SELECT
+                        repair_order_id,
+                        municipality_id,
+                        hard_hat_id,
+                        order_date,
+                        required_date,
+                        dispatched_date,
+                        dispatcher_id
+                        FROM default.repair_orders""",
+            },
+        )
+        response = client_with_examples.get("/nodes/default.repair_order")
+        assert response.json()["version"] == "v3.0"
+
+        # Hard delete all nodes and verify after each delete
+        default_nodes = client_with_examples.get("/namespaces/default/").json()
+        for node_name in default_nodes:
+            self.verify_complete_hard_delete(
+                session,
+                client_with_examples,
+                node_name["name"],
+            )
+
+        # Check that all nodes under the `default` namespace and their revisions have been deleted
+        nodes = (
+            session.exec(select(Node).where(Node.namespace == "default")).unique().all()
+        )
+        assert len(nodes) == 0
+
+        revisions = (
+            session.exec(
+                select(NodeRevision).where(
+                    NodeRevision.name.like("default%"),  # type: ignore # pylint: disable=no-member
+                ),
+            )
+            .unique()
+            .all()
+        )
+        assert len(revisions) == 0
 
     def test_hard_deleting_a_node(
         self,
