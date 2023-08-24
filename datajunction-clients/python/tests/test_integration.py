@@ -29,7 +29,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
             matching_namespace = existing_namespace
     assert matching_namespace
 
-    # Create a source
+    # Create a sources
     dj.create_source(
         name=f"{namespace}.repair_orders",
         description="Repair orders",
@@ -47,8 +47,50 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
         ],
     )
 
-    # Get source
-    dj.source(f"{namespace}.repair_orders")
+    repair_order_details = dj.create_source(
+        name=f"{namespace}.repair_order_details",
+        description="Details on repair orders",
+        display_name="Default: Repair Order Details",
+        schema_="roads",
+        catalog="warehouse",
+        table="repair_order_details",
+        columns=[
+            {"name": "repair_order_id", "type": "int"},
+            {"name": "repair_type_id", "type": "int"},
+            {"name": "price", "type": "float"},
+            {"name": "quantity", "type": "int"},
+            {"name": "discount", "type": "float"},
+        ],
+    )
+
+    # Create dimension
+    dj.create_dimension(
+        description="Repair order dimension",
+        display_name="Default: Repair Order",
+        name=f"{namespace}.repair_order",
+        primary_key=["repair_order_id"],
+        query=f"""
+                SELECT
+                repair_order_id,
+                municipality_id,
+                hard_hat_id,
+                dispatcher_id
+                FROM {namespace}.repair_orders
+            """,
+    )
+    repair_order_details.link_dimension(
+        column="repair_order_id",
+        dimension=f"{namespace}.repair_order",
+        dimension_column="repair_order_id",
+    )
+
+    # Get source and link with dimension
+    repair_orders = dj.source(f"{namespace}.repair_orders")
+    repair_orders.link_dimension(
+        column="repair_order_id",
+        dimension=f"{namespace}.repair_order",
+        dimension_column="repair_order_id",
+    )
 
     # Create a transform
     dj.create_transform(
@@ -68,7 +110,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     # Get transform
     dj.transform(f"{namespace}.repair_orders_w_dispatchers")
 
-    # Create a source and dimension node
+    # Create a source and dimension nodes
     dj.create_source(
         name=f"{namespace}.dispatchers",
         description="Different third party dispatcher companies that coordinate repairs",
@@ -101,11 +143,21 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     dj.create_metric(
         name=f"{namespace}.num_repair_orders",
         description="Number of repair orders",
-        query=f"SELECT count(repair_order_id) FROM {namespace}.repair_orders",
+        query=f"SELECT COUNT(repair_order_id) FROM {namespace}.repair_orders",
+    )
+    dj.create_metric(
+        name=f"{namespace}.avg_repair_price",
+        description="Average repair price",
+        query=f"SELECT AVG(price) FROM {namespace}.repair_order_details",
+    )
+    dj.create_metric(
+        name=f"{namespace}.total_repair_cost",
+        description="Total repair price",
+        query=f"SELECT SUM(price) FROM {namespace}.repair_order_details",
     )
 
     # List metrics
-    assert f"{namespace}.num_repair_orders" in dj.list_metrics()
+    assert len(dj.list_metrics(namespace=namespace)) == 3
 
     # Create a dimension link
     source = dj.source(f"{namespace}.repair_orders")
@@ -114,451 +166,193 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
         dimension=f"{namespace}.all_dispatchers",
         dimension_column="dispatcher_id",
     )
+    # purposfull error, take it back
     source.unlink_dimension(
         column="dispatcher_id",
         dimension=f"{namespace}.all_dispatchers",
         dimension_column="dispatcher_id",
     )
-    source.link_dimension(
+
+    dimension = dj.dimension(f"{namespace}.repair_order")
+    dimension.link_dimension(
         column="dispatcher_id",
         dimension=f"{namespace}.all_dispatchers",
         dimension_column="dispatcher_id",
     )
 
     # List dimensions for a metric
-    dj.metric(f"{namespace}.num_repair_orders").dimensions()
+    assert len(dj.metric(f"{namespace}.num_repair_orders").dimensions()) > 0
+    assert len(dj.metric(f"{namespace}.avg_repair_price").dimensions()) > 0
+    assert len(dj.metric(f"{namespace}.total_repair_cost").dimensions()) > 0
 
     # List common dimensions for multiple metrics
     # names only
     common_dimensions = dj.common_dimensions(
         metrics=[
-            "default.num_repair_orders",
-            "default.avg_repair_price",
-            "default.total_repair_cost",
+            f"{namespace}.num_repair_orders",
+            f"{namespace}.avg_repair_price",
+            f"{namespace}.total_repair_cost",
         ],
         name_only=True,
     )
     assert common_dimensions == [
-        "default.dispatcher.company_name",
-        "default.dispatcher.dispatcher_id",
-        "default.dispatcher.phone",
-        "default.hard_hat.address",
-        "default.hard_hat.birth_date",
-        "default.hard_hat.city",
-        "default.hard_hat.contractor_id",
-        "default.hard_hat.country",
-        "default.hard_hat.first_name",
-        "default.hard_hat.hard_hat_id",
-        "default.hard_hat.hire_date",
-        "default.hard_hat.last_name",
-        "default.hard_hat.manager",
-        "default.hard_hat.postal_code",
-        "default.hard_hat.state",
-        "default.hard_hat.title",
-        "default.municipality_dim.contact_name",
-        "default.municipality_dim.contact_title",
-        "default.municipality_dim.local_region",
-        "default.municipality_dim.municipality_id",
-        "default.municipality_dim.municipality_type_desc",
-        "default.municipality_dim.municipality_type_id",
-        "default.municipality_dim.state_id",
-        "default.repair_orders.repair_order_id",
-        "default.us_state.state_abbr",
-        "default.us_state.state_id",
-        "default.us_state.state_name",
-        "default.us_state.state_region",
-        "default.us_state.state_region_description",
+        f"{namespace}.all_dispatchers.company_name",
+        f"{namespace}.all_dispatchers.dispatcher_id",
+        f"{namespace}.all_dispatchers.phone",
+        f"{namespace}.repair_orders.repair_order_id",
     ]
     # with details
     common_dimensions = dj.common_dimensions(
         metrics=[
-            "default.num_repair_orders",
-            "default.avg_repair_price",
-            "default.total_repair_cost",
+            f"{namespace}.num_repair_orders",
+            f"{namespace}.avg_repair_price",
+            f"{namespace}.total_repair_cost",
         ],
     )
     assert common_dimensions == [
         {
-            "name": "default.dispatcher.company_name",
+            "name": f"{namespace}.all_dispatchers.company_name",
             "type": "string",
             "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.dispatcher_id",
+                f"{namespace}.repair_orders.repair_order_id",
+                f"{namespace}.repair_order.dispatcher_id",
             ],
         },
         {
-            "name": "default.dispatcher.dispatcher_id",
+            "name": f"{namespace}.all_dispatchers.dispatcher_id",
             "type": "int",
             "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.dispatcher_id",
+                f"{namespace}.repair_orders.repair_order_id",
+                f"{namespace}.repair_order.dispatcher_id",
             ],
         },
         {
-            "name": "default.dispatcher.phone",
+            "name": f"{namespace}.all_dispatchers.phone",
             "type": "string",
             "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.dispatcher_id",
+                f"{namespace}.repair_orders.repair_order_id",
+                f"{namespace}.repair_order.dispatcher_id",
             ],
         },
         {
-            "name": "default.hard_hat.address",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.birth_date",
-            "type": "date",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.city",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.contractor_id",
+            "name": f"{namespace}.repair_orders.repair_order_id",
             "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.country",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.first_name",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.hard_hat_id",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.hire_date",
-            "type": "date",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.last_name",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.manager",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.postal_code",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.state",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.hard_hat.title",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-            ],
-        },
-        {
-            "name": "default.municipality_dim.contact_name",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
-        },
-        {
-            "name": "default.municipality_dim.contact_title",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
-        },
-        {
-            "name": "default.municipality_dim.local_region",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
-        },
-        {
-            "name": "default.municipality_dim.municipality_id",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
-        },
-        {
-            "name": "default.municipality_dim.municipality_type_desc",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
-        },
-        {
-            "name": "default.municipality_dim.municipality_type_id",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
-        },
-        {
-            "name": "default.municipality_dim.state_id",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.municipality_id",
-            ],
-        },
-        {"name": "default.repair_orders.repair_order_id", "type": "int", "path": []},
-        {
-            "name": "default.us_state.state_abbr",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
-        },
-        {
-            "name": "default.us_state.state_id",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
-        },
-        {
-            "name": "default.us_state.state_name",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
-        },
-        {
-            "name": "default.us_state.state_region",
-            "type": "int",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
-        },
-        {
-            "name": "default.us_state.state_region_description",
-            "type": "string",
-            "path": [
-                "default.repair_orders.repair_order_id",
-                "default.repair_order.hard_hat_id",
-                "default.hard_hat.state",
-            ],
+            "path": [],
         },
     ]
 
     # List common metrics for multiple dimensions
     # names only
     common_metrics = dj.common_metrics(
-        dimensions=["default.date_dim", "default.repair_order"],
+        dimensions=[f"{namespace}.all_dispatchers", f"{namespace}.repair_order"],
         name_only=True,
     )
-    assert common_metrics == [
-        "default.num_repair_orders",
-        "default.avg_repair_price",
-        "default.total_repair_cost",
-        "default.total_repair_order_discounts",
-        "default.avg_repair_order_discounts",
-        "default.avg_time_to_dispatch",
-    ]
+    assert set(common_metrics) == set(
+        [
+            f"{namespace}.num_repair_orders",
+            f"{namespace}.avg_repair_price",
+            f"{namespace}.total_repair_cost",
+        ],
+    )
     # with details
     common_metrics = dj.common_metrics(
-        dimensions=["default.date_dim", "default.repair_order"],
+        dimensions=[f"{namespace}.all_dispatchers", f"{namespace}.repair_order"],
     )
-    assert common_metrics == [
+    capitalized_namespace = namespace.replace("_", " ").replace(".", ": ").title()
+    dotted_namespace = namespace.replace(".", "_DOT_")
+    expected = [
         {
-            "name": "default.num_repair_orders",
-            "display_name": "Default: Num Repair Orders",
-            "description": "Number of repair orders",
-            "query": "SELECT  count(repair_order_id) default_DOT_num_repair_orders \n FROM default.repair_orders\n\n",
-        },
-        {
-            "name": "default.avg_repair_price",
-            "display_name": "Default: Avg Repair Price",
+            "name": f"{namespace}.avg_repair_price",
+            "display_name": f"{capitalized_namespace}: Avg Repair Price",
             "description": "Average repair price",
-            "query": "SELECT  avg(price) default_DOT_avg_repair_price \n FROM default.repair_order_details\n\n",
+            "query": f"SELECT  AVG(price) {dotted_namespace}_DOT_avg_repair_price \n FROM {namespace}.repair_order_details\n\n",
         },
         {
-            "name": "default.total_repair_cost",
-            "display_name": "Default: Total Repair Cost",
-            "description": "Total repair cost",
-            "query": "SELECT  sum(price) default_DOT_total_repair_cost \n FROM default.repair_order_details\n\n",
+            "name": f"{namespace}.num_repair_orders",
+            "display_name": f"{capitalized_namespace}: Num Repair Orders",
+            "description": "Number of repair orders",
+            "query": f"SELECT  COUNT(repair_order_id) {dotted_namespace}_DOT_num_repair_orders \n FROM {namespace}.repair_orders\n\n",
         },
         {
-            "name": "default.total_repair_order_discounts",
-            "display_name": "Default: Total Repair Order Discounts",
-            "description": "Total repair order discounts",
-            "query": "SELECT  sum(price * discount) default_DOT_total_repair_order_discounts \n FROM default.repair_order_details\n\n",
-        },
-        {
-            "name": "default.avg_repair_order_discounts",
-            "display_name": "Default: Avg Repair Order Discounts",
-            "description": "Total repair order discounts",
-            "query": "SELECT  avg(price * discount) default_DOT_avg_repair_order_discounts \n FROM default.repair_order_details\n\n",
-        },
-        {
-            "name": "default.avg_time_to_dispatch",
-            "display_name": "Default: Avg Time To Dispatch",
-            "description": "Average time to dispatch a repair order",
-            "query": "SELECT  avg(dispatched_date - order_date) default_DOT_avg_time_to_dispatch \n FROM default.repair_orders\n\n",
+            "name": f"{namespace}.total_repair_cost",
+            "display_name": f"{capitalized_namespace}: Total Repair Cost",
+            "description": "Total repair price",
+            "query": f"SELECT  SUM(price) {dotted_namespace}_DOT_total_repair_cost \n FROM {namespace}.repair_order_details\n\n",
         },
     ]
+    common_metrics.sort(key=lambda x: x["name"])
+    assert common_metrics == expected
 
     # Get SQL for a set of metrics and dimensions
     query = dj.sql(
         metrics=[
-            "default.num_repair_orders",
-            "default.avg_repair_price",
-            "default.total_repair_cost",
+            f"{namespace}.num_repair_orders",
+            f"{namespace}.avg_repair_price",
+            f"{namespace}.total_repair_cost",
         ],
         dimensions=[
-            "default.us_state.state_abbr",
-            "default.us_state.state_id",
-            "default.us_state.state_name",
+            f"{namespace}.all_dispatchers.dispatcher_id",
+            f"{namespace}.all_dispatchers.company_name",
+            f"{namespace}.all_dispatchers.phone",
         ],
         filters=[],
     )
-    expected_query = """
+    expected_query = f"""
     WITH
-    m0_default_DOT_num_repair_orders AS (SELECT  default_DOT_us_state.state_abbr,
-            default_DOT_us_state.state_id,
-            default_DOT_us_state.state_name,
-            count(default_DOT_repair_orders.repair_order_id) default_DOT_num_repair_orders
-    FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
-            default_DOT_repair_orders.hard_hat_id,
-            default_DOT_repair_orders.municipality_id,
-            default_DOT_repair_orders.repair_order_id
-    FROM roads.repair_orders AS default_DOT_repair_orders)
-    AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
-    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,
-            default_DOT_hard_hats.hard_hat_id,
-            default_DOT_hard_hats.hire_date,
-            default_DOT_hard_hats.state
-    FROM roads.hard_hats AS default_DOT_hard_hats)
-    AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-    LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_abbr,
-            default_DOT_us_states.state_id,
-            default_DOT_us_states.state_name
-    FROM roads.us_states AS default_DOT_us_states LEFT  JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_description)
-    AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_abbr
-    GROUP BY  default_DOT_us_state.state_abbr, default_DOT_us_state.state_id, default_DOT_us_state.state_name
+    m0_{dotted_namespace}_DOT_num_repair_orders AS (SELECT  {dotted_namespace}_DOT_all_dispatchers.company_name,
+        {dotted_namespace}_DOT_all_dispatchers.dispatcher_id,
+        {dotted_namespace}_DOT_all_dispatchers.phone,
+        COUNT({dotted_namespace}_DOT_repair_orders.repair_order_id) {dotted_namespace}_DOT_num_repair_orders
+    FROM roads.repair_orders AS {dotted_namespace}_DOT_repair_orders LEFT OUTER JOIN (SELECT  {dotted_namespace}_DOT_repair_orders.dispatcher_id,
+        {dotted_namespace}_DOT_repair_orders.repair_order_id
+    FROM roads.repair_orders AS {dotted_namespace}_DOT_repair_orders)
+    AS {dotted_namespace}_DOT_repair_order ON {dotted_namespace}_DOT_repair_orders.repair_order_id = {dotted_namespace}_DOT_repair_order.repair_order_id
+    LEFT OUTER JOIN (SELECT  {dotted_namespace}_DOT_dispatchers.company_name,
+        {dotted_namespace}_DOT_dispatchers.dispatcher_id,
+        {dotted_namespace}_DOT_dispatchers.phone
+    FROM roads.dispatchers AS {dotted_namespace}_DOT_dispatchers)
+    AS {dotted_namespace}_DOT_all_dispatchers ON {dotted_namespace}_DOT_repair_order.dispatcher_id = {dotted_namespace}_DOT_all_dispatchers.dispatcher_id
+    GROUP BY  {dotted_namespace}_DOT_all_dispatchers.dispatcher_id, {dotted_namespace}_DOT_all_dispatchers.company_name, {dotted_namespace}_DOT_all_dispatchers.phone
     ),
-    m1_default_DOT_avg_repair_price AS (SELECT  default_DOT_us_state.state_abbr,
-            default_DOT_us_state.state_id,
-            default_DOT_us_state.state_name,
-            avg(default_DOT_repair_order_details.price) default_DOT_avg_repair_price
-    FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
-            default_DOT_repair_orders.hard_hat_id,
-            default_DOT_repair_orders.municipality_id,
-            default_DOT_repair_orders.repair_order_id
-    FROM roads.repair_orders AS default_DOT_repair_orders)
-    AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,
-            default_DOT_hard_hats.hard_hat_id,
-            default_DOT_hard_hats.hire_date,
-            default_DOT_hard_hats.state
-    FROM roads.hard_hats AS default_DOT_hard_hats)
-    AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-    LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_abbr,
-            default_DOT_us_states.state_id,
-            default_DOT_us_states.state_name
-    FROM roads.us_states AS default_DOT_us_states LEFT  JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_description)
-    AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_abbr
-    GROUP BY  default_DOT_us_state.state_abbr, default_DOT_us_state.state_id, default_DOT_us_state.state_name
+    m1_{dotted_namespace}_DOT_avg_repair_price AS (SELECT  {dotted_namespace}_DOT_all_dispatchers.company_name,
+        {dotted_namespace}_DOT_all_dispatchers.dispatcher_id,
+        {dotted_namespace}_DOT_all_dispatchers.phone,
+        AVG({dotted_namespace}_DOT_repair_order_details.price) {dotted_namespace}_DOT_avg_repair_price
+    FROM roads.repair_order_details AS {dotted_namespace}_DOT_repair_order_details LEFT OUTER JOIN (SELECT  {dotted_namespace}_DOT_repair_orders.dispatcher_id,
+        {dotted_namespace}_DOT_repair_orders.repair_order_id
+    FROM roads.repair_orders AS {dotted_namespace}_DOT_repair_orders)
+    AS {dotted_namespace}_DOT_repair_order ON {dotted_namespace}_DOT_repair_order_details.repair_order_id = {dotted_namespace}_DOT_repair_order.repair_order_id
+    LEFT OUTER JOIN (SELECT  {dotted_namespace}_DOT_dispatchers.company_name,
+        {dotted_namespace}_DOT_dispatchers.dispatcher_id,
+        {dotted_namespace}_DOT_dispatchers.phone
+    FROM roads.dispatchers AS {dotted_namespace}_DOT_dispatchers)
+    AS {dotted_namespace}_DOT_all_dispatchers ON {dotted_namespace}_DOT_repair_order.dispatcher_id = {dotted_namespace}_DOT_all_dispatchers.dispatcher_id
+    GROUP BY  {dotted_namespace}_DOT_all_dispatchers.dispatcher_id, {dotted_namespace}_DOT_all_dispatchers.company_name, {dotted_namespace}_DOT_all_dispatchers.phone
     ),
-    m2_default_DOT_total_repair_cost AS (SELECT  default_DOT_us_state.state_abbr,
-            default_DOT_us_state.state_id,
-            default_DOT_us_state.state_name,
-            sum(default_DOT_repair_order_details.price) default_DOT_total_repair_cost
-    FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
-            default_DOT_repair_orders.hard_hat_id,
-            default_DOT_repair_orders.municipality_id,
-            default_DOT_repair_orders.repair_order_id
-    FROM roads.repair_orders AS default_DOT_repair_orders)
-    AS default_DOT_repair_order ON default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-    LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.birth_date,
-            default_DOT_hard_hats.hard_hat_id,
-            default_DOT_hard_hats.hire_date,
-            default_DOT_hard_hats.state
-    FROM roads.hard_hats AS default_DOT_hard_hats)
-    AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-    LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_abbr,
-            default_DOT_us_states.state_id,
-            default_DOT_us_states.state_name
-    FROM roads.us_states AS default_DOT_us_states LEFT  JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_description)
-    AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_abbr
-    GROUP BY  default_DOT_us_state.state_abbr, default_DOT_us_state.state_id, default_DOT_us_state.state_name
-    )SELECT  m0_default_DOT_num_repair_orders.default_DOT_num_repair_orders,
-            m1_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
-            m2_default_DOT_total_repair_cost.default_DOT_total_repair_cost,
-            COALESCE(m0_default_DOT_num_repair_orders.state_abbr, m1_default_DOT_avg_repair_price.state_abbr, m2_default_DOT_total_repair_cost.state_abbr) state_abbr,
-            COALESCE(m0_default_DOT_num_repair_orders.state_id, m1_default_DOT_avg_repair_price.state_id, m2_default_DOT_total_repair_cost.state_id) state_id,
-            COALESCE(m0_default_DOT_num_repair_orders.state_name, m1_default_DOT_avg_repair_price.state_name, m2_default_DOT_total_repair_cost.state_name) state_name
-    FROM m0_default_DOT_num_repair_orders FULL OUTER JOIN m1_default_DOT_avg_repair_price ON m0_default_DOT_num_repair_orders.state_abbr = m1_default_DOT_avg_repair_price.state_abbr AND m0_default_DOT_num_repair_orders.state_id = m1_default_DOT_avg_repair_price.state_id AND m0_default_DOT_num_repair_orders.state_name = m1_default_DOT_avg_repair_price.state_name
-    FULL OUTER JOIN m2_default_DOT_total_repair_cost ON m0_default_DOT_num_repair_orders.state_abbr = m2_default_DOT_total_repair_cost.state_abbr AND m0_default_DOT_num_repair_orders.state_id = m2_default_DOT_total_repair_cost.state_id AND m0_default_DOT_num_repair_orders.state_name = m2_default_DOT_total_repair_cost.state_name
+    m2_{dotted_namespace}_DOT_total_repair_cost AS (SELECT  {dotted_namespace}_DOT_all_dispatchers.company_name,
+        {dotted_namespace}_DOT_all_dispatchers.dispatcher_id,
+        {dotted_namespace}_DOT_all_dispatchers.phone,
+        SUM({dotted_namespace}_DOT_repair_order_details.price) {dotted_namespace}_DOT_total_repair_cost
+    FROM roads.repair_order_details AS {dotted_namespace}_DOT_repair_order_details LEFT OUTER JOIN (SELECT  {dotted_namespace}_DOT_repair_orders.dispatcher_id,
+        {dotted_namespace}_DOT_repair_orders.repair_order_id
+    FROM roads.repair_orders AS {dotted_namespace}_DOT_repair_orders)
+    AS {dotted_namespace}_DOT_repair_order ON {dotted_namespace}_DOT_repair_order_details.repair_order_id = {dotted_namespace}_DOT_repair_order.repair_order_id
+    LEFT OUTER JOIN (SELECT  {dotted_namespace}_DOT_dispatchers.company_name,
+        {dotted_namespace}_DOT_dispatchers.dispatcher_id,
+        {dotted_namespace}_DOT_dispatchers.phone
+    FROM roads.dispatchers AS {dotted_namespace}_DOT_dispatchers)
+    AS {dotted_namespace}_DOT_all_dispatchers ON {dotted_namespace}_DOT_repair_order.dispatcher_id = {dotted_namespace}_DOT_all_dispatchers.dispatcher_id
+    GROUP BY  {dotted_namespace}_DOT_all_dispatchers.dispatcher_id, {dotted_namespace}_DOT_all_dispatchers.company_name, {dotted_namespace}_DOT_all_dispatchers.phone
+    )
+
+    SELECT  m0_{dotted_namespace}_DOT_num_repair_orders.{dotted_namespace}_DOT_num_repair_orders,
+        m1_{dotted_namespace}_DOT_avg_repair_price.{dotted_namespace}_DOT_avg_repair_price,
+        m2_{dotted_namespace}_DOT_total_repair_cost.{dotted_namespace}_DOT_total_repair_cost,
+        COALESCE(m0_{dotted_namespace}_DOT_num_repair_orders.company_name, m1_{dotted_namespace}_DOT_avg_repair_price.company_name, m2_{dotted_namespace}_DOT_total_repair_cost.company_name) company_name,
+        COALESCE(m0_{dotted_namespace}_DOT_num_repair_orders.dispatcher_id, m1_{dotted_namespace}_DOT_avg_repair_price.dispatcher_id, m2_{dotted_namespace}_DOT_total_repair_cost.dispatcher_id) dispatcher_id,
+        COALESCE(m0_{dotted_namespace}_DOT_num_repair_orders.phone, m1_{dotted_namespace}_DOT_avg_repair_price.phone, m2_{dotted_namespace}_DOT_total_repair_cost.phone) phone
+    FROM m0_{dotted_namespace}_DOT_num_repair_orders FULL OUTER JOIN m1_{dotted_namespace}_DOT_avg_repair_price ON m0_{dotted_namespace}_DOT_num_repair_orders.company_name = m1_{dotted_namespace}_DOT_avg_repair_price.company_name AND m0_{dotted_namespace}_DOT_num_repair_orders.dispatcher_id = m1_{dotted_namespace}_DOT_avg_repair_price.dispatcher_id AND m0_{dotted_namespace}_DOT_num_repair_orders.phone = m1_{dotted_namespace}_DOT_avg_repair_price.phone
+    FULL OUTER JOIN m2_{dotted_namespace}_DOT_total_repair_cost ON m0_{dotted_namespace}_DOT_num_repair_orders.company_name = m2_{dotted_namespace}_DOT_total_repair_cost.company_name AND m0_{dotted_namespace}_DOT_num_repair_orders.dispatcher_id = m2_{dotted_namespace}_DOT_total_repair_cost.dispatcher_id AND m0_{dotted_namespace}_DOT_num_repair_orders.phone = m2_{dotted_namespace}_DOT_total_repair_cost.phone
     """
 
     assert "".join(query.split()) == "".join(expected_query.split())
@@ -566,74 +360,48 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     # Get data for a set of metrics and dimensions
     result = dj.data(
         metrics=[
-            "default.num_repair_orders",
-            "default.avg_repair_price",
-            "default.total_repair_cost",
+            f"{namespace}.num_repair_orders",
+            f"{namespace}.avg_repair_price",
+            f"{namespace}.total_repair_cost",
         ],
         dimensions=[
-            "default.us_state.state_abbr",
-            "default.us_state.state_id",
-            "default.us_state.state_name",
+            f"{namespace}.all_dispatchers.dispatcher_id",
+            f"{namespace}.all_dispatchers.company_name",
+            f"{namespace}.all_dispatchers.phone",
         ],
         async_=False,
     )
     expected_df = pandas.DataFrame.from_dict(
         {
-            "default_DOT_num_repair_orders": {
-                0: 2,
-                1: 2,
-                2: 3,
-                3: 3,
-                4: 5,
-                5: 4,
-                6: 1,
-                7: 1,
-                8: 4,
+            f"{dotted_namespace}_DOT_num_repair_orders": {
+                0: 9,
+                1: 8,
+                2: 8,
             },
-            "default_DOT_avg_repair_price": {
-                0: 65682.0,
-                1: 39301.5,
-                2: 65595.66666666667,
-                3: 76555.33333333333,
-                4: 64190.6,
-                5: 54672.75,
-                6: 53374.0,
-                7: 70418.0,
-                8: 54083.5,
+            f"{dotted_namespace}_DOT_avg_repair_price": {
+                0: 51913.888889,
+                1: 62205.875000,
+                2: 68914.750000,
             },
-            "default_DOT_total_repair_cost": {
-                0: 131364.0,
-                1: 78603.0,
-                2: 196787.0,
-                3: 229666.0,
-                4: 320953.0,
-                5: 218691.0,
-                6: 53374.0,
-                7: 70418.0,
-                8: 216334.0,
+            f"{dotted_namespace}_DOT_total_repair_cost": {
+                0: 467225.0,
+                1: 497647.0,
+                2: 551318.0,
             },
-            "state_abbr": {
-                0: "AZ",
-                1: "CT",
-                2: "GA",
-                3: "MA",
-                4: "MI",
-                5: "NJ",
-                6: "NY",
-                7: "OK",
-                8: "PA",
+            "company_name": {
+                0: "Federal Roads Group",
+                1: "Pothole Pete",
+                2: "Asphalts R Us",
             },
-            "state_id": {0: 3, 1: 7, 2: 11, 3: 22, 4: 23, 5: 31, 6: 33, 7: 37, 8: 39},
-            "state_name": {
-                0: "Arizona",
-                1: "Connecticut",
-                2: "Georgia",
-                3: "Massachusetts",
-                4: "Michigan",
-                5: "New Jersey",
-                6: "New York",
-                7: "Oklahoma",
-                8: "Pennsylvania",
+            "dispatcher_id": {
+                0: 3,
+                1: 1,
+                2: 2,
+            },
+            "phone": {
+                0: "(333) 333-3333",
+                1: "(111) 111-1111",
+                2: "(222) 222-2222",
             },
         },
     )
@@ -737,3 +505,6 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
 
     # Check that publishing transform 3 works
     transform_3.publish()
+
+    # Delete the test namespace
+    dj.delete_namespace(namespace=namespace, cascade=True)
