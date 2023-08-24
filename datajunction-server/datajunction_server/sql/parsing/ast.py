@@ -102,6 +102,17 @@ class Node(ABC):
 
     _is_compiled: bool = False
 
+    @property
+    def json_ignore_keys(self):
+        return ["parent", "parent_key", "_is_compiled"]
+
+    def __json_encode__(self):
+        return {
+            key: self.__dict__[key]
+            for key in self.__dict__
+            if key not in self.json_ignore_keys
+        }
+
     def __post_init__(self):
         self.add_self_as_parent()
 
@@ -624,6 +635,10 @@ class Name(Node):
             f"{namespace}{quote_style}{self.name}{quote_style}"  # pylint: disable=C0301
         )
 
+    @property
+    def json_ignore_keys(self):
+        return ["names", "parent", "parent_key"]
+
 
 TNamed = TypeVar("TNamed", bound="Named")  # pylint: disable=C0103
 
@@ -705,6 +720,10 @@ class Column(Aliasable, Named, Expression):
     _type: Optional["ColumnType"] = field(repr=False, default=None)
     _expression: Optional[Expression] = field(repr=False, default=None)
     _is_compiled: bool = False
+
+    @property
+    def json_ignore_keys(self):
+        return ["parent", "parent_key", "columns"]
 
     @property
     def type(self):
@@ -1013,6 +1032,18 @@ class TableExpression(Aliasable, Expression):
     _ref_columns: List[Column] = field(init=False, repr=False, default_factory=list)
 
     @property
+    def json_ignore_keys(self):
+        return [
+            "parent",
+            "parent_key",
+            # "_is_compiled",
+            "_columns",
+            # "column_list",
+            "_ref_columns",
+            # "columns",
+        ]
+
+    @property
     def columns(self) -> List[Expression]:
         """
         Return the columns named in this table
@@ -1257,6 +1288,11 @@ class BinaryOpKind(DJEnum):
     Plus = "+"
     Minus = "-"
     Modulo = "%"
+
+    def __json_encode__(self):
+        return {
+            "value": self.value,
+        }
 
 
 @dataclass(eq=False)
@@ -2031,6 +2067,19 @@ class FunctionTable(FunctionTableExpression):
     """
     Represents a table-valued function used in a statement
     """
+
+    @property
+    def json_ignore_keys(self):
+        return [
+            "parent",
+            "parent_key",
+            "_is_compiled",
+            "_table",
+            "_columns",
+            "column_list",
+            "_ref_columns",
+            "columns",
+        ]
 
     def __str__(self) -> str:
         alias = f" {self.alias}" if self.alias else ""

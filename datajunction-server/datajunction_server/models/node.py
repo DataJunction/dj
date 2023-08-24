@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
@@ -683,6 +683,11 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         },
     )
 
+    query_ast: Optional[Dict[str, Any]] = Field(
+        sa_column=SqlaColumn("query_ast", JSON),
+        default={},
+    )
+
     def __hash__(self) -> int:
         return hash(self.id)
 
@@ -823,6 +828,15 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 criteria=build_criteria,
             )
         )
+
+    def __json_encode__(self):
+        """
+        JSON encoder for node revision
+        """
+        return {
+            "name": self.name,
+            "type": self.type,
+        }
 
 
 class ImmutableNodeFields(BaseSQLModel):
@@ -1109,6 +1123,7 @@ class NodeRevisionOutput(SQLModel):
     table: Optional[str]
     description: str = ""
     query: Optional[str] = None
+    query_ast: Optional[Dict] = {}
     availability: Optional[AvailabilityState] = None
     columns: List[ColumnOutput]
     updated_at: UTCDatetime
