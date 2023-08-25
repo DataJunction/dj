@@ -4158,3 +4158,18 @@ def test_decompose_expression():
         "has_ordered_sum",
         "total_sum",
     ]
+
+
+def test_list_dimension_attributes(client_with_examples: TestClient) -> None:
+    """
+    Test that listing dimension attributes for any node works.
+    """
+    response = client_with_examples.get("/nodes/default.regional_level_agg/dimensions/")
+    assert response.ok
+    assert response.json() == [
+        {"name": "default.regional_level_agg.order_day", "path": [], "type": "int"},
+        {"name": "default.regional_level_agg.order_month", "path": [], "type": "int"},
+        {"name": "default.regional_level_agg.order_year", "path": [], "type": "int"},
+        {"name": "default.regional_level_agg.state_name", "path": [], "type": "string"},
+        {"name": "default.regional_level_agg.us_region_id", "path": [], "type": "int"},
+    ]

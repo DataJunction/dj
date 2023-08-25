@@ -54,14 +54,7 @@ def get_dimensions(
         for column in current_node.current.columns:
             # Include the dimension if it's a column belonging to a dimension node
             # or if it's tagged with the dimension column attribute
-            if (
-                current_node.type == NodeType.DIMENSION
-                or any(
-                    attr.attribute_type.name == "dimension"
-                    for attr in column.attributes
-                )
-                or column.dimension
-            ):
+            if current_node.type == NodeType.DIMENSION or column.is_dimensional():
                 join_path_str = [
                     (
                         (
