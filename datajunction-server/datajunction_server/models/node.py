@@ -683,6 +683,11 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         },
     )
 
+    lineage: List[Dict] = Field(
+        default=[],
+        sa_column=SqlaColumn(JSON),
+    )
+
     def __hash__(self) -> int:
         return hash(self.id)
 
