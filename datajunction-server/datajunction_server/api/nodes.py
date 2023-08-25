@@ -35,9 +35,9 @@ from datajunction_server.internal.materializations import schedule_materializati
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
     _update_node,
-    column_level_lineage,
     create_cube_node_revision,
     create_node_revision,
+    get_column_level_lineage,
     save_node,
     set_column_attributes_on_node,
 )
@@ -845,11 +845,6 @@ def column_lineage(
     List column-level lineage of a node in a graph
     """
     node = get_node_by_name(session, name)
-    return [
-        column_level_lineage(
-            session,
-            node.current,
-            col.name,
-        )
-        for col in node.current.columns
-    ]
+    if node.current.lineage:
+        return node.current.lineage  # type: ignore
+    return get_column_level_lineage(session, node.current)  # pragma: no cover
