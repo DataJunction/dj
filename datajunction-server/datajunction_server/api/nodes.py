@@ -54,6 +54,7 @@ from datajunction_server.models.node import (
     CreateCubeNode,
     CreateNode,
     CreateSourceNode,
+    DimensionAttributeOutput,
     LineageColumn,
     Node,
     NodeMode,
@@ -831,6 +832,21 @@ def list_node_dag(
     downstreams = get_downstream_nodes(session, name)
     upstreams = get_upstream_nodes(session, name)
     return list(set(cast(List[Node], dimension_nodes) + downstreams + upstreams))  # type: ignore
+
+
+@router.get(
+    "/nodes/{name}/dimensions/",
+    response_model=List[DimensionAttributeOutput],
+    name="List All Dimension Attributes",
+)
+def list_all_dimension_attributes(
+    name: str, *, session: Session = Depends(get_session)
+) -> List[DimensionAttributeOutput]:
+    """
+    List all available dimension attributes for the given node.
+    """
+    node = get_node_by_name(session, name)
+    return get_dimensions(node, attributes=True)
 
 
 @router.get(

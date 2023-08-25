@@ -85,6 +85,16 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         """
         return self.name, self.type
 
+    def is_dimensional(self) -> bool:
+        """
+        Whether this column is considered dimensional
+        """
+        return (
+            self.has_dimension_attribute()
+            or self.has_primary_key_attribute()
+            or self.dimension
+        )
+
     def has_dimension_attribute(self) -> bool:
         """
         Whether the dimension attribute is set on this column.
