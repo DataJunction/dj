@@ -131,7 +131,10 @@ export const DataJunctionAPI = {
 
   revisions: async function (name) {
     const data = await (
-      await fetch(`${DJ_URL}/nodes/` + name + '/revisions/')
+      await fetch(`${DJ_URL}/nodes/` + name + '/revisions/'),
+      {
+        credentials: 'include',
+      }
     ).json();
     return data;
   },
