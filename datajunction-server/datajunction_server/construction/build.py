@@ -356,6 +356,7 @@ def _build_select_ast(
     dimension_columns = dimension_columns_mapping(select)
     join_tables_for_dimensions(session, dimension_columns, tables, build_criteria)
     _build_tables_on_select(session, select, tables, memoized_queries, build_criteria)
+    print("select", select.projection)
 
 
 # pylint: disable=R0915
