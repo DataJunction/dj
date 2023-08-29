@@ -231,11 +231,11 @@ def load_examples_in_client(
 
 
 @pytest.fixture
-def _client_with_examples(
+def client_example_loader(
     client: TestClient,
 ) -> Callable[[Optional[List[str]]], TestClient]:
     """
-    Provide a DJ test client fixture loaded with a specified set of examples.
+    Provides a callable fixture for loading examples into a DJ client.
     """
 
     def _load_examples(examples_to_load: Optional[List[str]] = None):
@@ -245,59 +245,59 @@ def _client_with_examples(
 
 
 @pytest.fixture
-def client_with_examples(_client_with_examples: TestClient) -> TestClient:
+def client_with_examples(client_example_loader) -> TestClient:
     """
-    load examples
+    Provides a DJ client fixture with all examples
     """
-    return _client_with_examples()
+    return client_example_loader()
 
 
 @pytest.fixture
-def client_with_roads(_client_with_examples: TestClient) -> TestClient:
+def client_with_service_setup(client_example_loader) -> TestClient:
     """
-    load examples
+    Provides a DJ client fixture with just the service setup
     """
-    return _client_with_examples(["ROADS"])
+    return client_example_loader([])
 
 
 @pytest.fixture
-def client_with_account_revenue(_client_with_examples: TestClient) -> TestClient:
+def client_with_roads(client_example_loader) -> TestClient:
     """
-    load examples
+    Provides a DJ client fixture with roads examples
     """
-    return _client_with_examples(["ACCOUNT_REVENUE"])
+    return client_example_loader(["ROADS"])
 
 
 @pytest.fixture
-def client_with_event(_client_with_examples: TestClient) -> TestClient:
+def client_with_namespaced_roads(client_example_loader) -> TestClient:
     """
-    load examples
+    Provides a DJ client fixture with namespaced roads examples
     """
-    return _client_with_examples(["EVENT"])
+    return client_example_loader(["NAMESPACED_ROADS"])
 
 
 @pytest.fixture
-def client_with_namespaced_roads(_client_with_examples: TestClient) -> TestClient:
+def client_with_basic(client_example_loader) -> TestClient:
     """
-    load examples
+    Provides a DJ client fixture with basic examples
     """
-    return _client_with_examples(["NAMESPACED_ROADS"])
+    return client_example_loader(["BASIC"])
 
 
 @pytest.fixture
-def client_with_service_setup(_client_with_examples: TestClient) -> TestClient:
+def client_with_account_revenue(client_example_loader) -> TestClient:
     """
-    load examples
+    Provides a DJ client fixture with account revenue examples
     """
-    return _client_with_examples([])
+    return client_example_loader(["ACCOUNT_REVENUE"])
 
 
 @pytest.fixture
-def client_with_basic(_client_with_examples: TestClient) -> TestClient:
+def client_with_event(client_example_loader) -> TestClient:
     """
-    load examples
+    Provides a DJ client fixture with event examples
     """
-    return _client_with_examples(["BASIC"])
+    return client_example_loader(["EVENT"])
 
 
 def compare_parse_trees(tree1, tree2):

@@ -1856,11 +1856,11 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_raise_on_multi_catalog_node(self, _client_with_examples: TestClient):
+    def test_raise_on_multi_catalog_node(self, client_example_loader):
         """
         Test raising when trying to select from multiple catalogs
         """
-        custom_client = _client_with_examples(["BASIC", "ACCOUNT_REVENUE"])
+        custom_client = client_example_loader(["BASIC", "ACCOUNT_REVENUE"])
         response = custom_client.post(
             "/nodes/transform/",
             json={
@@ -3269,12 +3269,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
 
     def test_adding_dimensions_to_node_columns(
         self,
-        _client_with_examples: TestClient,
+        client_example_loader,
     ):
         """
         Test linking dimensions to node columns
         """
-        custom_client = _client_with_examples(["ACCOUNT_REVENUE", "BASIC"])
+        custom_client = client_example_loader(["ACCOUNT_REVENUE", "BASIC"])
         # Attach the payment_type dimension to the payment_type column on the revenue node
         response = custom_client.post(
             "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
@@ -3515,11 +3515,11 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.long_events",
         }
 
-    def test_list_node_dag(self, _client_with_examples: TestClient):
+    def test_list_node_dag(self, client_example_loader):
         """
         Test getting the DAG for a node
         """
-        custom_client = _client_with_examples(["EVENT", "ROADS"])
+        custom_client = client_example_loader(["EVENT", "ROADS"])
         response = custom_client.get(
             "/nodes/default.long_events_distinct_countries/dag",
         )

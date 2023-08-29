@@ -910,19 +910,19 @@ NAMESPACED_ROADS = (  # type: ignore
         {
             "description": "Contractor dimension",
             "query": """
-                    SELECT
-                    contractor_id,
-                    company_name,
-                    contact_name,
-                    contact_title,
-                    address,
-                    city,
-                    state,
-                    postal_code,
-                    country,
-                    phone
-                    FROM foo.bar.contractors
-                """,
+                SELECT
+                contractor_id,
+                company_name,
+                contact_name,
+                contact_title,
+                address,
+                city,
+                state,
+                postal_code,
+                country,
+                phone
+                FROM foo.bar.contractors
+            """,
             "mode": "published",
             "name": "foo.bar.contractor",
             "primary_key": ["contractor_id"],
@@ -933,22 +933,22 @@ NAMESPACED_ROADS = (  # type: ignore
         {
             "description": "Hard hat dimension",
             "query": """
-                    SELECT
-                    hard_hat_id,
-                    last_name,
-                    first_name,
-                    title,
-                    birth_date,
-                    hire_date,
-                    address,
-                    city,
-                    state,
-                    postal_code,
-                    country,
-                    manager,
-                    contractor_id
-                    FROM foo.bar.hard_hats
-                """,
+                SELECT
+                hard_hat_id,
+                last_name,
+                first_name,
+                title,
+                birth_date,
+                hire_date,
+                address,
+                city,
+                state,
+                postal_code,
+                country,
+                manager,
+                contractor_id
+                FROM foo.bar.hard_hats
+            """,
             "mode": "published",
             "name": "foo.bar.hard_hat",
             "primary_key": ["hard_hat_id"],
@@ -959,26 +959,26 @@ NAMESPACED_ROADS = (  # type: ignore
         {
             "description": "Hard hat dimension",
             "query": """
-                    SELECT
-                    hh.hard_hat_id,
-                    last_name,
-                    first_name,
-                    title,
-                    birth_date,
-                    hire_date,
-                    address,
-                    city,
-                    state,
-                    postal_code,
-                    country,
-                    manager,
-                    contractor_id,
-                    hhs.state_id AS state_id
-                    FROM foo.bar.hard_hats hh
-                    LEFT JOIN foo.bar.hard_hat_state hhs
-                    ON hh.hard_hat_id = hhs.hard_hat_id
-                    WHERE hh.state_id = 'NY'
-                """,
+                SELECT
+                hh.hard_hat_id,
+                last_name,
+                first_name,
+                title,
+                birth_date,
+                hire_date,
+                address,
+                city,
+                state,
+                postal_code,
+                country,
+                manager,
+                contractor_id,
+                hhs.state_id AS state_id
+                FROM foo.bar.hard_hats hh
+                LEFT JOIN foo.bar.hard_hat_state hhs
+                ON hh.hard_hat_id = hhs.hard_hat_id
+                WHERE hh.state_id = 'NY'
+            """,
             "mode": "published",
             "name": "foo.bar.local_hard_hats",
             "primary_key": ["hard_hat_id"],
@@ -989,16 +989,16 @@ NAMESPACED_ROADS = (  # type: ignore
         {
             "description": "US state dimension",
             "query": """
-                    SELECT
-                    state_id,
-                    state_name,
-                    state_abbr,
-                    state_region,
-                    r.us_region_description AS state_region_description
-                    FROM foo.bar.us_states s
-                    LEFT JOIN foo.bar.us_region r
-                    ON s.state_region = r.us_region_id
-                """,
+                SELECT
+                state_id,
+                state_name,
+                state_abbr,
+                state_region,
+                r.us_region_description AS state_region_description
+                FROM foo.bar.us_states s
+                LEFT JOIN foo.bar.us_region r
+                ON s.state_region = r.us_region_id
+            """,
             "mode": "published",
             "name": "foo.bar.us_state",
             "primary_key": ["state_id"],
@@ -1009,12 +1009,12 @@ NAMESPACED_ROADS = (  # type: ignore
         {
             "description": "Dispatcher dimension",
             "query": """
-                    SELECT
-                    dispatcher_id,
-                    company_name,
-                    phone
-                    FROM foo.bar.dispatchers
-                """,
+                SELECT
+                dispatcher_id,
+                company_name,
+                phone
+                FROM foo.bar.dispatchers
+            """,
             "mode": "published",
             "name": "foo.bar.dispatcher",
             "primary_key": ["dispatcher_id"],
@@ -1025,20 +1025,20 @@ NAMESPACED_ROADS = (  # type: ignore
         {
             "description": "Municipality dimension",
             "query": """
-                    SELECT
-                    m.municipality_id AS municipality_id,
-                    contact_name,
-                    contact_title,
-                    local_region,
-                    state_id,
-                    mmt.municipality_type_id AS municipality_type_id,
-                    mt.municipality_type_desc AS municipality_type_desc
-                    FROM foo.bar.municipality AS m
-                    LEFT JOIN foo.bar.municipality_municipality_type AS mmt
-                    ON m.municipality_id = mmt.municipality_id
-                    LEFT JOIN foo.bar.municipality_type AS mt
-                    ON mmt.municipality_type_id = mt.municipality_type_desc
-                """,
+                SELECT
+                m.municipality_id AS municipality_id,
+                contact_name,
+                contact_title,
+                local_region,
+                state_id,
+                mmt.municipality_type_id AS municipality_type_id,
+                mt.municipality_type_desc AS municipality_type_desc
+                FROM foo.bar.municipality AS m
+                LEFT JOIN foo.bar.municipality_municipality_type AS mmt
+                ON m.municipality_id = mmt.municipality_id
+                LEFT JOIN foo.bar.municipality_type AS mt
+                ON mmt.municipality_type_id = mt.municipality_type_desc
+            """,
             "mode": "published",
             "name": "foo.bar.municipality_dim",
             "primary_key": ["municipality_id"],
