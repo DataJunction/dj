@@ -1,11 +1,12 @@
 """
 Fixtures for testing.
 """
+import copy
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 
 import re
 from http.client import HTTPException
-from typing import Collection, Iterator, List, Optional
+from typing import Collection, Iterator, List, Optional, Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -30,7 +31,7 @@ from datajunction_server.utils import (
 )
 
 from .construction.fixtures import build_expectation, construction_session
-from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS
+from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SETUP
 
 EXAMPLE_TOKEN = (
     "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..pMoQFVS0VMSAFsG5X0itfw.Lc"
@@ -205,14 +206,93 @@ def post_and_raise_if_error(client: TestClient, endpoint: str, json: dict):
         raise HTTPException(response.text)
 
 
+def load_examples_in_client(client: TestClient, examples_to_load: Optional[List[str]] = None):
+    """
+    Load the DJ client with examples
+    """
+    # Basic service setup always has to be done (i.e., create catalogs, engines, namespaces etc)
+    for endpoint, json in SERVICE_SETUP:
+        post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
+
+    # Load only the selected examples if any are specified
+    if examples_to_load is not None:
+        for example_name in examples_to_load:
+            for endpoint, json in EXAMPLES[example_name]:
+                post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
+        return client
+
+    # Load all examples if none are specified
+    for example_name, examples in EXAMPLES.items():
+        for endpoint, json in examples:
+            post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
+    return client
+
+
 @pytest.fixture
-def client_with_examples(client: TestClient) -> TestClient:
+def _client_with_examples(client: TestClient) -> Callable[[Optional[List[str]]], TestClient]:
+    """
+    Provide a DJ test client fixture loaded with a specified set of examples.
+    """
+    def _load_examples(examples_to_load: Optional[List[str]] = None):
+        return load_examples_in_client(client, examples_to_load)
+    return _load_examples
+
+
+@pytest.fixture
+def client_with_examples(_client_with_examples: TestClient) -> TestClient:
     """
     load examples
     """
-    for endpoint, json in EXAMPLES:
-        post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
-    return client
+    return _client_with_examples()
+
+
+@pytest.fixture
+def client_with_roads(_client_with_examples: TestClient) -> TestClient:
+    """
+    load examples
+    """
+    return _client_with_examples(["ROADS"])
+
+
+@pytest.fixture
+def client_with_account_revenue(_client_with_examples: TestClient) -> TestClient:
+    """
+    load examples
+    """
+    return _client_with_examples(["ACCOUNT_REVENUE"])
+
+
+@pytest.fixture
+def client_with_event(_client_with_examples: TestClient) -> TestClient:
+    """
+    load examples
+    """
+    return _client_with_examples(["EVENT"])
+
+
+@pytest.fixture
+def client_with_namespaced_roads(_client_with_examples: TestClient) -> TestClient:
+    """
+    load examples
+    """
+    return _client_with_examples(["NAMESPACED_ROADS"])
+
+
+@pytest.fixture
+def client_with_service_setup(_client_with_examples: TestClient) -> TestClient:
+    """
+    load examples
+    """
+    return _client_with_examples([])
+
+
+@pytest.fixture
+def client_with_basic(_client_with_examples: TestClient) -> TestClient:
+    """
+    load examples
+    """
+    return _client_with_examples(["BASIC"])
+
 
 
 def compare_parse_trees(tree1, tree2):
@@ -267,10 +347,11 @@ def compare_query_strings_fixture():
 
 
 @pytest.fixture
-def client_with_query_service(  # pylint: disable=too-many-statements
+def _client_with_query_service(  # pylint: disable=too-many-statements
     session: Session,
     settings: Settings,
     query_service_client: QueryServiceClient,
+    examples_to_load: Optional[List[str]] = None,
 ) -> TestClient:
     """
     Add a mock query service to the test client.
@@ -300,11 +381,20 @@ def client_with_query_service(  # pylint: disable=too-many-statements
                 "Authorization": f"Bearer {EXAMPLE_TOKEN}",
             },
         )
-        for endpoint, json in EXAMPLES:
-            post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
-        yield client
+
+        def _load_examples(examples_to_load: Optional[List[str]] = None):
+            return load_examples_in_client(client, examples_to_load)
+
+        yield _load_examples
 
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def client_with_query_service(  # pylint: disable=too-many-statements
+    _client_with_query_service: TestClient,
+) -> TestClient:
+    return _client_with_query_service()
 
 
 def pytest_addoption(parser):

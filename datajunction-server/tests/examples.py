@@ -8,7 +8,8 @@ from datajunction_server.models.query import QueryWithResults
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from datajunction_server.typing import QueryState
 
-EXAMPLES = (  # type: ignore
+
+SERVICE_SETUP = (  # type: ignore
     (
         "/catalogs/",
         {"name": "draft"},
@@ -49,7 +50,10 @@ EXAMPLES = (  # type: ignore
         "/namespaces/default/",
         {},
     ),
-    (
+)
+
+ROADS = (
+(
         "/nodes/source/",
         {
             "columns": [
@@ -660,6 +664,9 @@ CROSS JOIN
         ),
         {},
     ),
+)
+
+NAMESPACED_ROADS = (
     (  # foo.bar Namespaced copy of roads database example
         "/namespaces/foo.bar/",
         {},
@@ -904,19 +911,19 @@ CROSS JOIN
         {
             "description": "Contractor dimension",
             "query": """
-                        SELECT
-                        contractor_id,
-                        company_name,
-                        contact_name,
-                        contact_title,
-                        address,
-                        city,
-                        state,
-                        postal_code,
-                        country,
-                        phone
-                        FROM foo.bar.contractors
-                    """,
+                    SELECT
+                    contractor_id,
+                    company_name,
+                    contact_name,
+                    contact_title,
+                    address,
+                    city,
+                    state,
+                    postal_code,
+                    country,
+                    phone
+                    FROM foo.bar.contractors
+                """,
             "mode": "published",
             "name": "foo.bar.contractor",
             "primary_key": ["contractor_id"],
@@ -927,22 +934,22 @@ CROSS JOIN
         {
             "description": "Hard hat dimension",
             "query": """
-                        SELECT
-                        hard_hat_id,
-                        last_name,
-                        first_name,
-                        title,
-                        birth_date,
-                        hire_date,
-                        address,
-                        city,
-                        state,
-                        postal_code,
-                        country,
-                        manager,
-                        contractor_id
-                        FROM foo.bar.hard_hats
-                    """,
+                    SELECT
+                    hard_hat_id,
+                    last_name,
+                    first_name,
+                    title,
+                    birth_date,
+                    hire_date,
+                    address,
+                    city,
+                    state,
+                    postal_code,
+                    country,
+                    manager,
+                    contractor_id
+                    FROM foo.bar.hard_hats
+                """,
             "mode": "published",
             "name": "foo.bar.hard_hat",
             "primary_key": ["hard_hat_id"],
@@ -953,26 +960,26 @@ CROSS JOIN
         {
             "description": "Hard hat dimension",
             "query": """
-                        SELECT
-                        hh.hard_hat_id,
-                        last_name,
-                        first_name,
-                        title,
-                        birth_date,
-                        hire_date,
-                        address,
-                        city,
-                        state,
-                        postal_code,
-                        country,
-                        manager,
-                        contractor_id,
-                        hhs.state_id AS state_id
-                        FROM foo.bar.hard_hats hh
-                        LEFT JOIN foo.bar.hard_hat_state hhs
-                        ON hh.hard_hat_id = hhs.hard_hat_id
-                        WHERE hh.state_id = 'NY'
-                    """,
+                    SELECT
+                    hh.hard_hat_id,
+                    last_name,
+                    first_name,
+                    title,
+                    birth_date,
+                    hire_date,
+                    address,
+                    city,
+                    state,
+                    postal_code,
+                    country,
+                    manager,
+                    contractor_id,
+                    hhs.state_id AS state_id
+                    FROM foo.bar.hard_hats hh
+                    LEFT JOIN foo.bar.hard_hat_state hhs
+                    ON hh.hard_hat_id = hhs.hard_hat_id
+                    WHERE hh.state_id = 'NY'
+                """,
             "mode": "published",
             "name": "foo.bar.local_hard_hats",
             "primary_key": ["hard_hat_id"],
@@ -983,16 +990,16 @@ CROSS JOIN
         {
             "description": "US state dimension",
             "query": """
-                        SELECT
-                        state_id,
-                        state_name,
-                        state_abbr,
-                        state_region,
-                        r.us_region_description AS state_region_description
-                        FROM foo.bar.us_states s
-                        LEFT JOIN foo.bar.us_region r
-                        ON s.state_region = r.us_region_id
-                    """,
+                    SELECT
+                    state_id,
+                    state_name,
+                    state_abbr,
+                    state_region,
+                    r.us_region_description AS state_region_description
+                    FROM foo.bar.us_states s
+                    LEFT JOIN foo.bar.us_region r
+                    ON s.state_region = r.us_region_id
+                """,
             "mode": "published",
             "name": "foo.bar.us_state",
             "primary_key": ["state_id"],
@@ -1003,12 +1010,12 @@ CROSS JOIN
         {
             "description": "Dispatcher dimension",
             "query": """
-                        SELECT
-                        dispatcher_id,
-                        company_name,
-                        phone
-                        FROM foo.bar.dispatchers
-                    """,
+                    SELECT
+                    dispatcher_id,
+                    company_name,
+                    phone
+                    FROM foo.bar.dispatchers
+                """,
             "mode": "published",
             "name": "foo.bar.dispatcher",
             "primary_key": ["dispatcher_id"],
@@ -1019,20 +1026,20 @@ CROSS JOIN
         {
             "description": "Municipality dimension",
             "query": """
-                        SELECT
-                        m.municipality_id AS municipality_id,
-                        contact_name,
-                        contact_title,
-                        local_region,
-                        state_id,
-                        mmt.municipality_type_id AS municipality_type_id,
-                        mt.municipality_type_desc AS municipality_type_desc
-                        FROM foo.bar.municipality AS m
-                        LEFT JOIN foo.bar.municipality_municipality_type AS mmt
-                        ON m.municipality_id = mmt.municipality_id
-                        LEFT JOIN foo.bar.municipality_type AS mt
-                        ON mmt.municipality_type_id = mt.municipality_type_desc
-                    """,
+                    SELECT
+                    m.municipality_id AS municipality_id,
+                    contact_name,
+                    contact_title,
+                    local_region,
+                    state_id,
+                    mmt.municipality_type_id AS municipality_type_id,
+                    mt.municipality_type_desc AS municipality_type_desc
+                    FROM foo.bar.municipality AS m
+                    LEFT JOIN foo.bar.municipality_municipality_type AS mmt
+                    ON m.municipality_id = mmt.municipality_id
+                    LEFT JOIN foo.bar.municipality_type AS mt
+                    ON mmt.municipality_type_id = mt.municipality_type_desc
+                """,
             "mode": "published",
             "name": "foo.bar.municipality_dim",
             "primary_key": ["municipality_id"],
@@ -1159,6 +1166,10 @@ CROSS JOIN
         ),
         {},
     ),
+)
+
+ACCOUNT_REVENUE = (
+
     (  # Accounts/Revenue examples begin
         "/nodes/source/",
         {
@@ -1272,7 +1283,10 @@ CROSS JOIN
             "name": "default.number_of_account_types",
         },
     ),
-    (
+)
+
+BASIC = (
+(
         "/namespaces/basic/",
         {},
     ),
@@ -1390,6 +1404,9 @@ CROSS JOIN
             "name": "basic.num_users",
         },
     ),
+)
+
+EVENT = (
     (  # Event examples
         "/nodes/source/",
         {
@@ -1413,7 +1430,7 @@ CROSS JOIN
             "name": "default.long_events",
             "description": "High-Latency Events",
             "query": "SELECT event_id, event_latency, device_id, country "
-            "FROM default.event_source WHERE event_latency > 1000000",
+                     "FROM default.event_source WHERE event_latency > 1000000",
             "mode": "published",
         },
     ),
@@ -1423,7 +1440,7 @@ CROSS JOIN
             "name": "default.country_dim",
             "description": "Country Dimension",
             "query": "SELECT country, COUNT(DISTINCT event_id) AS events_cnt "
-            "FROM default.event_source GROUP BY country",
+                     "FROM default.event_source GROUP BY country",
             "mode": "published",
             "primary_key": ["country"],
         },
@@ -1453,7 +1470,10 @@ CROSS JOIN
             "mode": "published",
         },
     ),
-    (
+)
+
+DBT = (
+(
         "/namespaces/dbt.source/",
         {},
     ),
@@ -1611,8 +1631,11 @@ CROSS JOIN
             "name": "default.total_profit",
         },
     ),
-    # lateral view explode/cross join unnest examples
-    (
+)
+
+# lateral view explode/cross join unnest examples
+LATERAL_VIEW = (
+(
         "/nodes/source/",
         {
             "columns": [
@@ -1732,7 +1755,10 @@ CROSS JOIN
             "name": "basic.avg_luminosity_patches",
         },
     ),
-    (
+)
+
+DIMENSION_LINK = (
+(
         "/nodes/source/",
         {
             "columns": [
@@ -1868,6 +1894,17 @@ CROSS JOIN
         {},
     ),
 )
+
+EXAMPLES = {  # type: ignore
+    "ROADS": ROADS,
+    "NAMESPACED_ROADS": NAMESPACED_ROADS,
+    "ACCOUNT_REVENUE": ACCOUNT_REVENUE,
+    "BASIC": BASIC,
+    "EVENT": EVENT,
+    "DBT": DBT,
+    "LATERAL_VIEW": LATERAL_VIEW,
+    "DIMENSION_LINK": DIMENSION_LINK,
+}
 
 
 COLUMN_MAPPINGS = {
