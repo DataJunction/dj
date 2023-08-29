@@ -257,3 +257,224 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         ("status_change", {"upstream_node": "foo.bar.hard_hats"}),
         ("restore", {"message": "Cascaded from restoring namespace `foo.bar`"}),
     ]
+
+
+def test_hard_delete_namespace(client_with_examples: TestClient):
+    """
+    Test hard deleting a namespace
+    """
+    response = client_with_examples.delete("/namespaces/foo/hard/")
+    assert response.json()["message"] == (
+        "Cannot hard delete namespace `foo` as there are still the following nodes "
+        "under it: `['foo.bar.avg_length_of_employment', "
+        "'foo.bar.avg_repair_order_discounts', 'foo.bar.avg_repair_price', "
+        "'foo.bar.avg_time_to_dispatch', 'foo.bar.contractor', 'foo.bar.contractors', "
+        "'foo.bar.dispatcher', 'foo.bar.dispatchers', 'foo.bar.hard_hat', "
+        "'foo.bar.hard_hat_state', 'foo.bar.hard_hats', 'foo.bar.local_hard_hats', "
+        "'foo.bar.municipality', 'foo.bar.municipality_dim', "
+        "'foo.bar.municipality_municipality_type', 'foo.bar.municipality_type', "
+        "'foo.bar.num_repair_orders', 'foo.bar.repair_order', "
+        "'foo.bar.repair_order_details', 'foo.bar.repair_orders', "
+        "'foo.bar.repair_type', 'foo.bar.total_repair_cost', "
+        "'foo.bar.total_repair_order_discounts', 'foo.bar.us_region', "
+        "'foo.bar.us_state', 'foo.bar.us_states']`. Set `cascade` to true to "
+        "additionally hard delete the above nodes in this namespace. WARNING: this "
+        "action cannot be undone."
+    )
+
+    client_with_examples.post("/namespaces/foo/")
+    hard_delete_response = client_with_examples.delete(
+        "/namespaces/foo.bar/hard/?cascade=true",
+    )
+    assert hard_delete_response.json() == {
+        "message": "The namespace `foo.bar` has been completely removed.",
+        "impact": {
+            "foo.bar.avg_length_of_employment": [],
+            "foo.bar.avg_repair_order_discounts": [],
+            "foo.bar.avg_repair_price": [],
+            "foo.bar.avg_time_to_dispatch": [],
+            "foo.bar.contractor": [
+                {
+                    "name": "foo.bar.repair_type",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+            ],
+            "foo.bar.contractors": [],
+            "foo.bar.dispatcher": [
+                {
+                    "name": "foo.bar.repair_order_details",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.num_repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.total_repair_cost",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.total_repair_order_discounts",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+            ],
+            "foo.bar.dispatchers": [],
+            "foo.bar.hard_hat": [
+                {
+                    "name": "foo.bar.repair_order_details",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.num_repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.total_repair_cost",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.total_repair_order_discounts",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+            ],
+            "foo.bar.hard_hat_state": [
+                {
+                    "name": "foo.bar.local_hard_hats",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+            ],
+            "foo.bar.hard_hats": [
+                {
+                    "name": "foo.bar.local_hard_hats",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+            ],
+            "foo.bar.local_hard_hats": [],
+            "foo.bar.municipality": [
+                {
+                    "name": "foo.bar.municipality_dim",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+            ],
+            "foo.bar.municipality_dim": [
+                {
+                    "name": "foo.bar.repair_order_details",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.num_repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.total_repair_cost",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.total_repair_order_discounts",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+            ],
+            "foo.bar.municipality_municipality_type": [],
+            "foo.bar.municipality_type": [],
+            "foo.bar.num_repair_orders": [],
+            "foo.bar.repair_order": [
+                {
+                    "name": "foo.bar.repair_order_details",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.total_repair_cost",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.total_repair_order_discounts",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "foo.bar.repair_orders",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+            ],
+            "foo.bar.repair_order_details": [
+                {
+                    "name": "foo.bar.total_repair_cost",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+                {
+                    "name": "foo.bar.total_repair_order_discounts",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+            ],
+            "foo.bar.repair_orders": [],
+            "foo.bar.repair_type": [],
+            "foo.bar.total_repair_cost": [],
+            "foo.bar.total_repair_order_discounts": [],
+            "foo.bar.us_region": [
+                {
+                    "name": "foo.bar.us_state",
+                    "status": "invalid",
+                    "effect": "downstream node is now invalid",
+                },
+            ],
+            "foo.bar.us_state": [],
+            "foo.bar.us_states": [],
+        },
+    }
+    list_namespaces_response = client_with_examples.get("/namespaces/")
+    assert list_namespaces_response.json() == [
+        {"namespace": "basic", "num_nodes": 8},
+        {"namespace": "basic.dimension", "num_nodes": 2},
+        {"namespace": "basic.source", "num_nodes": 2},
+        {"namespace": "basic.transform", "num_nodes": 1},
+        {"namespace": "dbt.dimension", "num_nodes": 1},
+        {"namespace": "dbt.source", "num_nodes": 0},
+        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
+        {"namespace": "dbt.source.stripe", "num_nodes": 1},
+        {"namespace": "dbt.transform", "num_nodes": 1},
+        {"namespace": "default", "num_nodes": 54},
+        {"namespace": "foo", "num_nodes": 0},
+    ]
+
+    response = client_with_examples.delete("/namespaces/jaffle_shop/hard/?cascade=true")
+    assert response.json() == {
+        "errors": [],
+        "message": "node namespace `jaffle_shop` does not exist.",
+        "warnings": [],
+    }
