@@ -3033,7 +3033,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
     Test ``POST /nodes/validate/``.
     """
 
-    def test_validating_a_valid_node(self, client_with_account_revenue: TestClient) -> None:
+    def test_validating_a_valid_node(
+        self,
+        client_with_account_revenue: TestClient,
+    ) -> None:
         """
         Test validating a valid node
         """
@@ -3264,12 +3267,16 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "warnings": [],
         }
 
-    def test_adding_dimensions_to_node_columns(self, client_with_account_revenue: TestClient):
+    def test_adding_dimensions_to_node_columns(
+        self,
+        _client_with_examples: TestClient,
+    ):
         """
         Test linking dimensions to node columns
         """
+        custom_client = _client_with_examples(["ACCOUNT_REVENUE", "BASIC"])
         # Attach the payment_type dimension to the payment_type column on the revenue node
-        response = client_with_account_revenue.post(
+        response = custom_client.post(
             "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
         )
         data = response.json()
@@ -3279,14 +3286,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "linked to column payment_type on node default.revenue"
             ),
         }
-        response = client_with_account_revenue.get("/nodes/default.revenue")
+        response = custom_client.get("/nodes/default.revenue")
         data = response.json()
         assert [
             col["dimension"]["name"] for col in data["columns"] if col["dimension"]
         ] == ["default.payment_type"]
 
         # Check that after deleting the dimension link, none of the columns have links
-        response = client_with_account_revenue.delete(
+        response = custom_client.delete(
             "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
         )
         data = response.json()
@@ -3296,17 +3303,17 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "default.payment_type has been successfully removed."
             ),
         }
-        response = client_with_account_revenue.get("/nodes/default.revenue")
+        response = custom_client.get("/nodes/default.revenue")
         data = response.json()
         assert all(col["dimension"] is None for col in data["columns"])
-        response = client_with_account_revenue.get("/history?node=default.revenue")
+        response = custom_client.get("/history?node=default.revenue")
         assert [
             (activity["activity_type"], activity["entity_type"])
             for activity in response.json()
         ] == [("create", "node"), ("create", "link"), ("delete", "link")]
 
         # Removing the dimension link again will result in no change
-        response = client_with_account_revenue.delete(
+        response = custom_client.delete(
             "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
         )
         data = response.json()
@@ -3316,14 +3323,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             " specified dimension link to default.payment_type on None was not found.",
         }
         # Check history again, no change
-        response = client_with_account_revenue.get("/history?node=default.revenue")
+        response = custom_client.get("/history?node=default.revenue")
         assert [
             (activity["activity_type"], activity["entity_type"])
             for activity in response.json()
         ] == [("create", "node"), ("create", "link"), ("delete", "link")]
 
         # Check that the proper error is raised when the column doesn't exist
-        response = client_with_account_revenue.post(
+        response = custom_client.post(
             "/nodes/default.revenue/columns/non_existent_column/?dimension=default.payment_type",
         )
         assert response.status_code == 404
@@ -3333,7 +3340,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
 
         # Add a dimension including a specific dimension column name
-        response = client_with_account_revenue.post(
+        response = custom_client.post(
             "/nodes/default.revenue/columns/payment_type/"
             "?dimension=default.payment_type"
             "&dimension_column=payment_type_name",
@@ -3347,7 +3354,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "types are incompatible and the dimension cannot be linked"
         )
 
-        response = client_with_account_revenue.post(
+        response = custom_client.post(
             "/nodes/default.revenue/columns/payment_type/?dimension=basic.dimension.users",
         )
         data = response.json()
@@ -3512,7 +3519,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         """
         Test getting the DAG for a node
         """
-        custom_client = _client_with_examples(["EVENTS", "ROADS"])
+        custom_client = _client_with_examples(["EVENT", "ROADS"])
         response = custom_client.get(
             "/nodes/default.long_events_distinct_countries/dag",
         )

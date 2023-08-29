@@ -8,7 +8,6 @@ from datajunction_server.models.query import QueryWithResults
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from datajunction_server.typing import QueryState
 
-
 SERVICE_SETUP = (  # type: ignore
     (
         "/catalogs/",
@@ -52,8 +51,8 @@ SERVICE_SETUP = (  # type: ignore
     ),
 )
 
-ROADS = (
-(
+ROADS = (  # type: ignore
+    (
         "/nodes/source/",
         {
             "columns": [
@@ -666,7 +665,7 @@ CROSS JOIN
     ),
 )
 
-NAMESPACED_ROADS = (
+NAMESPACED_ROADS = (  # type: ignore
     (  # foo.bar Namespaced copy of roads database example
         "/namespaces/foo.bar/",
         {},
@@ -1168,8 +1167,7 @@ NAMESPACED_ROADS = (
     ),
 )
 
-ACCOUNT_REVENUE = (
-
+ACCOUNT_REVENUE = (  # type: ignore
     (  # Accounts/Revenue examples begin
         "/nodes/source/",
         {
@@ -1285,8 +1283,8 @@ ACCOUNT_REVENUE = (
     ),
 )
 
-BASIC = (
-(
+BASIC = (  # type: ignore
+    (
         "/namespaces/basic/",
         {},
     ),
@@ -1406,7 +1404,7 @@ BASIC = (
     ),
 )
 
-EVENT = (
+EVENT = (  # type: ignore
     (  # Event examples
         "/nodes/source/",
         {
@@ -1430,7 +1428,7 @@ EVENT = (
             "name": "default.long_events",
             "description": "High-Latency Events",
             "query": "SELECT event_id, event_latency, device_id, country "
-                     "FROM default.event_source WHERE event_latency > 1000000",
+            "FROM default.event_source WHERE event_latency > 1000000",
             "mode": "published",
         },
     ),
@@ -1440,7 +1438,7 @@ EVENT = (
             "name": "default.country_dim",
             "description": "Country Dimension",
             "query": "SELECT country, COUNT(DISTINCT event_id) AS events_cnt "
-                     "FROM default.event_source GROUP BY country",
+            "FROM default.event_source GROUP BY country",
             "mode": "published",
             "primary_key": ["country"],
         },
@@ -1472,8 +1470,8 @@ EVENT = (
     ),
 )
 
-DBT = (
-(
+DBT = (  # type: ignore
+    (
         "/namespaces/dbt.source/",
         {},
     ),
@@ -1634,8 +1632,8 @@ DBT = (
 )
 
 # lateral view explode/cross join unnest examples
-LATERAL_VIEW = (
-(
+LATERAL_VIEW = (  # type: ignore
+    (
         "/nodes/source/",
         {
             "columns": [
@@ -1757,8 +1755,8 @@ LATERAL_VIEW = (
     ),
 )
 
-DIMENSION_LINK = (
-(
+DIMENSION_LINK = (  # type: ignore
+    (
         "/nodes/source/",
         {
             "columns": [

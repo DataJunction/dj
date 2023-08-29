@@ -1,12 +1,11 @@
 """
 Fixtures for testing.
 """
-import copy
 # pylint: disable=redefined-outer-name, invalid-name, W0611
 
 import re
 from http.client import HTTPException
-from typing import Collection, Iterator, List, Optional, Callable
+from typing import Callable, Collection, Iterator, List, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -206,7 +205,10 @@ def post_and_raise_if_error(client: TestClient, endpoint: str, json: dict):
         raise HTTPException(response.text)
 
 
-def load_examples_in_client(client: TestClient, examples_to_load: Optional[List[str]] = None):
+def load_examples_in_client(
+    client: TestClient,
+    examples_to_load: Optional[List[str]] = None,
+):
     """
     Load the DJ client with examples
     """
@@ -217,24 +219,28 @@ def load_examples_in_client(client: TestClient, examples_to_load: Optional[List[
     # Load only the selected examples if any are specified
     if examples_to_load is not None:
         for example_name in examples_to_load:
-            for endpoint, json in EXAMPLES[example_name]:
+            for endpoint, json in EXAMPLES[example_name]:  # type: ignore
                 post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
         return client
 
     # Load all examples if none are specified
     for example_name, examples in EXAMPLES.items():
-        for endpoint, json in examples:
+        for endpoint, json in examples:  # type: ignore
             post_and_raise_if_error(client=client, endpoint=endpoint, json=json)  # type: ignore
     return client
 
 
 @pytest.fixture
-def _client_with_examples(client: TestClient) -> Callable[[Optional[List[str]]], TestClient]:
+def _client_with_examples(
+    client: TestClient,
+) -> Callable[[Optional[List[str]]], TestClient]:
     """
     Provide a DJ test client fixture loaded with a specified set of examples.
     """
+
     def _load_examples(examples_to_load: Optional[List[str]] = None):
         return load_examples_in_client(client, examples_to_load)
+
     return _load_examples
 
 
@@ -294,7 +300,6 @@ def client_with_basic(_client_with_examples: TestClient) -> TestClient:
     return _client_with_examples(["BASIC"])
 
 
-
 def compare_parse_trees(tree1, tree2):
     """
     Recursively compare two ANTLR parse trees for equality.
@@ -351,7 +356,6 @@ def _client_with_query_service(  # pylint: disable=too-many-statements
     session: Session,
     settings: Settings,
     query_service_client: QueryServiceClient,
-    examples_to_load: Optional[List[str]] = None,
 ) -> TestClient:
     """
     Add a mock query service to the test client.
@@ -394,6 +398,9 @@ def _client_with_query_service(  # pylint: disable=too-many-statements
 def client_with_query_service(  # pylint: disable=too-many-statements
     _client_with_query_service: TestClient,
 ) -> TestClient:
+    """
+    Client with query service and all examples loaded.
+    """
     return _client_with_query_service()
 
 
