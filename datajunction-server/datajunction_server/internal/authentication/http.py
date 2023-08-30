@@ -2,11 +2,12 @@
 A secure API router for routes that require authentication
 """
 from http import HTTPStatus
-from typing import Any
+from typing import Any, Callable
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.security import HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
+from fastapi.types import DecoratedCallable
 from jose.exceptions import JWEError, JWTError
 from sqlmodel import Session
 
@@ -79,7 +80,39 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
         return
 
 
-class SecureAPIRouter(APIRouter):
+class TrailingSlashAPIRouter(APIRouter):
+    """
+    A base APIRouter that handles trailing slashes
+    """
+
+    def api_route(
+        self, path: str, *, include_in_schema: bool = True, **kwargs: Any
+    ) -> Callable[[DecoratedCallable], DecoratedCallable]:
+        """
+        For any given API route path, we always add both the path without the trailing slash
+        and the path with the trailing slash, ensuring that we can serve both types of calls.
+        This solution is pulled from https://github.com/tiangolo/fastapi/discussions/7298
+        """
+        if path.endswith("/"):
+            path = path[:-1]
+
+        add_path = super().api_route(
+            path, include_in_schema=include_in_schema, **kwargs
+        )
+
+        path_with_trailing_slash = path + "/"
+        add_trailing_slash_path = super().api_route(
+            path_with_trailing_slash, include_in_schema=False, **kwargs
+        )
+
+        def decorator(func: DecoratedCallable) -> DecoratedCallable:
+            add_trailing_slash_path(func)
+            return add_path(func)
+
+        return decorator
+
+
+class SecureAPIRouter(TrailingSlashAPIRouter):
     """
     A fastapi APIRouter with a DJHTTPBearer dependency
     """
