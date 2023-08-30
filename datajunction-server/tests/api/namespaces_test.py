@@ -25,18 +25,18 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
     ]
 
 
-def test_list_nodes_by_namespace(client_with_examples: TestClient) -> None:
+def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
     """
     Test ``GET /namespaces/{namespace}/``.
     """
-    response = client_with_examples.get("/namespaces/basic.source/")
+    response = client_with_basic.get("/namespaces/basic.source/")
     assert response.ok
     assert {n["name"] for n in response.json()} == {
         "basic.source.users",
         "basic.source.comments",
     }
 
-    response = client_with_examples.get("/namespaces/basic/")
+    response = client_with_basic.get("/namespaces/basic/")
     assert response.ok
     assert {n["name"] for n in response.json()} == {
         "basic.source.users",
@@ -46,46 +46,36 @@ def test_list_nodes_by_namespace(client_with_examples: TestClient) -> None:
         "basic.transform.country_agg",
         "basic.num_comments",
         "basic.num_users",
-        "basic.murals",
-        "basic.patches",
-        "basic.corrected_patches",
-        "basic.paint_colors_trino",
-        "basic.paint_colors_spark",
-        "basic.avg_luminosity_patches",
     }
 
-    response = client_with_examples.get("/namespaces/basic/?type_=dimension")
+    response = client_with_basic.get("/namespaces/basic/?type_=dimension")
     assert response.ok
     assert {n["name"] for n in response.json()} == {
         "basic.dimension.users",
         "basic.dimension.countries",
-        "basic.paint_colors_spark",
-        "basic.paint_colors_trino",
     }
 
-    response = client_with_examples.get("/namespaces/basic/?type_=source")
+    response = client_with_basic.get("/namespaces/basic/?type_=source")
     assert response.ok
     assert {n["name"] for n in response.json()} == {
         "basic.source.comments",
-        "basic.murals",
         "basic.source.users",
-        "basic.patches",
     }
 
 
-def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
+def test_deactivate_namespaces(client_with_namespaced_roads: TestClient) -> None:
     """
     Test ``DELETE /namespaces/{namespace}``.
     """
     # Cannot deactivate if there are nodes under the namespace
-    response = client_with_examples.delete("/namespaces/foo.bar/?cascade=false")
+    response = client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=false")
     assert response.json() == {
         "message": "Cannot deactivate node namespace `foo.bar` as there are still "
         "active nodes under that namespace.",
     }
 
     # Can deactivate with cascade
-    response = client_with_examples.delete("/namespaces/foo.bar/?cascade=true")
+    response = client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=true")
     assert response.json() == {
         "message": "Namespace `foo.bar` has been deactivated. The following nodes "
         "have also been deactivated: foo.bar.repair_orders,foo.bar.repair_order_details,"
@@ -100,55 +90,34 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
     }
 
     # Check that the namespace is no longer listed
-    response = client_with_examples.get("/namespaces/")
+    response = client_with_namespaced_roads.get("/namespaces/")
     assert response.ok
-    assert {n["namespace"] for n in response.json()} == {
-        "default",
-        "basic",
-        "basic.source",
-        "basic.transform",
-        "basic.dimension",
-        "dbt.source",
-        "dbt.source.jaffle_shop",
-        "dbt.transform",
-        "dbt.dimension",
-        "dbt.source.stripe",
-    }
+    assert "foo.bar" not in {n["namespace"] for n in response.json()}
 
-    response = client_with_examples.delete("/namespaces/foo.bar/?cascade=false")
+    response = client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=false")
     assert response.json()["message"] == "Namespace `foo.bar` is already deactivated."
 
     # Try restoring
-    response = client_with_examples.post("/namespaces/foo.bar/restore/")
+    response = client_with_namespaced_roads.post("/namespaces/foo.bar/restore/")
     assert response.json() == {
         "message": "Namespace `foo.bar` has been restored.",
     }
 
     # Check that the namespace is back
-    response = client_with_examples.get("/namespaces/")
+    response = client_with_namespaced_roads.get("/namespaces/")
     assert response.ok
-    assert {n["namespace"] for n in response.json()} == {
-        "basic",
-        "basic.dimension",
-        "basic.source",
-        "basic.transform",
-        "dbt.dimension",
-        "dbt.source",
-        "dbt.source.jaffle_shop",
-        "dbt.source.stripe",
-        "dbt.transform",
-        "default",
-        "foo.bar",
-    }
+    assert "foo.bar" in {n["namespace"] for n in response.json()}
 
     # Check that nodes in the namespace remain deactivated
-    response = client_with_examples.get("/namespaces/foo.bar/")
+    response = client_with_namespaced_roads.get("/namespaces/foo.bar/")
     assert response.ok
     assert response.json() == []
 
     # Restore with cascade=true should also restore all the nodes
-    client_with_examples.delete("/namespaces/foo.bar/?cascade=false")
-    response = client_with_examples.post("/namespaces/foo.bar/restore/?cascade=true")
+    client_with_namespaced_roads.delete("/namespaces/foo.bar/?cascade=false")
+    response = client_with_namespaced_roads.post(
+        "/namespaces/foo.bar/restore/?cascade=true",
+    )
     assert response.json() == {
         "message": "Namespace `foo.bar` has been restored. The following nodes have "
         "also been restored: foo.bar.repair_orders,foo.bar.repair_order_details,foo."
@@ -162,14 +131,16 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         "r_order_discounts,foo.bar.avg_time_to_dispatch",
     }
     # Calling restore again will raise
-    response = client_with_examples.post("/namespaces/foo.bar/restore/?cascade=true")
+    response = client_with_namespaced_roads.post(
+        "/namespaces/foo.bar/restore/?cascade=true",
+    )
     assert (
         response.json()["message"]
         == "Node namespace `foo.bar` already exists and is active."
     )
 
     # Check that nodes in the namespace are restored
-    response = client_with_examples.get("/namespaces/foo.bar/")
+    response = client_with_namespaced_roads.get("/namespaces/foo.bar/")
     assert response.ok
     assert {n["name"] for n in response.json()} == {
         "foo.bar.repair_orders",
@@ -200,7 +171,7 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         "foo.bar.avg_time_to_dispatch",
     }
 
-    response = client_with_examples.get("/history/namespace/foo.bar/")
+    response = client_with_namespaced_roads.get("/history/namespace/foo.bar/")
     assert [
         (activity["activity_type"], activity["details"]) for activity in response.json()
     ] == [
@@ -245,7 +216,7 @@ def test_deactivate_namespaces(client_with_examples: TestClient) -> None:
         ),
     ]
 
-    response = client_with_examples.get(
+    response = client_with_namespaced_roads.get(
         "/history?node=foo.bar.avg_length_of_employment",
     )
     assert [

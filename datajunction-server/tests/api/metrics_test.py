@@ -14,15 +14,15 @@ from datajunction_server.sql.parsing.types import FloatType, IntegerType, String
 from tests.sql.utils import compare_query_strings
 
 
-def test_read_metrics(client_with_examples: TestClient) -> None:
+def test_read_metrics(client_with_roads: TestClient) -> None:
     """
     Test ``GET /metrics/``.
     """
-    response = client_with_examples.get("/metrics/")
+    response = client_with_roads.get("/metrics/")
     data = response.json()
 
     assert response.status_code == 200
-    assert len(data) > 10
+    assert len(data) > 5
 
 
 def test_read_metric(session: Session, client: TestClient) -> None:
@@ -136,12 +136,12 @@ def test_read_metrics_errors(session: Session, client: TestClient) -> None:
 
 
 def test_common_dimensions(
-    client_with_examples: TestClient,
+    client_with_roads: TestClient,
 ) -> None:
     """
     Test ``GET /metrics/common/dimensions``.
     """
-    response = client_with_examples.get(
+    response = client_with_roads.get(
         "/metrics/common/dimensions?"
         "metric=default.total_repair_order_discounts"
         "&metric=default.total_repair_cost",
@@ -422,12 +422,13 @@ def test_common_dimensions(
 
 
 def test_no_common_dimensions(
-    client_with_examples: TestClient,
+    client_example_loader: TestClient,
 ) -> None:
     """
     Test getting common dimensions for metrics that have none in common
     """
-    response = client_with_examples.get(
+    custom_client = client_example_loader(["BASIC", "ROADS"])
+    response = custom_client.get(
         "/metrics/common/dimensions?"
         "metric=basic.num_comments&metric=default.total_repair_order_discounts"
         "&metric=default.total_repair_cost",
@@ -437,12 +438,13 @@ def test_no_common_dimensions(
 
 
 def test_raise_common_dimensions_not_a_metric_node(
-    client_with_examples: TestClient,
+    client_example_loader: TestClient,
 ) -> None:
     """
     Test raising ``GET /metrics/common/dimensions`` when not a metric node
     """
-    response = client_with_examples.get(
+    custom_client = client_example_loader(["ROADS", "ACCOUNT_REVENUE"])
+    response = custom_client.get(
         "/metrics/common/dimensions?"
         "metric=default.total_repair_order_discounts"
         "&metric=default.payment_type",
@@ -452,12 +454,12 @@ def test_raise_common_dimensions_not_a_metric_node(
 
 
 def test_raise_common_dimensions_metric_not_found(
-    client_with_examples: TestClient,
+    client_with_service_setup: TestClient,
 ) -> None:
     """
     Test raising ``GET /metrics/common/dimensions`` when metric not found
     """
-    response = client_with_examples.get(
+    response = client_with_service_setup.get(
         "/metrics/common/dimensions?metric=default.foo&metric=default.bar",
     )
     assert response.status_code == 500
@@ -481,11 +483,11 @@ def test_raise_common_dimensions_metric_not_found(
     }
 
 
-def test_get_dimensions(client_with_examples: TestClient):
+def test_get_dimensions(client_with_roads: TestClient):
     """
     Testing get dimensions for a metric
     """
-    response = client_with_examples.get("/metrics/default.avg_repair_price/")
+    response = client_with_roads.get("/metrics/default.avg_repair_price/")
 
     data = response.json()
     assert data["dimensions"] == [
@@ -762,14 +764,15 @@ def test_get_dimensions(client_with_examples: TestClient):
 
 
 def test_get_multi_link_dimensions(
-    client_with_examples: TestClient,
+    client_example_loader: TestClient,
 ):
     """
     In some cases, the same dimension may be linked to different columns on a node.
     The returned dimension attributes should the join path between the given dimension
     attribute and the original node, in order to help disambiguate the source of the dimension.
     """
-    response = client_with_examples.get("/metrics/default.avg_user_age/")
+    custom_client = client_example_loader(["DIMENSION_LINK"])
+    response = custom_client.get("/metrics/default.avg_user_age/")
     assert response.json()["dimensions"] == [
         {
             "name": "default.date_dim.dateint",
@@ -946,11 +949,11 @@ def test_get_multi_link_dimensions(
     ]
 
 
-def test_type_inference_structs(client_with_examples: TestClient):
+def test_type_inference_structs(client_with_service_setup: TestClient):
     """
     Testing type resolution for structs select
     """
-    client_with_examples.post(
+    client_with_service_setup.post(
         "/nodes/source/",
         json={
             "columns": [
@@ -968,7 +971,7 @@ def test_type_inference_structs(client_with_examples: TestClient):
         },
     )
 
-    response = client_with_examples.post(
+    response = client_with_service_setup.post(
         "/nodes/metric/",
         json={
             "query": "SELECT SUM(counts.b) FROM basic.dreams",
@@ -980,11 +983,12 @@ def test_type_inference_structs(client_with_examples: TestClient):
     response.json()
 
 
-def test_metric_expression_auto_aliased(client_with_examples: TestClient):
+def test_metric_expression_auto_aliased(client_with_service_setup: TestClient):
     """
     Testing that a metric's expression column is automatically aliased
     """
-    client_with_examples.post(
+    client_with_service_setup.post("/namespaces/basic")
+    client_with_service_setup.post(
         "/nodes/source/",
         json={
             "columns": [
@@ -1002,7 +1006,7 @@ def test_metric_expression_auto_aliased(client_with_examples: TestClient):
         },
     )
 
-    response = client_with_examples.post(
+    response = client_with_service_setup.post(
         "/nodes/metric/",
         json={
             "query": "SELECT SUM(counts.b) + SUM(counts.b) FROM basic.dreams",
@@ -1018,11 +1022,11 @@ def test_metric_expression_auto_aliased(client_with_examples: TestClient):
     )
 
 
-def test_raise_on_malformated_expression_alias(client_with_examples: TestClient):
+def test_raise_on_malformated_expression_alias(client_with_service_setup: TestClient):
     """
     Testing raising when an invalid alias is used for a metric expression
     """
-    client_with_examples.post(
+    client_with_service_setup.post(
         "/nodes/source/",
         json={
             "columns": [
@@ -1040,7 +1044,7 @@ def test_raise_on_malformated_expression_alias(client_with_examples: TestClient)
         },
     )
 
-    response = client_with_examples.post(
+    response = client_with_service_setup.post(
         "/nodes/metric/",
         json={
             "query": "SELECT SUM(counts.b) as foo FROM basic.dreams",
@@ -1057,11 +1061,12 @@ def test_raise_on_malformated_expression_alias(client_with_examples: TestClient)
     ) in response.json()["message"]
 
 
-def test_raise_on_multiple_expressions(client_with_examples: TestClient):
+def test_raise_on_multiple_expressions(client_with_service_setup: TestClient):
     """
     Testing raising when there is more than one expression
     """
-    client_with_examples.post(
+    client_with_service_setup.post("/namespaces/basic")
+    client_with_service_setup.post(
         "/nodes/source/",
         json={
             "columns": [
@@ -1079,7 +1084,7 @@ def test_raise_on_multiple_expressions(client_with_examples: TestClient):
         },
     )
 
-    response = client_with_examples.post(
+    response = client_with_service_setup.post(
         "/nodes/metric/",
         json={
             "query": "SELECT SUM(counts.b), COUNT(counts.b) FROM basic.dreams",
