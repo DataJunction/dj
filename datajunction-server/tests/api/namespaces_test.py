@@ -46,12 +46,6 @@ def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
         "basic.transform.country_agg",
         "basic.num_comments",
         "basic.num_users",
-        "basic.murals",
-        "basic.patches",
-        "basic.corrected_patches",
-        "basic.paint_colors_trino",
-        "basic.paint_colors_spark",
-        "basic.avg_luminosity_patches",
     }
 
     response = client_with_basic.get("/namespaces/basic/?type_=dimension")
@@ -59,17 +53,13 @@ def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
     assert {n["name"] for n in response.json()} == {
         "basic.dimension.users",
         "basic.dimension.countries",
-        "basic.paint_colors_spark",
-        "basic.paint_colors_trino",
     }
 
     response = client_with_basic.get("/namespaces/basic/?type_=source")
     assert response.ok
     assert {n["name"] for n in response.json()} == {
         "basic.source.comments",
-        "basic.murals",
         "basic.source.users",
-        "basic.patches",
     }
 
 
