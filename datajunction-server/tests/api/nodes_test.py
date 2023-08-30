@@ -1223,13 +1223,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_create_source_node_with_query_service(
         self,
-        _client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ):
         """
         Creating a source node without columns but with a query service set should
         result in the source node columns being inferred via the query service.
         """
-        custom_client = _client_with_query_service(["BASIC"])
+        custom_client = client_with_query_service_example_loader(["BASIC"])
         response = custom_client.post(
             "/register/table/public/basic/comments/",
         )
@@ -1258,12 +1258,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_refresh_source_node(
         self,
-        _client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ):
         """
         Refresh a source node with a query service
         """
-        custom_client = _client_with_query_service(["ROADS"])
+        custom_client = client_with_query_service_example_loader(["ROADS"])
         response = custom_client.post(
             "/nodes/default.repair_orders/refresh/",
         )
@@ -1939,12 +1939,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_upsert_materialization_config(  # pylint: disable=too-many-arguments
         self,
-        _client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test creating & updating materialization config for a node.
         """
-        custom_client = _client_with_query_service(["BASIC"])
+        custom_client = client_with_query_service_example_loader(["BASIC"])
         # Setting the materialization config for a source node should fail
         response = custom_client.post(
             "/nodes/basic.source.comments/materialization/",
@@ -2132,7 +2132,7 @@ GROUP BY default_DOT_regional_level_agg_structs.location_hierarchy""",
 
     def test_node_with_incremental_materialization(
         self,
-        _client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         1. Create a transform node that uses dj_logical_timestamp (i.e., it is
@@ -2141,7 +2141,7 @@ GROUP BY default_DOT_regional_level_agg_structs.location_hierarchy""",
         3. When SQL for the metric is requested without the transform having been materialized,
            the request will fail.
         """
-        custom_client = _client_with_query_service(["ROADS"])
+        custom_client = client_with_query_service_example_loader(["ROADS"])
         custom_client.post(
             "/nodes/transform/",
             json={
@@ -2275,13 +2275,13 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
 
     def test_update_node_query_with_materializations(
         self,
-        _client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ):
         """
         Testing updating a node's query when the node already has materializations. The node's
         materializations should be updated based on the new query and rescheduled.
         """
-        custom_client = _client_with_query_service(["BASIC"])
+        custom_client = client_with_query_service_example_loader(["BASIC"])
         custom_client.post(
             "/engines/",
             json={
