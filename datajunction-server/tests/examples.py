@@ -8,7 +8,7 @@ from datajunction_server.models.query import QueryWithResults
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from datajunction_server.typing import QueryState
 
-EXAMPLES = (  # type: ignore
+SERVICE_SETUP = (  # type: ignore
     (
         "/catalogs/",
         {"name": "draft"},
@@ -49,6 +49,9 @@ EXAMPLES = (  # type: ignore
         "/namespaces/default/",
         {},
     ),
+)
+
+ROADS = (  # type: ignore
     (
         "/nodes/source/",
         {
@@ -660,6 +663,9 @@ CROSS JOIN
         ),
         {},
     ),
+)
+
+NAMESPACED_ROADS = (  # type: ignore
     (  # foo.bar Namespaced copy of roads database example
         "/namespaces/foo.bar/",
         {},
@@ -1159,6 +1165,9 @@ CROSS JOIN
         ),
         {},
     ),
+)
+
+ACCOUNT_REVENUE = (  # type: ignore
     (  # Accounts/Revenue examples begin
         "/nodes/source/",
         {
@@ -1272,6 +1281,9 @@ CROSS JOIN
             "name": "default.number_of_account_types",
         },
     ),
+)
+
+BASIC = (  # type: ignore
     (
         "/namespaces/basic/",
         {},
@@ -1390,6 +1402,9 @@ CROSS JOIN
             "name": "basic.num_users",
         },
     ),
+)
+
+EVENT = (  # type: ignore
     (  # Event examples
         "/nodes/source/",
         {
@@ -1453,6 +1468,9 @@ CROSS JOIN
             "mode": "published",
         },
     ),
+)
+
+DBT = (  # type: ignore
     (
         "/namespaces/dbt.source/",
         {},
@@ -1611,7 +1629,10 @@ CROSS JOIN
             "name": "default.total_profit",
         },
     ),
-    # lateral view explode/cross join unnest examples
+)
+
+# lateral view explode/cross join unnest examples
+LATERAL_VIEW = (  # type: ignore
     (
         "/nodes/source/",
         {
@@ -1732,6 +1753,9 @@ CROSS JOIN
             "name": "basic.avg_luminosity_patches",
         },
     ),
+)
+
+DIMENSION_LINK = (  # type: ignore
     (
         "/nodes/source/",
         {
@@ -1868,6 +1892,17 @@ CROSS JOIN
         {},
     ),
 )
+
+EXAMPLES = {  # type: ignore
+    "ROADS": ROADS,
+    "NAMESPACED_ROADS": NAMESPACED_ROADS,
+    "ACCOUNT_REVENUE": ACCOUNT_REVENUE,
+    "BASIC": BASIC,
+    "EVENT": EVENT,
+    "DBT": DBT,
+    "LATERAL_VIEW": LATERAL_VIEW,
+    "DIMENSION_LINK": DIMENSION_LINK,
+}
 
 
 COLUMN_MAPPINGS = {

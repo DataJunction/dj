@@ -39,11 +39,11 @@ def materialization_compare(response, expected):
         assert materialization_response == materialization_expected
 
 
-def test_read_node(client_with_examples: TestClient) -> None:
+def test_read_node(client_with_roads: TestClient) -> None:
     """
     Test ``GET /nodes/{node_id}``.
     """
-    response = client_with_examples.get("/nodes/default.repair_orders/")
+    response = client_with_roads.get("/nodes/default.repair_orders/")
     data = response.json()
 
     assert response.status_code == 200
@@ -52,7 +52,7 @@ def test_read_node(client_with_examples: TestClient) -> None:
     assert data["node_revision_id"] == 1
     assert data["type"] == "source"
 
-    response = client_with_examples.get("/nodes/default.nothing/")
+    response = client_with_roads.get("/nodes/default.nothing/")
     data = response.json()
 
     assert response.status_code == 404
@@ -225,13 +225,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_create_dimension_without_catalog(
         self,
-        client_with_examples: TestClient,
+        client_with_roads,
     ):
         """
         Test that creating a dimension that's purely query-based and therefore
         doesn't reference a catalog works.
         """
-        response = client_with_examples.post(
+        response = client_with_roads.post(
             "/nodes/dimension/",
             json={
                 "description": "Title",
@@ -259,12 +259,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # Link the dimension to a column on the source node
-        response = client_with_examples.post(
+        response = client_with_roads.post(
             "/nodes/default.hard_hats/columns/title/"
             "?dimension=default.title&dimension_column=title",
         )
         assert response.ok
-        response = client_with_examples.get("/nodes/default.hard_hats/")
+        response = client_with_roads.get("/nodes/default.hard_hats/")
         assert {
             "attributes": [],
             "dimension": {"name": "default.title"},
@@ -274,16 +274,16 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_deleting_node(
         self,
-        client_with_examples: TestClient,
+        client_with_basic: TestClient,
     ):
         """
         Test deleting a node
         """
         # Delete a node
-        response = client_with_examples.delete("/nodes/basic.source.users/")
+        response = client_with_basic.delete("/nodes/basic.source.users/")
         assert response.status_code == 200
         # Check that then retrieving the node returns an error
-        response = client_with_examples.get("/nodes/basic.source.users/")
+        response = client_with_basic.get("/nodes/basic.source.users/")
         assert not response.ok
         assert response.json() == {
             "message": "A node with name `basic.source.users` does not exist.",
@@ -298,11 +298,11 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "basic.num_users",
         ]
         for downstream in expected_downstreams:
-            response = client_with_examples.get(f"/nodes/{downstream}/")
+            response = client_with_basic.get(f"/nodes/{downstream}/")
             assert response.json()["status"] == NodeStatus.INVALID
 
             # The downstreams' status change should be recorded in their histories
-            response = client_with_examples.get(f"/history?node={downstream}")
+            response = client_with_basic.get(f"/history?node={downstream}")
             assert [
                 (activity["pre"], activity["post"], activity["details"])
                 for activity in response.json()
@@ -316,7 +316,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             ]
 
         # Trying to create the node again should work.
-        response = client_with_examples.post(
+        response = client_with_basic.post(
             "/nodes/source/",
             json={
                 "name": "basic.source.users",
@@ -341,7 +341,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert response.ok
 
         # The deletion action should be recorded in the node's history
-        response = client_with_examples.get("/history?node=basic.source.users")
+        response = client_with_basic.get("/history?node=basic.source.users")
         history = response.json()
         assert history == [
             {
@@ -985,7 +985,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
     def verify_complete_hard_delete(
         self,
         session: Session,
-        client_with_examples: TestClient,
+        client_with_roads: TestClient,
         node_name: str,
     ):
         """
@@ -998,7 +998,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         ]
 
         # Hard delete the node
-        response = client_with_examples.delete(f"/nodes/{node_name}/hard/")
+        response = client_with_roads.delete(f"/nodes/{node_name}/hard/")
         assert response.ok
 
         # Check that all revisions (and their relations) for the node have been deleted
@@ -1039,18 +1039,18 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_hard_deleting_node_with_versions(
         self,
-        client_with_examples: TestClient,
+        client_with_roads: TestClient,
         session: Session,
     ):
         """
         Test that hard deleting a node will remove all previous node revisions.
         """
         # Create a few revisions for the `default.repair_order` dimension
-        client_with_examples.patch(
+        client_with_roads.patch(
             "/nodes/default.repair_order/",
             json={"query": """SELECT repair_order_id FROM default.repair_orders"""},
         )
-        client_with_examples.patch(
+        client_with_roads.patch(
             "/nodes/default.repair_order/",
             json={
                 "query": """SELECT
@@ -1064,15 +1064,15 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                         FROM default.repair_orders""",
             },
         )
-        response = client_with_examples.get("/nodes/default.repair_order")
+        response = client_with_roads.get("/nodes/default.repair_order")
         assert response.json()["version"] == "v3.0"
 
         # Hard delete all nodes and verify after each delete
-        default_nodes = client_with_examples.get("/namespaces/default/").json()
+        default_nodes = client_with_roads.get("/namespaces/default/").json()
         for node_name in default_nodes:
             self.verify_complete_hard_delete(
                 session,
-                client_with_examples,
+                client_with_roads,
                 node_name["name"],
             )
 
@@ -1095,13 +1095,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_hard_deleting_a_node(
         self,
-        client_with_examples: TestClient,
+        client_with_roads: TestClient,
     ):
         """
         Test raising when restoring an already active node
         """
         # Hard deleting a node causes downstream nodes to become invalid
-        response = client_with_examples.delete("/nodes/default.repair_orders/hard/")
+        response = client_with_roads.delete("/nodes/default.repair_orders/hard/")
         assert response.ok
         assert response.json() == {
             "message": "The node `default.repair_orders` has been completely removed.",
@@ -1135,7 +1135,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         }
 
         # Hard deleting a dimension creates broken links
-        response = client_with_examples.delete("/nodes/default.repair_order/hard/")
+        response = client_with_roads.delete("/nodes/default.repair_order/hard/")
         assert response.ok
         assert response.json() == {
             "message": "The node `default.repair_order` has been completely removed.",
@@ -1189,7 +1189,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         }
 
         # Hard deleting an unlinked dimension has no impact
-        response = client_with_examples.delete("/nodes/default.municipality_dim/hard/")
+        response = client_with_roads.delete("/nodes/default.municipality_dim/hard/")
         assert response.ok
         assert response.json() == {
             "message": "The node `default.municipality_dim` has been completely removed.",
@@ -1197,7 +1197,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         }
 
         # Hard delete a metric
-        response = client_with_examples.delete(
+        response = client_with_roads.delete(
             "/nodes/default.avg_repair_order_discounts/hard/",
         )
         assert response.ok
@@ -1223,13 +1223,14 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_create_source_node_with_query_service(
         self,
-        client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ):
         """
         Creating a source node without columns but with a query service set should
         result in the source node columns being inferred via the query service.
         """
-        response = client_with_query_service.post(
+        custom_client = client_with_query_service_example_loader(["BASIC"])
+        response = custom_client.post(
             "/register/table/public/basic/comments/",
         )
         data = response.json()
@@ -1257,12 +1258,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_refresh_source_node(
         self,
-        client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ):
         """
         Refresh a source node with a query service
         """
-        response = client_with_query_service.post(
+        custom_client = client_with_query_service_example_loader(["ROADS"])
+        response = custom_client.post(
             "/nodes/default.repair_orders/refresh/",
         )
         data = response.json()
@@ -1313,7 +1315,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["columns"] == new_columns
         assert response.status_code == 201
 
-        response = client_with_query_service.get("/history?node=default.repair_orders")
+        response = custom_client.get("/history?node=default.repair_orders")
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
@@ -1321,7 +1323,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
         # Refresh it again, but this time no columns will have changed so
         # verify that the node revision stays the same
-        response = client_with_query_service.post(
+        response = custom_client.post(
             "/nodes/default.repair_orders/refresh/",
         )
         data_second = response.json()
@@ -1331,7 +1333,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_create_update_source_node(
         self,
-        client_with_examples: TestClient,
+        client_with_basic: TestClient,
     ) -> None:
         """
         Test creating and updating a source node
@@ -1356,7 +1358,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         }
 
         # Trying to create it again should fail
-        response = client_with_examples.post(
+        response = client_with_basic.post(
             "/nodes/source/",
             json=basic_source_comments,
         )
@@ -1368,7 +1370,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert response.status_code == 409
 
         # Update node with a new description should create a new revision
-        response = client_with_examples.patch(
+        response = client_with_basic.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={
                 "description": "New description",
@@ -1384,7 +1386,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["description"] == "New description"
 
         # Try to update node with no changes
-        response = client_with_examples.patch(
+        response = client_with_basic.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={"description": "New description", "display_name": "Comments facts"},
         )
@@ -1392,7 +1394,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data == new_data
 
         # Try to update a node with a table that has different columns
-        response = client_with_examples.patch(
+        response = client_with_basic.patch(
             f"/nodes/{basic_source_comments['name']}/",
             json={
                 "columns": [
@@ -1506,13 +1508,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_create_node_with_type_inference_failure(
         self,
-        client_with_examples: TestClient,
+        client_with_namespaced_roads: TestClient,
     ):
         """
         Attempting to create a published metric where type inference fails should raise
         an appropriate error and fail.
         """
-        response = client_with_examples.post(
+        response = client_with_namespaced_roads.post(
             "/nodes/metric/",
             json={
                 "description": "Average length of employment",
@@ -1723,13 +1725,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             ],
         }
 
-    def test_update_metric_node(self, client_with_examples: TestClient):
+    def test_update_metric_node(self, client_with_roads: TestClient):
         """
         Verify that during metric node updates, if the query changes, DJ will automatically
         alias the metric column. If this aliased query is the same as the current revision's
         query, DJ won't promote the version.
         """
-        response = client_with_examples.patch(
+        response = client_with_roads.patch(
             "/nodes/default.total_repair_cost/",
             json={"query": "SELECT sum(price) FROM default.repair_order_details"},
         )
@@ -1738,10 +1740,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "SELECT  sum(price) default_DOT_total_repair_cost \n"
             " FROM default.repair_order_details\n\n"
         )
-        response = client_with_examples.get("/nodes/default.total_repair_cost")
+        response = client_with_roads.get("/nodes/default.total_repair_cost")
         assert response.json()["version"] == "v1.0"
 
-        response = client_with_examples.patch(
+        response = client_with_roads.patch(
             "/nodes/default.total_repair_cost/",
             json={"query": "SELECT count(price) FROM default.repair_order_details"},
         )
@@ -1750,7 +1752,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "SELECT  count(price) default_DOT_total_repair_cost \n"
             " FROM default.repair_order_details\n\n"
         )
-        response = client_with_examples.get("/nodes/default.total_repair_cost")
+        response = client_with_roads.get("/nodes/default.total_repair_cost")
         assert response.json()["version"] == "v2.0"
 
     def test_create_dimension_node_fails(
@@ -1854,11 +1856,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_raise_on_multi_catalog_node(self, client_with_examples: TestClient):
+    def test_raise_on_multi_catalog_node(self, client_example_loader):
         """
         Test raising when trying to select from multiple catalogs
         """
-        response = client_with_examples.post(
+        custom_client = client_example_loader(["BASIC", "ACCOUNT_REVENUE"])
+        response = custom_client.post(
             "/nodes/transform/",
             json={
                 "query": (
@@ -1936,13 +1939,14 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
 
     def test_upsert_materialization_config(  # pylint: disable=too-many-arguments
         self,
-        client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         Test creating & updating materialization config for a node.
         """
+        custom_client = client_with_query_service_example_loader(["BASIC"])
         # Setting the materialization config for a source node should fail
-        response = client_with_query_service.post(
+        response = custom_client.post(
             "/nodes/basic.source.comments/materialization/",
             json={
                 "engine": {
@@ -1960,7 +1964,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
 
         # Setting the materialization config for an engine that doesn't exist should fail
-        response = client_with_query_service.post(
+        response = custom_client.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
                 "engine": {
@@ -1975,12 +1979,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["detail"] == "Engine not found: `spark` version `2.4.4`"
 
-    def test_node_with_struct(self, client_with_examples: TestClient):
+    def test_node_with_struct(self, client_with_roads: TestClient):
         """
         Test that building a query string with structs yields a correctly formatted struct
         reference.
         """
-        response = client_with_examples.post(
+        response = client_with_roads.post(
             "/nodes/transform/",
             json={
                 "description": "Regional level agg with structs",
@@ -2042,7 +2046,7 @@ GROUP BY
             "bigint>",
         } in response.json()["columns"]
 
-        client_with_examples.post(
+        client_with_roads.post(
             "/nodes/transform/",
             json={
                 "description": "Total Repair Amounts during the COVID-19 Pandemic",
@@ -2052,7 +2056,7 @@ GROUP BY
                 "mode": "published",
             },
         )
-        response = client_with_examples.get(
+        response = client_with_roads.get(
             "/sql/default.total_amount_in_region_from_struct_transform?filters="
             "&dimensions=default.regional_level_agg_structs.location_hierarchy",
         )
@@ -2128,7 +2132,7 @@ GROUP BY default_DOT_regional_level_agg_structs.location_hierarchy""",
 
     def test_node_with_incremental_materialization(
         self,
-        client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ) -> None:
         """
         1. Create a transform node that uses dj_logical_timestamp (i.e., it is
@@ -2137,7 +2141,8 @@ GROUP BY default_DOT_regional_level_agg_structs.location_hierarchy""",
         3. When SQL for the metric is requested without the transform having been materialized,
            the request will fail.
         """
-        client_with_query_service.post(
+        custom_client = client_with_query_service_example_loader(["ROADS"])
+        custom_client.post(
             "/nodes/transform/",
             json={
                 "description": "Repair orders transform (partitioned)",
@@ -2159,12 +2164,12 @@ GROUP BY default_DOT_regional_level_agg_structs.location_hierarchy""",
                 "primary_key": ["repair_order_id"],
             },
         )
-        client_with_query_service.post(
+        custom_client.post(
             "/nodes/default.repair_orders_partitioned/columns/hard_hat_id/"
             "?dimension=default.hard_hat&dimension_column=hard_hat_id",
         )
 
-        client_with_query_service.post(
+        custom_client.post(
             "/nodes/metric/",
             json={
                 "description": "Number of repair orders",
@@ -2173,7 +2178,7 @@ GROUP BY default_DOT_regional_level_agg_structs.location_hierarchy""",
                 "name": "default.num_repair_orders_partitioned",
             },
         )
-        response = client_with_query_service.get(
+        response = custom_client.get(
             "/sql?metrics=default.num_repair_orders_partitioned"
             "&dimensions=default.hard_hat.last_name",
         )
@@ -2215,7 +2220,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
  FROM m0_default_DOT_num_repair_orders_partitioned""",
         )
 
-        client_with_query_service.post(
+        custom_client.post(
             "/engines/",
             json={
                 "name": "spark",
@@ -2225,7 +2230,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         )
 
         # Setting the materialization config should succeed
-        response = client_with_query_service.post(
+        response = custom_client.post(
             "/nodes/default.repair_orders_partitioned/materialization/",
             json={
                 "engine": {
@@ -2244,7 +2249,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             "`default` for node `default.repair_orders_partitioned`"
         )
 
-        response = client_with_query_service.get(
+        response = custom_client.get(
             "/nodes/default.repair_orders_partitioned",
         )
         result_sql = response.json()["materializations"][0]["config"]["query"]
@@ -2270,13 +2275,14 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
 
     def test_update_node_query_with_materializations(
         self,
-        client_with_query_service: TestClient,
+        client_with_query_service_example_loader,
     ):
         """
         Testing updating a node's query when the node already has materializations. The node's
         materializations should be updated based on the new query and rescheduled.
         """
-        client_with_query_service.post(
+        custom_client = client_with_query_service_example_loader(["BASIC"])
+        custom_client.post(
             "/engines/",
             json={
                 "name": "spark",
@@ -2285,7 +2291,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             },
         )
 
-        client_with_query_service.post(
+        custom_client.post(
             "/nodes/basic.transform.country_agg/materialization/",
             json={
                 "engine": {
@@ -2304,7 +2310,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                 "schedule": "0 * * * *",
             },
         )
-        client_with_query_service.patch(
+        custom_client.patch(
             "/nodes/basic.transform.country_agg/",
             json={
                 "query": (
@@ -2314,7 +2320,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                 ),
             },
         )
-        response = client_with_query_service.get("/nodes/basic.transform.country_agg/")
+        response = custom_client.get("/nodes/basic.transform.country_agg/")
         node_output = response.json()
         assert node_output["materializations"] == [
             {
@@ -2808,12 +2814,12 @@ class TestNodeColumnsAttributes:
 
     def test_set_columns_attributes(
         self,
-        client_with_examples: TestClient,
+        client_with_basic: TestClient,
     ):
         """
         Validate that setting column attributes on the node works.
         """
-        response = client_with_examples.post(
+        response = client_with_basic.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -2836,7 +2842,7 @@ class TestNodeColumnsAttributes:
         ]
 
         # Set columns attributes
-        response = client_with_examples.post(
+        response = client_with_basic.post(
             "/nodes/basic.dimension.users/attributes/",
             json=[
                 {
@@ -2875,11 +2881,11 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-    def test_set_columns_attributes_failed(self, client_with_examples: TestClient):
+    def test_set_columns_attributes_failed(self, client_with_basic: TestClient):
         """
         Test setting column attributes with different failure modes.
         """
-        response = client_with_examples.post(
+        response = client_with_basic.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -2895,11 +2901,11 @@ class TestNodeColumnsAttributes:
             == "Attribute type `system.effective_time` not allowed on node type `source`!"
         )
 
-        response = client_with_examples.get(
+        response = client_with_basic.get(
             "/nodes/basic.source.comments/",
         )
 
-        response = client_with_examples.post(
+        response = client_with_basic.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -2916,7 +2922,7 @@ class TestNodeColumnsAttributes:
             "warnings": [],
         }
 
-        response = client_with_examples.post(
+        response = client_with_basic.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -2933,7 +2939,7 @@ class TestNodeColumnsAttributes:
             "warnings": [],
         }
 
-        response = client_with_examples.post(
+        response = client_with_basic.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -2955,7 +2961,7 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-        response = client_with_examples.post(
+        response = client_with_basic.post(
             "/nodes/basic.source.comments/attributes/",
             json=[
                 {
@@ -2977,7 +2983,7 @@ class TestNodeColumnsAttributes:
             "warnings": [],
         }
 
-        response = client_with_examples.get("/nodes/basic.source.comments/")
+        response = client_with_basic.get("/nodes/basic.source.comments/")
         data = response.json()
         assert data["columns"] == [
             {
@@ -3027,11 +3033,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
     Test ``POST /nodes/validate/``.
     """
 
-    def test_validating_a_valid_node(self, client_with_examples: TestClient) -> None:
+    def test_validating_a_valid_node(
+        self,
+        client_with_account_revenue: TestClient,
+    ) -> None:
         """
         Test validating a valid node
         """
-        response = client_with_examples.post(
+        response = client_with_account_revenue.post(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3258,12 +3267,16 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "warnings": [],
         }
 
-    def test_adding_dimensions_to_node_columns(self, client_with_examples: TestClient):
+    def test_adding_dimensions_to_node_columns(
+        self,
+        client_example_loader,
+    ):
         """
         Test linking dimensions to node columns
         """
+        custom_client = client_example_loader(["ACCOUNT_REVENUE", "BASIC"])
         # Attach the payment_type dimension to the payment_type column on the revenue node
-        response = client_with_examples.post(
+        response = custom_client.post(
             "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
         )
         data = response.json()
@@ -3273,14 +3286,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "linked to column payment_type on node default.revenue"
             ),
         }
-        response = client_with_examples.get("/nodes/default.revenue")
+        response = custom_client.get("/nodes/default.revenue")
         data = response.json()
         assert [
             col["dimension"]["name"] for col in data["columns"] if col["dimension"]
         ] == ["default.payment_type"]
 
         # Check that after deleting the dimension link, none of the columns have links
-        response = client_with_examples.delete(
+        response = custom_client.delete(
             "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
         )
         data = response.json()
@@ -3290,17 +3303,17 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "default.payment_type has been successfully removed."
             ),
         }
-        response = client_with_examples.get("/nodes/default.revenue")
+        response = custom_client.get("/nodes/default.revenue")
         data = response.json()
         assert all(col["dimension"] is None for col in data["columns"])
-        response = client_with_examples.get("/history?node=default.revenue")
+        response = custom_client.get("/history?node=default.revenue")
         assert [
             (activity["activity_type"], activity["entity_type"])
             for activity in response.json()
         ] == [("create", "node"), ("create", "link"), ("delete", "link")]
 
         # Removing the dimension link again will result in no change
-        response = client_with_examples.delete(
+        response = custom_client.delete(
             "/nodes/default.revenue/columns/payment_type/?dimension=default.payment_type",
         )
         data = response.json()
@@ -3310,14 +3323,14 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             " specified dimension link to default.payment_type on None was not found.",
         }
         # Check history again, no change
-        response = client_with_examples.get("/history?node=default.revenue")
+        response = custom_client.get("/history?node=default.revenue")
         assert [
             (activity["activity_type"], activity["entity_type"])
             for activity in response.json()
         ] == [("create", "node"), ("create", "link"), ("delete", "link")]
 
         # Check that the proper error is raised when the column doesn't exist
-        response = client_with_examples.post(
+        response = custom_client.post(
             "/nodes/default.revenue/columns/non_existent_column/?dimension=default.payment_type",
         )
         assert response.status_code == 404
@@ -3327,7 +3340,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
 
         # Add a dimension including a specific dimension column name
-        response = client_with_examples.post(
+        response = custom_client.post(
             "/nodes/default.revenue/columns/payment_type/"
             "?dimension=default.payment_type"
             "&dimension_column=payment_type_name",
@@ -3341,7 +3354,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "types are incompatible and the dimension cannot be linked"
         )
 
-        response = client_with_examples.post(
+        response = custom_client.post(
             "/nodes/default.revenue/columns/payment_type/?dimension=basic.dimension.users",
         )
         data = response.json()
@@ -3349,13 +3362,13 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "Cannot add dimension to column, because catalogs do not match: default, public"
         )
 
-    def test_update_node_with_dimension_links(self, client_with_examples: TestClient):
+    def test_update_node_with_dimension_links(self, client_with_roads: TestClient):
         """
         When a node is updated with a new query, the original dimension links and attributes
         on its columns should be preserved where possible (that is, where the new and old
         columns have the same names).
         """
-        client_with_examples.patch(
+        client_with_roads.patch(
             "/nodes/default.hard_hat/",
             json={
                 "query": """
@@ -3367,7 +3380,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 """,
             },
         )
-        response = client_with_examples.get("/history?node=default.hard_hat")
+        response = client_with_roads.get("/history?node=default.hard_hat")
         history = response.json()
         assert [
             (activity["activity_type"], activity["entity_type"]) for activity in history
@@ -3378,7 +3391,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             ("update", "node"),
         ]
 
-        response = client_with_examples.get("/nodes/default.hard_hat").json()
+        response = client_with_roads.get("/nodes/default.hard_hat").json()
         assert response["columns"] == [
             {
                 "name": "hard_hat_id",
@@ -3398,7 +3411,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         ]
 
         # Check history of the node with column attribute set
-        response = client_with_examples.get(
+        response = client_with_roads.get(
             "/history?node=default.hard_hat",
         )
         history = response.json()
@@ -3411,12 +3424,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             ("update", "node"),
         ]
 
-    def test_update_dimension_remove_pk_column(self, client_with_examples: TestClient):
+    def test_update_dimension_remove_pk_column(self, client_with_roads: TestClient):
         """
         When a dimension node is updated with a new query that removes the original primary key
         column, either a new primary key must be set or the node will be set to invalid.
         """
-        response = client_with_examples.patch(
+        response = client_with_roads.patch(
             "/nodes/default.hard_hat/",
             json={
                 "query": """
@@ -3429,7 +3442,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
         )
         assert response.json()["status"] == "invalid"
-        response = client_with_examples.patch(
+        response = client_with_roads.patch(
             "/nodes/default.hard_hat/",
             json={
                 "query": """
@@ -3443,11 +3456,11 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         assert response.json()["status"] == "valid"
 
-    def test_node_downstreams(self, client_with_examples: TestClient):
+    def test_node_downstreams(self, client_with_event: TestClient):
         """
         Test getting downstream nodes of different node types.
         """
-        response = client_with_examples.get(
+        response = client_with_event.get(
             "/nodes/default.event_source/downstream/?node_type=metric",
         )
         data = response.json()
@@ -3456,19 +3469,19 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.device_ids_count",
         }
 
-        response = client_with_examples.get(
+        response = client_with_event.get(
             "/nodes/default.event_source/downstream/?node_type=transform",
         )
         data = response.json()
         assert {node["name"] for node in data} == {"default.long_events"}
 
-        response = client_with_examples.get(
+        response = client_with_event.get(
             "/nodes/default.event_source/downstream/?node_type=dimension",
         )
         data = response.json()
         assert {node["name"] for node in data} == {"default.country_dim"}
 
-        response = client_with_examples.get("/nodes/default.event_source/downstream/")
+        response = client_with_event.get("/nodes/default.event_source/downstream/")
         data = response.json()
         assert {node["name"] for node in data} == {
             "default.long_events_distinct_countries",
@@ -3477,23 +3490,23 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.country_dim",
         }
 
-        response = client_with_examples.get(
+        response = client_with_event.get(
             "/nodes/default.device_ids_count/downstream/",
         )
         data = response.json()
         assert data == []
 
-        response = client_with_examples.get("/nodes/default.long_events/downstream/")
+        response = client_with_event.get("/nodes/default.long_events/downstream/")
         data = response.json()
         assert {node["name"] for node in data} == {
             "default.long_events_distinct_countries",
         }
 
-    def test_node_upstreams(self, client_with_examples: TestClient):
+    def test_node_upstreams(self, client_with_event: TestClient):
         """
         Test getting upstream nodes of different node types.
         """
-        response = client_with_examples.get(
+        response = client_with_event.get(
             "/nodes/default.long_events_distinct_countries/upstream/",
         )
         data = response.json()
@@ -3502,11 +3515,12 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.long_events",
         }
 
-    def test_list_node_dag(self, client_with_examples: TestClient):
+    def test_list_node_dag(self, client_example_loader):
         """
         Test getting the DAG for a node
         """
-        response = client_with_examples.get(
+        custom_client = client_example_loader(["EVENT", "ROADS"])
+        response = custom_client.get(
             "/nodes/default.long_events_distinct_countries/dag",
         )
         data = response.json()
@@ -3516,7 +3530,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.long_events_distinct_countries",
         }
 
-        response = client_with_examples.get("/nodes/default.num_repair_orders/dag")
+        response = custom_client.get("/nodes/default.num_repair_orders/dag")
         data = response.json()
         assert {node["name"] for node in data} == {
             "default.dispatcher",
@@ -3528,11 +3542,11 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.us_state",
         }
 
-    def test_node_column_lineage(self, client_with_examples: TestClient):
+    def test_node_column_lineage(self, client_with_roads: TestClient):
         """
         Test endpoint to retrieve a node's column-level lineage
         """
-        response = client_with_examples.get(
+        response = client_with_roads.get(
             "/nodes/default.num_repair_orders/lineage/",
         )
         assert response.json() == [
@@ -3553,7 +3567,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
         ]
 
-        client_with_examples.post(
+        client_with_roads.post(
             "/nodes/metric/",
             json={
                 "name": "default.discounted_repair_orders",
@@ -3568,7 +3582,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "description": "Discounted Repair Orders",
             },
         )
-        response = client_with_examples.get(
+        response = client_with_roads.get(
             "/nodes/default.discounted_repair_orders/lineage/",
         )
         assert response.json() == [
@@ -3596,25 +3610,25 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
         ]
 
-    def test_revalidating_existing_nodes(self, client_with_examples: TestClient):
+    def test_revalidating_existing_nodes(self, client_with_roads: TestClient):
         """
         Test revalidating all example nodes and confirm that they are set to valid
         """
-        for node in client_with_examples.get("/nodes/").json():
-            status = client_with_examples.post(
+        for node in client_with_roads.get("/nodes/").json():
+            status = client_with_roads.post(
                 f"/nodes/{node}/validate/",
             ).json()["status"]
             assert status == "valid"
         # Confirm that they still show as valid server-side
-        for node in client_with_examples.get("/nodes/").json():
-            node = client_with_examples.get(f"/nodes/{node}").json()
+        for node in client_with_roads.get("/nodes/").json():
+            node = client_with_roads.get(f"/nodes/{node}").json()
             assert node["status"] == "valid"
 
-    def test_lineage_on_complex_transforms(self, client_with_examples: TestClient):
+    def test_lineage_on_complex_transforms(self, client_with_roads: TestClient):
         """
         Test metric lineage on more complex transforms and metrics
         """
-        response = client_with_examples.get("/nodes/default.regional_level_agg/").json()
+        response = client_with_roads.get("/nodes/default.regional_level_agg/").json()
         assert response["columns"] == [
             {
                 "name": "us_region_id",
@@ -3700,7 +3714,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
         ]
 
-        response = client_with_examples.get(
+        response = client_with_roads.get(
             "/nodes/default.regional_repair_efficiency/",
         ).json()
         assert response["columns"] == [
@@ -3711,7 +3725,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "type": "double",
             },
         ]
-        response = client_with_examples.get(
+        response = client_with_roads.get(
             "/nodes/default.regional_repair_efficiency/lineage/",
         ).json()
         assert response == [
@@ -3899,7 +3913,7 @@ def test_node_similarity(session: Session, client: TestClient):
     }
 
 
-def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
+def test_resolving_downstream_status(client_with_service_setup: TestClient) -> None:
     """
     Test creating and updating a source node
     """
@@ -3980,7 +3994,7 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
         (metric2, NodeType.METRIC),
         (metric3, NodeType.METRIC),
     ]:
-        response = client_with_examples.post(
+        response = client_with_service_setup.post(
             f"/nodes/{node_type.value}/",
             json=node,
         )
@@ -4006,7 +4020,7 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
         "table": "comments",
     }
 
-    response = client_with_examples.post(
+    response = client_with_service_setup.post(
         "/nodes/source/",
         json=missing_parent_node,
     )
@@ -4017,7 +4031,7 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
 
     # Check that downstream nodes have now been switched to a "valid" status
     for node in [transform1, transform2, transform3, metric1, metric2, metric3]:
-        response = client_with_examples.get(f"/nodes/{node['name']}/")
+        response = client_with_service_setup.get(f"/nodes/{node['name']}/")
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == node["name"]
@@ -4028,7 +4042,7 @@ def test_resolving_downstream_status(client_with_examples: TestClient) -> None:
 
     # Check that nodes still not valid have an invalid status
     for node in [transform4, transform5]:
-        response = client_with_examples.get(f"/nodes/{node['name']}/")
+        response = client_with_service_setup.get(f"/nodes/{node['name']}/")
         assert response.status_code == 200
         data = response.json()
         assert data["name"] == node["name"]
@@ -4160,11 +4174,11 @@ def test_decompose_expression():
     ]
 
 
-def test_list_dimension_attributes(client_with_examples: TestClient) -> None:
+def test_list_dimension_attributes(client_with_roads: TestClient) -> None:
     """
     Test that listing dimension attributes for any node works.
     """
-    response = client_with_examples.get("/nodes/default.regional_level_agg/dimensions/")
+    response = client_with_roads.get("/nodes/default.regional_level_agg/dimensions/")
     assert response.ok
     assert response.json() == [
         {"name": "default.regional_level_agg.order_day", "path": [], "type": "int"},
