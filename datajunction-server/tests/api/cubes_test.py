@@ -2,7 +2,7 @@
 """
 Tests for the cubes API.
 """
-from typing import Dict, Iterator
+from typing import Callable, Dict, Iterator, List, Optional
 
 import pytest
 from fastapi.testclient import TestClient
@@ -11,12 +11,12 @@ from datajunction_server.service_clients import QueryServiceClient
 from tests.sql.utils import compare_query_strings
 
 
-def test_read_cube(client_with_examples: TestClient) -> None:
+def test_read_cube(client_with_account_revenue: TestClient) -> None:
     """
     Test ``GET /cubes/{name}``.
     """
     # Create a cube
-    response = client_with_examples.post(
+    response = client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.number_of_account_types"],
@@ -35,7 +35,7 @@ def test_read_cube(client_with_examples: TestClient) -> None:
     assert data["display_name"] == "Default: Number Of Accounts By Account Type"
 
     # Read the cube
-    response = client_with_examples.get(
+    response = client_with_account_revenue.get(
         "/cubes/default.number_of_accounts_by_account_type",
     )
     assert response.status_code == 200
@@ -69,11 +69,11 @@ def test_read_cube(client_with_examples: TestClient) -> None:
     )
 
 
-def test_create_invalid_cube(client_with_examples: TestClient):
+def test_create_invalid_cube(client_with_account_revenue: TestClient):
     """
     Check that creating a cube with a query fails appropriately
     """
-    response = client_with_examples.post(
+    response = client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "description": "A cube of number of accounts grouped by account type",
@@ -102,7 +102,7 @@ def test_create_invalid_cube(client_with_examples: TestClient):
     ]
 
     # Check that creating a cube with no cube elements fails appropriately
-    response = client_with_examples.post(
+    response = client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.account_type"],
@@ -122,7 +122,7 @@ def test_create_invalid_cube(client_with_examples: TestClient):
     }
 
     # Check that creating a cube with incompatible nodes fails appropriately
-    response = client_with_examples.post(
+    response = client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.number_of_account_types"],
@@ -142,7 +142,7 @@ def test_create_invalid_cube(client_with_examples: TestClient):
     }
 
     # Check that creating a cube with no metric nodes fails appropriately
-    response = client_with_examples.post(
+    response = client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": [],
@@ -161,7 +161,7 @@ def test_create_invalid_cube(client_with_examples: TestClient):
     }
 
     # Check that creating a cube with no dimension nodes fails appropriately
-    response = client_with_examples.post(
+    response = client_with_account_revenue.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.number_of_account_types"],
@@ -181,13 +181,14 @@ def test_create_invalid_cube(client_with_examples: TestClient):
 
 
 def test_raise_on_cube_with_multiple_catalogs(
-    client_with_examples: TestClient,
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
 ) -> None:
     """
     Test raising when creating a cube with multiple catalogs
     """
     # Create a cube
-    response = client_with_examples.post(
+    custom_client = client_example_loader(["BASIC", "ACCOUNT_REVENUE"])
+    response = custom_client.post(
         "/nodes/cube/",
         json={
             "metrics": ["default.number_of_account_types", "basic.num_comments"],
@@ -203,10 +204,13 @@ def test_raise_on_cube_with_multiple_catalogs(
 
 
 @pytest.fixture
-def client_with_repairs_cube(client_with_query_service: TestClient):
+def client_with_repairs_cube(
+    _client_with_query_service: Callable[[List[str]], TestClient],
+):
     """
     Adds a repairs cube with a new double total repair cost metric to the test client
     """
+    custom_client = _client_with_query_service(["ROADS"])
     metrics_list = [
         "default.discounted_orders_rate",
         "default.num_repair_orders",
@@ -216,7 +220,7 @@ def client_with_repairs_cube(client_with_query_service: TestClient):
     ]
 
     # Metric that doubles the total repair cost to test the sum(x) + sum(y) scenario
-    client_with_query_service.post(
+    custom_client.post(
         "/nodes/metric/",
         json={
             "description": "Double total repair cost",
@@ -229,7 +233,7 @@ def client_with_repairs_cube(client_with_query_service: TestClient):
         },
     )
     # Should succeed
-    response = client_with_query_service.post(
+    response = custom_client.post(
         "/nodes/cube/",
         json={
             "metrics": metrics_list + ["default.double_total_repair_cost"],
@@ -248,7 +252,7 @@ def client_with_repairs_cube(client_with_query_service: TestClient):
         },
     )
     assert response.status_code == 201
-    return client_with_query_service
+    return custom_client
 
 
 @pytest.fixture
@@ -350,7 +354,7 @@ def repair_orders_cube_measures() -> Dict:
     }
 
 
-def test_invalid_cube(client_with_examples: TestClient):
+def test_invalid_cube(client_with_roads: TestClient):
     """
     Test that creating a cube without valid dimensions fails
     """
@@ -362,7 +366,7 @@ def test_invalid_cube(client_with_examples: TestClient):
         "default.total_repair_order_discounts",
     ]
     # Should fail because dimension attribute isn't available
-    response = client_with_examples.post(
+    response = client_with_roads.post(
         "/nodes/cube/",
         json={
             "metrics": metrics_list,
