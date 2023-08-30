@@ -4,9 +4,12 @@ Helper methods for namespaces endpoints.
 from datetime import datetime
 from typing import Dict, List
 
+from sqlalchemy import or_
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, col, select
 
+from datajunction_server.api.helpers import get_node_namespace, hard_delete_node
+from datajunction_server.errors import DJActionNotAllowedException, DJException
 from datajunction_server.models import History
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import Node, NodeNamespace, NodeRevision, NodeType
@@ -22,6 +25,7 @@ def get_nodes_in_namespace(
     """
     Gets a list of node names in the namespace
     """
+    get_node_namespace(session, namespace)
     list_nodes_query = select(
         Node.name,
         Node.display_name,
@@ -33,7 +37,10 @@ def get_nodes_in_namespace(
         NodeRevision.mode,
         NodeRevision.updated_at,
     ).where(
-        col(Node.namespace).contains(namespace),  # pylint: disable=no-member
+        or_(
+            col(Node.namespace).like(f"{namespace}.%"),  # pylint: disable=no-member
+            Node.namespace == namespace,
+        ),
         Node.current_version == NodeRevision.version,
         Node.name == NodeRevision.name,
         Node.type == node_type if node_type else True,
@@ -41,6 +48,30 @@ def get_nodes_in_namespace(
     if include_deactivated is False:
         list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
     return session.exec(list_nodes_query).all()
+
+
+def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
+    session: Session,
+    namespace: str,
+) -> List[NodeNamespace]:
+    """
+    Get all namespaces in hierarchy under the specified namespace
+    """
+    statement = select(NodeNamespace).where(
+        or_(
+            col(NodeNamespace.namespace).like(  # pylint: disable=no-member
+                f"{namespace}.%",
+            ),
+            NodeNamespace.namespace == namespace,
+        ),
+    )
+    namespaces = session.exec(statement).all()
+    if len(namespaces) == 0:
+        raise DJException(
+            message=(f"Namespace `{namespace}` does not exist."),
+            http_status_code=404,
+        )
+    return namespaces
 
 
 def mark_namespace_deactivated(
@@ -108,3 +139,40 @@ def create_namespace(session: Session, namespace: str):
         ),
     )
     session.commit()
+
+
+def hard_delete_namespace(session: Session, namespace: str, cascade: bool = False):
+    """
+    Hard delete a node namespace.
+    """
+    node_names = session.exec(
+        select(Node.name).where(
+            or_(
+                col(Node.namespace).like(f"{namespace}.%"),  # pylint: disable=no-member
+                Node.namespace == namespace,
+            ),
+        ),
+    ).all()
+
+    if not cascade and node_names:
+        raise DJActionNotAllowedException(
+            message=(
+                f"Cannot hard delete namespace `{namespace}` as there are still the "
+                f"following nodes under it: `{node_names}`. Set `cascade` to true to "
+                "additionally hard delete the above nodes in this namespace. WARNING:"
+                " this action cannot be undone."
+            ),
+        )
+
+    impacts = {}
+    for node_name in node_names:
+        impacts[node_name] = hard_delete_node(node_name, session)
+
+    namespaces = list_namespaces_in_hierarchy(session, namespace)
+    for _namespace in namespaces:
+        impacts[_namespace.namespace] = {
+            "namespace": _namespace.namespace,
+            "status": "deleted",
+        }
+        session.delete(_namespace)
+    return impacts

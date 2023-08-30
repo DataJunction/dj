@@ -20,6 +20,7 @@ from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.internal.namespaces import (
     create_namespace,
     get_nodes_in_namespace,
+    hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
 )
@@ -223,4 +224,31 @@ def restore_a_namespace(
     return JSONResponse(
         status_code=HTTPStatus.CREATED,
         content={"message": message},
+    )
+
+
+@router.delete("/namespaces/{namespace}/hard/", name="Hard Delete a DJ Namespace")
+def hard_delete_node_namespace(
+    namespace: str,
+    *,
+    cascade: bool = False,
+    session: Session = Depends(get_session),
+) -> JSONResponse:
+    """
+    Hard delete a namespace, which will completely remove the namespace. Additionally,
+    if any nodes are saved under this namespace, we'll hard delete the nodes if cascade
+    is set to true. If cascade is set to false, we'll raise an error. This should be used
+    with caution, as the impact may be large.
+    """
+    impacts = hard_delete_namespace(
+        session=session,
+        namespace=namespace,
+        cascade=cascade,
+    )
+    return JSONResponse(
+        status_code=HTTPStatus.OK,
+        content={
+            "message": f"The namespace `{namespace}` has been completely removed.",
+            "impact": impacts,
+        },
     )
