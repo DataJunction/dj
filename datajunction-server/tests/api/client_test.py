@@ -190,7 +190,9 @@ country_agg.add_materialization(
     )
 
 
-def test_generated_python_client_code_link_dimension(client_with_namespaced_roads: TestClient):
+def test_generated_python_client_code_link_dimension(
+    client_with_namespaced_roads: TestClient,
+):
     """
     Test generating Python client code for creating a new dimension
     """

@@ -245,15 +245,19 @@ def client_example_loader(
 
 
 @pytest.fixture
-def client_with_examples(client_example_loader) -> TestClient:
+def client_with_examples(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+) -> TestClient:
     """
     Provides a DJ client fixture with all examples
     """
-    return client_example_loader()
+    return client_example_loader(None)
 
 
 @pytest.fixture
-def client_with_service_setup(client_example_loader) -> TestClient:
+def client_with_service_setup(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+) -> TestClient:
     """
     Provides a DJ client fixture with just the service setup
     """
@@ -261,7 +265,9 @@ def client_with_service_setup(client_example_loader) -> TestClient:
 
 
 @pytest.fixture
-def client_with_roads(client_example_loader) -> TestClient:
+def client_with_roads(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+) -> TestClient:
     """
     Provides a DJ client fixture with roads examples
     """
@@ -269,7 +275,9 @@ def client_with_roads(client_example_loader) -> TestClient:
 
 
 @pytest.fixture
-def client_with_namespaced_roads(client_example_loader) -> TestClient:
+def client_with_namespaced_roads(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+) -> TestClient:
     """
     Provides a DJ client fixture with namespaced roads examples
     """
@@ -277,7 +285,9 @@ def client_with_namespaced_roads(client_example_loader) -> TestClient:
 
 
 @pytest.fixture
-def client_with_basic(client_example_loader) -> TestClient:
+def client_with_basic(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+) -> TestClient:
     """
     Provides a DJ client fixture with basic examples
     """
@@ -285,7 +295,9 @@ def client_with_basic(client_example_loader) -> TestClient:
 
 
 @pytest.fixture
-def client_with_account_revenue(client_example_loader) -> TestClient:
+def client_with_account_revenue(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+) -> TestClient:
     """
     Provides a DJ client fixture with account revenue examples
     """
@@ -293,7 +305,9 @@ def client_with_account_revenue(client_example_loader) -> TestClient:
 
 
 @pytest.fixture
-def client_with_event(client_example_loader) -> TestClient:
+def client_with_event(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+) -> TestClient:
     """
     Provides a DJ client fixture with event examples
     """
@@ -301,7 +315,9 @@ def client_with_event(client_example_loader) -> TestClient:
 
 
 @pytest.fixture
-def client_with_dbt(client_example_loader) -> TestClient:
+def client_with_dbt(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+) -> TestClient:
     """
     Provides a DJ client fixture with dbt examples
     """
