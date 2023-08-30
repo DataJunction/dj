@@ -266,3 +266,9 @@ class DJQueryServiceClientException(DJException):
 
     dbapi_exception: DBAPIExceptions = "InterfaceError"
     http_status_code: int = 500
+
+
+class DJActionNotAllowedException(DJException):
+    """
+    Exception raised when an action is not allowed.
+    """
