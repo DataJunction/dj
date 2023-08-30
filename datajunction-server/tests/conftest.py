@@ -300,6 +300,14 @@ def client_with_event(client_example_loader) -> TestClient:
     return client_example_loader(["EVENT"])
 
 
+@pytest.fixture
+def client_with_dbt(client_example_loader) -> TestClient:
+    """
+    Provides a DJ client fixture with dbt examples
+    """
+    return client_example_loader(["DBT"])
+
+
 def compare_parse_trees(tree1, tree2):
     """
     Recursively compare two ANTLR parse trees for equality.
