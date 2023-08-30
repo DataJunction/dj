@@ -5,7 +5,7 @@ Fixtures for testing.
 
 import re
 from http.client import HTTPException
-from typing import Callable, Collection, Iterator, List, Optional
+from typing import Callable, Collection, Generator, Iterator, List, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -376,13 +376,14 @@ def compare_query_strings_fixture():
 
 
 @pytest.fixture
-def _client_with_query_service(  # pylint: disable=too-many-statements
+def client_with_query_service_example_loader(  # pylint: disable=too-many-statements
     session: Session,
     settings: Settings,
     query_service_client: QueryServiceClient,
-) -> TestClient:
+) -> Generator[Callable[[Optional[List[str]]], TestClient], None, None]:
     """
-    Add a mock query service to the test client.
+    Provides a callable fixture for loading examples into a test client
+    fixture that additionally has a mocked query service.
     """
 
     def get_query_service_client_override() -> QueryServiceClient:
@@ -420,12 +421,15 @@ def _client_with_query_service(  # pylint: disable=too-many-statements
 
 @pytest.fixture
 def client_with_query_service(  # pylint: disable=too-many-statements
-    _client_with_query_service: TestClient,
+    client_with_query_service_example_loader: Callable[
+        [Optional[List[str]]],
+        TestClient,
+    ],
 ) -> TestClient:
     """
     Client with query service and all examples loaded.
     """
-    return _client_with_query_service()
+    return client_with_query_service_example_loader(None)
 
 
 def pytest_addoption(parser):

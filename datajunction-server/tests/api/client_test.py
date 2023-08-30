@@ -119,12 +119,12 @@ repairs_cube = dj.create_cube(
 
 
 def test_generated_python_client_code_adding_materialization(
-    _client_with_query_service: TestClient,
+    client_with_query_service_example_loader,
 ):
     """
     Test that generating python client code for adding materialization works
     """
-    custom_client = _client_with_query_service(["BASIC"])
+    custom_client = client_with_query_service_example_loader(["BASIC"])
     custom_client.post(
         "/engines/",
         json={

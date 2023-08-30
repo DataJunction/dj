@@ -205,12 +205,12 @@ def test_raise_on_cube_with_multiple_catalogs(
 
 @pytest.fixture
 def client_with_repairs_cube(
-    _client_with_query_service: Callable[[List[str]], TestClient],
+    client_with_query_service_example_loader,
 ):
     """
     Adds a repairs cube with a new double total repair cost metric to the test client
     """
-    custom_client = _client_with_query_service(["ROADS"])
+    custom_client = client_with_query_service_example_loader(["ROADS"])
     metrics_list = [
         "default.discounted_orders_rate",
         "default.num_repair_orders",
