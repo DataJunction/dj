@@ -9,7 +9,7 @@ from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, col, select
 
 from datajunction_server.api.helpers import get_node_namespace, hard_delete_node
-from datajunction_server.errors import DJActionNotAllowedException
+from datajunction_server.errors import DJActionNotAllowedException, DJException
 from datajunction_server.models import History
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import Node, NodeNamespace, NodeRevision, NodeType
@@ -48,6 +48,30 @@ def get_nodes_in_namespace(
     if include_deactivated is False:
         list_nodes_query = list_nodes_query.where(is_(Node.deactivated_at, None))
     return session.exec(list_nodes_query).all()
+
+
+def list_namespaces_in_hierarchy(  # pylint: disable=too-many-arguments
+    session: Session,
+    namespace: str,
+) -> List[NodeNamespace]:
+    """
+    Get all namespaces in hierarchy under the specified namespace
+    """
+    statement = select(NodeNamespace).where(
+        or_(
+            col(NodeNamespace.namespace).like(  # pylint: disable=no-member
+                f"{namespace}.%",
+            ),
+            NodeNamespace.namespace == namespace,
+        ),
+    )
+    namespaces = session.exec(statement).all()
+    if len(namespaces) == 0:
+        raise DJException(
+            message=(f"Namespace `{namespace}` does not exist."),
+            http_status_code=404,
+        )
+    return namespaces
 
 
 def mark_namespace_deactivated(
@@ -144,6 +168,11 @@ def hard_delete_namespace(session: Session, namespace: str, cascade: bool = Fals
     for node_name in node_names:
         impacts[node_name] = hard_delete_node(node_name, session)
 
-    node_namespace = get_node_namespace(session, namespace)
-    session.delete(node_namespace)
+    namespaces = list_namespaces_in_hierarchy(session, namespace)
+    for _namespace in namespaces:
+        impacts[_namespace.namespace] = {
+            "namespace": _namespace.namespace,
+            "status": "deleted",
+        }
+        session.delete(_namespace)
     return impacts

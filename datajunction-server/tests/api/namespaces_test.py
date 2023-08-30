@@ -283,12 +283,20 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
     )
 
     client_with_examples.post("/namespaces/foo/")
+    client_with_examples.post("/namespaces/foo.bar.baz/")
+    client_with_examples.post("/namespaces/foo.bar.baf/")
+    client_with_examples.post("/namespaces/foo.bar.bif.d/")
+
     hard_delete_response = client_with_examples.delete(
         "/namespaces/foo.bar/hard/?cascade=true",
     )
     assert hard_delete_response.json() == {
         "message": "The namespace `foo.bar` has been completely removed.",
         "impact": {
+            "foo.bar": {"namespace": "foo.bar", "status": "deleted"},
+            "foo.bar.baz": {"namespace": "foo.bar.baz", "status": "deleted"},
+            "foo.bar.baf": {"namespace": "foo.bar.baf", "status": "deleted"},
+            "foo.bar.bif.d": {"namespace": "foo.bar.bif.d", "status": "deleted"},
             "foo.bar.avg_length_of_employment": [],
             "foo.bar.avg_repair_order_discounts": [],
             "foo.bar.avg_repair_price": [],
@@ -475,6 +483,6 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
     response = client_with_examples.delete("/namespaces/jaffle_shop/hard/?cascade=true")
     assert response.json() == {
         "errors": [],
-        "message": "node namespace `jaffle_shop` does not exist.",
+        "message": "Namespace `jaffle_shop` does not exist.",
         "warnings": [],
     }
