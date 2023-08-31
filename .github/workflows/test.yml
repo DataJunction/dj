@@ -28,6 +28,19 @@ jobs:
 
     steps:
       - uses: actions/checkout@v2
+      - uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            client:
+              - 'datajunction-clients/python/**'
+            server:
+              - 'datajunction-server/**'
+            djqs:
+              - 'datajunction-query/**'
+            djrs:
+              - 'datajunction-reflection/**'
+
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v2
         with:
@@ -41,27 +54,30 @@ jobs:
           prerelease: true
           enable-pep582: true
 
-      - name: Install dependencies
+      - name: Run Tests
+        if: |
+          (matrix.library == 'client' && steps.filter.outputs.client == 'true') ||
+          (matrix.library == 'server' && steps.filter.outputs.server == 'true') ||
+          (matrix.library == 'djqs' && steps.filter.outputs.djqs == 'true') ||
+          (matrix.library == 'djrs' && steps.filter.outputs.djrs == 'true')
         run: |
-          pdm sync -d
-          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
-          cd $tests_dir; pdm install -d -G pandas
+          echo "Testing ${{ matrix.library }} ..."
+          export TEST_DIR=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
+
+          # Install dependencies
+          pdm sync -d; cd $TEST_DIR; pdm install -d -G pandas
+
+          # Run linters
+          pdm run pre-commit run --all-files
+
+          # Run tests
+          export MODULE=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
+          pdm run pytest ${{ matrix.library == 'server' && '-n auto' || '' }} --cov-fail-under=100 --cov=$MODULE -vv tests/ --doctest-modules $MODULE --without-integration --without-slow-integration
 
       - uses: pre-commit/action@v3.0.0
         name: Force check of all pdm.lock files
         with:
           extra_args: pdm-lock-check --all-files
-
-      - name: Python Linters
-        run: |
-          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
-          cd $tests_dir; pdm run pre-commit run --all-files
-
-      - name: Test DJ ${{ matrix.library }} with pytest
-        run: |
-          export module=${{ matrix.library == 'server' && 'datajunction_server' || matrix.library == 'client' && 'datajunction' || matrix.library == 'djqs' && 'djqs' || matrix.library == 'djrs' && 'datajunction_reflection'}}
-          export tests_dir=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
-          cd $tests_dir; pdm run pytest ${{ matrix.library == 'server' && '-n auto' || '' }} --cov-fail-under=100 --cov=$module -vv tests/ --doctest-modules $module --without-integration --without-slow-integration
 
   build-javascript:
     runs-on: ubuntu-latest
