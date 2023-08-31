@@ -1,0 +1,3 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`fetches metrics and updates state 1`] = `Promise {}`;
