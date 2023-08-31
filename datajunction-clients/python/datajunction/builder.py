@@ -1,4 +1,4 @@
-"""DataJunction main client module."""
+"""DataJunction builder client module."""
 
 from http import HTTPStatus
 from typing import List, Optional

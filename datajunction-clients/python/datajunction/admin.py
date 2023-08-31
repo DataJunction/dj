@@ -1,4 +1,4 @@
-"""DataJunction main client module."""
+"""DataJunction admin client module."""
 
 from typing import Optional
 
