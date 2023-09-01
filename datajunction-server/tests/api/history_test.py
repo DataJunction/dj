@@ -27,11 +27,11 @@ def test_history_hash():
     assert hash(foo1) == hash(foo2)
 
 
-def test_get_history_entity(client_with_examples: TestClient):
+def test_get_history_entity(client_with_roads: TestClient):
     """
     Test getting history for an entity
     """
-    response = client_with_examples.get("/history/node/default.repair_orders/")
+    response = client_with_roads.get("/history/node/default.repair_orders/")
     assert response.ok
     history = response.json()
     assert len(history) == 1
@@ -52,12 +52,12 @@ def test_get_history_entity(client_with_examples: TestClient):
     ]
 
 
-def test_get_history_node(client_with_examples: TestClient):
+def test_get_history_node(client_with_roads: TestClient):
     """
     Test getting history for a node
     """
 
-    response = client_with_examples.get("/history?node=default.repair_order")
+    response = client_with_roads.get("/history?node=default.repair_order")
     assert response.ok
     history = response.json()
     assert len(history) == 5
@@ -145,12 +145,12 @@ def test_get_history_node(client_with_examples: TestClient):
     ]
 
 
-def test_get_history_namespace(client_with_examples: TestClient):
+def test_get_history_namespace(client_with_service_setup: TestClient):
     """
     Test getting history for a node context
     """
 
-    response = client_with_examples.get("/history/namespace/default")
+    response = client_with_service_setup.get("/history/namespace/default")
     assert response.ok
     history = response.json()
     assert len(history) == 1
