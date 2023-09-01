@@ -49,6 +49,10 @@ SERVICE_SETUP = (  # type: ignore
         "/namespaces/default/",
         {},
     ),
+    (
+        "/namespaces/basic/",
+        {},
+    ),
 )
 
 ROADS = (  # type: ignore
@@ -1284,10 +1288,6 @@ ACCOUNT_REVENUE = (  # type: ignore
 )
 
 BASIC = (  # type: ignore
-    (
-        "/namespaces/basic/",
-        {},
-    ),
     (
         "/namespaces/basic.source/",
         {},
