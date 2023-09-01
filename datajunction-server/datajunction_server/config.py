@@ -72,6 +72,7 @@ class Settings(
 
     # GitHub OAuth application client secret
     github_oauth_client_secret: Optional[str] = None
+    sql_transpilation_library: Optional[str] = "sqlglot"
 
     @property
     def celery(self) -> Celery:
