@@ -93,5 +93,4 @@ def get_sql_for_metrics(
         engine_name,
         engine_version,
     )
-    print("translated_sql", translated_sql)
     return translated_sql
