@@ -1,3 +1,4 @@
+"""Tests the transpilation plugins."""
 import pytest
 
 from datajunction_server.errors import DJPluginNotFoundException
