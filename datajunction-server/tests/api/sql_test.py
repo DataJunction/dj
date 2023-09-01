@@ -1,4 +1,6 @@
 """Tests for the /sql/ endpoint"""
+from typing import Callable, List, Optional
+
 # pylint: disable=line-too-long,too-many-lines
 # pylint: disable=C0302
 import pytest
@@ -54,10 +56,11 @@ def test_sql(
 
 
 @pytest.mark.parametrize(
-    "node_name, dimensions, filters, sql",
+    "groups, node_name, dimensions, filters, sql",
     [
         # querying on source node with filter on joinable dimension
         (
+            ["ROADS"],
             "default.repair_orders",
             [],
             ["default.hard_hat.state='CA'"],
@@ -88,6 +91,7 @@ def test_sql(
         ),
         # querying source node with filters directly on the node
         (
+            ["ROADS"],
             "default.repair_orders",
             [],
             ["default.repair_orders.order_date='2009-08-14'"],
@@ -105,6 +109,7 @@ def test_sql(
         ),
         # querying transform node with filters on joinable dimension
         (
+            ["EVENT"],
             "default.long_events",
             [],
             ["default.country_dim.events_cnt >= 20"],
@@ -126,6 +131,7 @@ def test_sql(
         ),
         # querying transform node with filters directly on the node
         (
+            ["EVENT"],
             "default.long_events",
             [],
             ["default.event_source.device_id = 'Android'"],
@@ -140,6 +146,7 @@ def test_sql(
             """,
         ),
         (
+            ["ROADS"],
             "default.municipality",
             [],
             ["default.municipality.state_id = 'CA'"],
@@ -155,6 +162,7 @@ def test_sql(
             """,
         ),
         (
+            ["ROADS"],
             "default.num_repair_orders",
             [],
             [],
@@ -164,6 +172,7 @@ def test_sql(
             """,
         ),
         (
+            ["ROADS"],
             "default.num_repair_orders",
             ["default.hard_hat.state"],
             ["default.repair_orders.dispatcher_id=1", "default.hard_hat.state='AZ'"],
@@ -189,6 +198,7 @@ def test_sql(
             """,
         ),
         (
+            ["ROADS"],
             "default.num_repair_orders",
             [
                 "default.hard_hat.city",
@@ -248,6 +258,7 @@ def test_sql(
         ),
         # metric with second-order dimension
         (
+            ["ROADS"],
             "default.avg_repair_price",
             ["default.hard_hat.city"],
             [],
@@ -273,6 +284,7 @@ def test_sql(
         ),
         # metric with multiple nth order dimensions that can share some of the joins
         (
+            ["ROADS"],
             "default.avg_repair_price",
             ["default.hard_hat.city", "default.dispatcher.company_name"],
             [],
@@ -297,6 +309,7 @@ def test_sql(
         ),
         # dimension with aliased join key should just use the alias directly
         (
+            ["ROADS"],
             "default.num_repair_orders",
             ["default.us_state.state_region_description"],
             [],
@@ -328,17 +341,19 @@ def test_sql(
         ),
     ],
 )
-def test_sql_with_filters(
+def test_sql_with_filters(  # pylint: disable=too-many-arguments
+    groups: List[str],
     node_name,
     dimensions,
     filters,
     sql,
-    client_with_examples: TestClient,
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
 ):
     """
     Test ``GET /sql/{node_name}/`` with various filters and dimensions.
     """
-    response = client_with_examples.get(
+    custom_client = client_example_loader(groups)
+    response = custom_client.get(
         f"/sql/{node_name}/",
         params={"dimensions": dimensions, "filters": filters},
     )
@@ -535,13 +550,13 @@ def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
     filters,
     orderby,
     sql,
-    client_with_examples: TestClient,
+    client_with_namespaced_roads: TestClient,
 ):
     """
     Test ``GET /sql/{node_name}/`` with various filters and dimensions using a
     version of the DJ roads database with namespaces.
     """
-    response = client_with_examples.get(
+    response = client_with_namespaced_roads.get(
         f"/sql/{node_name}/",
         params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
     )
@@ -549,15 +564,18 @@ def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
     assert compare_query_strings(data["sql"], sql)
 
 
-def test_cross_join_unnest(client_with_examples: TestClient):
+def test_cross_join_unnest(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+):
     """
     Verify cross join unnest on a joined in dimension works
     """
-    client_with_examples.post(
+    custom_client = client_example_loader(["LATERAL_VIEW"])
+    custom_client.post(
         "/nodes/basic.corrected_patches/columns/color_id/"
         "?dimension=basic.paint_colors_trino&dimension_column=color_id",
     )
-    response = client_with_examples.get(
+    response = custom_client.get(
         "/sql/basic.avg_luminosity_patches/",
         params={
             "filters": [],
@@ -602,15 +620,18 @@ def test_cross_join_unnest(client_with_examples: TestClient):
     compare_query_strings(query, expected)
 
 
-def test_lateral_view_explode(client_with_examples: TestClient):
+def test_lateral_view_explode(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+):
     """
     Verify lateral view explode on a joined in dimension works
     """
-    client_with_examples.post(
+    custom_client = client_example_loader(["LATERAL_VIEW"])
+    custom_client.post(
         "/nodes/basic.corrected_patches/columns/color_id/"
         "?dimension=basic.paint_colors_spark&dimension_column=color_id",
     )
-    response = client_with_examples.get(
+    response = custom_client.get(
         "/sql/basic.avg_luminosity_patches/",
         params={
             "filters": [],
@@ -658,12 +679,12 @@ def test_lateral_view_explode(client_with_examples: TestClient):
     compare_query_strings(query, expected)
 
 
-def test_get_sql_for_metrics_failures(client_with_examples: TestClient):
+def test_get_sql_for_metrics_failures(client_with_account_revenue: TestClient):
     """
     Test failure modes when getting sql for multiple metrics.
     """
     # Getting sql for no metrics fails appropriately
-    response = client_with_examples.get(
+    response = client_with_account_revenue.get(
         "/sql/",
         params={
             "metrics": [],
@@ -680,7 +701,7 @@ def test_get_sql_for_metrics_failures(client_with_examples: TestClient):
     }
 
     # Getting sql with no dimensions fails appropriately
-    response = client_with_examples.get(
+    response = client_with_account_revenue.get(
         "/sql/",
         params={
             "metrics": ["default.number_of_account_types"],
@@ -697,11 +718,11 @@ def test_get_sql_for_metrics_failures(client_with_examples: TestClient):
     }
 
 
-def test_get_sql_for_metrics(client_with_examples: TestClient):
+def test_get_sql_for_metrics(client_with_roads: TestClient):
     """
     Test getting sql for multiple metrics.
     """
-    response = client_with_examples.get(
+    response = client_with_roads.get(
         "/sql/",
         params={
             "metrics": ["default.discounted_orders_rate", "default.num_repair_orders"],
@@ -812,11 +833,11 @@ def test_get_sql_for_metrics(client_with_examples: TestClient):
     ]
 
 
-def test_get_sql_including_dimension_ids(client_with_examples: TestClient):
+def test_get_sql_including_dimension_ids(client_with_roads: TestClient):
     """
     Test getting SQL when there are dimensions ids included
     """
-    response = client_with_examples.get(
+    response = client_with_roads.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
@@ -870,7 +891,7 @@ def test_get_sql_including_dimension_ids(client_with_examples: TestClient):
     """,
     )
 
-    response = client_with_examples.get(
+    response = client_with_roads.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
@@ -928,12 +949,12 @@ def test_get_sql_including_dimension_ids(client_with_examples: TestClient):
 
 
 def test_get_sql_including_dimensions_with_disambiguated_columns(
-    client_with_examples: TestClient,
+    client_with_roads: TestClient,
 ):
     """
     Test getting SQL that includes dimensions with SQL that has to disambiguate projection columns with prefixes
     """
-    response = client_with_examples.get(
+    response = client_with_roads.get(
         "/sql/",
         params={
             "metrics": ["default.total_repair_cost"],
@@ -980,7 +1001,7 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
     """,
     )
 
-    response = client_with_examples.get(
+    response = client_with_roads.get(
         "/sql/",
         params={
             "metrics": ["default.avg_repair_price", "default.total_repair_cost"],
@@ -1038,12 +1059,12 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
 
 
 def test_get_sql_for_metrics_filters_validate_dimensions(
-    client_with_examples: TestClient,
+    client_with_namespaced_roads: TestClient,
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
-    response = client_with_examples.get(
+    response = client_with_namespaced_roads.get(
         "/sql/",
         params={
             "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
@@ -1063,12 +1084,13 @@ def test_get_sql_for_metrics_filters_validate_dimensions(
 
 
 def test_get_sql_for_metrics_orderby_not_in_dimensions(
-    client_with_examples: TestClient,
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
-    response = client_with_examples.get(
+    custom_client = client_example_loader(["ROADS", "NAMESPACED_ROADS"])
+    response = custom_client.get(
         "/sql/",
         params={
             "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],

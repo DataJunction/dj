@@ -11,21 +11,21 @@ from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 
 def test_ast_compile_table(
-    session,
-    client_with_examples,  # pylint: disable=unused-argument
+    session: Session,
+    client_with_roads: TestClient,  # pylint: disable=unused-argument
 ):
     """
     Test compiling the primary table from a query
 
-    Includes client_with_examples fixture so that examples are loaded into session
+    Includes client_with_roads fixture so that roads examples are loaded into session
     """
     query = parse("SELECT hard_hat_id, last_name, first_name FROM default.hard_hats")
     exc = DJException()
     ctx = ast.CompileContext(session=session, exception=exc)
-    query.select.from_.relations[0].primary.compile(ctx)
+    query.select.from_.relations[0].primary.compile(ctx)  # type: ignore
     assert not exc.errors
 
-    node = query.select.from_.relations[  # pylint: disable=protected-access
+    node = query.select.from_.relations[  # type: ignore  # pylint: disable=protected-access
         0
     ].primary._dj_node
     assert node
@@ -72,8 +72,8 @@ def test_ast_compile_table_missing_node(session):
 
 
 def test_ast_compile_query(
-    session,
-    client_with_examples,  # pylint: disable=unused-argument
+    session: Session,
+    client_with_roads: TestClient,  # pylint: disable=unused-argument
 ):
     """
     Test compiling an entire query
@@ -84,7 +84,7 @@ def test_ast_compile_query(
     query.compile(ctx)
     assert not exc.errors
 
-    node = query.select.from_.relations[  # pylint: disable=protected-access
+    node = query.select.from_.relations[  # type: ignore  # pylint: disable=protected-access
         0
     ].primary._dj_node
     assert node
@@ -92,8 +92,8 @@ def test_ast_compile_query(
 
 
 def test_ast_compile_query_missing_columns(
-    session,
-    client_with_examples,  # pylint: disable=unused-argument
+    session: Session,
+    client_with_roads: TestClient,  # pylint: disable=unused-argument
 ):
     """
     Test compiling a query with missing columns
@@ -111,7 +111,7 @@ def test_ast_compile_query_missing_columns(
         in exc.errors[1].message
     )
 
-    node = query.select.from_.relations[  # pylint: disable=protected-access
+    node = query.select.from_.relations[  # type: ignore  # pylint: disable=protected-access
         0
     ].primary._dj_node
     assert node
@@ -132,7 +132,7 @@ def test_ast_compile_missing_references(session: Session):
 
 def test_ast_compile_raise_on_ambiguous_column(
     session: Session,
-    client_with_examples,  # pylint: disable=unused-argument
+    client_with_basic: TestClient,  # pylint: disable=unused-argument
 ):
     """
     Test raising on ambiguous column
@@ -152,7 +152,7 @@ def test_ast_compile_raise_on_ambiguous_column(
 
 def test_ast_compile_having(
     session: Session,
-    client_with_examples,  # pylint: disable=unused-argument
+    client_with_dbt: TestClient,  # pylint: disable=unused-argument
 ):
     """
     Test using having
