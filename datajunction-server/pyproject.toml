@@ -59,6 +59,9 @@ classifiers = [
 uvicorn = [
     "uvicorn[standard]>=0.21.1",
 ]
+transpilation = [
+    "sqlglot>=18.0.1",
+]
 
 [project.entry-points.'superset.db_engine_specs']
 dj = 'datajunction_server.superset:DJEngineSpec'
@@ -87,7 +90,7 @@ test = [
 
 [[tool.pdm.autoexport]]
 filename = "requirements/docker.txt"
-groups = ["default", "uvicorn"]
+groups = ["default", "uvicorn", "transpilation"]
 without-hashes = true
 
 [[tool.pdm.autoexport]]
