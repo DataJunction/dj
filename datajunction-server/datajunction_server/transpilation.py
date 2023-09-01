@@ -3,7 +3,7 @@ import importlib
 from abc import ABC, abstractmethod
 from typing import Optional
 
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJException, DJPluginNotFoundException
 from datajunction_server.models.engine import Dialect
 
 
@@ -27,7 +27,7 @@ class SQLTranspilationPlugin(ABC):
         """
         Check that the selected SQL transpilation package is installed and loads it.
         """
-        if self.package_name:
+        if self.package_name:  # pragma: no cover
             try:
                 importlib.import_module(self.package_name)
             except ImportError as import_err:
@@ -40,8 +40,8 @@ class SQLTranspilationPlugin(ABC):
         self,
         query: str,
         *,
-        input_dialect: Optional[Dialect] = Dialect.SPARK,
-        output_dialect: Optional[Dialect],
+        input_dialect: Optional[Dialect] = None,
+        output_dialect: Optional[Dialect] = None,
     ) -> str:
         """Transpile a given SQL query using the specific library."""
 
@@ -57,13 +57,13 @@ class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
         self,
         query: str,
         *,
-        input_dialect: Optional[Dialect] = Dialect.SPARK,
+        input_dialect: Optional[Dialect] = None,
         output_dialect: Optional[Dialect] = None,
     ) -> str:
         """
         Transpile a given SQL query using the specific library.
         """
-        import sqlglot  # pylint: disable=import-outside-toplevel
+        import sqlglot  # pylint: disable=import-outside-toplevel,import-error
 
         if input_dialect and output_dialect:
             value = sqlglot.transpile(
@@ -86,7 +86,7 @@ def get_transpilation_plugin(package_name: str) -> SQLTranspilationPlugin:
         if clazz.package_name == package_name
     ]
     if not transpilation_plugins:
-        raise DJException(
-            message=f"No SQL transpliation plugin found for package `{package_name}`!",
+        raise DJPluginNotFoundException(
+            message=f"No SQL transpilation plugin found for package `{package_name}`!",
         )
     return transpilation_plugins[0]()  # type: ignore
