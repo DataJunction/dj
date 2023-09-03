@@ -54,11 +54,18 @@ export function App() {
                           key="namespaces"
                         />
                       </Route>
-                      <Route
-                        path="create/:nodeType/:initialNamespace"
-                        key="create"
-                        element={<CreateNodePage />}
-                      />
+                      <Route path="create/:nodeType">
+                        <Route
+                          path=":initialNamespace"
+                          key="create"
+                          element={<CreateNodePage />}
+                        />
+                        <Route
+                          path=""
+                          key="create"
+                          element={<CreateNodePage />}
+                        />
+                      </Route>
                       <Route
                         path="sql"
                         key="sql"
