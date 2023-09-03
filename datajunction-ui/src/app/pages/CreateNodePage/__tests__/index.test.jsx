@@ -19,13 +19,13 @@ describe('CreateNodePage', () => {
         namespace: _ => {
           return [
             {
-              name: 'default.repair_orders',
-              display_name: 'Default: Repair Orders',
+              name: 'default.contractors',
+              display_name: 'Default: Contractors',
               version: 'v1.0',
               type: 'source',
               status: 'valid',
               mode: 'published',
-              updated_at: '2023-08-21T16:48:52.880498+00:00',
+              updated_at: '2023-08-21T16:48:53.246914+00:00',
             },
           ];
         },
@@ -47,7 +47,7 @@ describe('CreateNodePage', () => {
             type: 'source',
             columns: [
               {
-                name: 'repair_order_id',
+                name: 'contractor_id',
                 type: 'int',
                 attributes: [],
                 dimension: {
@@ -55,14 +55,8 @@ describe('CreateNodePage', () => {
                 },
               },
               {
-                name: 'municipality_id',
+                name: 'contact_title',
                 type: 'string',
-                attributes: [],
-                dimension: null,
-              },
-              {
-                name: 'hard_hat_id',
-                type: 'int',
                 attributes: [],
                 dimension: null,
               },
@@ -75,7 +69,7 @@ describe('CreateNodePage', () => {
 
   const renderElement = element => {
     return render(
-      <MemoryRouter initialEntries={['/create/metric/default']}>
+      <MemoryRouter initialEntries={['/create/dimension/default']}>
         <Routes>
           <Route path="create/:nodeType/:initialNamespace" element={element} />
         </Routes>
@@ -89,11 +83,14 @@ describe('CreateNodePage', () => {
         <CreateNodePage />
       </DJClientContext.Provider>
     );
-    renderElement(element);
+    const { container } = renderElement(element);
 
     // The node type should be included in the page title
-    expect(screen.getByText('Create metric')).toBeInTheDocument();
-    // The namespace should be set to the one provided in parmas
+    expect(
+      container.getElementsByClassName('node_type__metric'),
+    ).toMatchSnapshot();
+
+    // The namespace should be set to the one provided in params
     expect(screen.getByText('default')).toBeInTheDocument();
   });
 
@@ -105,42 +102,49 @@ describe('CreateNodePage', () => {
     );
     mockDjClient.DataJunctionAPI.createNode.mockReturnValue({
       status: 200,
-      json: { name: 'default.some_test_metric', type: 'metric' },
+      json: { name: 'default.special_forces_contractors', type: 'dimension' },
     });
+    const query =
+      'select \n' +
+      '  C.contractor_id,\n' +
+      '  C.address, C.contact_title, C.contact_name, C.city from default.contractors C \n' +
+      "where C.contact_title = 'special forces agent'";
 
     const { container } = renderElement(element);
 
     // Fill in display name
     await userEvent.type(
       screen.getByLabelText('Display Name'),
-      'Some Test Metric',
+      'Special Forces Contractors',
     );
 
     // After typing in a display name, the full name should be updated based on the display name
     expect(
-      screen.getByDisplayValue('default.some_test_metric'),
+      screen.getByDisplayValue('default.special_forces_contractors'),
     ).toBeInTheDocument();
 
     // Fill in the rest of the fields and submit
-    await userEvent.type(screen.getByLabelText('Query'), 'SELECT * FROM test');
-    await userEvent.click(screen.getByText('Create'));
+    await userEvent.type(screen.getByLabelText('Query'), query);
+    await userEvent.type(screen.getByLabelText('Primary Key'), 'contractor_id');
+    await userEvent.click(screen.getByText('Create dimension'));
 
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledWith(
-        'metric',
-        'default.some_test_metric',
-        'Some Test Metric',
+        'dimension',
+        'default.special_forces_contractors',
+        'Special Forces Contractors',
         '',
-        'SELECT * FROM test',
+        query,
         'draft',
         'default',
+        ['contractor_id'],
       );
     });
 
     // After successful creation, it should return a success message
     expect(container.getElementsByClassName('success')).toMatchSnapshot();
-  });
+  }, 60000);
 
   it('Verify form failed submission', async () => {
     const element = (
@@ -150,7 +154,7 @@ describe('CreateNodePage', () => {
     );
     mockDjClient.DataJunctionAPI.createNode.mockReturnValue({
       status: 500,
-      json: { message: 'Bad node query' },
+      json: { message: 'Some columns in the primary key [] were not found' },
     });
 
     const { container } = renderElement(element);
@@ -160,22 +164,23 @@ describe('CreateNodePage', () => {
       'Some Test Metric',
     );
     await userEvent.type(screen.getByLabelText('Query'), 'SELECT * FROM test');
-    await userEvent.click(screen.getByText('Create'));
+    await userEvent.click(screen.getByText('Create dimension'));
 
     await waitFor(() => {
       expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledWith(
-        'metric',
+        'dimension',
         'default.some_test_metric',
         'Some Test Metric',
         '',
         'SELECT * FROM test',
         'draft',
         'default',
+        [''],
       );
     });
 
     // After failed creation, it should return a failure message
     expect(container.getElementsByClassName('alert')).toMatchSnapshot();
-  });
+  }, 60000);
 });

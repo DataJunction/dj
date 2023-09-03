@@ -41,6 +41,7 @@ export const DataJunctionAPI = {
     query,
     mode,
     namespace,
+    primary_key,
   ) {
     const response = await fetch(`${DJ_URL}/nodes/${nodeType}`, {
       method: 'POST',
@@ -54,6 +55,7 @@ export const DataJunctionAPI = {
         query: query,
         mode: mode,
         namespace: namespace,
+        primary_key: primary_key,
       }),
       credentials: 'include',
     });
