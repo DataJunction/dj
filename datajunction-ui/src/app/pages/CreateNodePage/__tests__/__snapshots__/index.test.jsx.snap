@@ -1,5 +1,7 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
+exports[`CreateNodePage Renders with the selected nodeType and namespace 1`] = `HTMLCollection []`;
+
 exports[`CreateNodePage Verify form failed submission 1`] = `
 HTMLCollection [
   <div
@@ -45,7 +47,7 @@ HTMLCollection [
         </g>
       </g>
     </svg>
-    Bad node query
+    Some columns in the primary key [] were not found
   </div>,
 ]
 `;
@@ -68,13 +70,13 @@ HTMLCollection [
       />
     </svg>
     Successfully created 
-    metric
+    dimension
      node
      
     <a
-      href="/nodes/default.some_test_metric"
+      href="/nodes/default.special_forces_contractors"
     >
-      default.some_test_metric
+      default.special_forces_contractors
     </a>
     !
   </div>,

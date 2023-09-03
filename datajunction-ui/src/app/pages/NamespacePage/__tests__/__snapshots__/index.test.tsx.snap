@@ -34,7 +34,7 @@ exports[`<NamespacePage /> should render and match the snapshot 1`] = `
                 href="/create/transform/undefined"
               >
                 <div
-                  className="node_type__transform"
+                  className="node_type__transform node_type_creation_heading"
                 >
                   Transform
                 </div>
@@ -43,7 +43,7 @@ exports[`<NamespacePage /> should render and match the snapshot 1`] = `
                 href="/create/metric/undefined"
               >
                 <div
-                  className="node_type__metric"
+                  className="node_type__metric node_type_creation_heading"
                 >
                   Metric
                 </div>
@@ -52,7 +52,7 @@ exports[`<NamespacePage /> should render and match the snapshot 1`] = `
                 href="/create/dimension/undefined"
               >
                 <div
-                  className="node_type__dimension"
+                  className="node_type__dimension node_type_creation_heading"
                 >
                   Dimension
                 </div>

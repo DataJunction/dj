@@ -117,13 +117,19 @@ export function NamespacePage() {
                 <span className="add_node">+ Add Node</span>
                 <div className="dropdown-content">
                   <a href={`/create/transform/${namespace}`}>
-                    <div className="node_type__transform">Transform</div>
+                    <div className="node_type__transform node_type_creation_heading">
+                      Transform
+                    </div>
                   </a>
                   <a href={`/create/metric/${namespace}`}>
-                    <div className="node_type__metric">Metric</div>
+                    <div className="node_type__metric node_type_creation_heading">
+                      Metric
+                    </div>
                   </a>
                   <a href={`/create/dimension/${namespace}`}>
-                    <div className="node_type__dimension">Dimension</div>
+                    <div className="node_type__dimension node_type_creation_heading">
+                      Dimension
+                    </div>
                   </a>
                 </div>
               </div>

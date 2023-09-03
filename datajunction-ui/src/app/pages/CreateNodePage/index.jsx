@@ -30,6 +30,7 @@ export function CreateNodePage() {
       values.query,
       values.mode,
       values.namespace,
+      values.primary_key.split(','),
     );
     if (status === 200 || status === 201) {
       setStatus({
@@ -63,7 +64,14 @@ export function CreateNodePage() {
       <NamespaceHeader namespace="" />
       <div className="card">
         <div className="card-header">
-          <h2>Create {nodeType}</h2>
+          <h2>
+            Create{' '}
+            <span
+              className={`node_type__${nodeType} node_type_creation_heading`}
+            >
+              {nodeType}
+            </span>
+          </h2>
           <center>
             <Formik
               initialValues={{
@@ -73,6 +81,7 @@ export function CreateNodePage() {
                 query: '',
                 node_type: '',
                 description: '',
+                primary_key: '',
                 mode: 'draft',
               }}
               validate={values => {
@@ -124,7 +133,12 @@ export function CreateNodePage() {
                   <div className="DisplayNameInput NodeCreationInput">
                     <ErrorMessage name="display_name" component="span" />
                     <label htmlFor="displayName">Display Name</label>
-                    <Field type="text" name="display_name" id="displayName" />
+                    <Field
+                      type="text"
+                      name="display_name"
+                      id="displayName"
+                      placeholder="Human readable display name"
+                    />
                   </div>
                   <div className="FullNameInput NodeCreationInput">
                     <ErrorMessage name="name" component="span" />
@@ -147,6 +161,16 @@ export function CreateNodePage() {
                     <label htmlFor="Query">Query</label>
                     <NodeQueryField djClient={djClient} />
                   </div>
+                  <div className="PrimaryKeyInput NodeCreationInput">
+                    <ErrorMessage name="primary_key" component="span" />
+                    <label htmlFor="primaryKey">Primary Key</label>
+                    <Field
+                      type="text"
+                      name="primary_key"
+                      id="primaryKey"
+                      placeholder="Comma-separated list of PKs"
+                    />
+                  </div>
                   <div className="NodeModeInput NodeCreationInput">
                     <ErrorMessage name="mode" component="span" />
                     <label htmlFor="Mode">Mode</label>
@@ -156,7 +180,7 @@ export function CreateNodePage() {
                     </Field>
                   </div>
                   <button type="submit" disabled={isSubmitting}>
-                    Create
+                    Create {nodeType}
                   </button>
                 </Form>
               )}
