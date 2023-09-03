@@ -1,7 +1,7 @@
 import { render, act, screen } from '@testing-library/react';
 import { SQLBuilderPage } from '../index';
 import DJClientContext from '../../../providers/djclient';
-import {DataJunctionAPI} from "../../../services/DJService";
+import { DataJunctionAPI } from '../../../services/DJService';
 
 // Mocking DataJunctionAPI and DJClientContext
 // jest.mock('../../../services/DJService', () => ({

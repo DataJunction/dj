@@ -33,6 +33,33 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  createNode: async function (
+    nodeType,
+    name,
+    display_name,
+    description,
+    query,
+    mode,
+    namespace,
+  ) {
+    const response = await fetch(`${DJ_URL}/nodes/${nodeType}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: name,
+        display_name: display_name,
+        description: description,
+        query: query,
+        mode: mode,
+        namespace: namespace,
+      }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+
   upstreams: async function (name) {
     const data = await (
       await fetch(`${DJ_URL}/nodes/${name}/upstream/`, {

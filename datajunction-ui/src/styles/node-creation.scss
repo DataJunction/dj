@@ -29,7 +29,8 @@ form {
       box-sizing: border-box;
       padding: 1rem;
       font-size: 110%;
-      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+        rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
     }
   }
 
@@ -48,7 +49,8 @@ form {
       box-sizing: border-box;
       padding: 1rem;
       font-size: 110%;
-      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+        rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
     }
   }
 
@@ -67,7 +69,8 @@ form {
       box-sizing: border-box;
       padding: 1rem;
       font-size: 110%;
-      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+        rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
       margin-bottom: 1rem;
       width: 75%;
     }
@@ -104,7 +107,8 @@ form {
     box-sizing: border-box;
     padding: 0.5rem;
     font-size: 110%;
-    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+      rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
   }
 
   .SelectInput div:first-child {
@@ -159,7 +163,8 @@ form {
     background-size: 200% auto;
     background-color: #ffd559;
     //background-image: linear-gradient(to right, #F2994A 0%, #F2C94C  51%, #F2994A  100%);
-    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px, rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+      rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
   }
 
   .NodeTypeInput {
@@ -184,7 +189,8 @@ form {
     line-height: 1.25rem;
     font-size: 1.2rem;
     svg {
-      filter: invert(16%) sepia(68%) saturate(2827%) hue-rotate(344deg) brightness(96%) contrast(100%);
+      filter: invert(16%) sepia(68%) saturate(2827%) hue-rotate(344deg)
+        brightness(96%) contrast(100%);
       margin-right: 0.3rem;
       height: 1.5rem;
     }
@@ -199,7 +205,8 @@ form {
     line-height: 1.25rem;
     font-size: 1.2rem;
     svg {
-      filter: invert(34%) sepia(86%) saturate(465%) hue-rotate(60deg) brightness(82%) contrast(80%);
+      filter: invert(34%) sepia(86%) saturate(465%) hue-rotate(60deg)
+        brightness(82%) contrast(80%);
       margin-right: 0.3rem;
       height: 1.5rem;
     }

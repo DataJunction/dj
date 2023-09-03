@@ -1,4 +1,3 @@
-// CreateNodePage.test.js
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { render, screen, waitFor } from '@testing-library/react';
@@ -15,7 +14,6 @@ describe('CreateNodePage', () => {
   beforeEach(() => {
     fetchMock.resetMocks();
 
-    // Mocking the djClient context
     mockDjClient = {
       DataJunctionAPI: {
         namespace: _ => {
@@ -40,6 +38,7 @@ describe('CreateNodePage', () => {
             },
           ];
         },
+        createNode: jest.fn(),
         node: _ => {
           return {
             namespace: 'default',
@@ -75,7 +74,7 @@ describe('CreateNodePage', () => {
   });
 
   const renderElement = element => {
-    render(
+    return render(
       <MemoryRouter initialEntries={['/create/metric/default']}>
         <Routes>
           <Route path="create/:nodeType/:initialNamespace" element={element} />
@@ -98,14 +97,18 @@ describe('CreateNodePage', () => {
     expect(screen.getByText('default')).toBeInTheDocument();
   });
 
-  it('Form submission works with right values', async () => {
-    const customCreateNode = jest.fn();
+  it('Verify form user interaction and successful submission', async () => {
     const element = (
       <DJClientContext.Provider value={mockDjClient}>
-        <CreateNodePage customCreateNode={customCreateNode} />
+        <CreateNodePage />
       </DJClientContext.Provider>
     );
-    renderElement(element);
+    mockDjClient.DataJunctionAPI.createNode.mockReturnValue({
+      status: 200,
+      json: { name: 'default.some_test_metric', type: 'metric' },
+    });
+
+    const { container } = renderElement(element);
 
     // Fill in display name
     await userEvent.type(
@@ -123,19 +126,56 @@ describe('CreateNodePage', () => {
     await userEvent.click(screen.getByText('Create'));
 
     await waitFor(() => {
-      expect(customCreateNode).toBeCalledTimes(1);
-      expect(customCreateNode).toBeCalledWith(
-        expect.objectContaining({
-          description: '',
-          display_name: 'Some Test Metric',
-          mode: 'draft',
-          name: 'default.some_test_metric',
-          namespace: 'default',
-          node_type: '',
-          query: 'SELECT * FROM test',
-        }),
-        expect.any(Function),
+      expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledTimes(1);
+      expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledWith(
+        'metric',
+        'default.some_test_metric',
+        'Some Test Metric',
+        '',
+        'SELECT * FROM test',
+        'draft',
+        'default',
       );
     });
+
+    // After successful creation, it should return a success message
+    expect(container.getElementsByClassName('success')).toMatchSnapshot();
+  });
+
+  it('Verify form failed submission', async () => {
+    const element = (
+      <DJClientContext.Provider value={mockDjClient}>
+        <CreateNodePage />
+      </DJClientContext.Provider>
+    );
+    mockDjClient.DataJunctionAPI.createNode.mockReturnValue({
+      status: 500,
+      json: { message: 'Bad node query' },
+    });
+
+    const { container } = renderElement(element);
+
+    await userEvent.type(
+      screen.getByLabelText('Display Name'),
+      'Some Test Metric',
+    );
+    await userEvent.type(screen.getByLabelText('Query'), 'SELECT * FROM test');
+    await userEvent.click(screen.getByText('Create'));
+
+    await waitFor(() => {
+      expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledTimes(1);
+      expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledWith(
+        'metric',
+        'default.some_test_metric',
+        'Some Test Metric',
+        '',
+        'SELECT * FROM test',
+        'draft',
+        'default',
+      );
+    });
+
+    // After failed creation, it should return a failure message
+    expect(container.getElementsByClassName('alert')).toMatchSnapshot();
   });
 });
