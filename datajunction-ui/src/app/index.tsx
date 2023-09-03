@@ -55,7 +55,7 @@ export function App() {
                         />
                       </Route>
                       <Route
-                        path="create"
+                        path="create/:nodeType/:initialNamespace"
                         key="create"
                         element={<CreateNodePage />}
                       />
