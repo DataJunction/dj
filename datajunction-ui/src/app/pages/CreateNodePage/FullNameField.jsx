@@ -1,3 +1,7 @@
+/**
+ * A field for the full node name, which is generated based on the node's input
+ * namespace and display name.
+ */
 import { useField, useFormikContext } from 'formik';
 import { useEffect } from 'react';
 

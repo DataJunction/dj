@@ -1,3 +1,7 @@
+/**
+ * Query input field, which consists of a CodeMirror SQL editor with autocompletion
+ * (for node names and columns) and syntax highlighting.
+ */
 import { useEffect, useState } from 'react';
 import { Field, useFormikContext } from 'formik';
 import CodeMirror from '@uiw/react-codemirror';

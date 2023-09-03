@@ -1,4 +1,6 @@
-// Creates a react-select component for use in Formik forms
+/**
+ * A react-select component for use in Formik forms
+ */
 import { useField } from 'formik';
 import Select from 'react-select';
 
