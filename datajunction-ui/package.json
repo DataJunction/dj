@@ -23,6 +23,7 @@
     "@babel/core": "^7.18.2",
     "@babel/preset-env": "^7.18.2",
     "@babel/preset-react": "7.18.6",
+    "@codemirror/lang-sql": "^6.4.0",
     "@reduxjs/toolkit": "1.8.5",
     "@testing-library/jest-dom": "5.16.5",
     "@testing-library/react": "13.4.0",
@@ -39,8 +40,12 @@
     "@types/testing-library__jest-dom": "^5.14.5",
     "@types/webpack": "^5.28.0",
     "@types/webpack-env": "^1.18.0",
+    "@uiw/codemirror-extensions-basic-setup": "4.21.12",
+    "@uiw/codemirror-extensions-langs": "4.21.12",
+    "@uiw/react-codemirror": "4.21.12",
     "babel-loader": "9.1.2",
     "chalk": "4.1.2",
+    "codemirror": "^6.0.0",
     "cronstrue": "2.27.0",
     "cross-env": "7.0.3",
     "css-loader": "6.8.1",
@@ -158,6 +163,11 @@
         "statements": 90
       }
     }
+  },
+  "resolutions": {
+    "@codemirror/state": "6.2.0",
+    "@codemirror/view": "6.2.0",
+    "@lezer/common": "^1.0.0"
   },
   "devDependencies": {
     "@babel/plugin-proposal-class-properties": "7.18.6",
