@@ -5,7 +5,7 @@ exports[`CreateNodePage Renders with the selected nodeType and namespace 1`] = `
 exports[`CreateNodePage Verify form failed submission 1`] = `
 HTMLCollection [
   <div
-    class="alert"
+    class="message alert"
   >
     <svg
       height="2em"
@@ -55,7 +55,7 @@ HTMLCollection [
 exports[`CreateNodePage Verify form user interaction and successful submission 1`] = `
 HTMLCollection [
   <div
-    class="success"
+    class="message success"
   >
     <svg
       class="bi bi-check-circle-fill"

@@ -2,6 +2,27 @@
 form {
   text-align: left;
 
+  select {
+    background-color: #eeeeee;
+    border-radius: 10px;
+    border-style: none;
+    padding: 1rem;
+    font-family: Lato, 'sans-serif';
+    font-size: 110%;
+  }
+
+  input {
+    background-color: #eeeeee;
+    border-radius: 10px;
+    border-style: none;
+    border-width: 1px;
+    box-sizing: border-box;
+    padding: 1rem;
+    font-size: 110%;
+    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+      rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+  }
+
   label {
     font-family: 'Lato', sans-serif;
     display: block;
@@ -16,18 +37,6 @@ form {
     display: inline-grid;
     width: 35%;
     padding: 0 20px;
-
-    input {
-      background-color: #eeeeee;
-      border-radius: 10px;
-      border-style: none;
-      border-width: 1px;
-      box-sizing: border-box;
-      padding: 1rem;
-      font-size: 110%;
-      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
-        rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
-    }
   }
 
   .DisplayNameInput {
@@ -36,18 +45,6 @@ form {
     flex-wrap: nowrap;
     margin: 0.5rem 0;
     width: 45%;
-
-    input {
-      background-color: #eeeeee;
-      border-radius: 10px;
-      border-style: none;
-      border-width: 1px;
-      box-sizing: border-box;
-      padding: 1rem;
-      font-size: 110%;
-      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
-        rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
-    }
   }
 
   .FullNameInput {
@@ -58,17 +55,9 @@ form {
     width: 100%;
 
     input {
-      background-color: #eeeeee;
-      border-radius: 10px;
-      border-style: none;
-      border-width: 1px;
-      box-sizing: border-box;
-      padding: 1rem;
-      font-size: 110%;
-      box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
-        rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
       margin-bottom: 1rem;
       width: 75%;
+      color: #275c86;
     }
   }
 
@@ -99,12 +88,15 @@ form {
     background-color: #eee;
     border-radius: 10px;
     border-style: none;
-    border-width: 1px;
+    border-color: transparent;
     box-sizing: border-box;
     padding: 0.5rem;
     font-size: 110%;
     box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
       rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+  }
+  .SelectInput div, .SelectInput div div {
+    border: none;
   }
 
   .SelectInput div:first-child {
@@ -158,7 +150,6 @@ form {
     font-size: 110%;
     background-size: 200% auto;
     background-color: #ffd559;
-    //background-image: linear-gradient(to right, #F2994A 0%, #F2C94C  51%, #F2994A  100%);
     box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
       rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
   }
@@ -175,36 +166,32 @@ form {
       font-size: 110%;
     }
   }
-  .alert {
+  .message {
     padding: 20px;
-    background-color: rgb(253 242 242/1);
-    color: rgb(155 28 28/1);
     opacity: 1;
     margin-bottom: 15px;
     border-radius: 0.5rem;
     line-height: 1.25rem;
     font-size: 1.2rem;
     svg {
-      filter: invert(16%) sepia(68%) saturate(2827%) hue-rotate(344deg)
-        brightness(96%) contrast(100%);
       margin-right: 0.3rem;
       height: 1.5rem;
     }
   }
+  .alert {
+    background-color: rgb(253 242 242/1);
+    color: rgb(155 28 28/1);
+    svg {
+      filter: invert(16%) sepia(68%) saturate(2827%) hue-rotate(344deg)
+        brightness(96%) contrast(100%);
+    }
+  }
   .success {
-    padding: 20px;
     background-color: rgb(245, 253, 242);
     color: rgb(53, 110, 35);
-    opacity: 1;
-    margin-bottom: 15px;
-    border-radius: 0.5rem;
-    line-height: 1.25rem;
-    font-size: 1.2rem;
     svg {
       filter: invert(34%) sepia(86%) saturate(465%) hue-rotate(60deg)
         brightness(82%) contrast(80%);
-      margin-right: 0.3rem;
-      height: 1.5rem;
     }
   }
 }

@@ -105,12 +105,12 @@ export function CreateNodePage({ editor }) {
               {({ isSubmitting, status }) => (
                 <Form>
                   {status?.success !== undefined ? (
-                    <div className="success">
+                    <div className="message success">
                       <ValidIcon />
                       {status?.success}
                     </div>
                   ) : status?.failure !== undefined ? (
-                    <div className="alert">
+                    <div className="message alert">
                       <AlertIcon />
                       {status?.failure}
                     </div>
