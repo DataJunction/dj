@@ -21,6 +21,61 @@ export function CreateNodePage({ editor }) {
   const [namespaces, setNamespaces] = useState([]);
   let { nodeType, initialNamespace } = useParams();
 
+  const initialValues = {
+    name: '',
+    namespace: initialNamespace,
+    display_name: '',
+    query: '',
+    node_type: '',
+    description: '',
+    primary_key: '',
+    mode: 'draft',
+  };
+
+  const validator = values => {
+    const errors = {};
+    if (!values.name) {
+      errors.name = 'Required';
+    }
+    if (!values.query) {
+      errors.query = 'Required';
+    }
+    return errors;
+  };
+
+  const handleSubmit = (values, { setSubmitting, setStatus }) => {
+    setTimeout(() => {
+      createNode(values, setStatus);
+      setSubmitting(false);
+    }, 400);
+    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+  };
+
+  const displayMessageAfterSubmit = status => {
+    return status?.success !== undefined ? (
+      <div className="message success">
+        <ValidIcon />
+        {status?.success}
+      </div>
+    ) : status?.failure !== undefined ? (
+      <div className="message alert">
+        <AlertIcon />
+        {status?.failure}
+      </div>
+    ) : (
+      ''
+    );
+  };
+
+  const pageTitle = (
+    <h2>
+      Create{' '}
+      <span className={`node_type__${nodeType} node_type_creation_heading`}>
+        {nodeType}
+      </span>
+    </h2>
+  );
+
   const createNode = async (values, setStatus) => {
     const { status, json } = await djClient.createNode(
       nodeType,
@@ -64,59 +119,16 @@ export function CreateNodePage({ editor }) {
       <NamespaceHeader namespace="" />
       <div className="card">
         <div className="card-header">
-          <h2>
-            Create{' '}
-            <span
-              className={`node_type__${nodeType} node_type_creation_heading`}
-            >
-              {nodeType}
-            </span>
-          </h2>
+          {pageTitle}
           <center>
             <Formik
-              initialValues={{
-                name: '',
-                namespace: initialNamespace,
-                display_name: '',
-                query: '',
-                node_type: '',
-                description: '',
-                primary_key: '',
-                mode: 'draft',
-              }}
-              validate={values => {
-                const errors = {};
-                if (!values.name) {
-                  errors.name = 'Required';
-                }
-                if (!values.query) {
-                  errors.query = 'Required';
-                }
-                return errors;
-              }}
-              onSubmit={(values, { setSubmitting, setStatus }) => {
-                setTimeout(() => {
-                  createNode(values, setStatus);
-                  setSubmitting(false);
-                }, 400);
-                window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
-              }}
+              initialValues={initialValues}
+              validate={validator}
+              onSubmit={handleSubmit}
             >
               {({ isSubmitting, status }) => (
                 <Form>
-                  {status?.success !== undefined ? (
-                    <div className="message success">
-                      <ValidIcon />
-                      {status?.success}
-                    </div>
-                  ) : status?.failure !== undefined ? (
-                    <div className="message alert">
-                      <AlertIcon />
-                      {status?.failure}
-                    </div>
-                  ) : (
-                    ''
-                  )}
+                  {displayMessageAfterSubmit(status)}
                   <div className="NamespaceInput">
                     <ErrorMessage name="namespace" component="span" />
                     <label htmlFor="react-select-3-input">Namespace</label>
