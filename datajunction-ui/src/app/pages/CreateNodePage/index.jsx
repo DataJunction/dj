@@ -16,7 +16,7 @@ import { FullNameField } from './FullNameField';
 import { FormikSelect } from './FormikSelect';
 import { NodeQueryField } from './NodeQueryField';
 
-export function CreateNodePage() {
+export function CreateNodePage({ editor }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [namespaces, setNamespaces] = useState([]);
   let { nodeType, initialNamespace } = useParams();
@@ -30,7 +30,7 @@ export function CreateNodePage() {
       values.query,
       values.mode,
       values.namespace,
-      values.primary_key.split(','),
+      values.primary_key ? values.primary_key.split(',') : null,
     );
     if (status === 200 || status === 201) {
       setStatus({

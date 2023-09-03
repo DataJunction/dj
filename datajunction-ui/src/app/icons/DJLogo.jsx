@@ -11,7 +11,7 @@ const DJLogo = props => (
     viewBox="0 0 83 83"
     fill="none"
     xmlns="http://www.w3.org/2000/svg"
-    xmlns:xlink="http://www.w3.org/1999/xlink"
+    xmlnsXlink="http://www.w3.org/1999/xlink"
   >
     <rect width="83" height="83" fill="url(#pattern0)" />
     <rect width="83" height="83" stroke="black" />

@@ -1,28 +1,50 @@
 /**
- * Query input field, which consists of a CodeMirror SQL editor with autocompletion
+ * SQL query input field, which consists of a CodeMirror SQL editor with autocompletion
  * (for node names and columns) and syntax highlighting.
  */
-import { useEffect, useState } from 'react';
+import React from 'react';
 import { Field, useFormikContext } from 'formik';
 import CodeMirror from '@uiw/react-codemirror';
 import { langs } from '@uiw/codemirror-extensions-langs';
 
 export const NodeQueryField = ({ djClient }) => {
-  const [schema, setSchema] = useState([]);
+  const [schema, setSchema] = React.useState([]);
   const formik = useFormikContext();
+  const sqlExt = langs.sql({ schema: schema });
 
-  useEffect(() => {
-    const fetchData = async () => {
-      const nodes = await djClient.namespace('default');
-      const schema = {};
-      for (const node of nodes) {
-        const nodeDetails = await djClient.node(node.name);
-        schema[node.name] = nodeDetails.columns.map(col => col.name);
+  const initialAutocomplete = async context => {
+    // Based on the parsed prefix, we load node names with that prefix
+    // into the autocomplete schema. At this stage we don't load the columns
+    // to save on unnecessary calls
+    const word = context.matchBefore(/[\.\w]*/);
+    const matches = await djClient.nodes(word.text);
+    matches.forEach(nodeName => {
+      if (schema[nodeName] === undefined) {
+        schema[nodeName] = [];
+        setSchema(schema);
       }
-      setSchema(schema);
-    };
-    fetchData().catch(console.error);
-  }, [djClient, djClient.namespace]);
+    });
+  };
+
+  const updateFormik = val => {
+    formik.setFieldValue('query', val);
+  };
+
+  const updateAutocomplete = async (value, _) => {
+    // If a particular node has been chosen, load the columns of that node into
+    // the autocomplete schema for column-level autocompletion
+    for (var nodeName in schema) {
+      if (
+        value.includes(nodeName) &&
+        (!schema.hasOwnProperty(nodeName) ||
+          (schema.hasOwnProperty(nodeName) && schema[nodeName].length === 0))
+      ) {
+        const nodeDetails = await djClient.node(nodeName);
+        schema[nodeName] = nodeDetails.columns.map(col => col.name);
+        setSchema(schema);
+      }
+    }
+  };
 
   return (
     <>
@@ -38,8 +60,9 @@ export const NodeQueryField = ({ djClient }) => {
           id={'query'}
           name={'query'}
           extensions={[
-            langs.sql({
-              schema: schema,
+            sqlExt,
+            sqlExt.language.data.of({
+              autocomplete: initialAutocomplete,
             }),
           ]}
           options={{
@@ -54,8 +77,9 @@ export const NodeQueryField = ({ djClient }) => {
             fontSize: '150%',
             textAlign: 'left',
           }}
-          onChange={val => {
-            formik.setFieldValue('query', val);
+          onChange={(value, viewUpdate) => {
+            updateFormik(value);
+            updateAutocomplete(value, viewUpdate);
           }}
         />
       </div>

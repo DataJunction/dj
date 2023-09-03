@@ -33,6 +33,14 @@ export const DataJunctionAPI = {
     return data;
   },
 
+  nodes: async function (prefix) {
+    return await (
+      await fetch(`${DJ_URL}/nodes/?prefix=${prefix}`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   createNode: async function (
     nodeType,
     name,

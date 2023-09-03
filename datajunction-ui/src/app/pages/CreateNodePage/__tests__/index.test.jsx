@@ -176,7 +176,7 @@ describe('CreateNodePage', () => {
         'SELECT * FROM test',
         'draft',
         'default',
-        [''],
+        null,
       );
     });
 
