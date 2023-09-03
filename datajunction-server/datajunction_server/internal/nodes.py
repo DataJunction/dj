@@ -747,6 +747,7 @@ def column_lineage(
     ctx = CompileContext(session, DJException())
     query_ast = parse(node_rev.query)
     query_ast.compile(ctx)
+    query_ast.select.add_aliases_to_unnamed_columns()
 
     lineage_column = LineageColumn(
         column_name=column_name,
