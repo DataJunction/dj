@@ -4,7 +4,9 @@
 
 body {
   margin: 0;
-  font-family: system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell,
+    Noto Sans, sans-serif, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial,
+    sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -894,7 +896,6 @@ pre {
   display: none;
 }
 
-
 .dropdown {
   position: relative;
   display: inline-block;
@@ -905,8 +906,8 @@ pre {
   display: none;
   position: absolute;
   background-color: #f9f9f9;
-  margin-top: 7px;
-  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  margin-top: 6px;
+  box-shadow: 0px 8px 16px 0px rgba(0, 0, 0, 0.2);
   z-index: 1;
 }
 
@@ -932,8 +933,8 @@ pre {
   vertical-align: middle;
   padding-right: 1rem;
   padding-left: 1rem;
-  padding-top: .5rem;
-  padding-bottom: .5rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
   font-size: 1rem;
   border-radius: 0.5rem;
   word-wrap: break-word;

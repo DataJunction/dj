@@ -147,7 +147,9 @@
     ]
   },
   "jest": {
-    "transformIgnorePatterns": ["!node_modules/"],
+    "transformIgnorePatterns": [
+      "!node_modules/"
+    ],
     "collectCoverageFrom": [
       "src/**/*.{js,jsx,ts,tsx}",
       "!src/**/*/*.d.ts",
