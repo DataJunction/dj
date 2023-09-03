@@ -1,3 +1,8 @@
+/**
+ * Node creation page for transforms, metrics, and dimensions. The creation flow for these
+ * node types is largely the same, with minor differences handled server-side. For the `query`
+ * field, this page will render a CodeMirror SQL editor with autocompletion and syntax highlighting.
+ */
 import { ErrorMessage, Field, Form, Formik } from 'formik';
 
 import NamespaceHeader from '../../components/NamespaceHeader';

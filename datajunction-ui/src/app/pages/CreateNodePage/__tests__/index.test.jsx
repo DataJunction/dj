@@ -13,7 +13,7 @@ describe('CreateNodePage', () => {
 
   beforeEach(() => {
     fetchMock.resetMocks();
-
+    window.scrollTo = jest.fn();
     mockDjClient = {
       DataJunctionAPI: {
         namespace: _ => {
