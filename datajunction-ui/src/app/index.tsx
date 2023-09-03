@@ -10,6 +10,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
+import { CreateNodePage } from './pages/CreateNodePage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { LoginPage } from './pages/LoginPage';
 import { Root } from './pages/Root/Loadable';
@@ -53,6 +54,11 @@ export function App() {
                           key="namespaces"
                         />
                       </Route>
+                      <Route
+                        path="create"
+                        key="create"
+                        element={<CreateNodePage />}
+                      />
                       <Route
                         path="sql"
                         key="sql"
