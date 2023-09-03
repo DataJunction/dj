@@ -1,8 +1,10 @@
+@import url('https://fonts.googleapis.com/css?family=Jost');
+@import url('https://fonts.googleapis.com/css2?family=Raleway:wght@300;600&display=swap');
+@import url('https://fonts.googleapis.com/css?family=Lato');
+
 body {
   margin: 0;
-  font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue',
-    'Noto Sans', 'Liberation Sans', Arial, sans-serif, 'Apple Color Emoji',
-    'Segoe UI Emoji', 'Segoe UI Symbol', 'Noto Color Emoji';
+  font-family: system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,sans-serif,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif,"Apple Color Emoji","Segoe UI Emoji","Segoe UI Symbol";
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -13,6 +15,13 @@ body {
 }
 div {
   display: block;
+}
+h2 {
+  font-family: 'Raleway', system-ui;
+  font-weight: 300;
+}
+h2 b {
+  font-weight: 600;
 }
 p {
   display: block;
@@ -26,7 +35,7 @@ a,
 a:hover {
   text-decoration: none;
   color: #005c72;
-  font-family: 'Cerebri Sans', sans-serif;
+  font-family: 'Montserrat', sans-serif;
 }
 a:hover {
   text-decoration: underline;
@@ -153,6 +162,7 @@ ul {
 .h6,
 h6 {
   margin: 0;
+  font-family: 'Jost';
   text-transform: uppercase;
   font-size: 0.8125rem;
   font-weight: 600;
@@ -313,6 +323,7 @@ tr {
   font-weight: 600;
   letter-spacing: 0.08em;
   color: #95aac9;
+  font-family: 'Jost';
 }
 
 .card-table thead th {
@@ -384,6 +395,7 @@ tbody th {
 
 /* Nodes */
 .node_type__source {
+  font-family: 'Jost';
   background-color: #ccf7e5 !important;
   color: #00b368;
 }
@@ -393,6 +405,7 @@ tbody th {
 }
 
 .node_type__transform {
+  font-family: 'Jost';
   background-color: #ccefff !important;
   color: #0063b4;
 }
@@ -402,6 +415,7 @@ tbody th {
 }
 
 .node_type__metric {
+  font-family: 'Jost';
   background-color: #fad7dd !important;
   color: #a2283e;
 }
@@ -411,6 +425,7 @@ tbody th {
 }
 
 .node_type__dimension {
+  font-family: 'Jost';
   background-color: #ffefd0 !important;
   color: #a96621;
 }
@@ -420,6 +435,7 @@ tbody th {
 }
 
 .node_type__cube {
+  font-family: 'Jost';
   background-color: #dbafff !important;
   color: #580076;
 }
@@ -710,6 +726,10 @@ pre {
   padding: 0 2.25rem 0 2.25rem;
 }
 
+.card-header h2 {
+  font-family: 'Jost';
+}
+
 .text-gray-400 {
   color: #b5b5c3 !important;
 }
@@ -872,4 +892,50 @@ pre {
 
 .inactive {
   display: none;
+}
+
+
+.dropdown {
+  position: relative;
+  display: inline-block;
+  float: right;
+}
+
+.dropdown-content {
+  display: none;
+  position: absolute;
+  background-color: #f9f9f9;
+  margin-top: 7px;
+  box-shadow: 0px 8px 16px 0px rgba(0,0,0,0.2);
+  z-index: 1;
+}
+
+.dropdown:hover .dropdown-content {
+  display: block;
+  text-transform: uppercase;
+}
+
+.dropdown-content a:hover {
+  background-color: #eeeeee;
+  text-transform: uppercase;
+  text-decoration: none;
+}
+
+.dropdown-content a div {
+  padding: 12px 16px;
+}
+
+.add_node {
+  background-color: #5d2f86 !important;
+  color: #fff;
+  text-transform: none;
+  vertical-align: middle;
+  padding-right: 1rem;
+  padding-left: 1rem;
+  padding-top: .5rem;
+  padding-bottom: .5rem;
+  font-size: 1rem;
+  border-radius: 0.5rem;
+  word-wrap: break-word;
+  white-space: break-spaces;
 }
