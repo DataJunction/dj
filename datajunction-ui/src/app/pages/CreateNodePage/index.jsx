@@ -3,18 +3,20 @@ import CodeMirror from '@uiw/react-codemirror';
 import { langs } from '@uiw/codemirror-extensions-langs';
 
 import NamespaceHeader from '../../components/NamespaceHeader';
-import Select, { Options } from 'react-select';
+import Select from 'react-select';
 import { useField } from 'formik';
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import 'styles/node-creation.scss';
-import InvalidIcon from "../../icons/InvalidIcon";
-import AlertIcon from "../../icons/AlertIcon";
+import AlertIcon from '../../icons/AlertIcon';
+import ValidIcon from '../../icons/ValidIcon';
+import { useParams } from 'react-router-dom';
 
 const FormikSelect = ({
   selectOptions,
   formikFieldName,
   placeholder,
+  defaultValue,
   style,
 }) => {
   // eslint-disable-next-line no-unused-vars
@@ -24,7 +26,7 @@ const FormikSelect = ({
   return (
     <Select
       className="SelectInput"
-      defaultValue={selectOptions.find(option => option.value === field.value)}
+      defaultValue={defaultValue}
       options={selectOptions}
       placeholder={placeholder}
       onBlur={field.onBlur}
@@ -62,6 +64,7 @@ const NodeQuery = ({ djClient }) => {
         style={{ display: 'none' }}
         as="textarea"
         name="query"
+        id="Query"
       />
       <div role="button" tabIndex={0} className="relative flex bg-[#282a36]">
         <CodeMirror
@@ -94,12 +97,11 @@ const NodeQuery = ({ djClient }) => {
 };
 
 const FullNameField = props => {
-  const { values, touched, setFieldValue } = useFormikContext();
+  const { values, setFieldValue } = useFormikContext();
   const [field, meta] = useField(props);
 
   useEffect(() => {
     // set the value of textC, based on textA and textB
-    console.log('values', values);
     if (values.namespace && values.display_name) {
       setFieldValue(
         props.name,
@@ -112,18 +114,23 @@ const FullNameField = props => {
 
   return (
     <>
-      <input {...props} {...field} className="FullNameField" />
+      <input
+        {...props}
+        {...field}
+        className="FullNameField"
+        disabled="disabled"
+        id="FullName"
+      />
       {!!meta.touched && !!meta.error && <div>{meta.error}</div>}
     </>
   );
 };
 
-export function CreateNodePage({ props }) {
+export function CreateNodePage({ customCreateNode }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [namespaces, setNamespaces] = useState([]);
-  const formik = useFormikContext();
-  const [code, setCode] = useState('');
-  const [error, setError] = useState('');
+  const [, setError] = useState('');
+  let { nodeType, initialNamespace } = useParams();
 
   const createNode = async (values, setStatus) => {
     const data = {};
@@ -135,7 +142,7 @@ export function CreateNodePage({ props }) {
     data.namespace = values.namespace;
 
     const response = await fetch(
-      `${process.env.REACT_APP_DJ_URL}/nodes/${values.node_type}/`,
+      `${process.env.REACT_APP_DJ_URL}/nodes/${nodeType}`,
       {
         method: 'POST',
         headers: {
@@ -150,11 +157,19 @@ export function CreateNodePage({ props }) {
     const responseMessage = await response.json();
     if (response.status === 200 || response.status === 201) {
       setStatus({
-        success: `Created node <a href="/nodes/${responseMessage.name}">${responseMessage.name}</a>`,
+        success: (
+          <>
+            Successfully created {responseMessage.type} node{' '}
+            <a href={`/nodes/${responseMessage.name}`}>
+              {responseMessage.name}
+            </a>
+            !
+          </>
+        ),
       });
     } else {
       setStatus({
-        success: `${responseMessage.message}`,
+        failure: `${responseMessage.message}`,
       });
     }
   };
@@ -175,11 +190,12 @@ export function CreateNodePage({ props }) {
       <NamespaceHeader namespace="" />
       <div className="card">
         <div className="card-header">
-          <h2>Create Node</h2>
+          <h2>Create {nodeType}</h2>
           <center>
             <Formik
               initialValues={{
                 name: '',
+                namespace: initialNamespace,
                 display_name: '',
                 query: '',
                 node_type: '',
@@ -198,7 +214,11 @@ export function CreateNodePage({ props }) {
               }}
               onSubmit={(values, { setSubmitting, setStatus }) => {
                 setTimeout(() => {
-                  createNode(values, setStatus);
+                  const create =
+                    customCreateNode !== undefined
+                      ? customCreateNode
+                      : createNode;
+                  create(values, setStatus);
                   setSubmitting(false);
                 }, 400);
               }}
@@ -206,61 +226,61 @@ export function CreateNodePage({ props }) {
               {({ isSubmitting, status }) => (
                 <Form>
                   {status?.success !== undefined ? (
+                    <div className="success">
+                      <ValidIcon />
+                      {status?.success}
+                    </div>
+                  ) : status?.failure !== undefined ? (
                     <div className="alert">
                       <AlertIcon />
-                      {status?.success}
+                      {status?.failure}
                     </div>
                   ) : (
                     ''
                   )}
-                  <div className="NodeTypeInput NodeCreationInput">
-                    <ErrorMessage name="node_type" component="span" />
-                    <label>Node Type</label>
-                    <Field as="select" name="node_type">
-                      <option value=""></option>
-                      <option value="dimension">Dimension</option>
-                      <option value="transform">Transform</option>
-                      <option value="metric">Metric</option>
-                    </Field>
-                  </div>
                   <div className="NamespaceInput">
                     <ErrorMessage name="namespace" component="span" />
-                    <label>Namespace</label>
+                    <label htmlFor="react-select-3-input">Namespace</label>
                     <FormikSelect
                       selectOptions={namespaces}
                       formikFieldName="namespace"
                       placeholder="Choose Namespace"
+                      defaultValue={{
+                        value: initialNamespace,
+                        label: initialNamespace,
+                      }}
                     />
                   </div>
                   <div className="DisplayNameInput NodeCreationInput">
                     <ErrorMessage name="display_name" component="span" />
-                    <label>Display Name</label>
-                    <Field type="text" name="display_name" />
+                    <label htmlFor="displayName">Display Name</label>
+                    <Field type="text" name="display_name" id="displayName" />
                   </div>
                   <div className="FullNameInput NodeCreationInput">
                     <ErrorMessage name="name" component="span" />
-                    <label>Full Name</label>
+                    <label htmlFor="FullName">Full Name</label>
                     <FullNameField type="text" name="name" />
                   </div>
                   <div className="DescriptionInput NodeCreationInput">
                     <ErrorMessage name="description" component="span" />
-                    <label>Description:</label>
+                    <label htmlFor="Description">Description:</label>
                     <Field
                       type="textarea"
                       as="textarea"
                       name="description"
+                      id="Description"
                       placeholder="Describe your node"
                     />
                   </div>
                   <div className="QueryInput NodeCreationInput">
                     <ErrorMessage name="query" component="span" />
-                    <label>Query</label>
+                    <label htmlFor="Query">Query</label>
                     <NodeQuery djClient={djClient} />
                   </div>
                   <div className="NodeModeInput NodeCreationInput">
                     <ErrorMessage name="mode" component="span" />
-                    <label>Mode</label>
-                    <Field as="select" name="mode">
+                    <label htmlFor="Mode">Mode</label>
+                    <Field as="select" name="mode" id="Mode">
                       <option value="draft">Draft</option>
                       <option value="published">Published</option>
                     </Field>
