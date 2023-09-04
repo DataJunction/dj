@@ -16,7 +16,7 @@ import { FullNameField } from './FullNameField';
 import { FormikSelect } from './FormikSelect';
 import { NodeQueryField } from './NodeQueryField';
 
-export function CreateNodePage({ editor }) {
+export function CreateNodePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [namespaces, setNamespaces] = useState([]);
   let { nodeType, initialNamespace } = useParams();
