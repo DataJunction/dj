@@ -263,6 +263,7 @@ tr {
   background-clip: border-box;
   border-radius: 1rem;
   margin: 2rem;
+  padding-bottom: 2rem;
 }
 
 .card-light-shadow {

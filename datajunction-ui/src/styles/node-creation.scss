@@ -39,35 +39,39 @@ form {
     padding: 0 20px;
   }
 
-  .DisplayNameInput {
+  .DisplayNameInput,
+  .FullNameInput,
+  .NamespaceInput {
+    span {
+      color: red;
+    }
+  }
+
+  .DisplayNameInput,
+  .FullNameInput,
+  .NamespaceInput {
     display: inline-grid;
     box-sizing: border-box;
     flex-wrap: nowrap;
-    margin: 0.5rem 0;
+    margin: 1rem 0;
+  }
+
+  .DisplayNameInput {
     width: 45%;
   }
 
   .FullNameInput {
-    display: inline-grid;
-    box-sizing: border-box;
-    flex-wrap: nowrap;
-    margin: 0.5rem 0;
     width: 100%;
 
     input {
-      margin-bottom: 1rem;
       width: 75%;
       color: #275c86;
     }
   }
 
   .NamespaceInput {
-    display: inline-grid;
-    width: 30%;
-    box-sizing: border-box;
-    flex-wrap: nowrap;
-    margin: 0.5rem 0;
     padding: 0 20px;
+    width: 30%;
 
     div:first-child {
       flex: 1 0 auto;
@@ -155,18 +159,6 @@ form {
       rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
   }
 
-  .NodeTypeInput {
-    width: 25%;
-    display: block;
-    select {
-      background-color: #eeeeee;
-      border-radius: 10px;
-      border-style: none;
-      padding: 1rem;
-      font-family: Lato, Sans;
-      font-size: 110%;
-    }
-  }
   .message {
     padding: 20px;
     opacity: 1;
