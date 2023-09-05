@@ -65,7 +65,7 @@ jobs:
           export TEST_DIR=${{ matrix.library == 'server' && './datajunction-server' || matrix.library == 'client' && './datajunction-clients/python' || matrix.library == 'djqs' && './datajunction-query' || matrix.library == 'djrs' && './datajunction-reflection'}}
 
           # Install dependencies
-          pdm sync -d; cd $TEST_DIR; pdm install -d -G pandas
+          pdm sync -d; cd $TEST_DIR; pdm install -d -G pandas; pdm install -d -G transpilation
 
           # Run linters
           pdm run pre-commit run --all-files
