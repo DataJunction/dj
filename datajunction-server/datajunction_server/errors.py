@@ -272,3 +272,9 @@ class DJActionNotAllowedException(DJException):
     """
     Exception raised when an action is not allowed.
     """
+
+
+class DJPluginNotFoundException(DJException):
+    """
+    Exception raised when plugin is not found.
+    """
