@@ -620,8 +620,8 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         status=old_revision.status,
     )
 
-    # Link the new revision to its parents if the query has changed and update its status
-    if new_revision.type != NodeType.SOURCE and (query_changes or pk_changes):
+    # Link the new revision to its parents if a new revision was created and update its status
+    if new_revision.type != NodeType.SOURCE:
         (
             validated_node,
             dependencies_map,
@@ -665,6 +665,14 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
                 select(AttributeType).where(AttributeType.name == "primary_key"),
             ).one()
             for col in new_revision.columns:
+                # Remove the primary key attribute if it's not in the updated PK
+                if col.has_primary_key_attribute() and col.name not in data.primary_key:
+                    col.attributes = [
+                        attr
+                        for attr in col.attributes
+                        if attr.attribute_type.name != "primary_key"
+                    ]
+                # Add (or keep) the primary key attribute if it is in the updated PK
                 if col.name in data.primary_key and not col.has_primary_key_attribute():
                     col.attributes.append(
                         ColumnAttribute(column=col, attribute_type=pk_attribute),
