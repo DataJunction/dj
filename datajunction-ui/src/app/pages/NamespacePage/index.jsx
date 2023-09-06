@@ -4,6 +4,8 @@ import { useContext, useEffect, useState } from 'react';
 import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import Explorer from '../NamespacePage/Explorer';
+import EditIcon from '../../icons/EditIcon';
+import DeleteIcon from '../../icons/DeleteIcon';
 
 export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -102,6 +104,14 @@ export function NamespacePage() {
           {new Date(node.updated_at).toLocaleString('en-us')}
         </span>
       </td>
+      <td>
+        <a href={`/nodes/${node?.name}/edit`} style={{ marginLeft: '0.5rem' }}>
+          <EditIcon />
+        </a>
+        <a href="#" style={{ marginLeft: '0.5rem' }}>
+          <DeleteIcon />
+        </a>
+      </td>
     </tr>
   ));
 
@@ -167,6 +177,7 @@ export function NamespacePage() {
                   <th>Status</th>
                   <th>Mode</th>
                   <th>Last Updated</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>{nodesList}</tbody>

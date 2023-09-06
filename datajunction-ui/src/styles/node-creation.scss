@@ -158,33 +158,33 @@ form {
     box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
       rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
   }
+}
 
-  .message {
-    padding: 20px;
-    opacity: 1;
-    margin-bottom: 15px;
-    border-radius: 0.5rem;
-    line-height: 1.25rem;
-    font-size: 1.2rem;
-    svg {
-      margin-right: 0.3rem;
-      height: 1.5rem;
-    }
+.message {
+  padding: 20px;
+  opacity: 1;
+  margin-bottom: 15px;
+  border-radius: 0.5rem;
+  line-height: 1.25rem;
+  font-size: 1.2rem;
+  svg {
+    margin-right: 0.3rem;
+    height: 1.5rem;
   }
-  .alert {
-    background-color: rgb(253 242 242/1);
-    color: rgb(155 28 28/1);
-    svg {
-      filter: invert(16%) sepia(68%) saturate(2827%) hue-rotate(344deg)
-        brightness(96%) contrast(100%);
-    }
+}
+.success {
+  background-color: rgb(245, 253, 242);
+  color: rgb(53, 110, 35);
+  svg {
+    filter: invert(34%) sepia(86%) saturate(465%) hue-rotate(60deg)
+      brightness(82%) contrast(80%);
   }
-  .success {
-    background-color: rgb(245, 253, 242);
-    color: rgb(53, 110, 35);
-    svg {
-      filter: invert(34%) sepia(86%) saturate(465%) hue-rotate(60deg)
-        brightness(82%) contrast(80%);
-    }
+}
+.alert {
+  background-color: rgb(253 242 242/1);
+  color: rgb(155 28 28/1);
+  svg {
+    filter: invert(16%) sepia(68%) saturate(2827%) hue-rotate(344deg)
+      brightness(96%) contrast(100%);
   }
 }

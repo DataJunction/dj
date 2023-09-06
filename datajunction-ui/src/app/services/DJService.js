@@ -25,6 +25,9 @@ export const DataJunctionAPI = {
         credentials: 'include',
       })
     ).json();
+    if (data.message !== undefined) {
+      return data;
+    }
     data.primary_key = data.columns
       .filter(col =>
         col.attributes.some(attr => attr.attribute_type.name === 'primary_key'),
@@ -68,6 +71,35 @@ export const DataJunctionAPI = {
       credentials: 'include',
     });
     return { status: response.status, json: await response.json() };
+  },
+
+  patchNode: async function (
+    name,
+    display_name,
+    description,
+    query,
+    mode,
+    primary_key,
+  ) {
+    try {
+      const response = await fetch(`${DJ_URL}/nodes/${name}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          display_name: display_name,
+          description: description,
+          query: query,
+          mode: mode,
+          primary_key: primary_key,
+        }),
+        credentials: 'include',
+      });
+      return { status: response.status, json: await response.json() };
+    } catch (error) {
+      return { status: 500, json: { message: 'Update failed' } };
+    }
   },
 
   upstreams: async function (name) {

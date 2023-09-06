@@ -5,10 +5,10 @@
 import * as React from 'react';
 import { lazyLoad } from '../../../utils/loadable';
 
-export const CreateNodePage = () => {
+export const AddEditNodePage = () => {
   return lazyLoad(
     () => import('./index'),
-    module => module.CreateNodePage,
+    module => module.AddEditNodePage,
     {
       fallback: <div></div>,
     },

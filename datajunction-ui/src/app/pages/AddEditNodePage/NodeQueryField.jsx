@@ -7,7 +7,7 @@ import { Field, useFormikContext } from 'formik';
 import CodeMirror from '@uiw/react-codemirror';
 import { langs } from '@uiw/codemirror-extensions-langs';
 
-export const NodeQueryField = ({ djClient }) => {
+export const NodeQueryField = ({ djClient, value }) => {
   const [schema, setSchema] = React.useState([]);
   const formik = useFormikContext();
   const sqlExt = langs.sql({ schema: schema });
@@ -65,6 +65,7 @@ export const NodeQueryField = ({ djClient }) => {
               autocomplete: initialAutocomplete,
             }),
           ]}
+          value={value}
           options={{
             theme: 'default',
             lineNumbers: true,
