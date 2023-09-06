@@ -1,8 +1,8 @@
 // Jest Snapshot v1, https://goo.gl/fbAQLP
 
-exports[`CreateNodePage Renders with the selected nodeType and namespace 1`] = `HTMLCollection []`;
+exports[`AddEditNodePage Create node page renders with the selected nodeType and namespace 1`] = `HTMLCollection []`;
 
-exports[`CreateNodePage Verify form failed submission 1`] = `
+exports[`AddEditNodePage Verify create node page form failed submission 1`] = `
 HTMLCollection [
   <div
     class="message alert"
@@ -52,7 +52,7 @@ HTMLCollection [
 ]
 `;
 
-exports[`CreateNodePage Verify form user interaction and successful submission 1`] = `
+exports[`AddEditNodePage Verify create node page user interaction and successful form submission 1`] = `
 HTMLCollection [
   <div
     class="message success"

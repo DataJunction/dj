@@ -339,7 +339,7 @@ tr {
 td,
 tbody th {
   vertical-align: middle;
-  text-align: center;
+  text-align: left;
 }
 .table [data-sort],
 .table-nowrap td,

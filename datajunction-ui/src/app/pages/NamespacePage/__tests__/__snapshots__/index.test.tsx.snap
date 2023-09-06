@@ -104,6 +104,9 @@ exports[`<NamespacePage /> should render and match the snapshot 1`] = `
               <th>
                 Last Updated
               </th>
+              <th>
+                Actions
+              </th>
             </tr>
           </thead>
           <tbody />
