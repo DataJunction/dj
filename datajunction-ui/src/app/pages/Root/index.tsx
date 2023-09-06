@@ -1,6 +1,6 @@
 import { useContext } from 'react';
 import { Outlet } from 'react-router-dom';
-import logo from './assets/dj-logo.png';
+import DJLogo from '../../icons/DJLogo';
 import { Helmet } from 'react-helmet-async';
 import DJClientContext from '../../providers/djclient';
 
@@ -24,8 +24,8 @@ export function Root() {
         <div className="header">
           <div className="logo">
             <h2>
-              <img src={logo} alt="DJ Logo" width="15%" />
-              DataJunction
+              <DJLogo />
+              Data<b>Junction</b>
             </h2>
           </div>
           <div className="menu">

@@ -58,6 +58,15 @@ def test_read_node(client_with_roads: TestClient) -> None:
     assert response.status_code == 404
     assert data["message"] == "A node with name `default.nothing` does not exist."
 
+    # Check that getting nodes via prefixes works
+    response = client_with_roads.get("/nodes/?prefix=default.ha")
+    data = response.json()
+    assert set(data) == {
+        "default.hard_hats",
+        "default.hard_hat_state",
+        "default.hard_hat",
+    }
+
 
 def test_read_nodes(session: Session, client: TestClient) -> None:
     """

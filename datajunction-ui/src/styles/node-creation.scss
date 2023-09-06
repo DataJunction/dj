@@ -1,0 +1,190 @@
+// Fonts
+form {
+  text-align: left;
+
+  select {
+    background-color: #eeeeee;
+    border-radius: 10px;
+    border-style: none;
+    padding: 1rem;
+    font-family: Lato, 'sans-serif';
+    font-size: 110%;
+  }
+
+  input {
+    background-color: #eeeeee;
+    border-radius: 10px;
+    border-style: none;
+    border-width: 1px;
+    box-sizing: border-box;
+    padding: 1rem;
+    font-size: 110%;
+    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+      rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+  }
+
+  label {
+    font-family: 'Lato', sans-serif;
+    display: block;
+    text-transform: uppercase;
+    margin-bottom: 5px;
+    font-size: 90%;
+    font-weight: 600;
+  }
+
+  .NodeCreationInput {
+    margin: 0.5rem 0;
+    display: inline-grid;
+    width: 35%;
+    padding: 0 20px;
+  }
+
+  .DisplayNameInput,
+  .FullNameInput,
+  .NamespaceInput {
+    span {
+      color: red;
+    }
+  }
+
+  .DisplayNameInput,
+  .FullNameInput,
+  .NamespaceInput {
+    display: inline-grid;
+    box-sizing: border-box;
+    flex-wrap: nowrap;
+    margin: 1rem 0;
+  }
+
+  .DisplayNameInput {
+    width: 45%;
+  }
+
+  .FullNameInput {
+    width: 100%;
+
+    input {
+      width: 75%;
+      color: #275c86;
+    }
+  }
+
+  .NamespaceInput {
+    padding: 0 20px;
+    width: 30%;
+
+    div:first-child {
+      flex: 1 0 auto;
+    }
+
+    input {
+      width: 35%;
+      border: 0;
+      font-family: 'Lato', sans-serif;
+      padding: 5px 0;
+      font-size: 18px;
+      font-weight: 300;
+      outline: none;
+    }
+  }
+
+  .SelectInput {
+    background-color: #eee;
+    border-radius: 10px;
+    border-style: none;
+    border-color: transparent;
+    box-sizing: border-box;
+    padding: 0.5rem;
+    font-size: 110%;
+    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+      rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+  }
+  .SelectInput div,
+  .SelectInput div div {
+    border: none;
+  }
+
+  .SelectInput div:first-child {
+    background-color: #eee !important;
+    border: none;
+    color: #0c4128;
+  }
+
+  .DescriptionInput {
+    width: 100%;
+
+    textarea {
+      width: 75%;
+      background-color: #eeeeee;
+      border-radius: 10px;
+      border-style: none;
+      border-width: 1px;
+      box-sizing: border-box;
+      padding: 1rem;
+      font-family: Lato, Sans;
+      font-size: 110%;
+      margin: 0.5rem 0;
+      height: 100px;
+    }
+  }
+
+  .QueryInput {
+    width: 75%;
+  }
+
+  .NodeModeInput {
+    select {
+      background-color: #eeeeee;
+      border-radius: 10px;
+      border-style: none;
+      padding: 1rem;
+      font-family: Lato, Sans;
+      font-size: 110%;
+    }
+  }
+
+  button {
+    display: block;
+    border-radius: 10px;
+    border-style: none;
+    padding: 1rem;
+    margin: 0.5rem 20px;
+    text-transform: uppercase;
+    font-family: Lato, Sans;
+    font-weight: 600;
+    font-size: 110%;
+    background-size: 200% auto;
+    background-color: #ffd559;
+    box-shadow: rgba(0, 0, 0, 0.1) 0px 4px 6px -1px,
+      rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
+  }
+}
+
+.message {
+  padding: 20px;
+  opacity: 1;
+  margin-bottom: 15px;
+  border-radius: 0.5rem;
+  line-height: 1.25rem;
+  font-size: 1.2rem;
+  svg {
+    margin-right: 0.3rem;
+    height: 1.5rem;
+  }
+}
+.success {
+  background-color: rgb(245, 253, 242);
+  color: rgb(53, 110, 35);
+  svg {
+    filter: invert(34%) sepia(86%) saturate(465%) hue-rotate(60deg)
+      brightness(82%) contrast(80%);
+  }
+}
+.alert {
+  background-color: rgb(253 242 242/1);
+  color: rgb(155 28 28/1);
+  svg {
+    filter: invert(16%) sepia(68%) saturate(2827%) hue-rotate(344deg)
+      brightness(96%) contrast(100%);
+  }
+}

@@ -15,7 +15,6 @@ export default function NodeHistory({ node, djClient }) {
   }, [djClient, node]);
 
   const eventData = event => {
-    console.log('event', event);
     if (
       event.activity_type === 'set_attribute' &&
       event.entity_type === 'column_attribute'

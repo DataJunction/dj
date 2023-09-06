@@ -154,6 +154,7 @@ def set_column_attributes(
 @router.get("/nodes/", response_model=List[str])
 def list_nodes(
     node_type: Optional[NodeType] = None,
+    prefix: Optional[str] = None,
     *,
     session: Session = Depends(get_session),
 ) -> List[str]:
@@ -161,6 +162,10 @@ def list_nodes(
     List the available nodes.
     """
     statement = select(Node.name).where(is_(Node.deactivated_at, None))
+    if prefix:
+        statement = statement.where(
+            Node.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
+        )
     if node_type:
         statement = statement.where(Node.type == node_type)
     nodes = session.exec(statement).unique().all()

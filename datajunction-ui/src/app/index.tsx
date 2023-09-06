@@ -10,6 +10,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
+import { AddEditNodePage } from './pages/AddEditNodePage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { LoginPage } from './pages/LoginPage';
 import { Root } from './pages/Root/Loadable';
@@ -43,6 +44,11 @@ export function App() {
                     <>
                       <Route path="nodes" key="nodes">
                         <Route path=":name" element={<NodePage />} />
+                        <Route
+                          path=":name/edit"
+                          key="edit"
+                          element={<AddEditNodePage />}
+                        />
                       </Route>
 
                       <Route path="/" element={<NamespacePage />} key="index" />
@@ -51,6 +57,18 @@ export function App() {
                           path=":namespace"
                           element={<NamespacePage />}
                           key="namespaces"
+                        />
+                      </Route>
+                      <Route path="create/:nodeType">
+                        <Route
+                          path=":initialNamespace"
+                          key="create"
+                          element={<AddEditNodePage />}
+                        />
+                        <Route
+                          path=""
+                          key="create"
+                          element={<AddEditNodePage />}
                         />
                       </Route>
                       <Route
