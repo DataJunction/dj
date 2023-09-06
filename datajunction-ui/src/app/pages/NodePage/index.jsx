@@ -139,7 +139,6 @@ export function NodePage() {
     default:
       tabToDisplay = <NodeInfoTab node={node} />;
   }
-  console.log('node', node);
   // @ts-ignore
   return (
     <div className="node__header">
