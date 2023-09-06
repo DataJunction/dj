@@ -1625,6 +1625,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             == "SELECT country, COUNT(DISTINCT id) AS num_users FROM basic.source.users"
         )
         assert data["status"] == "valid"
+        assert data["parents"] == [{"name": "basic.source.users"}]
 
         # Try to update with a new query that references a non-existent source
         response = client.patch(
@@ -1668,6 +1669,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         ]
         assert data["status"] == "valid"
+        assert data["parents"] == [{"name": "basic.source.users"}]
 
         # Verify that asking for revisions for a non-existent transform fails
         response = client.get("/nodes/random_transform/revisions/")
@@ -1862,6 +1864,61 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     {"attribute_type": {"namespace": "system", "name": "primary_key"}},
                 ],
                 "dimension": None,
+            },
+        ]
+
+        # Test updating the dimension node with a new primary key
+        response = client.patch(
+            "/nodes/default.countries/",
+            json={
+                "query": "SELECT country, SUM(age) as sum_age, count(1) AS num_users "
+                "FROM basic.source.users GROUP BY country",
+                "primary_key": ["sum_age"],
+            },
+        )
+        data = response.json()
+        # Should result in a major version update
+        assert data["version"] == "v3.0"
+        assert data["columns"] == [
+            {"attributes": [], "dimension": None, "name": "country", "type": "string"},
+            {
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "name": "sum_age",
+                "type": "bigint",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "num_users",
+                "type": "bigint",
+            },
+        ]
+
+        response = client.patch(
+            "/nodes/default.countries/",
+            json={
+                "primary_key": ["country"],
+            },
+        )
+        data = response.json()
+        assert data["columns"] == [
+            {
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "name": "country",
+                "type": "string",
+            },
+            {"attributes": [], "dimension": None, "name": "sum_age", "type": "bigint"},
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "num_users",
+                "type": "bigint",
             },
         ]
 
