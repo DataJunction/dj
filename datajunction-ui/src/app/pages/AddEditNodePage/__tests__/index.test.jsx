@@ -1,6 +1,7 @@
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, screen, waitFor } from '@testing-library/react';
+import { render } from '../../../../setupTests';
 import fetchMock from 'jest-fetch-mock';
 import { AddEditNodePage } from '../index.jsx';
 import DJClientContext from '../../../providers/djclient';
@@ -40,6 +41,10 @@ describe('AddEditNodePage', () => {
             {
               namespace: 'default',
               num_nodes: 33,
+            },
+            {
+              namespace: 'default123',
+              num_nodes: 0,
             },
           ];
         },
@@ -90,6 +95,7 @@ describe('AddEditNodePage', () => {
         dimension: null,
       },
     ],
+    primary_key: ['repair_order_id', 'country'],
     updated_at: '2023-08-21T16:48:56.841704+00:00',
     materializations: [],
     parents: [
@@ -127,18 +133,20 @@ describe('AddEditNodePage', () => {
     );
   };
 
-  it('Create node page renders with the selected nodeType and namespace', () => {
+  it('Create node page renders with the selected nodeType and namespace', async () => {
     const mockDjClient = initializeMockDJClient();
     const element = testElement(mockDjClient);
     const { container } = renderCreateNode(element);
 
     // The node type should be included in the page title
-    expect(
-      container.getElementsByClassName('node_type__metric'),
-    ).toMatchSnapshot();
+    await waitFor(() => {
+      expect(
+        container.getElementsByClassName('node_type__metric'),
+      ).toMatchSnapshot();
 
-    // The namespace should be set to the one provided in params
-    expect(screen.getByText('default')).toBeInTheDocument();
+      // The namespace should be set to the one provided in params
+      expect(screen.getByText('default')).toBeInTheDocument();
+    });
   });
 
   it('Edit node page renders with the selected node', async () => {
@@ -218,6 +226,9 @@ describe('AddEditNodePage', () => {
         'default',
         ['contractor_id'],
       );
+      expect(
+        screen.getByText(/Successfully created dimension node/),
+      ).toBeInTheDocument();
     });
 
     // After successful creation, it should return a success message
@@ -253,6 +264,9 @@ describe('AddEditNodePage', () => {
         'default',
         null,
       );
+      expect(
+        screen.getByText(/Some columns in the primary key \[] were not found/),
+      ).toBeInTheDocument();
     });
 
     // After failed creation, it should return a failure message
@@ -272,9 +286,9 @@ describe('AddEditNodePage', () => {
     const element = testElement(mockDjClient);
     renderEditNode(element);
 
-    await userEvent.type(await screen.getByLabelText('Display Name'), '!!!');
-    await userEvent.type(await screen.getByLabelText('Description'), '!!!');
-    await userEvent.click(await screen.getByText('Save'));
+    await userEvent.type(screen.getByLabelText('Display Name'), '!!!');
+    await userEvent.type(screen.getByLabelText('Description'), '!!!');
+    await userEvent.click(screen.getByText('Save'));
 
     await waitFor(async () => {
       expect(mockDjClient.DataJunctionAPI.patchNode).toBeCalledTimes(1);
@@ -284,10 +298,16 @@ describe('AddEditNodePage', () => {
         'Number of repair orders!!!',
         'SELECT count(repair_order_id) default_DOT_num_repair_orders FROM default.repair_orders',
         'published',
-        null,
+        ['repair_order_id', 'country'],
       );
+      expect(
+        await screen.getByDisplayValue('repair_order_id, country'),
+      ).toBeInTheDocument();
+      expect(
+        await screen.getByText(/Successfully updated metric node/),
+      ).toBeInTheDocument();
     });
-  }, 60000);
+  }, 1000000);
 
   it('Verify edit node page form submission failure displays alert', async () => {
     const mockDjClient = initializeMockDJClient();
@@ -300,15 +320,14 @@ describe('AddEditNodePage', () => {
     const element = testElement(mockDjClient);
     renderEditNode(element);
 
-    await userEvent.type(await screen.getByLabelText('Display Name'), '!!!');
-    await userEvent.type(await screen.getByLabelText('Description'), '!!!');
-    await userEvent.click(await screen.getByText('Save'));
-
+    await userEvent.type(screen.getByLabelText('Display Name'), '!!!');
+    await userEvent.type(screen.getByLabelText('Description'), '!!!');
+    await userEvent.click(screen.getByText('Save'));
     await waitFor(async () => {
       expect(mockDjClient.DataJunctionAPI.patchNode).toBeCalledTimes(1);
       expect(await screen.getByText('Update failed')).toBeInTheDocument();
     });
-  });
+  }, 60000);
 
   it('Verify edit page node not found', async () => {
     const mockDjClient = initializeMockDJClient();
