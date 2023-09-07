@@ -10,6 +10,14 @@ export default function NodeColumnTab({ node, djClient }) {
     fetchData().catch(console.error);
   }, [djClient, node]);
 
+  const showColumnAttributes = col => {
+    return col.attributes.map(attr => (
+      <span className="node_type__dimension badge node_type">
+        {attr.attribute_type.name.replace(/_/, ' ')}
+      </span>
+    ));
+  };
+
   const columnList = columns => {
     return columns.map(col => (
       <tr>
@@ -29,17 +37,7 @@ export default function NodeColumnTab({ node, djClient }) {
             ''
           )}{' '}
         </td>
-        <td>
-          {col.attributes.find(
-            attr => attr.attribute_type.name === 'dimension',
-          ) ? (
-            <span className="node_type__dimension badge node_type">
-              dimensional
-            </span>
-          ) : (
-            ''
-          )}
-        </td>
+        <td>{showColumnAttributes(col)}</td>
       </tr>
     ));
   };
