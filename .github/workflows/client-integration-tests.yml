@@ -51,3 +51,29 @@ jobs:
       - name: Javascript client integration tests
         run: npm test
         working-directory: ./datajunction-clients/javascript
+
+  java-client-integration:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        java-version: [ 17 ]
+        distribution: [ 'temurin' ]
+    steps:
+      - uses: actions/checkout@v3
+      - name: Build and launch DJ demo environment
+        run: docker-compose --profile demo up -d
+      - name: Set up JDK ${{ matrix.java-version }}
+        uses: actions/setup-java@v3
+        with:
+          java-version: ${{ matrix.java-version }}
+          distribution: ${{ matrix.distribution }}
+      - name: Official Gradle Wrapper Validation Action
+        uses: gradle/wrapper-validation-action@v1
+      - name: Build with Gradle
+        uses: gradle/gradle-build-action@v2
+        with:
+          arguments: cleanTest test
+          build-root-directory: ./datajunction-clients/java
+
+
+
