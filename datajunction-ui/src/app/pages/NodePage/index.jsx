@@ -144,7 +144,7 @@ export function NodePage() {
     <div className="node__header">
       <NamespaceHeader namespace={name.split('.').slice(0, -1).join('.')} />
       <div className="card">
-        {node !== undefined && node.message === undefined ? (
+        {node?.message === undefined ? (
           <div className="card-header">
             <h3
               className="card-title align-items-start flex-column"
@@ -182,11 +182,13 @@ export function NodePage() {
             </div>
             {tabToDisplay}
           </div>
-        ) : (
+        ) : node?.message !== undefined ? (
           <div className="message alert" style={{ margin: '20px' }}>
             <AlertIcon />
             Node `{name}` does not exist!
           </div>
+        ) : (
+          ''
         )}
       </div>
     </div>

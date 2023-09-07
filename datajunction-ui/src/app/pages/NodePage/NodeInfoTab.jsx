@@ -140,7 +140,7 @@ export default function NodeInfoTab({ node }) {
           </div>
           <div>
             <h6 className="mb-0 w-100">Primary Key</h6>
-            <p className="mb-0 opacity-75">{node?.primary_key}</p>
+            <p className="mb-0 opacity-75">{node?.primary_key.join(', ')}</p>
           </div>
           <div>
             <h6 className="mb-0 w-100">Last Updated</h6>
