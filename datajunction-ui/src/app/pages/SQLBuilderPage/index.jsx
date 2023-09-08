@@ -293,11 +293,23 @@ export function SQLBuilderPage() {
             {query ? (
               <>
                 {loadingData ? (
-                  <span className="button-3 executing-button">
+                  <span
+                    className="button-3 executing-button"
+                    onClick={getData}
+                    role="button"
+                    aria-label="RunQuery"
+                    aria-hidden="false"
+                  >
                     {'Running Query'}
                   </span>
                 ) : (
-                  <span className="button-3 execute-button" onClick={getData}>
+                  <span
+                    className="button-3 execute-button"
+                    onClick={getData}
+                    role="button"
+                    aria-label="RunQuery"
+                    aria-hidden="false"
+                  >
                     {'Run Query'}
                   </span>
                 )}
