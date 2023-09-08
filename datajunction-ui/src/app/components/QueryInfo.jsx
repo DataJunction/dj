@@ -56,8 +56,8 @@ export default function QueryInfo({
             </td>
             <td>
               {links?.length ? (
-                links.map(link => (
-                  <p>
+                links.map((link, idx) => (
+                  <p key={idx}>
                     <a href={link} target="_blank" rel="noreferrer">
                       {link}
                     </a>

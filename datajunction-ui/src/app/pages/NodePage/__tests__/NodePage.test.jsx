@@ -332,6 +332,7 @@ describe('<NodePage />', () => {
         revisions: jest.fn(),
         materializations: jest.fn(),
         sql: jest.fn(),
+        cube: jest.fn(),
       },
     };
   };
@@ -626,6 +627,65 @@ describe('<NodePage />', () => {
     });
   }, 60000);
 
+  it('renders the NodeInfo tab correctly for cube nodes', async () => {
+    const djClient = mockDJClient();
+    djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockCubeNode);
+    djClient.DataJunctionAPI.cube.mockReturnValue(mocks.mockCubesCube);
+    const element = (
+      <DJClientContext.Provider value={djClient}>
+        <NodePage {...defaultProps} />
+      </DJClientContext.Provider>
+    );
+    const { container } = render(
+      <MemoryRouter initialEntries={['/nodes/default.repair_orders_cube']}>
+        <Routes>
+          <Route path="nodes/:name" element={element} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
+        'default.repair_orders_cube',
+      );
+      userEvent.click(screen.getByRole('button', { name: 'Info' }));
+
+      expect(
+        screen.getByRole('dialog', { name: 'NodeName' }),
+      ).toHaveTextContent('default.repair_orders_cube');
+
+      expect(screen.getByRole('button', { name: 'Info' })).toBeInTheDocument();
+      expect(
+        screen.getByRole('dialog', { name: 'Description' }),
+      ).toHaveTextContent('Repair Orders');
+
+      expect(screen.getByRole('dialog', { name: 'Version' })).toHaveTextContent(
+        'v1.0',
+      );
+
+      expect(
+        screen.getByRole('dialog', { name: 'PrimaryKey' }),
+      ).toHaveTextContent('');
+
+      expect(
+        screen.getByRole('dialog', { name: 'DisplayName' }),
+      ).toHaveTextContent('Default: Repair Orders Cube');
+
+      expect(
+        screen.getByRole('dialog', { name: 'NodeType' }),
+      ).toHaveTextContent('cube');
+
+      expect(
+        screen.getByRole('dialog', { name: 'NodeType' }),
+      ).toHaveTextContent('cube');
+
+      expect(screen.getByText('Cube Elements')).toBeInTheDocument();
+      screen
+        .getAllByRole('cell', { name: 'CubeElement' })
+        .map(cube => cube.hasAttribute('a'));
+    });
+  }, 60000);
+
   it('renders the NodeColumns tab correctly', async () => {
     const djClient = mockDJClient();
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
@@ -657,8 +717,6 @@ describe('<NodePage />', () => {
     });
   });
   // check compiled SQL on nodeInfo page
-  // check cube nodes on nodeinfo page
-  // check history
 
   it('renders the NodeHistory tab correctly', async () => {
     const djClient = mockDJClient();
