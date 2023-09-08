@@ -129,8 +129,6 @@ describe('SQLBuilderPage', () => {
 
     await waitFor(() => {
       expect(mockDjClient.metrics).toHaveBeenCalled();
-      fireEvent.focus(screen.getByRole('combobox'));
-      fireEvent.keyDown(screen.getByText('Metrics'), { key: 'ArrowDown' });
     });
   });
 
