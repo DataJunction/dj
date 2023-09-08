@@ -1,9 +1,10 @@
 import React from 'react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
-import { act, screen, waitFor } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { render } from '../../../../setupTests';
 import fetchMock from 'jest-fetch-mock';
 import { AddEditNodePage } from '../index.jsx';
+import { mocks } from '../../../../mocks/mockNodes';
 import DJClientContext from '../../../providers/djclient';
 import userEvent from '@testing-library/user-event';
 
@@ -63,50 +64,6 @@ describe('AddEditNodePage', () => {
     );
   };
 
-  const mockMetricNode = {
-    namespace: 'default',
-    node_revision_id: 23,
-    node_id: 23,
-    type: 'metric',
-    name: 'default.num_repair_orders',
-    display_name: 'Default: Num Repair Orders',
-    version: 'v1.0',
-    status: 'valid',
-    mode: 'published',
-    catalog: {
-      id: 1,
-      uuid: '0fc18295-e1a2-4c3c-b72a-894725c12488',
-      created_at: '2023-08-21T16:48:51.146121+00:00',
-      updated_at: '2023-08-21T16:48:51.146122+00:00',
-      extra_params: {},
-      name: 'warehouse',
-    },
-    schema_: null,
-    table: null,
-    description: 'Number of repair orders',
-    query:
-      'SELECT count(repair_order_id) default_DOT_num_repair_orders FROM default.repair_orders',
-    availability: null,
-    columns: [
-      {
-        name: 'default_DOT_num_repair_orders',
-        type: 'bigint',
-        attributes: [],
-        dimension: null,
-      },
-    ],
-    primary_key: ['repair_order_id', 'country'],
-    updated_at: '2023-08-21T16:48:56.841704+00:00',
-    materializations: [],
-    parents: [
-      {
-        name: 'default.repair_orders',
-      },
-    ],
-    created_at: '2023-08-21T16:48:56.841631+00:00',
-    tags: [],
-  };
-
   beforeEach(() => {
     fetchMock.resetMocks();
     jest.clearAllMocks();
@@ -151,7 +108,7 @@ describe('AddEditNodePage', () => {
 
   it('Edit node page renders with the selected node', async () => {
     const mockDjClient = initializeMockDJClient();
-    mockDjClient.DataJunctionAPI.node.mockReturnValue(mockMetricNode);
+    mockDjClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
 
     const element = testElement(mockDjClient);
     renderEditNode(element);
@@ -276,7 +233,7 @@ describe('AddEditNodePage', () => {
   it('Verify edit node page form submission success', async () => {
     const mockDjClient = initializeMockDJClient();
 
-    mockDjClient.DataJunctionAPI.node.mockReturnValue(mockMetricNode);
+    mockDjClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
     mockDjClient.DataJunctionAPI.patchNode = jest.fn();
     mockDjClient.DataJunctionAPI.patchNode.mockReturnValue({
       status: 201,
@@ -311,7 +268,7 @@ describe('AddEditNodePage', () => {
 
   it('Verify edit node page form submission failure displays alert', async () => {
     const mockDjClient = initializeMockDJClient();
-    mockDjClient.DataJunctionAPI.node.mockReturnValue(mockMetricNode);
+    mockDjClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
     mockDjClient.DataJunctionAPI.patchNode.mockReturnValue({
       status: 500,
       json: { message: 'Update failed' },
