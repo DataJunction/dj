@@ -7,6 +7,9 @@ import 'react-app-polyfill/stable';
 import { JSDOM } from 'jsdom';
 import { render as originalRender } from '@testing-library/react';
 
+global.ResizeObserver = require('resize-observer-polyfill');
+global.fetch = require('jest-fetch-mock');
+
 const setDom = () => {
   const dom = new JSDOM('<!doctype html><html><body></body></html>', {});
 
