@@ -125,7 +125,7 @@ export function NodePage() {
       break;
     case 4:
       tabToDisplay =
-        node.type === 'metric' ? <NodeSQLTab djNode={node} /> : <br />;
+        node?.type === 'metric' ? <NodeSQLTab djNode={node} /> : <br />;
       break;
     case 5:
       tabToDisplay = <NodeMaterializationTab node={node} djClient={djClient} />;
@@ -150,10 +150,18 @@ export function NodePage() {
               className="card-title align-items-start flex-column"
               style={{ display: 'inline-block' }}
             >
-              <span className="card-label fw-bold text-gray-800">
+              <span
+                className="card-label fw-bold text-gray-800"
+                role="dialog"
+                aria-hidden="false"
+                aria-label="DisplayName"
+              >
                 {node?.display_name}{' '}
                 <span
                   className={'node_type__' + node?.type + ' badge node_type'}
+                  role="dialog"
+                  aria-hidden="false"
+                  aria-label="NodeType"
                 >
                   {node?.type}
                 </span>
@@ -167,7 +175,13 @@ export function NodePage() {
             </a>
             <ClientCodePopover code={node?.createNodeClientCode} />
             <div>
-              <a href={'/nodes/' + node?.name} className="link-table">
+              <a
+                href={'/nodes/' + node?.name}
+                className="link-table"
+                role="dialog"
+                aria-hidden="false"
+                aria-label="NodeName"
+              >
                 {node?.name}
               </a>
               <span
