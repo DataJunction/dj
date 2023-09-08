@@ -3,6 +3,8 @@ import { render, fireEvent, waitFor } from '@testing-library/react';
 import { LoginPage } from '../index';
 
 describe('LoginPage', () => {
+  const original = window.location;
+
   const reloadFn = () => {
     window.location.reload();
   };

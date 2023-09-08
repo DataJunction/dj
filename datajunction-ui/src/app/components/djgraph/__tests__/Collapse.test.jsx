@@ -1,81 +1,51 @@
 import React from 'react';
-import { render, fireEvent, screen } from '@testing-library/react';
+import { render, fireEvent, screen, waitFor } from '@testing-library/react';
 import Collapse from '../Collapse';
+import { mocks } from '../../../../mocks/mockNodes';
+import { ReactFlowProvider } from 'reactflow';
 
 jest.mock('../DJNodeDimensions', () => ({
   DJNodeDimensions: jest.fn(data => <div>DJNodeDimensions content</div>),
 }));
 
-// jest.mock('../DJNodeColumns', () => {
-//   DJNodeColumns: jest.fn(({ data, limit }) => (
-//     <div>DJNodeColumns content - limit {limit}</div>
-//   ));
-// });
-
 describe('<Collapse />', () => {
   const defaultProps = {
     collapsed: true,
-    text: 'Test Text',
-    data: {
-      type: 'metric',
-    },
+    text: 'Dimensions',
+    data: mocks.mockMetricNode,
   };
 
   it('renders without crashing', () => {
     render(<Collapse {...defaultProps} />);
   });
 
-  it('renders metric type collapse button correctly', () => {
+  it('renders toggle for metric type', () => {
     const { getByText } = render(
-      <Collapse {...defaultProps} data={{ type: 'metric' }} />,
+      <Collapse {...defaultProps} data={mocks.mockMetricNode} />,
     );
-    expect(getByText('▶ Show Test Text')).toBeInTheDocument();
-  });
-
-  it('toggles metric type collapse button text on click', () => {
-    const { container } = render(
-      <Collapse {...defaultProps} data={{ type: 'metric' }} />,
-    );
-    const button = screen.getByText('▶ Show Test Text');
+    const button = screen.getByText('▶ Show Dimensions');
     fireEvent.click(button);
-    expect(screen.getByText('▼ Hide Test Text')).toBeInTheDocument();
+    expect(getByText('▼ Hide Dimensions')).toBeInTheDocument();
   });
 
-  // it('renders DJNodeDimensions content for metric type', () => {
-  //   const { getByText } = render(
-  //     <Collapse {...defaultProps} data={{ type: 'metric' }} />,
-  //   );
-  //   const button = screen.getByText('▶ Show Test Text');
-  //   fireEvent.click(button);
-  //   expect(getByText('DJNodeDimensions content')).toBeInTheDocument();
-  // });
-  //
-  // it('renders DJNodeColumns with correct limit for non-metric type', () => {
-  //   const { getByText } = render(
-  //     <Collapse {...defaultProps} data={{ type: 'non-metric' }} />,
-  //   );
-  //   expect(getByText('DJNodeColumns content - limit 10')).toBeInTheDocument();
-  // });
-  //
-  // it('renders More/Less button for non-metric type with column names length > 10', () => {
-  //   const { getByText } = render(
-  //     <Collapse
-  //       {...defaultProps}
-  //       data={{ type: 'non-metric', column_names: Array(11).fill('column') }}
-  //     />,
-  //   );
-  //   expect(getByText('▶ More Test Text')).toBeInTheDocument();
-  // });
-  //
-  // it('toggles More/Less button text for non-metric type on click', () => {
-  //   const { getByText } = render(
-  //     <Collapse
-  //       {...defaultProps}
-  //       data={{ type: 'non-metric', column_names: Array(11).fill('column') }}
-  //     />,
-  //   );
-  //   const button = getByText('▶ More Test Text');
-  //   fireEvent.click(button);
-  //   expect(getByText('▼ Less Test Text')).toBeInTheDocument();
-  // });
+  it('toggles More/Less button text for non-metric type on click', () => {
+    defaultProps.text = 'Columns';
+    const { getByText } = render(
+      <ReactFlowProvider>
+        <Collapse
+          {...defaultProps}
+          data={{
+            type: 'transform',
+            column_names: Array(11).fill(idx => {
+              return `column-${idx}`;
+            }),
+            primary_key: [],
+          }}
+        />
+      </ReactFlowProvider>,
+    );
+    const button = getByText('▶ More Columns');
+    fireEvent.click(button);
+    expect(getByText('▼ Less Columns')).toBeInTheDocument();
+  });
 });
