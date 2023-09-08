@@ -311,4 +311,365 @@ export const mocks = {
       ],
     },
   ],
+  mockCubeNode: {
+    namespace: 'default',
+    node_revision_id: 33,
+    node_id: 33,
+    type: 'cube',
+    name: 'default.repair_orders_cube',
+    display_name: 'Default: Repair Orders Cube',
+    version: 'v1.0',
+    status: 'valid',
+    mode: 'published',
+    catalog: {
+      id: 1,
+      uuid: '0fc18295-e1a2-4c3c-b72a-894725c12488',
+      created_at: '2023-08-21T16:48:51.146121+00:00',
+      updated_at: '2023-08-21T16:48:51.146122+00:00',
+      extra_params: {},
+      name: 'warehouse',
+    },
+    schema_: null,
+    table: null,
+    description: 'Repair Orders Cube',
+    query: 'SELECT ...',
+    availability: null,
+    columns: [
+      {
+        name: 'default_DOT_num_repair_orders',
+        type: 'bigint',
+        attributes: [],
+        dimension: null,
+      },
+      {
+        name: 'default_DOT_avg_repair_price',
+        type: 'double',
+        attributes: [],
+        dimension: null,
+      },
+      {
+        name: 'default_DOT_total_repair_cost',
+        type: 'double',
+        attributes: [],
+        dimension: null,
+      },
+      {
+        name: 'default_DOT_total_repair_order_discounts',
+        type: 'double',
+        attributes: [],
+        dimension: null,
+      },
+      {
+        name: 'company_name',
+        type: 'string',
+        attributes: [
+          {
+            attribute_type: {
+              namespace: 'system',
+              name: 'dimension',
+            },
+          },
+        ],
+        dimension: null,
+      },
+      {
+        name: 'state',
+        type: 'string',
+        attributes: [
+          {
+            attribute_type: {
+              namespace: 'system',
+              name: 'dimension',
+            },
+          },
+        ],
+        dimension: null,
+      },
+    ],
+    updated_at: '2023-08-21T16:49:02.040424+00:00',
+    materializations: [
+      {
+        name: 'default',
+        engine: {
+          name: 'duckdb',
+          version: '0.7.1',
+          uri: null,
+          dialect: null,
+        },
+        config: {
+          partitions: [],
+          spark: null,
+          query: 'SELECT',
+          upstream_tables: [
+            'warehouse.roads.dispatchers',
+            'warehouse.roads.hard_hats',
+            'warehouse.roads.repair_order_details',
+            'warehouse.roads.repair_orders',
+          ],
+          dimensions: ['company_name', 'state'],
+          measures: {
+            default_DOT_num_repair_orders: {
+              metric: 'default_DOT_num_repair_orders',
+              measures: [
+                {
+                  name: 'repair_order_id_count',
+                  field_name:
+                    'm0_default_DOT_num_repair_orders_repair_order_id_count',
+                  agg: 'count',
+                  type: 'bigint',
+                },
+              ],
+              combiner: 'count(repair_order_id_count)',
+            },
+            default_DOT_avg_repair_price: {
+              metric: 'default_DOT_avg_repair_price',
+              measures: [
+                {
+                  name: 'price_count',
+                  field_name: 'm1_default_DOT_avg_repair_price_price_count',
+                  agg: 'count',
+                  type: 'bigint',
+                },
+                {
+                  name: 'price_sum',
+                  field_name: 'm1_default_DOT_avg_repair_price_price_sum',
+                  agg: 'sum',
+                  type: 'double',
+                },
+              ],
+              combiner: 'sum(price_sum) / count(price_count)',
+            },
+            default_DOT_total_repair_cost: {
+              metric: 'default_DOT_total_repair_cost',
+              measures: [
+                {
+                  name: 'price_sum',
+                  field_name: 'm2_default_DOT_total_repair_cost_price_sum',
+                  agg: 'sum',
+                  type: 'double',
+                },
+              ],
+              combiner: 'sum(price_sum)',
+            },
+            default_DOT_total_repair_order_discounts: {
+              metric: 'default_DOT_total_repair_order_discounts',
+              measures: [
+                {
+                  name: 'price_discount_sum',
+                  field_name:
+                    'm3_default_DOT_total_repair_order_discounts_price_discount_sum',
+                  agg: 'sum',
+                  type: 'double',
+                },
+              ],
+              combiner: 'sum(price_discount_sum)',
+            },
+          },
+        },
+        schedule: '@daily',
+        job: 'DefaultCubeMaterialization',
+      },
+    ],
+    parents: [
+      {
+        name: 'default.hard_hat',
+      },
+      {
+        name: 'default.dispatcher',
+      },
+      {
+        name: 'default.num_repair_orders',
+      },
+      {
+        name: 'default.avg_repair_price',
+      },
+      {
+        name: 'default.total_repair_cost',
+      },
+      {
+        name: 'default.total_repair_order_discounts',
+      },
+    ],
+    created_at: '2023-08-21T16:49:01.671395+00:00',
+    tags: [],
+  },
+  mockCubesCube: {
+    node_revision_id: 33,
+    node_id: 33,
+    type: 'cube',
+    name: 'default.repair_orders_cube',
+    display_name: 'Default: Repair Orders Cube',
+    version: 'v1.0',
+    description: 'Repair Orders Cube',
+    availability: null,
+    cube_elements: [
+      {
+        name: 'default_DOT_num_repair_orders',
+        node_name: 'default.num_repair_orders',
+        type: 'metric',
+      },
+      {
+        name: 'default_DOT_avg_repair_price',
+        node_name: 'default.avg_repair_price',
+        type: 'metric',
+      },
+      {
+        name: 'default_DOT_total_repair_cost',
+        node_name: 'default.total_repair_cost',
+        type: 'metric',
+      },
+      {
+        name: 'default_DOT_total_repair_order_discounts',
+        node_name: 'default.total_repair_order_discounts',
+        type: 'metric',
+      },
+      {
+        name: 'state',
+        node_name: 'default.hard_hat',
+        type: 'dimension',
+      },
+      {
+        name: 'company_name',
+        node_name: 'default.dispatcher',
+        type: 'dimension',
+      },
+    ],
+    query: 'SELECT',
+    columns: [
+      {
+        name: 'default_DOT_num_repair_orders',
+        type: 'bigint',
+        attributes: [],
+        dimension: null,
+      },
+      {
+        name: 'default_DOT_avg_repair_price',
+        type: 'double',
+        attributes: [],
+        dimension: null,
+      },
+      {
+        name: 'default_DOT_total_repair_cost',
+        type: 'double',
+        attributes: [],
+        dimension: null,
+      },
+      {
+        name: 'default_DOT_total_repair_order_discounts',
+        type: 'double',
+        attributes: [],
+        dimension: null,
+      },
+      {
+        name: 'company_name',
+        type: 'string',
+        attributes: [
+          {
+            attribute_type: {
+              namespace: 'system',
+              name: 'dimension',
+            },
+          },
+        ],
+        dimension: null,
+      },
+      {
+        name: 'state',
+        type: 'string',
+        attributes: [
+          {
+            attribute_type: {
+              namespace: 'system',
+              name: 'dimension',
+            },
+          },
+        ],
+        dimension: null,
+      },
+    ],
+    updated_at: '2023-08-21T16:49:02.040424+00:00',
+    materializations: [
+      {
+        name: 'default',
+        engine: {
+          name: 'duckdb',
+          version: '0.7.1',
+          uri: null,
+          dialect: null,
+        },
+        config: {
+          partitions: [],
+          spark: null,
+          query: 'SELECT',
+          upstream_tables: [
+            'warehouse.roads.dispatchers',
+            'warehouse.roads.hard_hats',
+            'warehouse.roads.repair_order_details',
+            'warehouse.roads.repair_orders',
+          ],
+          dimensions: ['company_name', 'state'],
+          measures: {
+            default_DOT_num_repair_orders: {
+              metric: 'default_DOT_num_repair_orders',
+              measures: [
+                {
+                  name: 'repair_order_id_count',
+                  field_name:
+                    'm0_default_DOT_num_repair_orders_repair_order_id_count',
+                  agg: 'count',
+                  type: 'bigint',
+                },
+              ],
+              combiner: 'count(repair_order_id_count)',
+            },
+            default_DOT_avg_repair_price: {
+              metric: 'default_DOT_avg_repair_price',
+              measures: [
+                {
+                  name: 'price_count',
+                  field_name: 'm1_default_DOT_avg_repair_price_price_count',
+                  agg: 'count',
+                  type: 'bigint',
+                },
+                {
+                  name: 'price_sum',
+                  field_name: 'm1_default_DOT_avg_repair_price_price_sum',
+                  agg: 'sum',
+                  type: 'double',
+                },
+              ],
+              combiner: 'sum(price_sum) / count(price_count)',
+            },
+            default_DOT_total_repair_cost: {
+              metric: 'default_DOT_total_repair_cost',
+              measures: [
+                {
+                  name: 'price_sum',
+                  field_name: 'm2_default_DOT_total_repair_cost_price_sum',
+                  agg: 'sum',
+                  type: 'double',
+                },
+              ],
+              combiner: 'sum(price_sum)',
+            },
+            default_DOT_total_repair_order_discounts: {
+              metric: 'default_DOT_total_repair_order_discounts',
+              measures: [
+                {
+                  name: 'price_discount_sum',
+                  field_name:
+                    'm3_default_DOT_total_repair_order_discounts_price_discount_sum',
+                  agg: 'sum',
+                  type: 'double',
+                },
+              ],
+              combiner: 'sum(price_discount_sum)',
+            },
+          },
+        },
+        schedule: '@daily',
+        job: 'DefaultCubeMaterialization',
+      },
+    ],
+  },
 };

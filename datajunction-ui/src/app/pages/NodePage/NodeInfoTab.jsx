@@ -73,7 +73,13 @@ export default function NodeInfoTab({ node }) {
           <h6 className="mb-0 w-100">Cube Elements</h6>
           <div className={`list-group-item`}>
             {node.cube_elements.map(cubeElem => (
-              <div className="button-3 cube-element">
+              <div
+                className="button-3 cube-element"
+                key={cubeElem.name}
+                role="cell"
+                aria-label="CubeElement"
+                aria-hidden="false"
+              >
                 <a href={`/nodes/${cubeElem.node_name}`}>
                   {cubeElem.type === 'metric'
                     ? cubeElem.node_name
@@ -173,7 +179,7 @@ export default function NodeInfoTab({ node }) {
               aria-hidden="false"
               aria-label="PrimaryKey"
             >
-              {node?.primary_key.join(', ')}
+              {node?.primary_key?.join(', ')}
             </p>
           </div>
           <div>
