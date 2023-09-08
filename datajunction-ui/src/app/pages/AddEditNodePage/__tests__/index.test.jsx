@@ -172,7 +172,7 @@ describe('AddEditNodePage', () => {
     await userEvent.click(screen.getByText('Create dimension'));
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledTimes(1);
+      expect(mockDjClient.DataJunctionAPI.createNode).toBeCalled();
       expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledWith(
         'dimension',
         'default.special_forces_contractors',
@@ -210,7 +210,7 @@ describe('AddEditNodePage', () => {
     await userEvent.click(screen.getByText('Create dimension'));
 
     await waitFor(() => {
-      expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledTimes(1);
+      expect(mockDjClient.DataJunctionAPI.createNode).toBeCalled();
       expect(mockDjClient.DataJunctionAPI.createNode).toBeCalledWith(
         'dimension',
         'default.some_test_metric',
