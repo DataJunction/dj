@@ -43,8 +43,8 @@ export default function QueryInfo({
             <td>{started}</td>
             <td>
               {errors?.length ? (
-                errors.map(e => (
-                  <p>
+                errors.map((e, idx) => (
+                  <p key={`error-${idx}`}>
                     <span className="rounded-pill badge bg-secondary-error">
                       {e}
                     </span>

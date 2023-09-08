@@ -32,7 +32,10 @@ export function DJNodeColumns({ data, limit }) {
     };
   };
   return data.column_names.slice(0, limit).map(col => (
-    <div className={'custom-node-subheader node_type__' + data.type}>
+    <div
+      className={'custom-node-subheader node_type__' + data.type}
+      key={`${data.name}.${col.name}`}
+    >
       <div style={handleWrapperStyle}>
         <Handle
           type="target"

@@ -42,10 +42,17 @@ export function DJNodeDimensions(data) {
     Object.entries(grouped).map(([dimKey, dimValue]) => {
       if (Array.isArray(dimValue.columns)) {
         const attributes = dimValue.columns.map(col => {
-          return <span className={'badge white_badge'}>{col}</span>;
+          return (
+            <span className={'badge white_badge'} key={`attr-${col}`}>
+              {col}
+            </span>
+          );
         });
         return (
-          <div className={'custom-node-subheader node_type__' + data.type}>
+          <div
+            className={'custom-node-subheader node_type__' + data.type}
+            key={`dim-${dimValue.path}-${dimValue.dimension}`}
+          >
             <div className="custom-node-port">
               <a href={`/nodes/${dimValue.dimension}`}>{dimValue.dimension}</a>{' '}
               <div className={'badge node_type__metric text-black'}>
