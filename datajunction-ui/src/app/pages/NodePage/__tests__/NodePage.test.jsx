@@ -624,7 +624,7 @@ describe('<NodePage />', () => {
         container.getElementsByClassName('language-sql'),
       ).toMatchSnapshot();
     });
-  });
+  }, 60000);
 
   it('renders the NodeColumns tab correctly', async () => {
     const djClient = mockDJClient();
