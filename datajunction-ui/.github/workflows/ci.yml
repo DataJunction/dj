@@ -27,7 +27,7 @@ jobs:
         run: yarn install
 
       - name: Run Unit Tests
-        run: yarn test
+        run: yarn test --runInBand
 
       - name: Build Project
         run: yarn build
