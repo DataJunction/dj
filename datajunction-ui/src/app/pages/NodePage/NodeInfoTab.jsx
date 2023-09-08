@@ -107,6 +107,9 @@ export default function NodeInfoTab({ node }) {
               <span
                 className="rounded-pill badge bg-secondary-soft"
                 style={{ marginLeft: '0.5rem', fontSize: '100%' }}
+                role="dialog"
+                aria-hidden="false"
+                aria-label="Version"
               >
                 {node?.version}
               </span>
@@ -115,7 +118,12 @@ export default function NodeInfoTab({ node }) {
           {node.type === 'source' ? (
             <div>
               <h6 className="mb-0 w-100">Table</h6>
-              <p className="mb-0 opacity-75">
+              <p
+                className="mb-0 opacity-75"
+                role="dialog"
+                aria-hidden="false"
+                aria-label="Table"
+              >
                 {node?.catalog.name}.{node?.schema_}.{node?.table}
               </p>
             </div>
@@ -124,27 +132,58 @@ export default function NodeInfoTab({ node }) {
           )}
           <div>
             <h6 className="mb-0 w-100">Status</h6>
-            <p className="mb-0 opacity-75">
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="NodeStatus"
+            >
               <NodeStatus node={node} />
             </p>
           </div>
           <div>
             <h6 className="mb-0 w-100">Mode</h6>
             <p className="mb-0 opacity-75">
-              <span className="status">{node?.mode}</span>
+              <span
+                className="status"
+                role="dialog"
+                aria-hidden="false"
+                aria-label="Mode"
+              >
+                {node?.mode}
+              </span>
             </p>
           </div>
           <div>
             <h6 className="mb-0 w-100">Tags</h6>
-            <p className="mb-0 opacity-75">{nodeTags}</p>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="Tags"
+            >
+              {nodeTags}
+            </p>
           </div>
           <div>
             <h6 className="mb-0 w-100">Primary Key</h6>
-            <p className="mb-0 opacity-75">{node?.primary_key.join(', ')}</p>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="PrimaryKey"
+            >
+              {node?.primary_key.join(', ')}
+            </p>
           </div>
           <div>
             <h6 className="mb-0 w-100">Last Updated</h6>
-            <p className="mb-0 opacity-75">
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="UpdatedAt"
+            >
               {new Date(node?.updated_at).toDateString()}
             </p>
           </div>

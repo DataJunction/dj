@@ -6,10 +6,12 @@ export default function NodeHistory({ node, djClient }) {
 
   useEffect(() => {
     const fetchData = async () => {
-      const data = await djClient.history('node', node.name);
-      setHistory(data);
-      const revisions = await djClient.revisions(node.name);
-      setRevisions(revisions);
+      if (node) {
+        const data = await djClient.history('node', node.name);
+        setHistory(data);
+        const revisions = await djClient.revisions(node.name);
+        setRevisions(revisions);
+      }
     };
     fetchData().catch(console.error);
   }, [djClient, node]);
@@ -21,7 +23,7 @@ export default function NodeHistory({ node, djClient }) {
     ) {
       return event.details.attributes
         .map(attr => (
-          <div>
+          <div key={event.id}>
             Set{' '}
             <span className={`badge partition_value`}>{attr.column_name}</span>{' '}
             as{' '}
@@ -34,7 +36,7 @@ export default function NodeHistory({ node, djClient }) {
     }
     if (event.activity_type === 'create' && event.entity_type === 'link') {
       return (
-        <div>
+        <div key={event.id}>
           Linked{' '}
           <span className={`badge partition_value`}>
             {event.details.column}
@@ -55,7 +57,7 @@ export default function NodeHistory({ node, djClient }) {
       event.entity_type === 'materialization'
     ) {
       return (
-        <div>
+        <div key={event.id}>
           Initialized materialization{' '}
           <span className={`badge partition_value`}>
             {event.details.materialization}
@@ -68,7 +70,7 @@ export default function NodeHistory({ node, djClient }) {
       event.entity_type === 'availability'
     ) {
       return (
-        <div>
+        <div key={event.id}>
           Materialized at{' '}
           <span className={`badge partition_value_highlight`}>
             {event.post.catalog}.{event.post.schema_}.{event.post.table}
@@ -89,7 +91,7 @@ export default function NodeHistory({ node, djClient }) {
       event.entity_type === 'node'
     ) {
       const expr = (
-        <div>
+        <div key={event.id}>
           Caused by a change in upstream{' '}
           <a href={`/nodes/${event.details['upstream_node']}`}>
             {event.details['upstream_node']}
@@ -97,7 +99,7 @@ export default function NodeHistory({ node, djClient }) {
         </div>
       );
       return (
-        <div>
+        <div key={event.id}>
           Status changed from{' '}
           <span className={`status__${event.pre['status']}`}>
             {event.pre['status']}
@@ -111,7 +113,7 @@ export default function NodeHistory({ node, djClient }) {
       );
     }
     return (
-      <div>
+      <div key={event.id}>
         {JSON.stringify(event.details) === '{}'
           ? ''
           : JSON.stringify(event.details)}
@@ -121,7 +123,7 @@ export default function NodeHistory({ node, djClient }) {
 
   const tableData = history => {
     return history.map(event => (
-      <tr>
+      <tr key={event.id}>
         <td className="text-start">
           <span
             className={`history_type__${event.activity_type} badge node_type`}
@@ -140,7 +142,7 @@ export default function NodeHistory({ node, djClient }) {
 
   const revisionsTable = revisions => {
     return revisions.map(revision => (
-      <tr>
+      <tr key={revision.version}>
         <td className="text-start">
           <span className={`badge node_type__source`}>{revision.version}</span>
         </td>
@@ -153,26 +155,30 @@ export default function NodeHistory({ node, djClient }) {
   };
   return (
     <div className="table-vertical">
-      <table className="card-inner-table table">
+      <table className="card-inner-table table" aria-label="Revisions">
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-          <th className="text-start">Version</th>
-          <th>Display Name</th>
-          <th>Description</th>
-          <th>Query</th>
-          <th>Tags</th>
+          <tr>
+            <th className="text-start">Version</th>
+            <th>Display Name</th>
+            <th>Description</th>
+            <th>Query</th>
+            <th>Tags</th>
+          </tr>
         </thead>
-        {revisionsTable(revisions)}
+        <tbody>{revisionsTable(revisions)}</tbody>
       </table>
-      <table className="card-inner-table table">
+      <table className="card-inner-table table" aria-label="Activity">
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-          <th className="text-start">Activity</th>
-          <th>Type</th>
-          <th>Name</th>
-          <th>User</th>
-          <th>Timestamp</th>
-          <th>Details</th>
+          <tr>
+            <th className="text-start">Activity</th>
+            <th>Type</th>
+            <th>Name</th>
+            <th>User</th>
+            <th>Timestamp</th>
+            <th>Details</th>
+          </tr>
         </thead>
-        {tableData(history)}
+        <tbody>{tableData(history)}</tbody>
       </table>
     </div>
   );

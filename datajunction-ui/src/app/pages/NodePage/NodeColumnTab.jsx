@@ -11,8 +11,11 @@ export default function NodeColumnTab({ node, djClient }) {
   }, [djClient, node]);
 
   const showColumnAttributes = col => {
-    return col.attributes.map(attr => (
-      <span className="node_type__dimension badge node_type">
+    return col.attributes.map((attr, idx) => (
+      <span
+        className="node_type__dimension badge node_type"
+        key={`col-attr-${col.name}-${idx}`}
+      >
         {attr.attribute_type.name.replace(/_/, ' ')}
       </span>
     ));
@@ -20,10 +23,22 @@ export default function NodeColumnTab({ node, djClient }) {
 
   const columnList = columns => {
     return columns.map(col => (
-      <tr>
-        <td className="text-start">{col.name}</td>
+      <tr key={col.name}>
+        <td
+          className="text-start"
+          role="columnheader"
+          aria-label="ColumnName"
+          aria-hidden="false"
+        >
+          {col.name}
+        </td>
         <td>
-          <span className="node_type__transform badge node_type">
+          <span
+            className="node_type__transform badge node_type"
+            role="columnheader"
+            aria-label="ColumnType"
+            aria-hidden="false"
+          >
             {col.type}
           </span>
         </td>
@@ -46,12 +61,14 @@ export default function NodeColumnTab({ node, djClient }) {
     <div className="table-responsive">
       <table className="card-inner-table table">
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-          <th className="text-start">Column</th>
-          <th>Type</th>
-          <th>Dimension</th>
-          <th>Attributes</th>
+          <tr>
+            <th className="text-start">Column</th>
+            <th>Type</th>
+            <th>Dimension</th>
+            <th>Attributes</th>
+          </tr>
         </thead>
-        {columnList(columns)}
+        <tbody>{columnList(columns)}</tbody>
       </table>
     </div>
   );
