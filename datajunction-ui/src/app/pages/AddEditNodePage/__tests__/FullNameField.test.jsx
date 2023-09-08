@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { Formik, Form } from 'formik';
 import { FullNameField } from '../FullNameField';
 
@@ -17,7 +17,9 @@ describe('FullNameField', () => {
   it('generates the full name based on namespace and display name', () => {
     setup({ namespace: 'cats', display_name: 'Jasper the Cat' });
     const fullNameInput = screen.getByRole('textbox');
-    expect(fullNameInput.value).toBe('cats.jasper_the_cat');
+    waitFor(() => {
+      expect(fullNameInput.value).toBe('cats.jasper_the_cat');
+    });
   });
 
   it('does not set the full name if namespace or display name is missing', () => {

@@ -16,7 +16,7 @@ export const FullNameField = props => {
         props.name,
         `${values.namespace}.${values.display_name
           .toLowerCase()
-          .replace(/ /g, '_')}`,
+          .replace(/ /g, '_')}` || '',
       );
     }
   }, [setFieldValue, props.name, values]);
@@ -29,6 +29,7 @@ export const FullNameField = props => {
         className="FullNameField"
         disabled="disabled"
         id="FullName"
+        value={values.name || ''}
       />
       {!!meta.touched && !!meta.error && <div>{meta.error}</div>}
     </>
