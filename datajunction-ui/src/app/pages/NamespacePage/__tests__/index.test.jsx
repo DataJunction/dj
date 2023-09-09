@@ -1,10 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import DJClientContext from '../../../providers/djclient';
 import { NamespacePage } from '../index';
 import React from 'react';
 
-// Mocking the DataJunctionAPI service methods
 const mockDjClient = {
   namespaces: jest.fn(),
   namespace: jest.fn(),
@@ -83,6 +82,10 @@ describe('NamespacePage', () => {
 
       // check that it renders nodes
       expect(screen.getByText('Test Node')).toBeInTheDocument();
+
+      // click to open and close tab
+      fireEvent.click(screen.getByText('common'));
+      fireEvent.click(screen.getByText('common'));
     });
   });
 

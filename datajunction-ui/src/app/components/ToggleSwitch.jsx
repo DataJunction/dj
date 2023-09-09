@@ -4,6 +4,9 @@ const ToggleSwitch = ({ checked, onChange, toggleName }) => (
   <>
     <input
       id="show-compiled-sql-toggle"
+      role="checkbox"
+      aria-label="ToggleSwitch"
+      aria-hidden="false"
       type="checkbox"
       className="checkbox"
       checked={checked}

@@ -204,48 +204,54 @@ export function SQLBuilderPage() {
         <div className="card">
           <div className="card-header">
             <h4>Metrics</h4>
-            <Select
-              name="metrics"
-              options={metrics}
-              isDisabled={
-                !!(selectedMetrics.length && selectedDimensions.length)
-              }
-              noOptionsMessage={() => 'No metrics found.'}
-              placeholder={`${metrics.length} Available Metrics`}
-              isMulti
-              isClearable
-              closeMenuOnSelect={false}
-              onChange={e => {
-                setSelectedDimensions([]);
-                resetView();
-                setStagedMetrics(e.map(m => m.value));
-              }}
-              onMenuClose={() => {
-                resetView();
-                setSelectedDimensions([]);
-                setSelectedMetrics(stagedMetrics);
-              }}
-            />
+            <span data-testid="select-metrics">
+              <Select
+                name="metrics"
+                options={metrics}
+                isDisabled={
+                  !!(selectedMetrics.length && selectedDimensions.length)
+                }
+                noOptionsMessage={() => 'No metrics found.'}
+                placeholder={`${metrics.length} Available Metrics`}
+                isMulti
+                isClearable
+                closeMenuOnSelect={false}
+                onChange={e => {
+                  setSelectedDimensions([]);
+                  resetView();
+                  setStagedMetrics(e.map(m => m.value));
+                  setSelectedMetrics(stagedMetrics);
+                }}
+                onMenuClose={() => {
+                  resetView();
+                  setSelectedDimensions([]);
+                  setSelectedMetrics(stagedMetrics);
+                }}
+              />
+            </span>
             <h4>Group By</h4>
-            <Select
-              name="dimensions"
-              formatOptionLabel={formatOptionLabel}
-              options={commonDimensionsList}
-              noOptionsMessage={() =>
-                'No shared dimensions found. Try selecting different metrics.'
-              }
-              placeholder={`${commonDimensionsList.length} Shared Dimensions`}
-              isMulti
-              isClearable
-              closeMenuOnSelect={false}
-              onChange={e => {
-                resetView();
-                setStagedDimensions(e.map(d => d.value));
-              }}
-              onMenuClose={() => {
-                setSelectedDimensions(stagedDimensions);
-              }}
-            />
+            <span data-testid="select-dimensions">
+              <Select
+                name="dimensions"
+                formatOptionLabel={formatOptionLabel}
+                options={commonDimensionsList}
+                noOptionsMessage={() =>
+                  'No shared dimensions found. Try selecting different metrics.'
+                }
+                placeholder={`${commonDimensionsList.length} Shared Dimensions`}
+                isMulti
+                isClearable
+                closeMenuOnSelect={false}
+                onChange={e => {
+                  resetView();
+                  setStagedDimensions(e.map(d => d.value));
+                  setSelectedDimensions(stagedDimensions);
+                }}
+                onMenuClose={() => {
+                  setSelectedDimensions(stagedDimensions);
+                }}
+              />
+            </span>
             <h4>Filter By</h4>
             <QueryBuilder
               fields={fields}

@@ -8,7 +8,6 @@ export default function NodesWithDimension({ node, djClient }) {
     const fetchData = async () => {
       const data = await djClient.nodesWithDimension(node.name);
       setAvailableNodes(data);
-      console.log('nodes', data);
     };
     fetchData().catch(console.error);
   }, [djClient, node]);

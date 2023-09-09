@@ -23,7 +23,12 @@ export default function NodeHistory({ node, djClient }) {
     ) {
       return event.details.attributes
         .map(attr => (
-          <div key={event.id}>
+          <div
+            key={event.id}
+            role="cell"
+            aria-label="HistoryAttribute"
+            aria-hidden="false"
+          >
             Set{' '}
             <span className={`badge partition_value`}>{attr.column_name}</span>{' '}
             as{' '}
@@ -36,7 +41,12 @@ export default function NodeHistory({ node, djClient }) {
     }
     if (event.activity_type === 'create' && event.entity_type === 'link') {
       return (
-        <div key={event.id}>
+        <div
+          key={event.id}
+          role="cell"
+          aria-label="HistoryCreateLink"
+          aria-hidden="false"
+        >
           Linked{' '}
           <span className={`badge partition_value`}>
             {event.details.column}
@@ -57,7 +67,12 @@ export default function NodeHistory({ node, djClient }) {
       event.entity_type === 'materialization'
     ) {
       return (
-        <div key={event.id}>
+        <div
+          key={event.id}
+          role="cell"
+          aria-label="HistoryCreateMaterialization"
+          aria-hidden="false"
+        >
           Initialized materialization{' '}
           <span className={`badge partition_value`}>
             {event.details.materialization}
@@ -70,7 +85,12 @@ export default function NodeHistory({ node, djClient }) {
       event.entity_type === 'availability'
     ) {
       return (
-        <div key={event.id}>
+        <div
+          key={event.id}
+          role="cell"
+          aria-label="HistoryCreateAvailability"
+          aria-hidden="false"
+        >
           Materialized at{' '}
           <span className={`badge partition_value_highlight`}>
             {event.post.catalog}.{event.post.schema_}.{event.post.table}
@@ -91,7 +111,7 @@ export default function NodeHistory({ node, djClient }) {
       event.entity_type === 'node'
     ) {
       const expr = (
-        <div key={event.id}>
+        <div>
           Caused by a change in upstream{' '}
           <a href={`/nodes/${event.details['upstream_node']}`}>
             {event.details['upstream_node']}
@@ -99,7 +119,12 @@ export default function NodeHistory({ node, djClient }) {
         </div>
       );
       return (
-        <div key={event.id}>
+        <div
+          key={event.id}
+          role="cell"
+          aria-label="HistoryNodeStatusChange"
+          aria-hidden="false"
+        >
           Status changed from{' '}
           <span className={`status__${event.pre['status']}`}>
             {event.pre['status']}
@@ -123,7 +148,7 @@ export default function NodeHistory({ node, djClient }) {
 
   const tableData = history => {
     return history.map(event => (
-      <tr key={event.id}>
+      <tr key={`history-row-${event.id}`}>
         <td className="text-start">
           <span
             className={`history_type__${event.activity_type} badge node_type`}

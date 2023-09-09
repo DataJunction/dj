@@ -218,7 +218,7 @@ export const mocks = {
   ],
   metricNodeHistory: [
     {
-      id: 33,
+      id: 1,
       entity_type: 'node',
       entity_name: 'default.avg_repair_price',
       node: 'default.avg_repair_price',
@@ -227,6 +227,81 @@ export const mocks = {
       pre: {},
       post: {},
       details: {},
+      created_at: '2023-08-21T16:48:56.950482+00:00',
+    },
+    {
+      id: 2,
+      entity_type: 'column_attribute',
+      entity_name: 'default.avg_repair_price',
+      node: 'default.avg_repair_price',
+      activity_type: 'set_attribute',
+      user: null,
+      pre: {},
+      post: {},
+      details: {
+        attributes: [
+          { attribute_type_name: 'primary_key', column_name: 'col1' },
+          { attribute_type_name: 'dimension', column_name: 'col1' },
+        ],
+      },
+      created_at: '2023-08-21T16:48:56.950482+00:00',
+    },
+    {
+      id: 3,
+      entity_type: 'link',
+      entity_name: 'default.avg_repair_price',
+      node: 'default.avg_repair_price',
+      activity_type: 'create',
+      user: null,
+      pre: {},
+      post: {},
+      details: {
+        column: 'col1',
+        dimension: 'default.hard_hat',
+        dimension_column: 'hard_hat_id',
+      },
+      created_at: '2023-08-21T16:48:56.950482+00:00',
+    },
+    {
+      id: 4,
+      entity_type: 'materialization',
+      entity_name: 'default.avg_repair_price',
+      node: 'default.avg_repair_price',
+      activity_type: 'create',
+      user: null,
+      pre: {},
+      post: {},
+      details: {
+        materialization: 'some_random_materialization',
+      },
+      created_at: '2023-08-21T16:48:56.950482+00:00',
+    },
+    {
+      id: 5,
+      entity_type: 'availability',
+      entity_name: 'default.avg_repair_price',
+      node: 'default.avg_repair_price',
+      activity_type: 'create',
+      user: null,
+      pre: {},
+      post: {},
+      details: {
+        materialization: 'some_random_materialization',
+      },
+      created_at: '2023-08-21T16:48:56.950482+00:00',
+    },
+    {
+      id: 6,
+      entity_type: 'node',
+      entity_name: 'default.avg_repair_price',
+      node: 'default.avg_repair_price',
+      activity_type: 'status_change',
+      user: null,
+      pre: { status: 'valid' },
+      post: { status: 'invalid' },
+      details: {
+        upstream_node: 'default.repair_order_details',
+      },
       created_at: '2023-08-21T16:48:56.950482+00:00',
     },
   ],
@@ -672,4 +747,622 @@ export const mocks = {
       },
     ],
   },
+  mockNodeLineage: [
+    {
+      column_name: 'default_DOT_avg_repair_price',
+      node_name: 'default.avg_repair_price',
+      node_type: 'metric',
+      display_name: 'Default: Avg Repair Price',
+      lineage: [
+        {
+          column_name: 'price',
+          node_name: 'default.repair_order_details',
+          node_type: 'source',
+          display_name: 'Default: Repair Order Details',
+          lineage: [],
+        },
+      ],
+    },
+  ],
+  mockMetricNodeJson: {
+    namespace: 'default',
+    node_revision_id: 24,
+    node_id: 24,
+    type: 'metric',
+    name: 'default.avg_repair_price',
+    display_name: 'Default: Avg Repair Price',
+    version: 'v1.0',
+    status: 'valid',
+    mode: 'published',
+    catalog: {
+      id: 1,
+      uuid: '0fc18295-e1a2-4c3c-b72a-894725c12488',
+      created_at: '2023-08-21T16:48:51.146121+00:00',
+      updated_at: '2023-08-21T16:48:51.146122+00:00',
+      extra_params: {},
+      name: 'warehouse',
+    },
+    schema_: null,
+    table: null,
+    description: 'Average repair price',
+    query:
+      'SELECT  avg(price) default_DOT_avg_repair_price \n FROM default.repair_order_details\n\n',
+    availability: null,
+    columns: [
+      {
+        name: 'default_DOT_avg_repair_price',
+        type: 'double',
+        attributes: [],
+        dimension: null,
+      },
+    ],
+    updated_at: '2023-08-21T16:48:56.932231+00:00',
+    materializations: [],
+    parents: [
+      {
+        name: 'default.repair_order_details',
+      },
+    ],
+    created_at: '2023-08-21T16:48:56.932162+00:00',
+    tags: [],
+    primary_key: [],
+    createNodeClientCode:
+      'dj = DJBuilder(DJ_URL)\n\navg_repair_price = dj.create_metric(\n    description="Average repair price",\n    display_name="Default: Avg Repair Price",\n    name="default.avg_repair_price",\n    primary_key=[],\n    query="""SELECT  avg(price) default_DOT_avg_repair_price \n FROM default.repair_order_details\n\n"""\n)',
+    dimensions: [
+      {
+        name: 'default.date_dim.dateint',
+        type: 'timestamp',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+          'default.hard_hat.birth_date',
+        ],
+      },
+      {
+        name: 'default.date_dim.dateint',
+        type: 'timestamp',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+          'default.hard_hat.hire_date',
+        ],
+      },
+      {
+        name: 'default.date_dim.day',
+        type: 'int',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+          'default.hard_hat.birth_date',
+        ],
+      },
+      {
+        name: 'default.date_dim.day',
+        type: 'int',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+          'default.hard_hat.hire_date',
+        ],
+      },
+      {
+        name: 'default.date_dim.month',
+        type: 'int',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+          'default.hard_hat.birth_date',
+        ],
+      },
+      {
+        name: 'default.date_dim.month',
+        type: 'int',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+          'default.hard_hat.hire_date',
+        ],
+      },
+      {
+        name: 'default.date_dim.year',
+        type: 'int',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+          'default.hard_hat.birth_date',
+        ],
+      },
+      {
+        name: 'default.date_dim.year',
+        type: 'int',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+          'default.hard_hat.hire_date',
+        ],
+      },
+      {
+        name: 'default.hard_hat.address',
+        type: 'string',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.birth_date',
+        type: 'date',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.city',
+        type: 'string',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.contractor_id',
+        type: 'int',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.country',
+        type: 'string',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.first_name',
+        type: 'string',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.hard_hat_id',
+        type: 'int',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.hire_date',
+        type: 'date',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.last_name',
+        type: 'string',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.manager',
+        type: 'int',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.postal_code',
+        type: 'string',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.state',
+        type: 'string',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+      {
+        name: 'default.hard_hat.title',
+        type: 'string',
+        path: [
+          'default.repair_order_details.repair_order_id',
+          'default.repair_order.hard_hat_id',
+        ],
+      },
+    ],
+  },
+  mockNodeDAG: [
+    {
+      namespace: 'default',
+      node_revision_id: 2,
+      node_id: 2,
+      type: 'source',
+      name: 'default.repair_order_details',
+      display_name: 'Default: Repair Order Details',
+      version: 'v1.0',
+      status: 'valid',
+      mode: 'published',
+      catalog: {
+        id: 1,
+        uuid: '0fc18295-e1a2-4c3c-b72a-894725c12488',
+        created_at: '2023-08-21T16:48:51.146121+00:00',
+        updated_at: '2023-08-21T16:48:51.146122+00:00',
+        extra_params: {},
+        name: 'warehouse',
+      },
+      schema_: 'roads',
+      table: 'repair_order_details',
+      description: 'Details on repair orders',
+      query: null,
+      availability: null,
+      columns: [
+        {
+          name: 'repair_order_id',
+          type: 'int',
+          attributes: [],
+          dimension: {
+            name: 'default.repair_order',
+          },
+        },
+        {
+          name: 'repair_type_id',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'price',
+          type: 'float',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'quantity',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'discount',
+          type: 'float',
+          attributes: [],
+          dimension: null,
+        },
+      ],
+      updated_at: '2023-08-21T16:48:52.981201+00:00',
+      materializations: [],
+      parents: [],
+      created_at: '2023-08-21T16:48:52.970554+00:00',
+      tags: [],
+    },
+    {
+      namespace: 'default',
+      node_revision_id: 14,
+      node_id: 14,
+      type: 'dimension',
+      name: 'default.date_dim',
+      display_name: 'Default: Date Dim',
+      version: 'v1.0',
+      status: 'valid',
+      mode: 'published',
+      catalog: {
+        id: 1,
+        uuid: '0fc18295-e1a2-4c3c-b72a-894725c12488',
+        created_at: '2023-08-21T16:48:51.146121+00:00',
+        updated_at: '2023-08-21T16:48:51.146122+00:00',
+        extra_params: {},
+        name: 'warehouse',
+      },
+      schema_: null,
+      table: null,
+      description: 'Date dimension',
+      query:
+        '\n            SELECT\n              dateint,\n              month,\n              year,\n              day\n            FROM default.date\n        ',
+      availability: null,
+      columns: [
+        {
+          name: 'dateint',
+          type: 'timestamp',
+          attributes: [
+            {
+              attribute_type: {
+                namespace: 'system',
+                name: 'primary_key',
+              },
+            },
+          ],
+          dimension: null,
+        },
+        {
+          name: 'month',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'year',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'day',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+        },
+      ],
+      updated_at: '2023-08-21T16:48:54.726980+00:00',
+      materializations: [],
+      parents: [
+        {
+          name: 'default.date',
+        },
+      ],
+      created_at: '2023-08-21T16:48:54.726871+00:00',
+      tags: [],
+    },
+    {
+      namespace: 'default',
+      node_revision_id: 18,
+      node_id: 18,
+      type: 'dimension',
+      name: 'default.hard_hat',
+      display_name: 'Default: Hard Hat',
+      version: 'v1.0',
+      status: 'valid',
+      mode: 'published',
+      catalog: {
+        id: 1,
+        uuid: '0fc18295-e1a2-4c3c-b72a-894725c12488',
+        created_at: '2023-08-21T16:48:51.146121+00:00',
+        updated_at: '2023-08-21T16:48:51.146122+00:00',
+        extra_params: {},
+        name: 'warehouse',
+      },
+      schema_: null,
+      table: null,
+      description: 'Hard hat dimension',
+      query:
+        '\n            SELECT\n            hard_hat_id,\n            last_name,\n            first_name,\n            title,\n            birth_date,\n            hire_date,\n            address,\n            city,\n            state,\n            postal_code,\n            country,\n            manager,\n            contractor_id\n            FROM default.hard_hats\n        ',
+      availability: null,
+      columns: [
+        {
+          name: 'hard_hat_id',
+          type: 'int',
+          attributes: [
+            {
+              attribute_type: {
+                namespace: 'system',
+                name: 'primary_key',
+              },
+            },
+          ],
+          dimension: null,
+        },
+        {
+          name: 'last_name',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'first_name',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'title',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'birth_date',
+          type: 'date',
+          attributes: [],
+          dimension: {
+            name: 'default.date_dim',
+          },
+        },
+        {
+          name: 'hire_date',
+          type: 'date',
+          attributes: [],
+          dimension: {
+            name: 'default.date_dim',
+          },
+        },
+        {
+          name: 'address',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'city',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'state',
+          type: 'string',
+          attributes: [],
+          dimension: {
+            name: 'default.us_state',
+          },
+        },
+        {
+          name: 'postal_code',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'country',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'manager',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+        },
+        {
+          name: 'contractor_id',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+        },
+      ],
+      updated_at: '2023-08-21T16:48:55.594603+00:00',
+      materializations: [],
+      parents: [
+        {
+          name: 'default.hard_hats',
+        },
+      ],
+      created_at: '2023-08-21T16:48:55.594537+00:00',
+      tags: [],
+    },
+    {
+      namespace: 'default',
+      node_revision_id: 24,
+      node_id: 24,
+      type: 'metric',
+      name: 'default.avg_repair_price',
+      display_name: 'Default: Avg Repair Price',
+      version: 'v1.0',
+      status: 'valid',
+      mode: 'published',
+      catalog: {
+        id: 1,
+        uuid: '0fc18295-e1a2-4c3c-b72a-894725c12488',
+        created_at: '2023-08-21T16:48:51.146121+00:00',
+        updated_at: '2023-08-21T16:48:51.146122+00:00',
+        extra_params: {},
+        name: 'warehouse',
+      },
+      schema_: null,
+      table: null,
+      description: 'Average repair price',
+      query:
+        'SELECT  avg(price) default_DOT_avg_repair_price \n FROM default.repair_order_details\n\n',
+      availability: null,
+      columns: [
+        {
+          name: 'default_DOT_avg_repair_price',
+          type: 'double',
+          attributes: [],
+          dimension: null,
+        },
+      ],
+      updated_at: '2023-08-21T16:48:56.932231+00:00',
+      materializations: [],
+      parents: [
+        {
+          name: 'default.repair_order_details',
+        },
+      ],
+      created_at: '2023-08-21T16:48:56.932162+00:00',
+      tags: [],
+    },
+  ],
+  mockDimensionNode: {
+    namespace: 'default',
+    node_revision_id: 21,
+    node_id: 21,
+    type: 'dimension',
+    name: 'default.dispatcher',
+    display_name: 'Default: Dispatcher',
+    version: 'v1.0',
+    status: 'valid',
+    mode: 'published',
+    catalog: {
+      id: 1,
+      uuid: '0fc18295-e1a2-4c3c-b72a-894725c12488',
+      created_at: '2023-08-21T16:48:51.146121+00:00',
+      updated_at: '2023-08-21T16:48:51.146122+00:00',
+      extra_params: {},
+      name: 'warehouse',
+    },
+    schema_: null,
+    table: null,
+    description: 'Dispatcher dimension',
+    query:
+      '\n            SELECT\n            dispatcher_id,\n            company_name,\n            phone\n            FROM default.dispatchers\n        ',
+    availability: null,
+    columns: [
+      {
+        name: 'dispatcher_id',
+        type: 'int',
+        attributes: [
+          {
+            attribute_type: {
+              namespace: 'system',
+              name: 'primary_key',
+            },
+          },
+        ],
+        dimension: null,
+      },
+      {
+        name: 'company_name',
+        type: 'string',
+        attributes: [],
+        dimension: null,
+      },
+      {
+        name: 'phone',
+        type: 'string',
+        attributes: [],
+        dimension: null,
+      },
+    ],
+    updated_at: '2023-08-21T16:48:56.399124+00:00',
+    materializations: [],
+    parents: [
+      {
+        name: 'default.dispatchers',
+      },
+    ],
+    created_at: '2023-08-21T16:48:56.399025+00:00',
+    tags: [],
+  },
+  mockLinkedNodes: [
+    {
+      node_revision_id: 2,
+      node_id: 2,
+      type: 'source',
+      name: 'default.repair_order_details',
+      display_name: 'Default: Repair Order Details',
+    },
+    {
+      node_revision_id: 3,
+      node_id: 3,
+      type: 'source',
+      name: 'default.num_repair_orders',
+      display_name: 'Default: Num Repair Orders',
+    },
+  ],
 };
