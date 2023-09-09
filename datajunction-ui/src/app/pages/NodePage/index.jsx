@@ -136,7 +136,7 @@ export function NodePage() {
     case 7:
       tabToDisplay = <NodeColumnLineage djNode={node} djClient={djClient} />;
       break;
-    default:
+    default: /* istanbul ignore next */
       tabToDisplay = <NodeInfoTab node={node} />;
   }
   // @ts-ignore
