@@ -1,6 +1,6 @@
 """Nodes endpoint helper functions"""
 import logging
-from collections import defaultdict, deque
+from collections import defaultdict
 from http import HTTPStatus
 from typing import List, Optional
 
@@ -41,7 +41,6 @@ from datajunction_server.models.attribute import (
     UniquenessScope,
 )
 from datajunction_server.models.base import labelize
-from datajunction_server.models.column import ColumnAttributeInput
 from datajunction_server.models.history import (
     ActivityType,
     EntityType,
@@ -81,6 +80,9 @@ _logger = logging.getLogger(__name__)
 
 
 def get_node_column(node: Node, column_name: str) -> Column:
+    """
+    Gets the specified column on a node
+    """
     column_map = {column.name: column for column in node.current.columns}
     if column_name not in column_map:
         raise DJDoesNotExistException(

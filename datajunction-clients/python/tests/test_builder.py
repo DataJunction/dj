@@ -732,10 +732,10 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         """
         dim = client.source(node_name="default.contractors")
         response = dim.set_column_attributes(
+            "contact_title",
             [
                 ColumnAttribute(
-                    attribute_type_name="dimension",
-                    column_name="contact_title",
+                    name="dimension",
                 ),
             ],
         )
