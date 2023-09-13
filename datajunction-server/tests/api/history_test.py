@@ -79,11 +79,11 @@ def test_get_history_node(client_with_roads: TestClient):
             "node": "default.repair_order",
             "created_at": mock.ANY,
             "details": {
+                "column": "repair_order_id",
                 "attributes": [
                     {
-                        "attribute_type_name": "primary_key",
-                        "attribute_type_namespace": "system",
-                        "column_name": "repair_order_id",
+                        "name": "primary_key",
+                        "namespace": "system",
                     },
                 ],
             },

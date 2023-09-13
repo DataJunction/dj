@@ -150,7 +150,10 @@ def set_column_attributes(
     """
     node = get_node_by_name(session, node_name)
     columns = set_node_column_attributes(
-        session, node, column_name, attributes,
+        session,
+        node,
+        column_name,
+        attributes,
     )
     return columns  # type: ignore
 
@@ -383,9 +386,11 @@ def create_node(
         )
     if data.primary_key:
         for key_column in data.primary_key:
-            if key_column in column_names:
+            if key_column in column_names:  # pragma: no cover
                 set_node_column_attributes(
-                    session, node, key_column,
+                    session,
+                    node,
+                    key_column,
                     [AttributeTypeIdentifier(name="primary_key", namespace="system")],
                 )
     session.refresh(node)

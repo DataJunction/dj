@@ -2878,15 +2878,12 @@ class TestNodeColumnsAttributes:
         session.commit()
         return node
 
-    def test_set_columns_attributes(
-        self,
-        client_with_basic: TestClient,
-    ):
+    def set_id_primary_key(self, client_with_basic: TestClient):
         """
-        Validate that setting column attributes on the node works.
+        Helper function to set id as primary key on basic.dimension.users
         """
         response = client_with_basic.post(
-            "/nodes/basic.source.comments/columns/id/attributes",
+            "/nodes/basic.dimension.users/columns/id/attributes/",
             json=[
                 {
                     "namespace": "system",
@@ -2906,7 +2903,20 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-        # Set columns attributes
+    def test_set_column_attributes(
+        self,
+        client_with_basic: TestClient,
+    ):
+        """
+        Validate that setting column attributes on the node works.
+        """
+        # Set id as primary key
+        self.set_id_primary_key(client_with_basic)
+
+        # Can set again (idempotent)
+        self.set_id_primary_key(client_with_basic)
+
+        # Set column attributes
         response = client_with_basic.post(
             "/nodes/basic.dimension.users/columns/id/attributes/",
             json=[

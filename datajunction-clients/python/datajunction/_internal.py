@@ -398,13 +398,14 @@ class DJClient:
     def _set_column_attributes(
         self,
         node_name,
+        column_name,
         attributes: List[models.ColumnAttribute],
     ):
         """
         Sets attributes for columns on the node
         """
         response = self._session.post(
-            f"/nodes/{node_name}/attributes/",
+            f"/nodes/{node_name}/columns/{column_name}/attributes/",
             json=[attribute.dict() for attribute in attributes],
         )
         return response.json()
