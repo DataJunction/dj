@@ -49,18 +49,9 @@ describe('<NodeColumnLineage />', () => {
       // The origin node should be displayed
       expect(screen.getByText('Default: Avg Repair Price')).toBeInTheDocument();
 
-      // Every node in the DAG should be displayed on the screen
-      // mockNodeLineage.forEach(node =>
-      //   expect(
-      //     getByAttribute(container, node.name, 'data-id'),
-      //   ).toBeInTheDocument(),
-      // );
-
-      const metricNode = getByAttribute(
-        container,
-        'default.avg_repair_price',
-        'data-id',
-      );
+      expect(
+        getByAttribute(container, 'default.avg_repair_price', 'data-id'),
+      ).toBeInTheDocument();
     });
   });
 });
