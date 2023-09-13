@@ -72,11 +72,17 @@ async def login(
     response.set_cookie(
         DJ_AUTH_COOKIE,
         create_token({"username": user.username}, expires_delta=timedelta(days=365)),
+        domain="djui.fly.dev",
+        secure=True,
+        samesite="none",
         httponly=True,
     )
     response.set_cookie(
         DJ_LOGGED_IN_FLAG_COOKIE,
         "true",
+        domain="djui.fly.dev",
+        secure=True,
+        samesite="none",
     )
     return response
 
