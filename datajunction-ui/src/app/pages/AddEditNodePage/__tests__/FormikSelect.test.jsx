@@ -12,7 +12,7 @@ describe('FormikSelect', () => {
     { value: 'basic.two', label: 'basic.two' },
   ];
 
-  const setup = () => {
+  const singleSelect = () => {
     const utils = render(
       <Formik initialValues={{ selectedOption: '' }} onSubmit={jest.fn()}>
         <Form>
@@ -36,8 +36,39 @@ describe('FormikSelect', () => {
     };
   };
 
-  it('renders the select component with provided options', () => {
-    setup();
+  const multiSelect = () => {
+    const utils = render(
+      <Formik initialValues={{ selectedOption: '' }} onSubmit={jest.fn()}>
+        <Form>
+          <FormikSelect
+            selectOptions={namespaces}
+            formikFieldName="namespace"
+            placeholder="Choose Namespace"
+            defaultValue={{
+              value: 'basic.one',
+              label: 'basic.one',
+            }}
+            isMulti={true}
+          />
+        </Form>
+      </Formik>,
+    );
+
+    const selectInput = screen.getByRole('combobox');
+    return {
+      ...utils,
+      selectInput,
+    };
+  };
+
+  it('renders the single select component with provided options', () => {
+    singleSelect();
+    userEvent.click(screen.getByRole('combobox')); // to open the dropdown
+    expect(screen.getByText('basic.one')).toBeInTheDocument();
+  });
+
+  it('renders the multi-select component with provided options', () => {
+    multiSelect();
     userEvent.click(screen.getByRole('combobox')); // to open the dropdown
     expect(screen.getByText('basic.one')).toBeInTheDocument();
   });

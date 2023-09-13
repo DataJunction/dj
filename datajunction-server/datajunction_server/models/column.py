@@ -13,7 +13,10 @@ from datajunction_server.models.base import BaseSQLModel, NodeColumns
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
-    from datajunction_server.models.attribute import ColumnAttribute
+    from datajunction_server.models.attribute import (
+        AttributeTypeIdentifier,
+        ColumnAttribute,
+    )
     from datajunction_server.models.node import Node, NodeRevision
 
 
