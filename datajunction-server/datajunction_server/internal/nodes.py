@@ -1,6 +1,6 @@
 """Nodes endpoint helper functions"""
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from http import HTTPStatus
 from typing import List, Optional
 
@@ -36,7 +36,10 @@ from datajunction_server.models import (
     Node,
     NodeRevision,
 )
-from datajunction_server.models.attribute import UniquenessScope
+from datajunction_server.models.attribute import (
+    AttributeTypeIdentifier,
+    UniquenessScope,
+)
 from datajunction_server.models.base import labelize
 from datajunction_server.models.column import ColumnAttributeInput
 from datajunction_server.models.history import (
@@ -77,44 +80,47 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 
 
-def validate_and_build_attribute(
+def get_node_column(node: Node, column_name: str) -> Column:
+    column_map = {column.name: column for column in node.current.columns}
+    if column_name not in column_map:
+        raise DJDoesNotExistException(
+            message=f"Column `{column_name}` does not exist on node `{node.name}`!",
+        )
+    column = column_map[column_name]
+    return column
+
+
+def validate_column_attributes(
     session: Session,
-    attribute_input: ColumnAttributeInput,
+    column: Column,
+    attribute: AttributeTypeIdentifier,
     node: Node,
 ) -> ColumnAttribute:
     """
     Run some validation and build column attribute.
     """
-    column_map = {column.name: column for column in node.current.columns}
-    if attribute_input.column_name not in column_map:
-        raise DJDoesNotExistException(
-            message=f"Column `{attribute_input.column_name}` "
-            f"does not exist on node `{node.name}`!",
-        )
-    column = column_map[attribute_input.column_name]
     existing_attributes = {attr.attribute_type.name: attr for attr in column.attributes}
-    if attribute_input.attribute_type_name in existing_attributes:
-        return existing_attributes[attribute_input.attribute_type_name]
+    if attribute.name in existing_attributes:
+        return existing_attributes[attribute.name]
 
     # Verify attribute type exists
     attribute_type = get_attribute_type(
         session,
-        attribute_input.attribute_type_name,
-        attribute_input.attribute_type_namespace,
+        attribute.name,
+        attribute.namespace,
     )
     if not attribute_type:
         raise DJDoesNotExistException(
-            message=f"Attribute type `{attribute_input.attribute_type_namespace}"
-            f".{attribute_input.attribute_type_name}` "
+            message=f"Attribute type `{attribute.namespace}"
+            f".{attribute.name}` "
             f"does not exist!",
         )
 
     # Verify that the attribute type is allowed for this node
     if node.type not in attribute_type.allowed_node_types:
         raise DJException(
-            message=f"Attribute type `{attribute_input.attribute_type_namespace}."
-            f"{attribute_type.name}` not allowed on node "
-            f"type `{node.type}`!",
+            message=f"Attribute type `{attribute.namespace}.{attribute_type.name}` "
+            f"not allowed on node type `{node.type}`!",
         )
 
     return ColumnAttribute(
@@ -123,30 +129,35 @@ def validate_and_build_attribute(
     )
 
 
-def set_column_attributes_on_node(
+def set_node_column_attributes(
     session: Session,
-    attributes: List[ColumnAttributeInput],
     node: Node,
+    column_name: str,
+    attributes: List[AttributeTypeIdentifier],
 ) -> List[Column]:
     """
     Sets the column attributes on the node if allowed.
     """
-    modified_columns_map = {}
-    for attribute_input in attributes:
-        new_attribute = validate_and_build_attribute(session, attribute_input, node)
-        # pylint: disable=no-member
-        modified_columns_map[new_attribute.column.name] = new_attribute.column
+    column = get_node_column(node, column_name)
+    all_columns_map = {column.name: column for column in node.current.columns}
+
+    old_column_attributes = column.attributes
+    column.attributes = []
+    for attribute in attributes:
+        column.attributes.append(
+            validate_column_attributes(session, column, attribute, node),
+        )
 
     # Validate column attributes by building mapping between
     # attribute scope and columns
     attributes_columns_map = defaultdict(set)
-    modified_columns = modified_columns_map.values()
+    all_columns = all_columns_map.values()
 
-    for column in modified_columns:
-        for attribute in column.attributes:
+    for _col in all_columns:
+        for attribute in _col.attributes:
             scopes_map = {
                 UniquenessScope.NODE: attribute.attribute_type,
-                UniquenessScope.COLUMN_TYPE: column.type,
+                UniquenessScope.COLUMN_TYPE: _col.type,
             }
             attributes_columns_map[
                 (  # type: ignore
@@ -156,12 +167,11 @@ def set_column_attributes_on_node(
                         for item in attribute.attribute_type.uniqueness_scope
                     ),
                 )
-            ].add(column.name)
+            ].add(_col.name)
 
     for (attribute, _), columns in attributes_columns_map.items():
         if len(columns) > 1 and attribute.uniqueness_scope:
-            for col in columns:
-                modified_columns_map[col].attributes = []
+            column.attributes = old_column_attributes
             raise DJException(
                 message=f"The column attribute `{attribute.name}` is scoped to be "
                 f"unique to the `{attribute.uniqueness_scope}` level, but there "
@@ -169,24 +179,24 @@ def set_column_attributes_on_node(
                 f"`{', '.join(sorted(list(columns)))}`",
             )
 
-    session.add_all(modified_columns)
+    session.add(column)
     session.add(
         History(
             entity_type=EntityType.COLUMN_ATTRIBUTE,
             node=node.name,
             activity_type=ActivityType.SET_ATTRIBUTE,
             details={
+                "column": column.name,
                 "attributes": [attr.dict() for attr in attributes],
             },
         ),
     )
     session.commit()
-    for col in modified_columns:
-        session.refresh(col)
+    session.refresh(column)
 
     session.refresh(node)
     session.refresh(node.current)
-    return list(modified_columns)
+    return [column]
 
 
 def create_node_revision(
