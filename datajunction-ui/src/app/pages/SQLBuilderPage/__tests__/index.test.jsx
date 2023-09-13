@@ -170,21 +170,4 @@ describe('SQLBuilderPage', () => {
     }
     expect(mockDjClient.sqls).toHaveBeenCalled();
   });
-
-  // it('handles Run Query button click', () => {
-  //   mockDjClient.data.mockResolvedValue({
-  //     results: [
-  //       {
-  //         columns: ['column1', 'column2'],
-  //         rows: [
-  //           ['data1', 'data2'],
-  //           ['data3', 'data4'],
-  //         ],
-  //       },
-  //     ],
-  //   });
-  //   fireEvent.click(screen.getByRole('button', { name: 'RunQuery' }));
-  //   // screen.getByText('Run Query').click();
-  //   expect(mockDjClient.data).toHaveBeenCalled();
-  // });
 });
