@@ -3,7 +3,7 @@ Metric related APIs.
 """
 
 from http import HTTPStatus
-from typing import List
+from typing import List, Optional
 
 from fastapi import Depends, HTTPException, Query
 from sqlalchemy.exc import NoResultFound
@@ -11,6 +11,7 @@ from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_node_by_name
+from datajunction_server.api.nodes import list_nodes
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.metric import Metric
@@ -36,15 +37,13 @@ def get_metric(session: Session, name: str) -> Node:
 
 
 @router.get("/metrics/", response_model=List[str])
-def list_metrics(*, session: Session = Depends(get_session)) -> List[str]:
+def list_metrics(
+    prefix: Optional[str] = None, *, session: Session = Depends(get_session)
+) -> List[str]:
     """
     List all available metrics.
     """
-    return session.exec(
-        select(Node.name)
-        .where(Node.type == NodeType.METRIC)
-        .where(is_(Node.deactivated_at, None)),
-    ).all()
+    return list_nodes(node_type=NodeType.METRIC, prefix=prefix, session=session)
 
 
 @router.get("/metrics/{name}/", response_model=Metric)

@@ -168,8 +168,7 @@ def list_nodes(
         )
     if node_type:
         statement = statement.where(Node.type == node_type)
-    nodes = session.exec(statement).unique().all()
-    return nodes
+    return session.exec(statement).unique().all()
 
 
 @router.get("/nodes/{name}/", response_model=NodeOutput)

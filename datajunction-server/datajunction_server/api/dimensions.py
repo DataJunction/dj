@@ -2,16 +2,16 @@
 Dimensions related APIs.
 """
 import logging
-from typing import List, Union
+from typing import List, Optional, Union
 
 from fastapi import Depends, Query
-from sqlalchemy.sql.operators import is_
-from sqlmodel import Session, select
+from sqlmodel import Session
 from typing_extensions import Annotated
 
 from datajunction_server.api.helpers import get_node_by_name
+from datajunction_server.api.nodes import list_nodes
 from datajunction_server.internal.authentication.http import SecureAPIRouter
-from datajunction_server.models.node import Node, NodeRevisionOutput, NodeType
+from datajunction_server.models.node import NodeRevisionOutput, NodeType
 from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     get_nodes_with_dimension,
@@ -24,15 +24,13 @@ router = SecureAPIRouter(tags=["dimensions"])
 
 
 @router.get("/dimensions/", response_model=List[str])
-def list_dimensions(*, session: Session = Depends(get_session)) -> List[str]:
+def list_dimensions(
+    prefix: Optional[str] = None, *, session: Session = Depends(get_session)
+) -> List[str]:
     """
     List all available dimensions.
     """
-    return session.exec(
-        select(Node.name)
-        .where(Node.type == NodeType.DIMENSION)
-        .where(is_(Node.deactivated_at, None)),
-    ).all()
+    return list_nodes(node_type=NodeType.DIMENSION, prefix=prefix, session=session)
 
 
 @router.get("/dimensions/{name}/nodes/", response_model=List[NodeRevisionOutput])
