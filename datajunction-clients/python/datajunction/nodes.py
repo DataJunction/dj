@@ -207,7 +207,11 @@ class Node(ClientEntity):  # pylint: disable=protected-access
         """
         return self.dj_client._add_availability_state(self.name, availability)
 
-    def set_column_attributes(self, column_name, attributes: List[models.ColumnAttribute]):
+    def set_column_attributes(
+        self,
+        column_name,
+        attributes: List[models.ColumnAttribute],
+    ):
         """
         Sets attributes for columns on the node
         """

@@ -239,10 +239,8 @@ export const mocks = {
       pre: {},
       post: {},
       details: {
-        attributes: [
-          { attribute_type_name: 'primary_key', column_name: 'col1' },
-          { attribute_type_name: 'dimension', column_name: 'col1' },
-        ],
+        column: 'col1',
+        attributes: [{ name: 'primary_key' }, { name: 'dimension' }],
       },
       created_at: '2023-08-21T16:48:56.950482+00:00',
     },
