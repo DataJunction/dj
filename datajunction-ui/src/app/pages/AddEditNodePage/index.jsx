@@ -109,6 +109,10 @@ export function AddEditNodePage() {
     </>
   );
 
+  const primaryKeyToList = primaryKey => {
+    return primaryKey.split(',').map(columnName => columnName.trim());
+  };
+
   const createNode = async (values, setStatus) => {
     const { status, json } = await djClient.createNode(
       nodeType,
@@ -118,7 +122,7 @@ export function AddEditNodePage() {
       values.query,
       values.mode,
       values.namespace,
-      values.primary_key ? values.primary_key.split(',') : null,
+      values.primary_key ? primaryKeyToList(values.primary_key) : null,
     );
     if (status === 200 || status === 201) {
       setStatus({
@@ -143,7 +147,7 @@ export function AddEditNodePage() {
       values.description,
       values.query,
       values.mode,
-      values.primary_key ? values.primary_key.split(',') : null,
+      values.primary_key ? primaryKeyToList(values.primary_key) : null,
     );
     if (status === 200 || status === 201) {
       setStatus({
@@ -199,10 +203,14 @@ export function AddEditNodePage() {
       'mode',
     ];
     fields.forEach(field => {
-      if (field === 'primary_key' && data[field] !== undefined) {
-        data[field] = data[field].join(',');
+      if (
+        field === 'primary_key' &&
+        data[field] !== undefined &&
+        Array.isArray(data[field])
+      ) {
+        data[field] = data[field].join(', ');
       }
-      setFieldValue(field, data[field], false);
+      setFieldValue(field, data[field] || '', false);
     });
   };
 

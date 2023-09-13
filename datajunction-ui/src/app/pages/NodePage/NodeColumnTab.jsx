@@ -10,12 +10,35 @@ export default function NodeColumnTab({ node, djClient }) {
     fetchData().catch(console.error);
   }, [djClient, node]);
 
+  const showColumnAttributes = col => {
+    return col.attributes.map((attr, idx) => (
+      <span
+        className="node_type__dimension badge node_type"
+        key={`col-attr-${col.name}-${idx}`}
+      >
+        {attr.attribute_type.name.replace(/_/, ' ')}
+      </span>
+    ));
+  };
+
   const columnList = columns => {
     return columns.map(col => (
-      <tr>
-        <td className="text-start">{col.name}</td>
+      <tr key={col.name}>
+        <td
+          className="text-start"
+          role="columnheader"
+          aria-label="ColumnName"
+          aria-hidden="false"
+        >
+          {col.name}
+        </td>
         <td>
-          <span className="node_type__transform badge node_type">
+          <span
+            className="node_type__transform badge node_type"
+            role="columnheader"
+            aria-label="ColumnType"
+            aria-hidden="false"
+          >
             {col.type}
           </span>
         </td>
@@ -29,17 +52,7 @@ export default function NodeColumnTab({ node, djClient }) {
             ''
           )}{' '}
         </td>
-        <td>
-          {col.attributes.find(
-            attr => attr.attribute_type.name === 'dimension',
-          ) ? (
-            <span className="node_type__dimension badge node_type">
-              dimensional
-            </span>
-          ) : (
-            ''
-          )}
-        </td>
+        <td>{showColumnAttributes(col)}</td>
       </tr>
     ));
   };
@@ -48,12 +61,14 @@ export default function NodeColumnTab({ node, djClient }) {
     <div className="table-responsive">
       <table className="card-inner-table table">
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-          <th className="text-start">Column</th>
-          <th>Type</th>
-          <th>Dimension</th>
-          <th>Attributes</th>
+          <tr>
+            <th className="text-start">Column</th>
+            <th>Type</th>
+            <th>Dimension</th>
+            <th>Attributes</th>
+          </tr>
         </thead>
-        {columnList(columns)}
+        <tbody>{columnList(columns)}</tbody>
       </table>
     </div>
   );

@@ -8,8 +8,10 @@ export default function NodeMaterializationTab({ node, djClient }) {
   const [materializations, setMaterializations] = useState([]);
   useEffect(() => {
     const fetchData = async () => {
-      const data = await djClient.materializations(node.name);
-      setMaterializations(data);
+      if (node) {
+        const data = await djClient.materializations(node.name);
+        setMaterializations(data);
+      }
     };
     fetchData().catch(console.error);
   }, [djClient, node]);
@@ -35,7 +37,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
 
   const materializationRows = materializations => {
     return materializations.map(materialization => (
-      <tr>
+      <tr key={materialization.name}>
         <td className="text-start node_name">
           <a href={materialization.urls[0]}>{materialization.name}</a>
           <ClientCodePopover code={materialization.clientCode} />
@@ -53,20 +55,25 @@ export default function NodeMaterializationTab({ node, djClient }) {
           {materialization.config.partitions ? (
             materialization.config.partitions.map(partition =>
               partition.type_ === 'categorical' ? (
-                <div className="partition__full">
+                <div className="partition__full" key={partition.name}>
                   <div className="partition__header">{partition.name}</div>
                   <div className="partition__body">
                     {partition.values !== null && partition.values.length > 0
                       ? partition.values.map(val => (
-                          <span className="badge partition_value">{val}</span>
+                          <span
+                            className="badge partition_value"
+                            key={`partition-value-${val}`}
+                          >
+                            {val}
+                          </span>
                         ))
                       : null}
                     {partition.range !== null && partition.range.length > 0
                       ? rangePartition(partition)
                       : null}
                     {(partition.range === null && partition.values === null) ||
-                    (partition.range.length === 0 &&
-                      partition.values.length === 0) ? (
+                    (partition.range?.length === 0 &&
+                      partition.values?.length === 0) ? (
                       <span className={`badge partition_value_highlight`}>
                         ALL
                       </span>
@@ -81,7 +88,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
         </td>
         <td>
           {materialization.output_tables.map(table => (
-            <div className={`table__full`}>
+            <div className={`table__full`} key={table}>
               <div className="table__header">
                 <TableIcon />{' '}
                 <span className={`entity-info`}>
@@ -100,7 +107,7 @@ export default function NodeMaterializationTab({ node, djClient }) {
           {materialization.config.partitions ? (
             materialization.config.partitions.map(partition =>
               partition.type_ === 'temporal' ? (
-                <div className="partition__full">
+                <div className="partition__full" key={partition.name}>
                   <div className="partition__header">{partition.name}</div>
                   <div className="partition__body">
                     {partition.values !== null && partition.values.length > 0
@@ -121,7 +128,9 @@ export default function NodeMaterializationTab({ node, djClient }) {
         </td>
         <td>
           {materialization.urls.map((url, idx) => (
-            <a href={url}>[{idx + 1}]</a>
+            <a href={url} key={`url-${idx}`}>
+              [{idx + 1}]
+            </a>
           ))}
         </td>
       </tr>
@@ -129,23 +138,37 @@ export default function NodeMaterializationTab({ node, djClient }) {
   };
   return (
     <div className="table-responsive">
-      <table className="card-inner-table table">
-        <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-          <th className="text-start">Name</th>
-          <th>Schedule</th>
-          <th>Engine</th>
-          <th>Partitions</th>
-          <th>Output Tables</th>
-          <th>Backfills</th>
-          <th>URLs</th>
-        </thead>
-        {materializationRows(
-          materializations.filter(
-            materialization =>
-              !(materialization.name === 'default' && node.type === 'cube'),
-          ),
-        )}
-      </table>
+      {materializations.length > 0 ? (
+        <table
+          className="card-inner-table table"
+          aria-label="Materializations"
+          aria-hidden="false"
+        >
+          <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+            <tr>
+              <th className="text-start">Name</th>
+              <th>Schedule</th>
+              <th>Engine</th>
+              <th>Partitions</th>
+              <th>Output Tables</th>
+              <th>Backfills</th>
+              <th>URLs</th>
+            </tr>
+          </thead>
+          <tbody>
+            {materializationRows(
+              materializations.filter(
+                materialization =>
+                  !(materialization.name === 'default' && node.type === 'cube'),
+              ),
+            )}
+          </tbody>
+        </table>
+      ) : (
+        <div className="message alert" style={{ marginTop: '10px' }}>
+          No materializations available for this node
+        </div>
+      )}
     </div>
   );
 }

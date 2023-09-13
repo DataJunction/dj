@@ -8,7 +8,14 @@ export default class ListGroupItem extends Component {
         <div className="d-flex gap-2 w-100 justify-content-between py-3">
           <div>
             <h6 className="mb-0 w-100">{label}</h6>
-            <p className="mb-0 opacity-75">{value}</p>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label={label}
+            >
+              {value}
+            </p>
           </div>
         </div>
       </div>

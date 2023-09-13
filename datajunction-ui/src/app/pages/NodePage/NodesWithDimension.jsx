@@ -15,8 +15,10 @@ export default function NodesWithDimension({ node, djClient }) {
     <div className="table-responsive">
       <table className="card-inner-table table">
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-          <th className="text-start">Name</th>
-          <th>Type</th>
+          <tr>
+            <th className="text-start">Name</th>
+            <th>Type</th>
+          </tr>
         </thead>
         <tbody>
           {availableNodes.map(node => (
