@@ -92,7 +92,7 @@ def get_node_column(node: Node, column_name: str) -> Column:
     return column
 
 
-def validate_column_attributes(
+def validate_and_build_attribute(
     session: Session,
     column: Column,
     attribute: AttributeTypeIdentifier,
@@ -101,10 +101,6 @@ def validate_column_attributes(
     """
     Run some validation and build column attribute.
     """
-    existing_attributes = {attr.attribute_type.name: attr for attr in column.attributes}
-    if attribute.name in existing_attributes:
-        return existing_attributes[attribute.name]
-
     # Verify attribute type exists
     attribute_type = get_attribute_type(
         session,
@@ -143,12 +139,18 @@ def set_node_column_attributes(
     column = get_node_column(node, column_name)
     all_columns_map = {column.name: column for column in node.current.columns}
 
-    old_column_attributes = column.attributes
+    existing_attributes = column.attributes
+    existing_attributes_map = {
+        attr.attribute_type.name: attr for attr in existing_attributes
+    }
     column.attributes = []
     for attribute in attributes:
-        column.attributes.append(
-            validate_column_attributes(session, column, attribute, node),
-        )
+        if attribute.name in existing_attributes_map:
+            column.attributes.append(existing_attributes_map[attribute.name])
+        else:
+            column.attributes.append(
+                validate_and_build_attribute(session, column, attribute, node),
+            )
 
     # Validate column attributes by building mapping between
     # attribute scope and columns
@@ -173,7 +175,7 @@ def set_node_column_attributes(
 
     for (attribute, _), columns in attributes_columns_map.items():
         if len(columns) > 1 and attribute.uniqueness_scope:
-            column.attributes = old_column_attributes
+            column.attributes = existing_attributes
             raise DJException(
                 message=f"The column attribute `{attribute.name}` is scoped to be "
                 f"unique to the `{attribute.uniqueness_scope}` level, but there "

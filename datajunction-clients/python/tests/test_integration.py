@@ -439,10 +439,10 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
 
     # Add an availability state to the transform
     response = transform_2.set_column_attributes(
+        "hard_hat_id",
         [
             ColumnAttribute(
-                attribute_type_name="dimension",
-                column_name="hard_hat_id",
+                name="dimension",
             ),
         ],
     )
