@@ -57,6 +57,462 @@ exports[`<NodePage /> renders the NodeHistory tab correctly 1`] = `
 </table>
 `;
 
+exports[`<NodePage /> renders the NodeHistory tab correctly 2`] = `
+<table
+  aria-label="Revisions"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Version
+      </th>
+      <th>
+        Display Name
+      </th>
+      <th>
+        Description
+      </th>
+      <th>
+        Query
+      </th>
+      <th>
+        Tags
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start"
+      >
+        <span
+          class="badge node_type__source"
+        >
+          v1.0
+        </span>
+      </td>
+      <td>
+        Default: Avg Repair Price
+      </td>
+      <td>
+        Average repair price
+      </td>
+      <td>
+        SELECT  avg(price) default_DOT_avg_repair_price 
+ FROM default.repair_order_details
+
+
+      </td>
+      <td />
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`<NodePage /> renders the NodeHistory tab correctly 3`] = `
+<table
+  aria-label="Revisions"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Version
+      </th>
+      <th>
+        Display Name
+      </th>
+      <th>
+        Description
+      </th>
+      <th>
+        Query
+      </th>
+      <th>
+        Tags
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start"
+      >
+        <span
+          class="badge node_type__source"
+        >
+          v1.0
+        </span>
+      </td>
+      <td>
+        Default: Avg Repair Price
+      </td>
+      <td>
+        Average repair price
+      </td>
+      <td>
+        SELECT  avg(price) default_DOT_avg_repair_price 
+ FROM default.repair_order_details
+
+
+      </td>
+      <td />
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`<NodePage /> renders the NodeHistory tab correctly 4`] = `
+<table
+  aria-label="Revisions"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Version
+      </th>
+      <th>
+        Display Name
+      </th>
+      <th>
+        Description
+      </th>
+      <th>
+        Query
+      </th>
+      <th>
+        Tags
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start"
+      >
+        <span
+          class="badge node_type__source"
+        >
+          v1.0
+        </span>
+      </td>
+      <td>
+        Default: Avg Repair Price
+      </td>
+      <td>
+        Average repair price
+      </td>
+      <td>
+        SELECT  avg(price) default_DOT_avg_repair_price 
+ FROM default.repair_order_details
+
+
+      </td>
+      <td />
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`<NodePage /> renders the NodeHistory tab correctly 5`] = `
+<table
+  aria-label="Revisions"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Version
+      </th>
+      <th>
+        Display Name
+      </th>
+      <th>
+        Description
+      </th>
+      <th>
+        Query
+      </th>
+      <th>
+        Tags
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start"
+      >
+        <span
+          class="badge node_type__source"
+        >
+          v1.0
+        </span>
+      </td>
+      <td>
+        Default: Avg Repair Price
+      </td>
+      <td>
+        Average repair price
+      </td>
+      <td>
+        SELECT  avg(price) default_DOT_avg_repair_price 
+ FROM default.repair_order_details
+
+
+      </td>
+      <td />
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`<NodePage /> renders the NodeHistory tab correctly 6`] = `
+<table
+  aria-label="Revisions"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Version
+      </th>
+      <th>
+        Display Name
+      </th>
+      <th>
+        Description
+      </th>
+      <th>
+        Query
+      </th>
+      <th>
+        Tags
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start"
+      >
+        <span
+          class="badge node_type__source"
+        >
+          v1.0
+        </span>
+      </td>
+      <td>
+        Default: Avg Repair Price
+      </td>
+      <td>
+        Average repair price
+      </td>
+      <td>
+        SELECT  avg(price) default_DOT_avg_repair_price 
+ FROM default.repair_order_details
+
+
+      </td>
+      <td />
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`<NodePage /> renders the NodeHistory tab correctly 7`] = `
+<table
+  aria-label="Revisions"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Version
+      </th>
+      <th>
+        Display Name
+      </th>
+      <th>
+        Description
+      </th>
+      <th>
+        Query
+      </th>
+      <th>
+        Tags
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start"
+      >
+        <span
+          class="badge node_type__source"
+        >
+          v1.0
+        </span>
+      </td>
+      <td>
+        Default: Avg Repair Price
+      </td>
+      <td>
+        Average repair price
+      </td>
+      <td>
+        SELECT  avg(price) default_DOT_avg_repair_price 
+ FROM default.repair_order_details
+
+
+      </td>
+      <td />
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`<NodePage /> renders the NodeHistory tab correctly 8`] = `
+<table
+  aria-label="Revisions"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Version
+      </th>
+      <th>
+        Display Name
+      </th>
+      <th>
+        Description
+      </th>
+      <th>
+        Query
+      </th>
+      <th>
+        Tags
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start"
+      >
+        <span
+          class="badge node_type__source"
+        >
+          v1.0
+        </span>
+      </td>
+      <td>
+        Default: Avg Repair Price
+      </td>
+      <td>
+        Average repair price
+      </td>
+      <td>
+        SELECT  avg(price) default_DOT_avg_repair_price 
+ FROM default.repair_order_details
+
+
+      </td>
+      <td />
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`<NodePage /> renders the NodeHistory tab correctly 9`] = `
+<table
+  aria-label="Revisions"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Version
+      </th>
+      <th>
+        Display Name
+      </th>
+      <th>
+        Description
+      </th>
+      <th>
+        Query
+      </th>
+      <th>
+        Tags
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start"
+      >
+        <span
+          class="badge node_type__source"
+        >
+          v1.0
+        </span>
+      </td>
+      <td>
+        Default: Avg Repair Price
+      </td>
+      <td>
+        Average repair price
+      </td>
+      <td>
+        SELECT  avg(price) default_DOT_avg_repair_price 
+ FROM default.repair_order_details
+
+
+      </td>
+      <td />
+    </tr>
+  </tbody>
+</table>
+`;
+
 exports[`<NodePage /> renders the NodeInfo tab correctly 1`] = `
 HTMLCollection [
   <code

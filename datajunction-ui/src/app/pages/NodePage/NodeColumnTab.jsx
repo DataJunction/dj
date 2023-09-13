@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import ClientCodePopover from './ClientCodePopover';
+import * as React from 'react';
+import EditColumnPopover from './EditColumnPopover';
+import LinkDimensionPopover from './LinkDimensionPopover';
+import { labelize } from '../../../utils/form';
 
 export default function NodeColumnTab({ node, djClient }) {
+  const [attributes, setAttributes] = useState([]);
+  const [dimensions, setDimensions] = useState([]);
   const [columns, setColumns] = useState([]);
   useEffect(() => {
     const fetchData = async () => {
@@ -9,6 +15,28 @@ export default function NodeColumnTab({ node, djClient }) {
     };
     fetchData().catch(console.error);
   }, [djClient, node]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const attributes = await djClient.attributes();
+      const options = attributes.map(attr => {
+        return { value: attr.name, label: labelize(attr.name) };
+      });
+      setAttributes(options);
+    };
+    fetchData().catch(console.error);
+  }, [djClient]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      const dimensions = await djClient.dimensions();
+      const options = dimensions.map(name => {
+        return { value: name, label: name };
+      });
+      setDimensions(options);
+    };
+    fetchData().catch(console.error);
+  }, [djClient]);
 
   const showColumnAttributes = col => {
     return col.attributes.map((attr, idx) => (
@@ -51,8 +79,20 @@ export default function NodeColumnTab({ node, djClient }) {
           ) : (
             ''
           )}{' '}
+          <LinkDimensionPopover column={col} node={node} options={dimensions} />
         </td>
-        <td>{showColumnAttributes(col)}</td>
+        <td>
+          {showColumnAttributes(col)}
+          <EditColumnPopover
+            column={col}
+            node={node}
+            options={attributes}
+            onSubmit={async () => {
+              const res = await djClient.node(node.name);
+              setColumns(res.columns);
+            }}
+          />
+        </td>
       </tr>
     ));
   };
@@ -64,7 +104,7 @@ export default function NodeColumnTab({ node, djClient }) {
           <tr>
             <th className="text-start">Column</th>
             <th>Type</th>
-            <th>Dimension</th>
+            <th>Linked Dimension</th>
             <th>Attributes</th>
           </tr>
         </thead>
