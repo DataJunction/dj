@@ -27,16 +27,6 @@ const NodeSQLTab = djNode => {
       }))
     : [''];
 
-  // const options = [
-  //   { value: '>=', label: '>=' },
-  //   { value: '<=', label: '<=' },
-  //   { value: '>', label: '>' },
-  //   { value: '<', label: '<' },
-  //   { value: '=', label: '=' },
-  //   { value: '!=', label: '!=' },
-  //   { value: 'IN', label: 'IN' },
-  // ];
-
   const handleSubmit = event => {
     event.preventDefault();
   };

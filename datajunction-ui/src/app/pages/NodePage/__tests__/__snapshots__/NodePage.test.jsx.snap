@@ -1,0 +1,402 @@
+// Jest Snapshot v1, https://goo.gl/fbAQLP
+
+exports[`<NodePage /> renders the NodeHistory tab correctly 1`] = `
+<table
+  aria-label="Revisions"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Version
+      </th>
+      <th>
+        Display Name
+      </th>
+      <th>
+        Description
+      </th>
+      <th>
+        Query
+      </th>
+      <th>
+        Tags
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start"
+      >
+        <span
+          class="badge node_type__source"
+        >
+          v1.0
+        </span>
+      </td>
+      <td>
+        Default: Avg Repair Price
+      </td>
+      <td>
+        Average repair price
+      </td>
+      <td>
+        SELECT  avg(price) default_DOT_avg_repair_price 
+ FROM default.repair_order_details
+
+
+      </td>
+      <td />
+    </tr>
+  </tbody>
+</table>
+`;
+
+exports[`<NodePage /> renders the NodeInfo tab correctly 1`] = `
+HTMLCollection [
+  <code
+    class="language-sql"
+    style="white-space: pre;"
+  >
+    <span
+      style="color: rgb(0, 153, 153);"
+    >
+      SELECT
+    </span>
+    <span>
+       
+    </span>
+    <span
+      class="hljs-built_in"
+    >
+      count
+    </span>
+    <span>
+      (repair_order_id) default_DOT_num_repair_orders 
+    </span>
+    <span
+      style="color: rgb(0, 153, 153);"
+    >
+      FROM
+    </span>
+    <span>
+       default.repair_orders
+    </span>
+  </code>,
+]
+`;
+
+exports[`<NodePage /> renders the NodeMaterialization tab with materializations correctly 1`] = `
+<table
+  aria-hidden="false"
+  aria-label="Materializations"
+  class="card-inner-table table"
+>
+  <thead
+    class="fs-7 fw-bold text-gray-400 border-bottom-0"
+  >
+    <tr>
+      <th
+        class="text-start"
+      >
+        Name
+      </th>
+      <th>
+        Schedule
+      </th>
+      <th>
+        Engine
+      </th>
+      <th>
+        Partitions
+      </th>
+      <th>
+        Output Tables
+      </th>
+      <th>
+        Backfills
+      </th>
+      <th>
+        URLs
+      </th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td
+        class="text-start node_name"
+      >
+        <a
+          href="http://fake.url/job"
+        >
+          country_birth_date_contractor_id_379232101
+        </a>
+        <button
+          aria-label="code-button"
+          class="code-button"
+          height="45px"
+          tabindex="0"
+        >
+          <svg
+            fill="none"
+            height="45px"
+            viewBox="0 0 64 64"
+            width="45px"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <g
+              id="SVGRepo_bgCarrier"
+              stroke-width="0"
+            />
+            <g
+              id="SVGRepo_tracerCarrier"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <g
+              id="SVGRepo_iconCarrier"
+            >
+              <path
+                d="M31.885 16c-8.124 0-7.617 3.523-7.617 3.523l.01 3.65h7.752v1.095H21.197S16 23.678 16 31.876c0 8.196 4.537 7.906 4.537 7.906h2.708v-3.804s-.146-4.537 4.465-4.537h7.688s4.32.07 4.32-4.175v-7.019S40.374 16 31.885 16zm-4.275 2.454c.771 0 1.395.624 1.395 1.395s-.624 1.395-1.395 1.395a1.393 1.393 0 0 1-1.395-1.395c0-.771.624-1.395 1.395-1.395z"
+                fill="url(#a)"
+              />
+              <path
+                d="M32.115 47.833c8.124 0 7.617-3.523 7.617-3.523l-.01-3.65H31.97v-1.095h10.832S48 40.155 48 31.958c0-8.197-4.537-7.906-4.537-7.906h-2.708v3.803s.146 4.537-4.465 4.537h-7.688s-4.32-.07-4.32 4.175v7.019s-.656 4.247 7.833 4.247zm4.275-2.454a1.393 1.393 0 0 1-1.395-1.395c0-.77.624-1.394 1.395-1.394s1.395.623 1.395 1.394c0 .772-.624 1.395-1.395 1.395z"
+                fill="url(#b)"
+              />
+              <defs>
+                <lineargradient
+                  gradientUnits="userSpaceOnUse"
+                  id="a"
+                  x1="19.075"
+                  x2="34.898"
+                  y1="18.782"
+                  y2="34.658"
+                >
+                  <stop
+                    stop-color="#387EB8"
+                  />
+                  <stop
+                    offset="1"
+                    stop-color="#366994"
+                  />
+                </lineargradient>
+                <lineargradient
+                  gradientUnits="userSpaceOnUse"
+                  id="b"
+                  x1="28.809"
+                  x2="45.803"
+                  y1="28.882"
+                  y2="45.163"
+                >
+                  <stop
+                    stop-color="#FFE052"
+                  />
+                  <stop
+                    offset="1"
+                    stop-color="#FFC331"
+                  />
+                </lineargradient>
+              </defs>
+            </g>
+          </svg>
+        </button>
+        <div
+          aria-label="client-code"
+          id="node-create-code"
+          role="dialog"
+          style="display: none;"
+        >
+          <pre
+            style="display: block; overflow-x: auto; padding: 0.5em; background: rgb(1, 22, 39); color: rgb(214, 222, 235);"
+          >
+            <code
+              class="language-python"
+              style="white-space: pre;"
+            />
+          </pre>
+        </div>
+      </td>
+      <td>
+        <span
+          class="badge cron"
+        >
+          0 * * * *
+        </span>
+        <div
+          class="cron-description"
+        >
+          Every hour
+           
+        </div>
+      </td>
+      <td>
+        spark
+        <br />
+        2.4.4
+      </td>
+      <td>
+        <div
+          class="partition__full"
+        >
+          <div
+            class="partition__header"
+          >
+            country
+          </div>
+          <div
+            class="partition__body"
+          >
+            <span
+              class="badge partition_value"
+            >
+              DE
+            </span>
+            <span
+              class="badge partition_value"
+            >
+              MY
+            </span>
+          </div>
+        </div>
+        <div
+          class="partition__full"
+        >
+          <div
+            class="partition__header"
+          >
+            contractor_id
+          </div>
+          <div
+            class="partition__body"
+          >
+            <div>
+              <span
+                class="badge partition_value"
+              >
+                <span
+                  class="badge partition_value"
+                >
+                  1
+                </span>
+                to
+                <span
+                  class="badge partition_value"
+                >
+                  10
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </td>
+      <td>
+        <div
+          class="table__full"
+        >
+          <div
+            class="table__header"
+          >
+            <svg
+              class="bi bi-table"
+              fill="currentColor"
+              height="16"
+              viewBox="0 0 16 16"
+              width="16"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z"
+              />
+            </svg>
+             
+            <span
+              class="entity-info"
+            >
+              common.a
+            </span>
+          </div>
+          <div
+            class="table__body upstream_tables"
+          />
+        </div>
+        <div
+          class="table__full"
+        >
+          <div
+            class="table__header"
+          >
+            <svg
+              class="bi bi-table"
+              fill="currentColor"
+              height="16"
+              viewBox="0 0 16 16"
+              width="16"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                d="M0 2a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V2zm15 2h-4v3h4V4zm0 4h-4v3h4V8zm0 4h-4v3h3a1 1 0 0 0 1-1v-2zm-5 3v-3H6v3h4zm-5 0v-3H1v2a1 1 0 0 0 1 1h3zm-4-4h4V8H1v3zm0-4h4V4H1v3zm5-3v3h4V4H6zm4 4H6v3h4V8z"
+              />
+            </svg>
+             
+            <span
+              class="entity-info"
+            >
+              common.b
+            </span>
+          </div>
+          <div
+            class="table__body upstream_tables"
+          />
+        </div>
+      </td>
+      <td>
+        <div
+          class="partition__full"
+        >
+          <div
+            class="partition__header"
+          >
+            birth_date
+          </div>
+          <div
+            class="partition__body"
+          >
+            <div>
+              <span
+                class="badge partition_value"
+              >
+                <span
+                  class="badge partition_value"
+                >
+                  20010101
+                </span>
+                to
+                <span
+                  class="badge partition_value"
+                >
+                  20020101
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </td>
+      <td>
+        <a
+          href="http://fake.url/job"
+        >
+          [
+          1
+          ]
+        </a>
+      </td>
+    </tr>
+  </tbody>
+</table>
+`;

@@ -10,6 +10,7 @@ export default function ClientCodePopover({ code }) {
     <>
       <button
         className="code-button"
+        aria-label="code-button"
         tabIndex="0"
         height="45px"
         onClick={() => setCodeAnchor(!codeAnchor)}
@@ -18,6 +19,8 @@ export default function ClientCodePopover({ code }) {
       </button>
       <div
         id={`node-create-code`}
+        role="dialog"
+        aria-label="client-code"
         onClose={() => setCodeAnchor(null)}
         style={{ display: codeAnchor === false ? 'none' : 'block' }}
       >

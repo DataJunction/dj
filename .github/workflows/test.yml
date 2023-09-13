@@ -118,7 +118,7 @@ jobs:
       - name: Install Dependencies
         run: yarn install
       - name: Run Unit Tests
-        run: yarn test
+        run: yarn test --runInBand --ci --coverage
       - name: Build Project
         run: yarn webpack-build
 
