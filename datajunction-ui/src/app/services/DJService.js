@@ -6,10 +6,9 @@ const DJ_URL = process.env.REACT_APP_DJ_URL
 
 export const DataJunctionAPI = {
   whoami: async function () {
-    const data = await (
+    return await (
       await fetch(`${DJ_URL}/whoami/`, { credentials: 'include' })
     ).json();
-    return data;
   },
 
   logout: async function () {
@@ -103,147 +102,132 @@ export const DataJunctionAPI = {
   },
 
   upstreams: async function (name) {
-    const data = await (
+    return await (
       await fetch(`${DJ_URL}/nodes/${name}/upstream/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   downstreams: async function (name) {
-    const data = await (
-      await fetch(`${DJ_URL}/nodes/` + name + '/downstream/', {
+    return await (
+      await fetch(`${DJ_URL}/nodes/${name}/downstream/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   node_dag: async function (name) {
-    const data = await (
-      await fetch(`${DJ_URL}/nodes/` + name + '/dag/', {
+    return await (
+      await fetch(`${DJ_URL}/nodes/${name}/dag/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   node_lineage: async function (name) {
-    const data = await (
-      await fetch(`${DJ_URL}/nodes/` + name + '/lineage/', {
+    return await (
+      await fetch(`${DJ_URL}/nodes/${name}/lineage/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   metric: async function (name) {
-    const data = await (
-      await fetch(`${DJ_URL}/metrics/` + name + '/', {
+    return await (
+      await fetch(`${DJ_URL}/metrics/${name}/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   clientCode: async function (name) {
-    const data = await (
-      await fetch(`${DJ_URL}/datajunction-clients/python/new_node/` + name, {
+    return await (
+      await fetch(`${DJ_URL}/datajunction-clients/python/new_node/${name}`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   cube: async function (name) {
-    const data = await (
-      await fetch(`${DJ_URL}/cubes/` + name + '/', {
+    return await (
+      await fetch(`${DJ_URL}/cubes/${name}/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   metrics: async function (name) {
-    const data = await (
+    return await (
       await fetch(`${DJ_URL}/metrics/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   commonDimensions: async function (metrics) {
     const metricsQuery = '?' + metrics.map(m => `metric=${m}`).join('&');
-    const data = await (
-      await fetch(`${DJ_URL}/metrics/common/dimensions/` + metricsQuery, {
+    return await (
+      await fetch(`${DJ_URL}/metrics/common/dimensions/${metricsQuery}`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   history: async function (type, name, offset, limit) {
-    const data = await (
+    return await (
       await fetch(
-        `${DJ_URL}/history?node=` +
-          name +
-          `&offset=${offset ? offset : 0}&limit=${limit ? limit : 100}`,
+        `${DJ_URL}/history?node=${name}&offset=${offset ? offset : 0}&limit=${
+          limit ? limit : 100
+        }`,
         {
           credentials: 'include',
         },
       )
     ).json();
-    return data;
   },
 
   revisions: async function (name) {
-    const data = await (
-      await fetch(`${DJ_URL}/nodes/` + name + '/revisions/', {
+    return await (
+      await fetch(`${DJ_URL}/nodes/${name}/revisions/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   namespace: async function (nmspce) {
-    const data = await (
-      await fetch(`${DJ_URL}/namespaces/` + nmspce + '/', {
+    return await (
+      await fetch(`${DJ_URL}/namespaces/${nmspce}/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   namespaces: async function () {
-    const data = await (
+    return await (
       await fetch(`${DJ_URL}/namespaces/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   sql: async function (metric_name, selection) {
-    const data = await (
+    return await (
       await fetch(
-        `${DJ_URL}/sql/` + metric_name + '?' + new URLSearchParams(selection),
+        `${DJ_URL}/sql/${metric_name}?` + new URLSearchParams(selection),
         {
           credentials: 'include',
         },
       )
     ).json();
-    return data;
   },
 
   nodesWithDimension: async function (name) {
-    const data = await (
-      await fetch(`${DJ_URL}/dimensions/` + name + '/nodes/', {
+    return await (
+      await fetch(`${DJ_URL}/dimensions/${name}/nodes/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   materializations: async function (node) {
@@ -302,12 +286,11 @@ export const DataJunctionAPI = {
     const params = new URLSearchParams();
     metricSelection.map(metric => params.append('metrics', metric));
     dimensionSelection.map(dimension => params.append('dimensions', dimension));
-    const data = await (
+    return await (
       await fetch(`${DJ_URL}/data/?` + params + '&limit=10000', {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   stream: async function (metricSelection, dimensionSelection, filters) {
@@ -326,12 +309,11 @@ export const DataJunctionAPI = {
   lineage: async function (node) {},
 
   compiledSql: async function (node) {
-    const data = await (
+    return await (
       await fetch(`${DJ_URL}/sql/${node}/`, {
         credentials: 'include',
       })
     ).json();
-    return data;
   },
 
   dag: async function (namespace = 'default') {
@@ -392,7 +374,6 @@ export const DataJunctionAPI = {
       const column_names = node.columns.map(col => {
         return { name: col.name, type: col.type };
       });
-      // const dimensions = node.type === "metric" ? metrics.filter(metric => metric.name === node.name)[0].dimensions : [];
       return {
         id: String(node.name),
         type: 'DJNode',
@@ -407,13 +388,68 @@ export const DataJunctionAPI = {
           type: node.type,
           primary_key: primary_key,
           column_names: column_names,
-          // dimensions: dimensions,
         },
-        // parentNode: [node.name.split(".").slice(-2, -1)],
-        // extent: 'parent',
       };
     });
 
     return { edges: edges, nodes: nodes, namespaces: namespaceNodes };
+  },
+  attributes: async function () {
+    return await (
+      await fetch(`${DJ_URL}/attributes`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+  setAttributes: async function (nodeName, columnName, attributes) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/attributes`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(
+          attributes.map(attribute => {
+            return {
+              namespace: 'system',
+              name: attribute,
+            };
+          }),
+        ),
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
+  dimensions: async function () {
+    return await (
+      await fetch(`${DJ_URL}/dimensions`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+  linkDimension: async function (nodeName, columnName, dimensionName) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}?dimension=${dimensionName}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
+  deactivate: async function (nodeName) {
+    const response = await fetch(`${DJ_URL}/nodes/${nodeName}`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
   },
 };
