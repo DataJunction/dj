@@ -21,7 +21,6 @@ export default function ClientCodePopover({ code }) {
         id={`node-create-code`}
         role="dialog"
         aria-label="client-code"
-        onClose={() => setCodeAnchor(null)}
         style={{ display: codeAnchor === false ? 'none' : 'block' }}
       >
         <SyntaxHighlighter language="python" style={nightOwl}>

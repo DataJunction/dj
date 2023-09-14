@@ -34,6 +34,8 @@ describe('<NodePage />', () => {
         compiledSql: jest.fn(),
         node_lineage: jest.fn(),
         nodesWithDimension: jest.fn(),
+        attributes: jest.fn(),
+        dimensions: jest.fn(),
       },
     };
   };
@@ -392,6 +394,8 @@ describe('<NodePage />', () => {
     djClient.DataJunctionAPI.node.mockReturnValue(mocks.mockMetricNode);
     djClient.DataJunctionAPI.metric.mockReturnValue(mocks.mockMetricNode);
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
+    djClient.DataJunctionAPI.attributes.mockReturnValue(mocks.attributes);
+    djClient.DataJunctionAPI.dimensions.mockReturnValue(mocks.dimensions);
     const element = (
       <DJClientContext.Provider value={djClient}>
         <NodePage />
@@ -415,6 +419,26 @@ describe('<NodePage />', () => {
       expect(
         screen.getByRole('columnheader', { name: 'ColumnType' }),
       ).toHaveTextContent('double');
+
+      // check that the edit column popover can be clicked
+      const editColumnPopover = screen.getByRole('button', {
+        name: 'EditColumn',
+      });
+      expect(editColumnPopover).toBeInTheDocument();
+      fireEvent.click(editColumnPopover);
+      expect(
+        screen.getByRole('button', { name: 'SaveEditColumn' }),
+      ).toBeInTheDocument();
+
+      // check that the link dimension popover can be clicked
+      const linkDimensionPopover = screen.getByRole('button', {
+        name: 'LinkDimension',
+      });
+      expect(linkDimensionPopover).toBeInTheDocument();
+      fireEvent.click(linkDimensionPopover);
+      expect(
+        screen.getByRole('button', { name: 'SaveLinkDimension' }),
+      ).toBeInTheDocument();
     });
   });
   // check compiled SQL on nodeInfo page

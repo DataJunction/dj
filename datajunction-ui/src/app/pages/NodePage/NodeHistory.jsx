@@ -30,14 +30,16 @@ export default function NodeHistory({ node, djClient }) {
             aria-hidden="false"
           >
             Set{' '}
-            <span className={`badge partition_value`}>{attr.column_name}</span>{' '}
+            <span className={`badge partition_value`}>
+              {event.details.column}
+            </span>{' '}
             as{' '}
             <span className={`badge partition_value_highlight`}>
-              {attr.attribute_type_name}
+              {attr.name}
             </span>
           </div>
         ))
-        .reduce((prev, curr) => [prev, <br />, curr]);
+        .reduce((prev, curr) => [prev, <br />, curr], []);
     }
     if (event.activity_type === 'create' && event.entity_type === 'link') {
       return (

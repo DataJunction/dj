@@ -47,7 +47,6 @@ from datajunction_server.models.node import (
     MissingParent,
     Node,
     NodeMissingParents,
-    NodeMode,
     NodeNamespace,
     NodeRelationship,
     NodeRevision,
@@ -420,8 +419,7 @@ def validate_node_data(  # pylint: disable=too-many-locals
     errors = []
     if missing_parents_map or type_inference_failures or invalid_required_dimensions:
         # update status (if needed)
-        if validated_node.mode == NodeMode.DRAFT:
-            validated_node.status = NodeStatus.INVALID
+        validated_node.status = NodeStatus.INVALID
         # build errors
         missing_parents_error = (
             [
