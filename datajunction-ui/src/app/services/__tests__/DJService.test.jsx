@@ -527,4 +527,83 @@ describe('DataJunctionAPI', () => {
       },
     ]);
   });
+
+  it('calls link and unlink dimension correctly', async () => {
+    const nodeName = 'default.transform1';
+    const dimensionName = 'default.dimension1';
+    const columnName = 'column1';
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.unlinkDimension(nodeName, columnName, dimensionName);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}?dimension=${dimensionName}`,
+      {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'DELETE',
+      },
+    );
+
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.linkDimension(nodeName, columnName, dimensionName);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}?dimension=${dimensionName}`,
+      {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      },
+    );
+  });
+
+  it('calls deactivate correctly', async () => {
+    const nodeName = 'default.transform1';
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.deactivate(nodeName);
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/nodes/${nodeName}`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      method: 'DELETE',
+    });
+  });
+
+  it('calls attributes correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify(mocks.attributes));
+    await DataJunctionAPI.attributes();
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/attributes`, {
+      credentials: 'include',
+    });
+  });
+
+  it('calls dimensions correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify(mocks.dimensions));
+    await DataJunctionAPI.dimensions();
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/dimensions`, {
+      credentials: 'include',
+    });
+  });
+
+  it('calls setAttributes correctly', async () => {
+    const nodeName = 'default.transform1';
+    const attributes = ['system'];
+    const columnName = 'column1';
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.setAttributes(nodeName, columnName, attributes);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/attributes`,
+      {
+        credentials: 'include',
+        body: JSON.stringify([{ namespace: 'system', name: 'system' }]),
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      },
+    );
+  });
 });

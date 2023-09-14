@@ -310,6 +310,23 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         assert account_type_table.name == "default.account_type_table"
         assert "default.account_type_table" in client.namespace("default").sources()
 
+        payment_type_table = client.create_source(
+            name="default.payment_type_table",
+            description="A source table for payment type data",
+            display_name="Default: Payment Type Table",
+            catalog="default",
+            schema_="store",
+            table="payment_type_table",
+            columns=[
+                Column(name="id", type="int"),
+                Column(name="payment_type_name", type="string"),
+                Column(name="payment_type_classification", type="string"),
+            ],
+            mode=NodeMode.PUBLISHED,
+        )
+        assert payment_type_table.name == "default.payment_type_table"
+        assert "default.payment_type_table" in client.namespace("default").sources()
+
         revenue = client.create_source(
             name="default.revenue",
             description="Record of payments",
