@@ -59,9 +59,8 @@ class ColumnAttribute(BaseModel):
     Represents a column attribute
     """
 
-    attribute_type_namespace: Optional[str] = "system"
-    attribute_type_name: str
-    column_name: str
+    namespace: Optional[str] = "system"
+    name: str
 
 
 class SourceColumn(BaseModel):

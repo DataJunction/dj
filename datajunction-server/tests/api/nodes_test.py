@@ -2878,20 +2878,16 @@ class TestNodeColumnsAttributes:
         session.commit()
         return node
 
-    def test_set_columns_attributes(
-        self,
-        client_with_basic: TestClient,
-    ):
+    def set_id_primary_key(self, client_with_basic: TestClient):
         """
-        Validate that setting column attributes on the node works.
+        Helper function to set id as primary key on basic.dimension.users
         """
         response = client_with_basic.post(
-            "/nodes/basic.source.comments/attributes/",
+            "/nodes/basic.dimension.users/columns/id/attributes/",
             json=[
                 {
-                    "attribute_type_namespace": "system",
-                    "attribute_type_name": "primary_key",
-                    "column_name": "id",
+                    "namespace": "system",
+                    "name": "primary_key",
                 },
             ],
         )
@@ -2907,18 +2903,26 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-        # Set columns attributes
+    def test_set_column_attributes(
+        self,
+        client_with_basic: TestClient,
+    ):
+        """
+        Validate that setting column attributes on the node works.
+        """
+        # Set id as primary key
+        self.set_id_primary_key(client_with_basic)
+
+        # Can set again (idempotent)
+        self.set_id_primary_key(client_with_basic)
+
+        # Set column attributes
         response = client_with_basic.post(
-            "/nodes/basic.dimension.users/attributes/",
+            "/nodes/basic.dimension.users/columns/id/attributes/",
             json=[
                 {
-                    "attribute_type_namespace": "system",
-                    "attribute_type_name": "primary_key",
-                    "column_name": "id",
-                },
-                {
-                    "attribute_type_name": "effective_time",
-                    "column_name": "created_at",
+                    "namespace": "system",
+                    "name": "primary_key",
                 },
             ],
         )
@@ -2932,6 +2936,19 @@ class TestNodeColumnsAttributes:
                 ],
                 "dimension": None,
             },
+        ]
+
+        response = client_with_basic.post(
+            "/nodes/basic.dimension.users/columns/created_at/attributes/",
+            json=[
+                {
+                    "namespace": "system",
+                    "name": "effective_time",
+                },
+            ],
+        )
+        data = response.json()
+        assert data == [
             {
                 "name": "created_at",
                 "type": "timestamp",
@@ -2947,16 +2964,31 @@ class TestNodeColumnsAttributes:
             },
         ]
 
+        # Remove primary key attribute from column
+        response = client_with_basic.post(
+            "/nodes/basic.source.comments/columns/id/attributes",
+            json=[],
+        )
+        data = response.json()
+        assert data == [
+            {
+                "name": "id",
+                "type": "int",
+                "attributes": [],
+                "dimension": None,
+            },
+        ]
+
     def test_set_columns_attributes_failed(self, client_with_basic: TestClient):
         """
         Test setting column attributes with different failure modes.
         """
         response = client_with_basic.post(
-            "/nodes/basic.source.comments/attributes/",
+            "/nodes/basic.source.comments/columns/event_timestamp/attributes/",
             json=[
                 {
-                    "attribute_type_name": "effective_time",
-                    "column_name": "event_timestamp",
+                    "name": "effective_time",
+                    "namespace": "system",
                 },
             ],
         )
@@ -2967,16 +2999,15 @@ class TestNodeColumnsAttributes:
             == "Attribute type `system.effective_time` not allowed on node type `source`!"
         )
 
-        response = client_with_basic.get(
+        client_with_basic.get(
             "/nodes/basic.source.comments/",
         )
 
         response = client_with_basic.post(
-            "/nodes/basic.source.comments/attributes/",
+            "/nodes/basic.source.comments/columns/nonexistent_col/attributes/",
             json=[
                 {
-                    "attribute_type_name": "primary_key",
-                    "column_name": "nonexistent_col",
+                    "name": "primary_key",
                 },
             ],
         )
@@ -2989,11 +3020,10 @@ class TestNodeColumnsAttributes:
         }
 
         response = client_with_basic.post(
-            "/nodes/basic.source.comments/attributes/",
+            "/nodes/basic.source.comments/columns/id/attributes/",
             json=[
                 {
-                    "attribute_type_name": "nonexistent_attribute",
-                    "column_name": "id",
+                    "name": "nonexistent_attribute",
                 },
             ],
         )
@@ -3006,17 +3036,16 @@ class TestNodeColumnsAttributes:
         }
 
         response = client_with_basic.post(
-            "/nodes/basic.source.comments/attributes/",
+            "/nodes/basic.source.comments/columns/user_id/attributes/",
             json=[
                 {
-                    "attribute_type_name": "primary_key",
-                    "column_name": "user_id",
+                    "name": "primary_key",
                 },
             ],
         )
         assert response.status_code == 201
         data = response.json()
-        assert data == [
+        assert [col for col in data if col["attributes"]] == [
             {
                 "name": "user_id",
                 "type": "int",
@@ -3027,16 +3056,20 @@ class TestNodeColumnsAttributes:
             },
         ]
 
-        response = client_with_basic.post(
-            "/nodes/basic.source.comments/attributes/",
+        client_with_basic.post(
+            "/nodes/basic.source.comments/columns/event_timestamp/attributes/",
             json=[
                 {
-                    "attribute_type_name": "event_time",
-                    "column_name": "event_timestamp",
+                    "name": "event_time",
                 },
+            ],
+        )
+
+        response = client_with_basic.post(
+            "/nodes/basic.source.comments/columns/post_processing_timestamp/attributes/",
+            json=[
                 {
-                    "attribute_type_name": "event_time",
-                    "column_name": "post_processing_timestamp",
+                    "name": "event_time",
                 },
             ],
         )
@@ -3048,6 +3081,11 @@ class TestNodeColumnsAttributes:
             "errors": [],
             "warnings": [],
         }
+
+        client_with_basic.post(
+            "/nodes/basic.source.comments/columns/event_timestamp/attributes/",
+            json=[],
+        )
 
         response = client_with_basic.get("/nodes/basic.source.comments/")
         data = response.json()
@@ -3239,7 +3277,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "catalog_id": None,
                 "schema_": None,
                 "table": None,
-                "status": "valid",
+                "status": "invalid",
                 "updated_at": mock.ANY,
             },
             "dependencies": [],

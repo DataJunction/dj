@@ -39,10 +39,11 @@ from datajunction_server.internal.nodes import (
     create_node_revision,
     get_column_level_lineage,
     save_node,
-    set_column_attributes_on_node,
+    set_node_column_attributes,
 )
+from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.base import generate_display_name
-from datajunction_server.models.column import Column, ColumnAttributeInput
+from datajunction_server.models.column import Column
 from datajunction_server.models.history import (
     ActivityType,
     EntityType,
@@ -133,13 +134,14 @@ def revalidate(
 
 
 @router.post(
-    "/nodes/{node_name}/attributes/",
+    "/nodes/{node_name}/columns/{column_name}/attributes/",
     response_model=List[ColumnOutput],
     status_code=201,
 )
 def set_column_attributes(
     node_name: str,
-    attributes: List[ColumnAttributeInput],
+    column_name: str,
+    attributes: List[AttributeTypeIdentifier],
     *,
     session: Session = Depends(get_session),
 ) -> List[ColumnOutput]:
@@ -147,8 +149,13 @@ def set_column_attributes(
     Set column attributes for the node.
     """
     node = get_node_by_name(session, node_name)
-    modified_columns = set_column_attributes_on_node(session, attributes, node)
-    return list(modified_columns)  # type: ignore
+    columns = set_node_column_attributes(
+        session,
+        node,
+        column_name,
+        attributes,
+    )
+    return columns  # type: ignore
 
 
 @router.get("/nodes/", response_model=List[str])
@@ -378,16 +385,14 @@ def create_node(
             f"were not found in the list of available columns for the node {node.name}.",
         )
     if data.primary_key:
-        attributes = [
-            ColumnAttributeInput(
-                attribute_type_namespace="system",
-                attribute_type_name="primary_key",
-                column_name=key_column,
-            )
-            for key_column in data.primary_key
-            if key_column in column_names
-        ]
-        set_column_attributes_on_node(session, attributes, node)
+        for key_column in data.primary_key:
+            if key_column in column_names:  # pragma: no cover
+                set_node_column_attributes(
+                    session,
+                    node,
+                    key_column,
+                    [AttributeTypeIdentifier(name="primary_key", namespace="system")],
+                )
     session.refresh(node)
     session.refresh(node.current)
     return node  # type: ignore

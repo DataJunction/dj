@@ -208,6 +208,37 @@ export const mocks = {
       },
     ],
   },
+  attributes: [
+    {
+      uniqueness_scope: [],
+      namespace: 'system',
+      id: 3,
+      name: 'primary_key',
+      description:
+        'Points to a column which is part of the primary key of the node',
+      allowed_node_types: ['source', 'transform', 'dimension'],
+    },
+    {
+      uniqueness_scope: [],
+      namespace: 'system',
+      id: 4,
+      name: 'dimension',
+      description: 'Points to a dimension attribute column',
+      allowed_node_types: ['source', 'transform'],
+    },
+  ],
+  dimensions: [
+    'default.date_dim',
+    'default.repair_order',
+    'default.contractor',
+    'default.hard_hat',
+    'default.local_hard_hats',
+    'default.us_state',
+    'default.dispatcher',
+    'default.municipality_dim',
+    'default.etests',
+    'default.special_forces_contractors',
+  ],
   metricNodeColumns: [
     {
       name: 'default_DOT_avg_repair_price',
@@ -239,10 +270,8 @@ export const mocks = {
       pre: {},
       post: {},
       details: {
-        attributes: [
-          { attribute_type_name: 'primary_key', column_name: 'col1' },
-          { attribute_type_name: 'dimension', column_name: 'col1' },
-        ],
+        column: 'col1',
+        attributes: [{ name: 'primary_key' }, { name: 'dimension' }],
       },
       created_at: '2023-08-21T16:48:56.950482+00:00',
     },
