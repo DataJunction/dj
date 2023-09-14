@@ -17,6 +17,7 @@ if TYPE_CHECKING:
         AttributeTypeIdentifier,
         ColumnAttribute,
     )
+    from datajunction_server.models.measure import Measure
     from datajunction_server.models.node import Node, NodeRevision
 
 
@@ -81,6 +82,8 @@ class Column(BaseSQLModel, table=True):  # type: ignore
             "lazy": "joined",
         },
     )
+    measure_id: Optional[int] = Field(default=None, foreign_key="measures.id")
+    measure: "Measure" = Relationship(back_populates="columns")
 
     def identifier(self) -> Tuple[str, ColumnType]:
         """

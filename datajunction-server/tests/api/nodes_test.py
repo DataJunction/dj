@@ -3164,6 +3164,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "id": None,
                 "name": "payment_id",
                 "type": "int",
+                "measure_id": None,
             },
         ]
         assert data["status"] == "valid"
@@ -3288,6 +3289,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                     "type": "int",
                     "dimension_id": None,
                     "dimension_column": None,
+                    "measure_id": None,
                 },
             ],
             "errors": [
@@ -3329,6 +3331,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "type": "int",
                 "dimension_id": None,
                 "dimension_column": None,
+                "measure_id": None,
             },
         ]
 
