@@ -442,6 +442,19 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
+  unlinkDimension: async function (nodeName, columnName, dimensionName) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}?dimension=${dimensionName}`,
+      {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
   deactivate: async function (nodeName) {
     const response = await fetch(`${DJ_URL}/nodes/${nodeName}`, {
       method: 'DELETE',

@@ -79,7 +79,15 @@ export default function NodeColumnTab({ node, djClient }) {
           ) : (
             ''
           )}{' '}
-          <LinkDimensionPopover column={col} node={node} options={dimensions} />
+          <LinkDimensionPopover
+            column={col}
+            node={node}
+            options={dimensions}
+            onSubmit={async () => {
+              const res = await djClient.node(node.name);
+              setColumns(res.columns);
+            }}
+          />
         </td>
         <td>
           {showColumnAttributes(col)}

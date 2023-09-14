@@ -43,7 +43,6 @@ export default function EditColumnPopover({ column, node, options, onSubmit }) {
         className="popover"
         role="dialog"
         aria-label="client-code"
-        onClose={() => setPopoverAnchor(null)}
         style={{ display: popoverAnchor === false ? 'none' : 'block' }}
       >
         <Formik
@@ -58,22 +57,39 @@ export default function EditColumnPopover({ column, node, options, onSubmit }) {
             return (
               <Form>
                 {displayMessageAfterSubmit(status)}
-                <FormikSelect
-                  selectOptions={options}
-                  formikFieldName="attributes"
-                  placeholder="Select column attributes"
-                  className=""
-                  defaultValue={column.attributes.map(attr => {
-                    return {
-                      value: attr.attribute_type.name,
-                      label: labelize(attr.attribute_type.name),
-                    };
-                  })}
-                  isMulti={true}
+                <span data-testid="edit-attributes">
+                  <FormikSelect
+                    selectOptions={options}
+                    formikFieldName="attributes"
+                    placeholder="Select column attributes"
+                    className=""
+                    defaultValue={column.attributes.map(attr => {
+                      return {
+                        value: attr.attribute_type.name,
+                        label: labelize(attr.attribute_type.name),
+                      };
+                    })}
+                    isMulti={true}
+                  />
+                </span>
+                <input
+                  hidden={true}
+                  name="column"
+                  value={column.name}
+                  readOnly={true}
                 />
-                <input hidden={true} name="column" value={column.name} />
-                <input hidden={true} name="node" value={node.name} />
-                <button className="add_node" type="submit">
+                <input
+                  hidden={true}
+                  name="node"
+                  value={node.name}
+                  readOnly={true}
+                />
+                <button
+                  className="add_node"
+                  type="submit"
+                  aria-label="SaveEditColumn"
+                  aria-hidden="false"
+                >
                   Save
                 </button>
               </Form>
