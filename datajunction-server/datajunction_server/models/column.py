@@ -13,10 +13,8 @@ from datajunction_server.models.base import BaseSQLModel, NodeColumns
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
-    from datajunction_server.models.attribute import (
-        AttributeTypeIdentifier,
-        ColumnAttribute,
-    )
+    from datajunction_server.models.attribute import ColumnAttribute
+    from datajunction_server.models.measure import Measure
     from datajunction_server.models.node import Node, NodeRevision
 
 
@@ -81,6 +79,8 @@ class Column(BaseSQLModel, table=True):  # type: ignore
             "lazy": "joined",
         },
     )
+    measure_id: Optional[int] = Field(default=None, foreign_key="measures.id")
+    measure: "Measure" = Relationship(back_populates="columns")
 
     def identifier(self) -> Tuple[str, ColumnType]:
         """
