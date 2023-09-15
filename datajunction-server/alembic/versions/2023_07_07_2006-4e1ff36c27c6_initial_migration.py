@@ -177,6 +177,23 @@ def upgrade():
         ),
     )
     op.create_table(
+        "measures",
+        sa.Column(
+            "additive",
+            sa.Enum(
+                "ADDITIVE",
+                "NON_ADDITIVE",
+                "SEMI_ADDITIVE",
+                name="aggregationrule",
+            ),
+            nullable=True,
+        ),
+        sa.Column("id", sa.Integer(), nullable=False),
+        sa.Column("name", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.PrimaryKeyConstraint("id", name=op.f("pk_measures")),
+        sa.UniqueConstraint("name", name=op.f("uq_measures_name")),
+    )
+    op.create_table(
         "column",
         sa.Column("type", sa.String(), nullable=False),
         sa.Column("id", sa.Integer(), nullable=False),
@@ -191,6 +208,12 @@ def upgrade():
             ["dimension_id"],
             ["node.id"],
             name=op.f("fk_column_dimension_id_node"),
+        ),
+        sa.Column("measure_id", sa.Integer(), nullable=True),
+        sa.ForeignKeyConstraint(
+            ["measure_id"],
+            ["measures.id"],
+            name=op.f("fk_column_measure_id_measures"),
         ),
         sa.PrimaryKeyConstraint("id", name=op.f("pk_column")),
     )
@@ -450,3 +473,4 @@ def downgrade():
     op.drop_table("catalog")
     op.drop_table("availabilitystate")
     op.drop_table("attributetype")
+    op.drop_table("measures")
