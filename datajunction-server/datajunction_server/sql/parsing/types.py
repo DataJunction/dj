@@ -143,6 +143,13 @@ class ColumnType(BaseModel):
         return has_common_ancestor(self.__class__, other.__class__)
 
 
+class UnknownType(ColumnType, Singleton):
+    """Unknown column type"""
+
+    def __init__(self):
+        super().__init__("UNKNOWN", "UnknownType()")
+
+
 class PrimitiveType(ColumnType):  # pylint: disable=too-few-public-methods
     """Base class for all Column Primitive Types"""
 
@@ -926,4 +933,5 @@ PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "binary": BinaryType(),
     "none": NullType(),
     "null": NullType(),
+    "unknown": UnknownType(),
 }

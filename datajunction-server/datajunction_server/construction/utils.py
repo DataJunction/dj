@@ -35,6 +35,7 @@ def get_dj_node(
                 message=f"No node `{node_name}` exists of kind {kind_msg}.",
             ),
         ) from no_result_exc
+    print('match', match.name, match.current_version, match.current.status)
     return match.current if match and current else match
 
 

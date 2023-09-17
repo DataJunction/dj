@@ -708,7 +708,7 @@ class Column(Aliasable, Named, Expression):
 
     @property
     def type(self):
-        if self._type:
+        if self._type and self._type != NullType():
             return self._type
         # Column was derived from some other expression we can get the type of
         if self.expression:
@@ -912,6 +912,7 @@ class Column(Aliasable, Named, Expression):
             self.table.add_ref_column(self, ctx)
         else:
             found_sources = self.find_table_sources(ctx)
+            print('found_sources', self, found_sources)
             if len(found_sources) < 1:
                 ctx.exception.errors.append(
                     DJError(

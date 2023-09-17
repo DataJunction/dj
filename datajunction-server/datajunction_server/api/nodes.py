@@ -97,21 +97,19 @@ def validate_node(
     if data.type == NodeType.SOURCE:
         raise DJException(message="Source nodes cannot be validated")
 
-    (validated_node, dependencies_map, _, _, errors) = validate_node_data(data, session)
-    if errors:
+    node_validator = validate_node_data(data, session)
+    if node_validator.errors:
         response.status_code = HTTPStatus.UNPROCESSABLE_ENTITY
-        status = NodeStatus.INVALID
     else:
         response.status_code = HTTPStatus.OK
-        status = NodeStatus.VALID
 
     return NodeValidation(
-        message=f"Node `{validated_node.name}` is {status}.",
-        status=status,
-        node_revision=validated_node,
-        dependencies=set(dependencies_map.keys()),
-        columns=validated_node.columns,
-        errors=errors,
+        message=f"Node `{data.name}` is {node_validator.status}.",
+        status=node_validator.status,
+        columns=node_validator.columns,
+        dependencies=set(node_validator.dependencies_map.keys()),
+        errors=node_validator.errors,
+        missing_parents=list(node_validator.missing_parents_map.keys()),
     )
 
 
