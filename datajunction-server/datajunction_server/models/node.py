@@ -1142,10 +1142,10 @@ class NodeValidation(SQLModel):
 
     message: str
     status: NodeStatus
-    node_revision: NodeRevision
     dependencies: List[NodeRevisionOutput]
     columns: List[Column]
     errors: List[DJError]
+    missing_parents: List[str]
 
 
 class LineageColumn(BaseModel):
