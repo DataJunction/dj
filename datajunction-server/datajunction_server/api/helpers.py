@@ -92,11 +92,16 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     with_current: bool = False,
     raise_if_not_exists: bool = True,
     include_inactive: bool = False,
+    for_update: bool = False,
 ) -> Node:
     """
     Get a node by name
     """
     statement = select(Node).where(Node.name == name)
+    if for_update:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True,
+        )
     if not include_inactive:
         statement = statement.where(is_(Node.deactivated_at, None))
     if node_type:
@@ -360,20 +365,36 @@ class NodeValidator:
     type_inference_failures: List[str] = field(default_factory=list)
     errors: List[DJError] = field(default_factory=list)
 
-    # def differs_from(self, node_revision: NodeRevision):
-    #     """
-    #     Compared to the provided node revision, returns whether the validation
-    #     indicates that the nodes differ.
-    #     """
-    #     if node_revision.status != self.status:
-    #         return True
-    #     existing_columns_map = {col.name: col for col in self.columns}
-    #     for col in node_revision.columns:
-    #         if col.name not in existing_columns_map:
-    #             return True
-    #         if existing_columns_map[col.name].type != col.type:
-    #             return True
-    #     return False
+    def differs_from(self, node_revision: NodeRevision):
+        """
+        Compared to the provided node revision, returns whether the validation
+        indicates that the nodes differ.
+        """
+        if node_revision.status != self.status:
+            return True
+        existing_columns_map = {col.name: col for col in self.columns}
+        for col in node_revision.columns:
+            if col.name not in existing_columns_map:
+                return True  # pragma: no cover
+            if existing_columns_map[col.name].type != col.type:
+                return True  # pragma: no cover
+        return False
+
+    def modified_columns(self, node_revision: NodeRevision):
+        """
+        Compared to the provided node revision, returns the modified columns
+        """
+        initial_node_columns = {col.name: col for col in node_revision.columns}
+        updated_columns = set(initial_node_columns.keys()).difference(
+            {n.name for n in self.columns},
+        )
+        for column in self.columns:
+            if column.name in initial_node_columns:
+                if initial_node_columns[column.name].type != column.type:
+                    updated_columns.add(column.name)  # pragma: no cover
+            else:  # pragma: no cover
+                updated_columns.add(column.name)  # pragma: no cover
+        return updated_columns
 
 
 def validate_node_data(  # pylint: disable=too-many-locals
