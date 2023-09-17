@@ -1128,7 +1128,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 {
                     "effect": "downstream node is now invalid",
                     "name": "default.regional_repair_efficiency",
-                    "status": "valid",
+                    "status": "invalid",
                 },
                 {
                     "name": "default.num_repair_orders",
@@ -1167,7 +1167,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 {
                     "effect": "broken link",
                     "name": "default.regional_repair_efficiency",
-                    "status": "valid",
+                    "status": "invalid",
                 },
                 {
                     "name": "default.avg_repair_price",
@@ -1586,6 +1586,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             json=create_transform_node_payload,
         )
         data = response.json()
+        print("data", data)
         assert data["name"] == "default.country_agg"
         assert data["display_name"] == "Default: Country Agg"
         assert data["type"] == "transform"
@@ -4094,7 +4095,6 @@ def test_resolving_downstream_status(client_with_service_setup: TestClient) -> N
         data = response.json()
         assert data["name"] == node["name"]
         assert data["mode"] == node["mode"]
-        print(data["name"], data["status"])
         assert data["status"] == "invalid"
 
     # Add the missing parent
@@ -4128,7 +4128,6 @@ def test_resolving_downstream_status(client_with_service_setup: TestClient) -> N
         response = client_with_service_setup.get(f"/nodes/{node['name']}/")
         assert response.status_code == 200
         data = response.json()
-        print("assertions", data["name"], data["status"])
         assert data["name"] == node["name"]
         assert data["mode"] == node["mode"]  # make sure the mode hasn't been changed
         assert (

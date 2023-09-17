@@ -434,6 +434,15 @@ def validate_node_data(  # pylint: disable=too-many-locals
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
 
+    # Invalid parents will invalidate this node
+    invalid_parents = {
+        parent.name
+        for parent in node_validator.dependencies_map
+        if parent.type != NodeType.SOURCE and parent.status == NodeStatus.INVALID
+    }
+    if invalid_parents:
+        node_validator.status = NodeStatus.INVALID
+
     column_mapping = {col.name: col for col in validated_node.columns}
     node_validator.columns = []
     type_inference_failures = {}
@@ -1081,13 +1090,8 @@ def revalidate_node(name: str, session: Session, parent_node: str = None):
         return NodeStatus.VALID
     previous_status = current_node_revision.status
     node_validator = validate_node_data(current_node_revision, session)
-    if node_validator.errors:
-        status = NodeStatus.INVALID  # pragma: no cover
-    else:
-        status = NodeStatus.VALID
-
-    if previous_status != status:  # pragma: no cover
-        current_node_revision.status = status
+    current_node_revision.status = node_validator.status
+    if previous_status != current_node_revision.status:  # pragma: no cover
         session.add(current_node_revision)
         session.add(
             status_change_history(
@@ -1099,7 +1103,8 @@ def revalidate_node(name: str, session: Session, parent_node: str = None):
         )
         session.commit()
         session.refresh(current_node_revision)
-    return status
+        session.refresh(node)
+    return current_node_revision.status
 
 
 def hard_delete_node(name: str, session: Session):
