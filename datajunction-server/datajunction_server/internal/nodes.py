@@ -222,28 +222,24 @@ def create_node_revision(
         mode=data.mode,
         required_dimensions=data.required_dimensions or [],
     )
-    (
-        validated_node,
-        dependencies_map,
-        missing_parents_map,
-        _,
-        errors,
-    ) = validate_node_data(node_revision, session)
-    if errors:
+    node_validator = validate_node_data(node_revision, session)
+    if node_validator.status == NodeStatus.INVALID:
         if node_revision.mode == NodeMode.DRAFT:
             node_revision.status = NodeStatus.INVALID
         else:
             raise DJException(
                 http_status_code=HTTPStatus.BAD_REQUEST,
-                errors=errors,
+                errors=node_validator.errors,
             )
     else:
         node_revision.status = NodeStatus.VALID
     node_revision.missing_parents = [
-        MissingParent(name=missing_parent) for missing_parent in missing_parents_map
+        MissingParent(name=missing_parent)
+        for missing_parent in node_validator.missing_parents_map
     ]
-    new_parents = [node.name for node in dependencies_map]
-    catalog_ids = [node.catalog_id for node in dependencies_map]
+    node_revision.required_dimensions = node_validator.required_dimensions
+    new_parents = [node.name for node in node_validator.dependencies_map]
+    catalog_ids = [node.catalog_id for node in node_validator.dependencies_map]
     if node_revision.mode == NodeMode.PUBLISHED and not len(set(catalog_ids)) <= 1:
         raise DJException(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
@@ -265,7 +261,7 @@ def create_node_revision(
         node_revision.version,
         [p.name for p in node_revision.parents],
     )
-    node_revision.columns = validated_node.columns or []
+    node_revision.columns = node_validator.columns or []
     node_revision.catalog_id = catalog_id
     return node_revision
 
@@ -636,32 +632,19 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
     # Link the new revision to its parents if a new revision was created and update its status
     if new_revision.type != NodeType.SOURCE:
-        (
-            validated_node,
-            dependencies_map,
-            missing_parents_map,
-            _,
-            errors,
-        ) = validate_node_data(new_revision, session)
-
-        if errors:
+        node_validator = validate_node_data(new_revision, session)
+        new_revision.columns = node_validator.columns
+        new_revision.status = node_validator.status
+        if node_validator.errors:
             if new_mode == NodeMode.DRAFT:
                 new_revision.status = NodeStatus.INVALID
             else:
                 raise DJException(
                     http_status_code=HTTPStatus.BAD_REQUEST,
-                    errors=errors,
+                    errors=node_validator.errors,
                 )
 
-        # Keep the dimension links and attributes on the columns from the node's
-        # last revision if any existed
-        old_columns_mapping = {col.name: col for col in old_revision.columns}
-        for col in validated_node.columns:
-            if col.name in old_columns_mapping:
-                col.dimension_id = old_columns_mapping[col.name].dimension_id
-                col.attributes = old_columns_mapping[col.name].attributes or []
-
-        new_parents = [n.name for n in dependencies_map]
+        new_parents = [n.name for n in node_validator.dependencies_map]
         parent_refs = session.exec(
             select(Node).where(
                 # pylint: disable=no-member
@@ -671,7 +654,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             ),
         ).all()
         new_revision.parents = list(parent_refs)
-        new_revision.columns = validated_node.columns or []
+        new_revision.columns = node_validator.columns or []
 
         # Update the primary key if one was set in the input
         if data is not None and data.primary_key:
@@ -700,7 +683,8 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             new_revision.status = NodeStatus.INVALID
 
         new_revision.missing_parents = [
-            MissingParent(name=missing_parent) for missing_parent in missing_parents_map
+            MissingParent(name=missing_parent)
+            for missing_parent in node_validator.missing_parents_map
         ]
         _logger.info(
             "Parent nodes for %s (v%s): %s",
@@ -708,7 +692,6 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             new_revision.version,
             [p.name for p in new_revision.parents],
         )
-        new_revision.columns = validated_node.columns or []
 
     # Handle materializations
     active_materializations = [
