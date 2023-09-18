@@ -5,7 +5,7 @@ import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import Explorer from '../NamespacePage/Explorer';
 import EditIcon from '../../icons/EditIcon';
-import DeleteIcon from '../../icons/DeleteIcon';
+import DeleteNode from '../../components/DeleteNode';
 
 export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -108,9 +108,7 @@ export function NamespacePage() {
         <a href={`/nodes/${node?.name}/edit`} style={{ marginLeft: '0.5rem' }}>
           <EditIcon />
         </a>
-        <a href="#" style={{ marginLeft: '0.5rem' }}>
-          <DeleteIcon />
-        </a>
+        <DeleteNode nodeName={node?.name} />
       </td>
     </tr>
   ));
