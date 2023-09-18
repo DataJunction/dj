@@ -435,6 +435,8 @@ def validate_node_data(  # pylint: disable=too-many-locals
     query_ast.select.add_aliases_to_unnamed_columns()
 
     # Invalid parents will invalidate this node
+    # Note: we include source nodes here because they sometimes appear to be invalid, but
+    # this is a bug that needs to be fixed
     invalid_parents = {
         parent.name
         for parent in node_validator.dependencies_map
