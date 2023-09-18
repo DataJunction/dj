@@ -85,7 +85,7 @@ export function NamespacePage() {
       </td>
       <td>
         <a href={'/nodes/' + node.name} className="link-table">
-          {node.display_name}
+          {node.type !== 'source' ? node.display_name : ''}
         </a>
       </td>
       <td>
@@ -126,6 +126,11 @@ export function NamespacePage() {
               <div className="dropdown">
                 <span className="add_node">+ Add Node</span>
                 <div className="dropdown-content">
+                  <a href={`/create/source`}>
+                    <div className="node_type__source node_type_creation_heading">
+                      Register Table
+                    </div>
+                  </a>
                   <a href={`/create/transform/${namespace}`}>
                     <div className="node_type__transform node_type_creation_heading">
                       Transform
