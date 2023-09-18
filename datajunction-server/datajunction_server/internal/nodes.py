@@ -385,8 +385,9 @@ def save_node(
     )
     node.current_version = node_revision.version
     node_revision.extra_validation()
-
-    node_revision = add_lineage_to_node(session, node_revision)
+    node_revision.lineage = [
+        lineage.dict() for lineage in get_column_level_lineage(session, node_revision)
+    ]
 
     session.add(node)
     session.add(
@@ -409,23 +410,6 @@ def save_node(
         catalog_id=node.current.catalog_id,  # pylint: disable=no-member
     )
     session.refresh(node.current)
-
-
-def add_lineage_to_node(session: Session, node_revision: NodeRevision):
-    """
-    Add lineage to node revision
-    """
-    if node_revision.status == NodeStatus.VALID and node_revision.type not in (
-        NodeType.SOURCE,
-        NodeType.CUBE,
-    ):
-        node_revision.lineage = [
-            lineage.dict()
-            for lineage in get_column_level_lineage(session, node_revision)
-        ]
-    else:
-        node_revision.lineage = []
-    return node_revision
 
 
 def _update_node(
@@ -454,7 +438,9 @@ def _update_node(
     node.current_version = new_revision.version  # type: ignore
 
     new_revision.extra_validation()
-    new_revision = add_lineage_to_node(session, new_revision)
+    new_revision.lineage = [
+        lineage.dict() for lineage in get_column_level_lineage(session, new_revision)
+    ]
 
     session.add(new_revision)
     session.add(node)
@@ -541,7 +527,10 @@ def propagate_update_downstream(
                 )
 
                 new_revision.status = node_validator.status
-                new_revision = add_lineage_to_node(session, new_revision)
+                new_revision.lineage = [
+                    lineage.dict()
+                    for lineage in get_column_level_lineage(session, new_revision)
+                ]
 
                 # Save which columns were modified and update the columns with the changes
                 updated_columns = node_validator.modified_columns(new_revision)
@@ -839,14 +828,19 @@ def get_column_level_lineage(
     """
     Gets the column-level lineage for the node
     """
-    return [
-        column_lineage(
-            session,
-            node_revision,
-            col.name,
-        )
-        for col in node_revision.columns
-    ]
+    if node_revision.status == NodeStatus.VALID and node_revision.type not in (
+        NodeType.SOURCE,
+        NodeType.CUBE,
+    ):
+        return [
+            column_lineage(
+                session,
+                node_revision,
+                col.name,
+            )
+            for col in node_revision.columns
+        ]
+    return []
 
 
 def column_lineage(
