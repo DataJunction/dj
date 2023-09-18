@@ -13,6 +13,7 @@ import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { AddEditNodePage } from './pages/AddEditNodePage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { LoginPage } from './pages/LoginPage';
+import { RegisterTablePage } from './pages/RegisterTablePage';
 import { Root } from './pages/Root/Loadable';
 import DJClientContext from './providers/djclient';
 import { DataJunctionAPI } from './services/DJService';
@@ -59,6 +60,11 @@ export function App() {
                           key="namespaces"
                         />
                       </Route>
+                      <Route
+                        path="create/source"
+                        key="register"
+                        element={<RegisterTablePage />}
+                      ></Route>
                       <Route path="create/:nodeType">
                         <Route
                           path=":initialNamespace"

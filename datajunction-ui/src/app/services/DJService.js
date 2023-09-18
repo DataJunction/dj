@@ -18,6 +18,14 @@ export const DataJunctionAPI = {
     });
   },
 
+  catalogs: async function () {
+    return await (
+      await fetch(`${DJ_URL}/catalogs`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   node: async function (name) {
     const data = await (
       await fetch(`${DJ_URL}/nodes/${name}/`, {
@@ -99,6 +107,20 @@ export const DataJunctionAPI = {
     } catch (error) {
       return { status: 500, json: { message: 'Update failed' } };
     }
+  },
+
+  registerTable: async function (catalog, schema, table) {
+    const response = await fetch(
+      `${DJ_URL}/register/table/${catalog}/${schema}/${table}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
   },
 
   upstreams: async function (name) {
