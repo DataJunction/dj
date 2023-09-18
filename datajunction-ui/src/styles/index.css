@@ -989,3 +989,7 @@ pre {
   outline: inherit;
   margin-left: 1rem;
 }
+
+.deleteNode {
+  display: inline-block;
+}
