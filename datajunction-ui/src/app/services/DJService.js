@@ -487,4 +487,14 @@ export const DataJunctionAPI = {
     });
     return { status: response.status, json: await response.json() };
   },
+  addNamespace: async function (namespace) {
+    const response = await fetch(`${DJ_URL}/namespaces/${namespace}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
 };
