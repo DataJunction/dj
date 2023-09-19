@@ -6,6 +6,7 @@ import DJClientContext from '../../providers/djclient';
 import Explorer from '../NamespacePage/Explorer';
 import EditIcon from '../../icons/EditIcon';
 import DeleteNode from '../../components/DeleteNode';
+import AddNamespacePopover from './AddNamespacePopover';
 
 export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -159,7 +160,7 @@ export function NamespacePage() {
                   padding: '1rem 1rem 1rem 0',
                 }}
               >
-                Namespaces
+                Namespaces <AddNamespacePopover />
               </span>
               {namespaceHierarchy
                 ? namespaceHierarchy.map(child => (
