@@ -9,6 +9,7 @@ import json
 import logging
 import time
 import uuid
+from dataclasses import dataclass, field
 from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
@@ -91,11 +92,16 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     with_current: bool = False,
     raise_if_not_exists: bool = True,
     include_inactive: bool = False,
+    for_update: bool = False,
 ) -> Node:
     """
     Get a node by name
     """
     statement = select(Node).where(Node.name == name)
+    if for_update:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True,
+        )
     if not include_inactive:
         statement = statement.where(is_(Node.deactivated_at, None))
     if node_type:
@@ -345,21 +351,62 @@ def find_bound_dimensions(
     return invalid_required_dimensions, matched_bound_columns
 
 
+@dataclass
+class NodeValidator:
+    """
+    Node validation
+    """
+
+    status: NodeStatus = NodeStatus.VALID
+    columns: List[Column] = field(default_factory=list)
+    required_dimensions: List[Column] = field(default_factory=list)
+    dependencies_map: Dict[NodeRevision, List[ast.Table]] = field(default_factory=dict)
+    missing_parents_map: Dict[str, List[ast.Table]] = field(default_factory=dict)
+    type_inference_failures: List[str] = field(default_factory=list)
+    errors: List[DJError] = field(default_factory=list)
+
+    def differs_from(self, node_revision: NodeRevision):
+        """
+        Compared to the provided node revision, returns whether the validation
+        indicates that the nodes differ.
+        """
+        if node_revision.status != self.status:
+            return True
+        existing_columns_map = {col.name: col for col in self.columns}
+        for col in node_revision.columns:
+            if col.name not in existing_columns_map:
+                return True  # pragma: no cover
+            if existing_columns_map[col.name].type != col.type:
+                return True  # pragma: no cover
+        return False
+
+    def modified_columns(self, node_revision: NodeRevision):
+        """
+        Compared to the provided node revision, returns the modified columns
+        """
+        initial_node_columns = {col.name: col for col in node_revision.columns}
+        updated_columns = set(initial_node_columns.keys()).difference(
+            {n.name for n in self.columns},
+        )
+        for column in self.columns:
+            if column.name in initial_node_columns:
+                if initial_node_columns[column.name].type != column.type:
+                    updated_columns.add(column.name)  # pragma: no cover
+            else:  # pragma: no cover
+                updated_columns.add(column.name)  # pragma: no cover
+        return updated_columns
+
+
 def validate_node_data(  # pylint: disable=too-many-locals
     data: Union[NodeRevisionBase, NodeRevision],
     session: Session,
-) -> Tuple[
-    NodeRevision,
-    Dict[NodeRevision, List[ast.Table]],
-    Dict[str, List[ast.Table]],
-    List[str],
-    List[DJError],
-]:
+) -> NodeValidator:
     """
     Validate a node. This function should never raise any errors.
     It will build the lists of issues (including errors) and return them all
     for the caller to decide what to do.
     """
+    node_validator = NodeValidator()
 
     if isinstance(data, NodeRevision):
         validated_node = data
@@ -367,7 +414,6 @@ def validate_node_data(  # pylint: disable=too-many-locals
         node = Node(name=data.name, type=data.type)
         validated_node = NodeRevision.parse_obj(data)
         validated_node.node = node
-    validated_node.status = NodeStatus.VALID
 
     ctx = ast.CompileContext(session=session, exception=DJException())
 
@@ -376,50 +422,65 @@ def validate_node_data(  # pylint: disable=too-many-locals
     try:
         query_ast = parse(validated_node.query)  # type: ignore
         dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)
+        node_validator.dependencies_map = dependencies_map
+        node_validator.missing_parents_map = missing_parents_map
     except (DJParseException, ValueError, SqlSyntaxError) as raised_exceptions:
-        validated_node.status = NodeStatus.INVALID
-        return (
-            validated_node,
-            {},
-            {},
-            [],
-            [DJError(code=ErrorCode.INVALID_SQL_QUERY, message=str(raised_exceptions))],
+        node_validator.status = NodeStatus.INVALID
+        node_validator.errors.append(
+            DJError(code=ErrorCode.INVALID_SQL_QUERY, message=str(raised_exceptions)),
         )
+        return node_validator
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
 
+    # Invalid parents will invalidate this node
+    # Note: we include source nodes here because they sometimes appear to be invalid, but
+    # this is a bug that needs to be fixed
+    invalid_parents = {
+        parent.name
+        for parent in node_validator.dependencies_map
+        if parent.type != NodeType.SOURCE and parent.status == NodeStatus.INVALID
+    }
+    if invalid_parents:
+        node_validator.status = NodeStatus.INVALID
+
     column_mapping = {col.name: col for col in validated_node.columns}
-    validated_node.columns = []
+    node_validator.columns = []
     type_inference_failures = {}
     for col in query_ast.select.projection:
+        column = None
         column_name = col.alias_or_name.name  # type: ignore
-        column = column_mapping.get(column_name)
+        existing_column = column_mapping.get(column_name)
         try:
             column_type = str(col.type)  # type: ignore
-            if column is None:
-                column = Column(name=column_name, type=column_type)
-            column.type = column_type  # type: ignore
+            column = Column(
+                name=column_name,
+                type=column_type,
+                attributes=existing_column.attributes if existing_column else [],
+                dimension=existing_column.dimension if existing_column else None,
+            )
         except DJParseException as parse_exc:
             type_inference_failures[column_name] = parse_exc.message
-        except TypeError:
+            node_validator.status = NodeStatus.INVALID
+        except TypeError:  # pragma: no cover
             type_inference_failures[
                 column_name
             ] = f"Unknown TypeError on column {column_name}."
+            node_validator.status = NodeStatus.INVALID
         if column:
-            validated_node.columns.append(column)
+            node_validator.columns.append(column)
 
     # check that bound dimensions are from parent nodes
     invalid_required_dimensions, matched_bound_columns = find_bound_dimensions(
         validated_node,
         dependencies_map,
     )
-    validated_node.required_dimensions = matched_bound_columns
+    node_validator.required_dimensions = matched_bound_columns
 
-    errors = []
     if missing_parents_map or type_inference_failures or invalid_required_dimensions:
-        # update status (if needed)
-        validated_node.status = NodeStatus.INVALID
+        # update status
+        node_validator.status = NodeStatus.INVALID
         # build errors
         missing_parents_error = (
             [
@@ -475,14 +536,9 @@ def validate_node_data(  # pylint: disable=too-many-locals
             + type_inference_error
             + invalid_required_dimensions_error
         )
+        node_validator.errors.extend(errors)
 
-    return (
-        validated_node,
-        dependencies_map,
-        missing_parents_map,
-        list(type_inference_failures.keys()),
-        errors,
-    )
+    return node_validator
 
 
 def resolve_downstream_references(
@@ -515,14 +571,17 @@ def resolve_downstream_references(
             )
             downstream_node_revision.parents.append(node_revision.node)
             downstream_node_revision.missing_parents.remove(missing_parent)
-            (_, _, _, _, errors) = validate_node_data(
+            node_validator = validate_node_data(
                 data=downstream_node_revision,
                 session=session,
             )
-            if not errors:
+            downstream_node_revision.status = node_validator.status
+            downstream_node_revision.columns = node_validator.columns
+            if node_validator.status == NodeStatus.VALID:
                 newly_valid_nodes.append(downstream_node_revision)
             session.add(downstream_node_revision)
             session.commit()
+            session.refresh(downstream_node_revision)
 
         session.delete(missing_parent)  # Remove missing parent reference to node
     return newly_valid_nodes
@@ -549,12 +608,13 @@ def propagate_valid_status(
             )
             newly_valid_nodes = []
             for node in downstream_nodes:
-                (validated_node, _, _, _, errors) = validate_node_data(
+                node_validator = validate_node_data(
                     data=node.current,
                     session=session,
                 )
-                if not errors:
-                    node.current.columns = validated_node.columns or []
+                node.current.status = node_validator.status
+                if node_validator.status == NodeStatus.VALID:
+                    node.current.columns = node_validator.columns or []
                     node.current.status = NodeStatus.VALID
                     node.current.catalog_id = catalog_id
                     session.add(
@@ -564,9 +624,10 @@ def propagate_valid_status(
                             NodeStatus.VALID,
                         ),
                     )
-                    session.add(node.current)
-                    session.commit()
                     newly_valid_nodes.append(node.current)
+                session.add(node.current)
+                session.commit()
+                session.refresh(node.current)
             resolved_nodes.extend(newly_valid_nodes)
         valid_nodes = resolved_nodes
 
@@ -981,8 +1042,9 @@ def activate_node(session: Session, name: str, message: str = None):
         else:
             # We should not fail node restoration just because of some nodes
             # that have been invalid already and stay that way.
-            (_, _, _, _, errors) = validate_node_data(downstream.current, session)
-            if errors:
+            node_validator = validate_node_data(downstream.current, session)
+            downstream.current.status = node_validator.status
+            if node_validator.errors:
                 downstream.current.status = NodeStatus.INVALID
         session.add(downstream)
         if old_status != downstream.current.status:
@@ -1026,16 +1088,12 @@ def revalidate_node(name: str, session: Session, parent_node: str = None):
             )
             session.add(current_node_revision)
             session.commit()
+            session.refresh(current_node_revision)
         return NodeStatus.VALID
     previous_status = current_node_revision.status
-    (_, _, _, _, errors) = validate_node_data(current_node_revision, session)
-    if errors:
-        status = NodeStatus.INVALID  # pragma: no cover
-    else:
-        status = NodeStatus.VALID
-
-    if previous_status != status:  # pragma: no cover
-        current_node_revision.status = status
+    node_validator = validate_node_data(current_node_revision, session)
+    current_node_revision.status = node_validator.status
+    if previous_status != current_node_revision.status:  # pragma: no cover
         session.add(current_node_revision)
         session.add(
             status_change_history(
@@ -1046,7 +1104,9 @@ def revalidate_node(name: str, session: Session, parent_node: str = None):
             ),
         )
         session.commit()
-    return status
+        session.refresh(current_node_revision)
+        session.refresh(node)
+    return current_node_revision.status
 
 
 def hard_delete_node(name: str, session: Session):

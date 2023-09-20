@@ -1,8 +1,8 @@
 """Nodes endpoint helper functions"""
 import logging
-from collections import defaultdict
+from collections import defaultdict, deque
 from http import HTTPStatus
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from fastapi import Depends
 from sqlmodel import Session, select
@@ -222,28 +222,24 @@ def create_node_revision(
         mode=data.mode,
         required_dimensions=data.required_dimensions or [],
     )
-    (
-        validated_node,
-        dependencies_map,
-        missing_parents_map,
-        _,
-        errors,
-    ) = validate_node_data(node_revision, session)
-    if errors:
+    node_validator = validate_node_data(node_revision, session)
+    if node_validator.status == NodeStatus.INVALID:
         if node_revision.mode == NodeMode.DRAFT:
             node_revision.status = NodeStatus.INVALID
         else:
             raise DJException(
                 http_status_code=HTTPStatus.BAD_REQUEST,
-                errors=errors,
+                errors=node_validator.errors,
             )
     else:
         node_revision.status = NodeStatus.VALID
     node_revision.missing_parents = [
-        MissingParent(name=missing_parent) for missing_parent in missing_parents_map
+        MissingParent(name=missing_parent)
+        for missing_parent in node_validator.missing_parents_map
     ]
-    new_parents = [node.name for node in dependencies_map]
-    catalog_ids = [node.catalog_id for node in dependencies_map]
+    node_revision.required_dimensions = node_validator.required_dimensions
+    new_parents = [node.name for node in node_validator.dependencies_map]
+    catalog_ids = [node.catalog_id for node in node_validator.dependencies_map]
     if node_revision.mode == NodeMode.PUBLISHED and not len(set(catalog_ids)) <= 1:
         raise DJException(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
@@ -265,7 +261,7 @@ def create_node_revision(
         node_revision.version,
         [p.name for p in node_revision.parents],
     )
-    node_revision.columns = validated_node.columns or []
+    node_revision.columns = node_validator.columns or []
     node_revision.catalog_id = catalog_id
     return node_revision
 
@@ -389,17 +385,9 @@ def save_node(
     )
     node.current_version = node_revision.version
     node_revision.extra_validation()
-
-    if node_revision.status == NodeStatus.VALID and node_revision.type not in (
-        NodeType.SOURCE,
-        NodeType.CUBE,
-    ):
-        node_revision.lineage = [
-            lineage.dict()
-            for lineage in get_column_level_lineage(session, node_revision)
-        ]
-    else:
-        node_revision.lineage = []
+    node_revision.lineage = [
+        lineage.dict() for lineage in get_column_level_lineage(session, node_revision)
+    ]
 
     session.add(node)
     session.add(
@@ -430,19 +418,11 @@ def _update_node(
     session: Session,
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ):
-    query = (
-        select(Node)
-        .where(Node.name == name)
-        .with_for_update()
-        .execution_options(populate_existing=True)
-    )
-    node = session.exec(query).one_or_none()
-    if not node:
-        raise DJException(
-            message=f"A node with name `{name}` does not exist.",
-            http_status_code=404,
-        )
-
+    """
+    Update the named node with the changes defined in the UpdateNode object.
+    Propagate these changes to all of the node's downstream children.
+    """
+    node = get_node_by_name(session, name, for_update=True, include_inactive=True)
     old_revision = node.current
     new_revision = create_new_revision_from_existing(
         session,
@@ -455,20 +435,12 @@ def _update_node(
     if not new_revision:
         return node  # type: ignore
 
-    node.current_version = new_revision.version
+    node.current_version = new_revision.version  # type: ignore
 
     new_revision.extra_validation()
-
-    if new_revision.status == NodeStatus.VALID and new_revision.type not in (
-        NodeType.SOURCE,
-        NodeType.CUBE,
-    ):
-        new_revision.lineage = [
-            lineage.dict()
-            for lineage in get_column_level_lineage(session, new_revision)
-        ]
-    else:
-        new_revision.lineage = []
+    new_revision.lineage = [
+        lineage.dict() for lineage in get_column_level_lineage(session, new_revision)
+    ]
 
     session.add(new_revision)
     session.add(node)
@@ -480,22 +452,150 @@ def _update_node(
             node=node.name,
             activity_type=ActivityType.UPDATE,
             details={
-                "version": new_revision.version,
+                "version": new_revision.version,  # type: ignore
             },
         ),
     )
 
-    if new_revision.status != old_revision.status:
+    if new_revision.status != old_revision.status:  # type: ignore
         session.add(
             status_change_history(
-                new_revision,
+                new_revision,  # type: ignore
                 old_revision.status,
-                new_revision.status,
+                new_revision.status,  # type: ignore
             ),
         )
     session.commit()
+
+    session.refresh(new_revision)
+    session.refresh(node)
+
+    history_events = {}
+    old_columns_map = {col.name: col.type for col in old_revision.columns}
+    history_events[node.name] = {
+        "name": node.name,
+        "current_version": node.current_version,
+        "previous_version": old_revision.version,
+        "updated_columns": [
+            col.name
+            for col in new_revision.columns  # type: ignore
+            if col.name not in old_columns_map or old_columns_map[col.name] != col.type
+        ],
+    }
+    propagate_update_downstream(session, node, history_events)
+
     session.refresh(node.current)
     return node
+
+
+def propagate_update_downstream(
+    session: Session,
+    node: Node,
+    history_events: Dict[str, Any],
+):
+    """
+    Propagate the updated node's changes to all of its downstream children.
+    Some potential changes to the upstream node and their effects on downstream nodes:
+    - altered column names: may invalidate downstream nodes
+    - altered column types: may invalidate downstream nodes
+    - new columns: won't affect downstream nodes
+    """
+    processed = set()
+
+    # Each entry being processed is a list that represents the changelog of affected nodes
+    # The last entry in the list is the current node that's being processed
+    to_process = deque([[node.current, child.node.current] for child in node.children])
+
+    while to_process:
+        changelog = to_process.popleft()
+        child = changelog[-1]
+
+        # Only process if it hasn't already been processed before
+        if child.name not in processed:
+            processed.add(child.name)
+
+            node_validator = validate_node_data(
+                data=child,
+                session=session,
+            )
+
+            # Update the child with a new node revision if its columns or status have changed
+            if node_validator.differs_from(child):
+                new_revision = copy_existing_node_revision(child)
+                new_revision.version = str(
+                    Version.parse(child.version).next_major_version(),
+                )
+
+                new_revision.status = node_validator.status
+                new_revision.lineage = [
+                    lineage.dict()
+                    for lineage in get_column_level_lineage(session, new_revision)
+                ]
+
+                # Save which columns were modified and update the columns with the changes
+                updated_columns = node_validator.modified_columns(new_revision)
+                new_revision.columns = node_validator.columns
+
+                # Save the new revision of the child
+                new_revision.node = child.node
+                new_revision.node.current_version = new_revision.version
+                session.add(new_revision)
+                session.add(new_revision.node)
+
+                # Add grandchildren for processing
+                for grandchild in child.node.children:
+                    new_changelog = changelog + [grandchild]
+                    to_process.append(new_changelog)
+
+                # Record history event
+                history_events[child.name] = {
+                    "name": child.name,
+                    "current_version": new_revision.version,
+                    "previous_version": child.version,
+                    "updated_columns": sorted(list(updated_columns)),
+                }
+                event = History(
+                    entity_type=EntityType.NODE,
+                    entity_name=child.name,
+                    node=child.name,
+                    activity_type=ActivityType.STATUS_CHANGE,
+                    details={
+                        "upstreams": [
+                            history_events[entry.name]
+                            for entry in changelog
+                            if entry.name in history_events
+                        ],
+                        "reason": f"Caused by update of `{node.name}` to {node.current_version}",
+                    },
+                    pre={"status": child.status},
+                    post={"status": node_validator.status},
+                )
+                session.add(event)
+                session.commit()
+                session.refresh(new_revision)
+                session.refresh(new_revision.node)
+
+
+def copy_existing_node_revision(old_revision: NodeRevision):
+    """
+    Create an exact copy of the node revision
+    """
+    return NodeRevision(
+        name=old_revision.name,
+        version=old_revision.version,
+        display_name=old_revision.display_name,
+        description=old_revision.description,
+        query=old_revision.query,
+        type=old_revision.type,
+        columns=old_revision.columns,
+        catalog=old_revision.catalog,
+        schema_=old_revision.schema_,
+        table=old_revision.table,
+        parents=old_revision.parents,
+        mode=old_revision.mode,
+        materializations=old_revision.materializations,
+        status=old_revision.status,
+    )
 
 
 def _create_node_from_inactive(
@@ -636,32 +736,19 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
 
     # Link the new revision to its parents if a new revision was created and update its status
     if new_revision.type != NodeType.SOURCE:
-        (
-            validated_node,
-            dependencies_map,
-            missing_parents_map,
-            _,
-            errors,
-        ) = validate_node_data(new_revision, session)
-
-        if errors:
+        node_validator = validate_node_data(new_revision, session)
+        new_revision.columns = node_validator.columns
+        new_revision.status = node_validator.status
+        if node_validator.errors:
             if new_mode == NodeMode.DRAFT:
                 new_revision.status = NodeStatus.INVALID
             else:
                 raise DJException(
                     http_status_code=HTTPStatus.BAD_REQUEST,
-                    errors=errors,
+                    errors=node_validator.errors,
                 )
 
-        # Keep the dimension links and attributes on the columns from the node's
-        # last revision if any existed
-        old_columns_mapping = {col.name: col for col in old_revision.columns}
-        for col in validated_node.columns:
-            if col.name in old_columns_mapping:
-                col.dimension_id = old_columns_mapping[col.name].dimension_id
-                col.attributes = old_columns_mapping[col.name].attributes or []
-
-        new_parents = [n.name for n in dependencies_map]
+        new_parents = [n.name for n in node_validator.dependencies_map]
         parent_refs = session.exec(
             select(Node).where(
                 # pylint: disable=no-member
@@ -671,7 +758,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             ),
         ).all()
         new_revision.parents = list(parent_refs)
-        new_revision.columns = validated_node.columns or []
+        new_revision.columns = node_validator.columns or []
 
         # Update the primary key if one was set in the input
         if data is not None and data.primary_key:
@@ -700,7 +787,8 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             new_revision.status = NodeStatus.INVALID
 
         new_revision.missing_parents = [
-            MissingParent(name=missing_parent) for missing_parent in missing_parents_map
+            MissingParent(name=missing_parent)
+            for missing_parent in node_validator.missing_parents_map
         ]
         _logger.info(
             "Parent nodes for %s (v%s): %s",
@@ -708,7 +796,6 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             new_revision.version,
             [p.name for p in new_revision.parents],
         )
-        new_revision.columns = validated_node.columns or []
 
     # Handle materializations
     active_materializations = [
@@ -739,14 +826,19 @@ def get_column_level_lineage(
     """
     Gets the column-level lineage for the node
     """
-    return [
-        column_lineage(
-            session,
-            node_revision,
-            col.name,
-        )
-        for col in node_revision.columns
-    ]
+    if node_revision.status == NodeStatus.VALID and node_revision.type not in (
+        NodeType.SOURCE,
+        NodeType.CUBE,
+    ):
+        return [
+            column_lineage(
+                session,
+                node_revision,
+                col.name,
+            )
+            for col in node_revision.columns
+        ]
+    return []
 
 
 def column_lineage(
