@@ -504,7 +504,7 @@ def propagate_update_downstream(
 
     # Each entry being processed is a list that represents the changelog of affected nodes
     # The last entry in the list is the current node that's being processed
-    to_process = deque([[node.current, child] for child in node.children])
+    to_process = deque([[node.current, child.node.current] for child in node.children])
 
     while to_process:
         changelog = to_process.popleft()
@@ -580,10 +580,8 @@ def copy_existing_node_revision(old_revision: NodeRevision):
     """
     Create an exact copy of the node revision
     """
-    node = old_revision.node
     return NodeRevision(
         name=old_revision.name,
-        node_id=node.id,
         version=old_revision.version,
         display_name=old_revision.display_name,
         description=old_revision.description,
