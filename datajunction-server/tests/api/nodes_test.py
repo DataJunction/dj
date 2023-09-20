@@ -1128,7 +1128,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 {
                     "effect": "downstream node is now invalid",
                     "name": "default.regional_repair_efficiency",
-                    "status": "valid",
+                    "status": "invalid",
                 },
                 {
                     "name": "default.num_repair_orders",
@@ -1586,6 +1586,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             json=create_transform_node_payload,
         )
         data = response.json()
+        print("data", data)
         assert data["name"] == "default.country_agg"
         assert data["display_name"] == "Default: Country Agg"
         assert data["type"] == "transform"
@@ -1905,6 +1906,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert data["columns"] == [
+            {"attributes": [], "dimension": None, "name": "sum_age", "type": "bigint"},
             {
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
@@ -1913,7 +1915,6 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "name": "country",
                 "type": "string",
             },
-            {"attributes": [], "dimension": None, "name": "sum_age", "type": "bigint"},
             {
                 "attributes": [],
                 "dimension": None,
@@ -3168,16 +3169,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             },
         ]
         assert data["status"] == "valid"
-        assert data["node_revision"]["status"] == "valid"
         assert data["dependencies"][0]["name"] == "default.large_revenue_payments_only"
         assert data["message"] == "Node `foo` is valid."
-        assert data["node_revision"]["id"] is None
-        assert data["node_revision"]["mode"] == "published"
-        assert data["node_revision"]["name"] == "foo"
-        assert (
-            data["node_revision"]["query"]
-            == "SELECT payment_id FROM default.large_revenue_payments_only"
-        )
+        assert data["missing_parents"] == []
+        assert data["errors"] == []
 
     def test_validating_an_invalid_node(self, client: TestClient) -> None:
         """
@@ -3264,24 +3259,8 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert data == {
             "message": "Node `foo` is invalid.",
             "status": "invalid",
-            "node_revision": {
-                "name": "foo",
-                "display_name": None,
-                "type": "transform",
-                "description": "This is my foo transform node!",
-                "query": "SELECT 1 FROM node_that_does_not_exist",
-                "mode": "published",
-                "id": None,
-                "lineage": [],
-                "version": "v0.1",
-                "node_id": None,
-                "catalog_id": None,
-                "schema_": None,
-                "table": None,
-                "status": "invalid",
-                "updated_at": mock.ANY,
-            },
             "dependencies": [],
+            "missing_parents": ["node_that_does_not_exist"],
             "columns": [
                 {
                     "id": None,
@@ -3322,8 +3301,6 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert response.status_code == 422
         assert data["message"] == "Node `foo` is invalid."
         assert data["status"] == "invalid"
-        assert data["node_revision"]["mode"] == "draft"
-        assert data["node_revision"]["status"] == "invalid"
         assert data["columns"] == [
             {
                 "id": None,
@@ -3332,6 +3309,15 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "dimension_id": None,
                 "dimension_column": None,
                 "measure_id": None,
+            },
+        ]
+        assert data["missing_parents"] == ["node_that_does_not_exist"]
+        assert data["errors"] == [
+            {
+                "code": 301,
+                "context": "",
+                "debug": {"missing_parents": ["node_that_does_not_exist"]},
+                "message": "Node definition contains references to nodes that do not exist",
             },
         ]
 
@@ -4135,6 +4121,7 @@ def test_resolving_downstream_status(client_with_service_setup: TestClient) -> N
     data = response.json()
     assert data["name"] == missing_parent_node["name"]
     assert data["mode"] == missing_parent_node["mode"]
+    assert data["status"] == "valid"
 
     # Check that downstream nodes have now been switched to a "valid" status
     for node in [transform1, transform2, transform3, metric1, metric2, metric3]:

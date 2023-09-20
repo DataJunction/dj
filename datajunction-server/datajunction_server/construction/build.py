@@ -73,15 +73,17 @@ def _join_path(
             full_join_path = (joinable_dim, next_join_path)
             if joinable_dim == dimension_node:
                 for col in join_cols:
-                    if col.dimension_column is None and not any(
-                        dim_col.name == "id" for dim_col in dimension_node.columns
-                    ):
-                        raise DJException(
-                            f"Node {current_node.name} specifying dimension "
-                            f"{joinable_dim.name} on column {col.name} does not"
-                            f" specify a dimension column, but {dimension_node.name} "
-                            f"does not have the default key `id`.",
-                        )
+                    dim_pk = dimension_node.primary_key()
+                    if not col.dimension_column:
+                        if len(dim_pk) != 1:
+                            raise DJException(
+                                f"Node {current_node.name} specifying dimension "
+                                f"{joinable_dim.name} on column {col.name} does not"
+                                f" specify a dimension column, and {dimension_node.name} "
+                                f"has a compound primary key.",
+                            )
+                        col.dimension_column = dim_pk[0].name
+
                 possible_join_paths.append(full_join_path)  # type: ignore
             if joinable_dim not in processed:  # pragma: no cover
                 to_process.append(full_join_path)

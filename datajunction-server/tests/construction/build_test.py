@@ -9,7 +9,12 @@ from sqlmodel import Session
 import datajunction_server.sql.parsing.types as ct
 from datajunction_server.construction.build import build_node
 from datajunction_server.errors import DJException
-from datajunction_server.models import Column, NodeRevision
+from datajunction_server.models import (
+    AttributeType,
+    Column,
+    ColumnAttribute,
+    NodeRevision,
+)
 from datajunction_server.models.node import Node, NodeType
 from datajunction_server.utils import amenable_name
 
@@ -124,26 +129,61 @@ def test_build_metric_with_required_dimensions(request):
 @pytest.mark.asyncio
 async def test_raise_on_build_without_required_dimension_column(request):
     """
-    Test building a node that has a dimension reference without a column and no default `id`
+    Test building a node that has a dimension reference without a column and a compound PK
     """
     construction_session: Session = request.getfixturevalue("construction_session")
-    country_dim: Node = next(
+    primary_key: AttributeType = next(
         construction_session.exec(
-            select(Node).filter(Node.name == "basic.dimension.countries"),
+            select(AttributeType).filter(AttributeType.name == "primary_key"),
         ),
     )[0]
+    countries_dim_ref = Node(
+        name="basic.dimension.compound_countries",
+        type=NodeType.DIMENSION,
+        current_version="1",
+    )
+    NodeRevision(
+        name=countries_dim_ref.name,
+        type=countries_dim_ref.type,
+        node=countries_dim_ref,
+        version="1",
+        query="""
+              SELECT country,
+                    'abcd' AS country_id2,
+                     COUNT(1) AS user_cnt
+              FROM basic.dimension.users
+              GROUP BY country
+            """,
+        columns=[
+            Column(
+                name="country",
+                type=ct.StringType(),
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
+            Column(
+                name="country_id2",
+                type=ct.StringType(),
+                attributes=[ColumnAttribute(attribute_type=primary_key)],
+            ),
+            Column(name="user_cnt", type=ct.IntegerType()),
+        ],
+    )
     node_foo_ref = Node(name="foo", type=NodeType.TRANSFORM, current_version="1")
     node_foo = NodeRevision(
         name=node_foo_ref.name,
         type=node_foo_ref.type,
         node=node_foo_ref,
         version="1",
-        query="""SELECT num_users FROM basic.transform.country_agg""",
+        query="""SELECT num_users, 'abcd' AS country_id FROM basic.transform.country_agg""",
         columns=[
             Column(
                 name="num_users",
                 type=ct.IntegerType(),
-                dimension=country_dim,
+            ),
+            Column(
+                name="country_id",
+                type=ct.StringType(),
+                dimension=countries_dim_ref,
             ),
         ],
     )
@@ -157,7 +197,7 @@ async def test_raise_on_build_without_required_dimension_column(request):
         node=node_bar_ref,
         version="1",
         query="SELECT SUM(num_users) AS num_users "
-        "FROM foo GROUP BY basic.dimension.countries.country",
+        "FROM foo GROUP BY basic.dimension.compound_countries.country",
         columns=[
             Column(name="num_users", type=ct.IntegerType()),
         ],
@@ -169,9 +209,9 @@ async def test_raise_on_build_without_required_dimension_column(request):
         )
 
     assert (
-        "Node foo specifying dimension basic.dimension.countries on column "
-        "num_users does not specify a dimension column, but basic.dimension"
-        ".countries does not have the default key `id`."
+        "Node foo specifying dimension basic.dimension.compound_countries on column country_id "
+        "does not specify a dimension column, and basic.dimension.compound_countries has a "
+        "compound primary key."
     ) in str(exc_info.value)
 
 
