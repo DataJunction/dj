@@ -59,7 +59,7 @@ export function NamespacePage() {
   useEffect(() => {
     const fetchData = async () => {
       if (namespace === undefined && namespaceHierarchy !== undefined) {
-        namespace = namespaceHierarchy.children[0].path;
+        namespace = namespaceHierarchy[0].namespace;
       }
       const nodes = await djClient.namespace(namespace);
       const foundNodes = await Promise.all(nodes);
