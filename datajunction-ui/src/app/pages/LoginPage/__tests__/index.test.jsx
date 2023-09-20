@@ -5,10 +5,6 @@ import { LoginPage } from '../index';
 describe('LoginPage', () => {
   const original = window.location;
 
-  const reloadFn = () => {
-    window.location.reload();
-  };
-
   beforeAll(() => {
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -44,7 +40,6 @@ describe('LoginPage', () => {
   it('calls fetch with correct data on submit', async () => {
     const username = 'testUser';
     const password = 'testPassword';
-    reloadFn();
 
     const { getByText, getByPlaceholderText } = render(<LoginPage />);
     fireEvent.change(getByPlaceholderText('Username'), {
