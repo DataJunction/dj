@@ -23,6 +23,7 @@ from datajunction_server.internal.namespaces import (
     hard_delete_namespace,
     mark_namespace_deactivated,
     mark_namespace_restored,
+    validate_namespace,
 )
 from datajunction_server.models.node import (
     NamespaceOutput,
@@ -41,6 +42,7 @@ router = SecureAPIRouter(tags=["namespaces"])
 @router.post("/namespaces/{namespace}/", status_code=HTTPStatus.CREATED)
 def create_node_namespace(
     namespace: str,
+    include_parents: Optional[bool] = False,
     session: Session = Depends(get_session),
 ) -> JSONResponse:
     """
@@ -54,14 +56,18 @@ def create_node_namespace(
         return JSONResponse(
             status_code=409,
             content={
-                "message": (f"Node namespace `{namespace}` already exists"),
+                "message": f"Node namespace `{namespace}` already exists",
             },
         )
-    create_namespace(session, namespace)
+    validate_namespace(namespace)
+    created_namespaces = create_namespace(session, namespace, include_parents)  # type: ignore
     return JSONResponse(
         status_code=HTTPStatus.CREATED,
         content={
-            "message": (f"Node namespace `{namespace}` has been successfully created"),
+            "message": (
+                "The following node namespaces have been successfully created: "
+                + ", ".join(created_namespaces)
+            ),
         },
     )
 
