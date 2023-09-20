@@ -5,7 +5,8 @@ import NodeStatus from '../NodePage/NodeStatus';
 import DJClientContext from '../../providers/djclient';
 import Explorer from '../NamespacePage/Explorer';
 import EditIcon from '../../icons/EditIcon';
-import DeleteIcon from '../../icons/DeleteIcon';
+import DeleteNode from '../../components/DeleteNode';
+import AddNamespacePopover from './AddNamespacePopover';
 
 export function NamespacePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -58,7 +59,7 @@ export function NamespacePage() {
   useEffect(() => {
     const fetchData = async () => {
       if (namespace === undefined && namespaceHierarchy !== undefined) {
-        namespace = namespaceHierarchy.children[0].path;
+        namespace = namespaceHierarchy[0].namespace;
       }
       const nodes = await djClient.namespace(namespace);
       const foundNodes = await Promise.all(nodes);
@@ -85,7 +86,7 @@ export function NamespacePage() {
       </td>
       <td>
         <a href={'/nodes/' + node.name} className="link-table">
-          {node.display_name}
+          {node.type !== 'source' ? node.display_name : ''}
         </a>
       </td>
       <td>
@@ -108,9 +109,7 @@ export function NamespacePage() {
         <a href={`/nodes/${node?.name}/edit`} style={{ marginLeft: '0.5rem' }}>
           <EditIcon />
         </a>
-        <a href="#" style={{ marginLeft: '0.5rem' }}>
-          <DeleteIcon />
-        </a>
+        <DeleteNode nodeName={node?.name} />
       </td>
     </tr>
   ));
@@ -126,6 +125,11 @@ export function NamespacePage() {
               <div className="dropdown">
                 <span className="add_node">+ Add Node</span>
                 <div className="dropdown-content">
+                  <a href={`/create/source`}>
+                    <div className="node_type__source node_type_creation_heading">
+                      Register Table
+                    </div>
+                  </a>
                   <a href={`/create/transform/${namespace}`}>
                     <div className="node_type__transform node_type_creation_heading">
                       Transform
@@ -156,7 +160,7 @@ export function NamespacePage() {
                   padding: '1rem 1rem 1rem 0',
                 }}
               >
-                Namespaces
+                Namespaces <AddNamespacePopover />
               </span>
               {namespaceHierarchy
                 ? namespaceHierarchy.map(child => (

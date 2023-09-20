@@ -890,7 +890,7 @@ pre {
   border-radius: 10px;
   text-align: left;
   position: absolute;
-  min-width: 200px;
+  min-width: 210px;
   max-width: 100%;
   z-index: 1;
 }
@@ -988,4 +988,8 @@ pre {
   cursor: pointer;
   outline: inherit;
   margin-left: 1rem;
+}
+
+.deleteNode {
+  display: inline-block;
 }

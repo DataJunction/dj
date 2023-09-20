@@ -9,6 +9,10 @@ import {
   testElement,
 } from './index.test';
 import { mocks } from '../../../../mocks/mockNodes';
+import { render } from '../../../../setupTests';
+import { MemoryRouter, Route, Routes } from 'react-router-dom';
+import DJClientContext from '../../../providers/djclient';
+import { AddEditNodePage } from '../index';
 
 describe('AddEditNodePage submission succeeded', () => {
   beforeEach(() => {

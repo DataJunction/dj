@@ -15,6 +15,7 @@ import { useParams } from 'react-router-dom';
 import { FullNameField } from './FullNameField';
 import { FormikSelect } from './FormikSelect';
 import { NodeQueryField } from './NodeQueryField';
+import { displayMessageAfterSubmit } from '../../../utils/form';
 
 class Action {
   static Add = new Action('add');
@@ -68,22 +69,6 @@ export function AddEditNodePage() {
       }, 400);
     }
     window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
-  };
-
-  const displayMessageAfterSubmit = status => {
-    return status?.success !== undefined ? (
-      <div className="message success">
-        <ValidIcon />
-        {status?.success}
-      </div>
-    ) : status?.failure !== undefined ? (
-      <div className="message alert">
-        <AlertIcon />
-        {status?.failure}
-      </div>
-    ) : (
-      ''
-    );
   };
 
   const pageTitle =
