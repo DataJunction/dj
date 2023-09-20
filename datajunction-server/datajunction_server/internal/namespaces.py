@@ -9,11 +9,17 @@ from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, col, select
 
 from datajunction_server.api.helpers import get_node_namespace, hard_delete_node
-from datajunction_server.errors import DJActionNotAllowedException, DJException
+from datajunction_server.errors import (
+    DJActionNotAllowedException,
+    DJException,
+    DJInvalidInputException,
+)
 from datajunction_server.models import History
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import Node, NodeNamespace, NodeRevision, NodeType
 from datajunction_server.typing import UTCDatetime
+
+SEPARATOR = "."
 
 
 def get_nodes_in_namespace(
@@ -124,21 +130,58 @@ def mark_namespace_restored(
     session.commit()
 
 
-def create_namespace(session: Session, namespace: str):
+def validate_namespace(namespace: str):
+    """
+    Validate that the namespace parts are valid (i.e., cannot start with numbers or be empty)
+    """
+    parts = namespace.split(SEPARATOR)
+    for part in parts:
+        if not part or (part and part[0].isdigit()):
+            raise DJInvalidInputException(
+                f"{namespace} is not a valid namespace. Namespace parts cannot start with "
+                "numbers or be empty.",
+            )
+
+
+def get_parent_namespaces(namespace: str):
+    """
+    Return a list of all parent namespaces
+    """
+    parts = namespace.split(SEPARATOR)
+    return [SEPARATOR.join(parts[0:i]) for i in range(len(parts)) if parts[0:i]]
+
+
+def create_namespace(
+    session: Session,
+    namespace: str,
+    include_parents: bool = True,
+) -> List[str]:
     """
     Creates a namespace entry in the database table.
     """
-    node_namespace = NodeNamespace(namespace=namespace)
-    session.add(node_namespace)
-    session.add(
-        History(
-            entity_type=EntityType.NAMESPACE,
-            entity_name=namespace,
-            node=None,
-            activity_type=ActivityType.CREATE,
-        ),
+    parents = (
+        get_parent_namespaces(namespace) + [namespace]
+        if include_parents
+        else [namespace]
     )
+    for parent_namespace in parents:
+        if not get_node_namespace(  # pragma: no cover
+            session=session,
+            namespace=parent_namespace,
+            raise_if_not_exists=False,
+        ):
+            node_namespace = NodeNamespace(namespace=parent_namespace)
+            session.add(node_namespace)
+            session.add(
+                History(
+                    entity_type=EntityType.NAMESPACE,
+                    entity_name=namespace,
+                    node=None,
+                    activity_type=ActivityType.CREATE,
+                ),
+            )
     session.commit()
+    return parents
 
 
 def hard_delete_namespace(session: Session, namespace: str, cascade: bool = False):
