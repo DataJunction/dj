@@ -457,3 +457,51 @@ def test_hard_delete_namespace(client_with_examples: TestClient):
         "message": "Namespace `jaffle_shop` does not exist.",
         "warnings": [],
     }
+
+
+def test_create_namespace(client_with_service_setup: TestClient):
+    """
+    Verify creating namespaces, both successful and validation errors
+    """
+    # By default, creating a namespace will also create its parents (i.e., like mkdir -p)
+    response = client_with_service_setup.post(
+        "/namespaces/aaa.bbb.ccc?include_parents=true",
+    )
+    assert response.json() == {
+        "message": "The following node namespaces have been successfully created: "
+        "aaa, aaa.bbb, aaa.bbb.ccc",
+    }
+
+    # Verify that the parent namespaces already exist if we try to create it again
+    response = client_with_service_setup.post("/namespaces/aaa")
+    assert response.json() == {"message": "Node namespace `aaa` already exists"}
+    response = client_with_service_setup.post("/namespaces/aaa.bbb")
+    assert response.json() == {"message": "Node namespace `aaa.bbb` already exists"}
+
+    # Setting include_parents=false will not create the parents
+    response = client_with_service_setup.post(
+        "/namespaces/acde.mmm?include_parents=false",
+    )
+    assert response.json() == {
+        "message": "The following node namespaces have been successfully created: acde.mmm",
+    }
+    response = client_with_service_setup.get("/namespaces/acde")
+    assert response.json()["message"] == "node namespace `acde` does not exist."
+
+    # Setting include_parents=true will create the parents
+    response = client_with_service_setup.post(
+        "/namespaces/a.b.c?include_parents=true",
+    )
+    assert response.json() == {
+        "message": "The following node namespaces have been successfully created: a, a.b, a.b.c",
+    }
+
+    # Verify that it raises when creating an invalid namespace
+    invalid_namespaces = ["a.111b.c", "111mm.abcd", "aa.bb.111", "1234", "aa..bb"]
+    for invalid_namespace in invalid_namespaces:
+        response = client_with_service_setup.post(f"/namespaces/{invalid_namespace}")
+        assert response.status_code == 422
+        assert response.json()["message"] == (
+            f"{invalid_namespace} is not a valid namespace. Namespace parts cannot start "
+            "with numbers or be empty."
+        )
