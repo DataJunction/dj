@@ -9,9 +9,8 @@ import NamespaceHeader from '../../components/NamespaceHeader';
 import React, { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import 'styles/node-creation.scss';
-import AlertIcon from '../../icons/AlertIcon';
-import ValidIcon from '../../icons/ValidIcon';
 import { FormikSelect } from '../AddEditNodePage/FormikSelect';
+import { displayMessageAfterSubmit } from '../../../utils/form';
 
 export function RegisterTablePage() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -71,28 +70,6 @@ export function RegisterTablePage() {
     window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   };
 
-  const displayMessageAfterSubmit = status => {
-    return status?.success !== undefined ? (
-      <div className="message success">
-        <ValidIcon />
-        {status?.success}
-      </div>
-    ) : status?.failure !== undefined ? (
-      alertMessage(status?.failure)
-    ) : (
-      ''
-    );
-  };
-
-  const alertMessage = message => {
-    return (
-      <div className="message alert">
-        <AlertIcon />
-        {message}
-      </div>
-    );
-  };
-
   return (
     <div className="mid">
       <NamespaceHeader namespace="" />
@@ -110,7 +87,7 @@ export function RegisterTablePage() {
               validate={validator}
               onSubmit={handleSubmit}
             >
-              {function Render({ isSubmitting, status, setFieldValue }) {
+              {function Render({ isSubmitting, status }) {
                 return (
                   <Form>
                     {displayMessageAfterSubmit(status)}
@@ -119,12 +96,14 @@ export function RegisterTablePage() {
                         <div className="SourceCreationInput">
                           <ErrorMessage name="catalog" component="span" />
                           <label htmlFor="catalog">Catalog</label>
-                          <FormikSelect
-                            selectOptions={catalogs}
-                            formikFieldName="catalog"
-                            placeholder="Choose Catalog"
-                            defaultValue={catalogs[0]}
-                          />
+                          <span data-testid="choose-catalog">
+                            <FormikSelect
+                              selectOptions={catalogs}
+                              formikFieldName="catalog"
+                              placeholder="Choose Catalog"
+                              defaultValue={catalogs[0]}
+                            />
+                          </span>
                         </div>
                         <div className="SourceCreationInput">
                           <ErrorMessage name="schema" component="span" />

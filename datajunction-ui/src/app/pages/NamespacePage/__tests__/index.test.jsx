@@ -3,14 +3,37 @@ import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import DJClientContext from '../../../providers/djclient';
 import { NamespacePage } from '../index';
 import React from 'react';
+import userEvent from '@testing-library/user-event';
 
 const mockDjClient = {
   namespaces: jest.fn(),
   namespace: jest.fn(),
+  addNamespace: jest.fn(),
 };
 
 describe('NamespacePage', () => {
+  const original = window.location;
+
+  const reloadFn = () => {
+    window.location.reload();
+  };
+
+  beforeAll(() => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: { reload: jest.fn() },
+    });
+  });
+
+  afterAll(() => {
+    Object.defineProperty(window, 'location', {
+      configurable: true,
+      value: original,
+    });
+  });
+
   beforeEach(() => {
+    fetch.resetMocks();
     mockDjClient.namespaces.mockResolvedValue([
       {
         namespace: 'common.one',
@@ -56,7 +79,12 @@ describe('NamespacePage', () => {
     ]);
   });
 
+  afterEach(() => {
+    jest.clearAllMocks();
+  });
+
   it('displays namespaces and renders nodes', async () => {
+    reloadFn();
     const element = (
       <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
         <NamespacePage />
@@ -91,5 +119,99 @@ describe('NamespacePage', () => {
 
   afterEach(() => {
     jest.clearAllMocks();
+  });
+
+  it('can add new namespace via add namespace popover', async () => {
+    mockDjClient.addNamespace.mockReturnValue({
+      status: 201,
+      json: {},
+    });
+    const element = (
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <NamespacePage />
+      </DJClientContext.Provider>
+    );
+    render(
+      <MemoryRouter initialEntries={['/namespaces/test.namespace']}>
+        <Routes>
+          <Route path="namespaces/:namespace" element={element} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // Find the button to toggle the add namespace popover
+    const addNamespaceToggle = screen.getByRole('button', {
+      name: 'AddNamespaceTogglePopover',
+    });
+    expect(addNamespaceToggle).toBeInTheDocument();
+
+    // Click the toggle and verify that the popover displays
+    fireEvent.click(addNamespaceToggle);
+    const addNamespacePopover = screen.getByRole('dialog', {
+      name: 'AddNamespacePopover',
+    });
+    expect(addNamespacePopover).toBeInTheDocument();
+
+    // Type in the new namespace
+    await userEvent.type(
+      screen.getByLabelText('Namespace'),
+      'some.random.namespace',
+    );
+
+    // Save
+    const saveNamespace = screen.getByRole('button', {
+      name: 'SaveNamespace',
+    });
+    await waitFor(() => {
+      fireEvent.click(saveNamespace);
+    });
+    expect(mockDjClient.addNamespace).toHaveBeenCalled();
+    expect(mockDjClient.addNamespace).toHaveBeenCalledWith(
+      'some.random.namespace',
+    );
+    expect(screen.getByText('Saved')).toBeInTheDocument();
+    expect(window.location.reload).toHaveBeenCalled();
+  });
+
+  it('can fail to add namespace', async () => {
+    mockDjClient.addNamespace.mockReturnValue({
+      status: 500,
+      json: { message: 'you failed' },
+    });
+    const element = (
+      <DJClientContext.Provider value={{ DataJunctionAPI: mockDjClient }}>
+        <NamespacePage />
+      </DJClientContext.Provider>
+    );
+    render(
+      <MemoryRouter initialEntries={['/namespaces/test.namespace']}>
+        <Routes>
+          <Route path="namespaces/:namespace" element={element} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    // Open the add namespace popover
+    const addNamespaceToggle = screen.getByRole('button', {
+      name: 'AddNamespaceTogglePopover',
+    });
+    fireEvent.click(addNamespaceToggle);
+
+    // Type in the new namespace
+    await userEvent.type(
+      screen.getByLabelText('Namespace'),
+      'some.random.namespace',
+    );
+
+    // Save
+    const saveNamespace = screen.getByRole('button', {
+      name: 'SaveNamespace',
+    });
+    await waitFor(() => {
+      fireEvent.click(saveNamespace);
+    });
+
+    // Should display failure alert
+    expect(screen.getByText('you failed')).toBeInTheDocument();
   });
 });

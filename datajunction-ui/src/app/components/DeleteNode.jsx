@@ -1,14 +1,11 @@
 import DJClientContext from '../providers/djclient';
-import ValidIcon from '../icons/ValidIcon';
-import AlertIcon from '../icons/AlertIcon';
 import * as React from 'react';
 import DeleteIcon from '../icons/DeleteIcon';
 import { Form, Formik } from 'formik';
 import { useContext } from 'react';
+import { displayMessageAfterSubmit } from '../../utils/form';
 
 export default function DeleteNode({ nodeName }) {
-  console.log('nodeName', nodeName);
-
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const deleteNode = async (values, { setSubmitting, setStatus }) => {
     const { status, json } = await djClient.deactivate(values.nodeName);
@@ -24,27 +21,6 @@ export default function DeleteNode({ nodeName }) {
     setSubmitting(false);
   };
 
-  const displayMessageAfterSubmit = status => {
-    return status?.success !== undefined ? (
-      <div className="message success">
-        <ValidIcon />
-        {status?.success}
-      </div>
-    ) : status?.failure !== undefined ? (
-      alertMessage(status?.failure)
-    ) : (
-      ''
-    );
-  };
-
-  const alertMessage = message => {
-    return (
-      <div className="message alert">
-        <AlertIcon />
-        {message}
-      </div>
-    );
-  };
   const initialValues = {
     nodeName: nodeName,
   };

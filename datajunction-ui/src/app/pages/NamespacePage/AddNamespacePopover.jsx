@@ -6,7 +6,7 @@ import { FormikSelect } from '../AddEditNodePage/FormikSelect';
 import EditIcon from '../../icons/EditIcon';
 import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
 
-export default function AddNamespacePopover({ namespace, onSubmit }) {
+export default function AddNamespacePopover({ namespace }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [popoverAnchor, setPopoverAnchor] = useState(false);
 
@@ -20,7 +20,6 @@ export default function AddNamespacePopover({ namespace, onSubmit }) {
         failure: `${response.json.message}`,
       });
     }
-    onSubmit();
     window.location.reload();
   };
 
