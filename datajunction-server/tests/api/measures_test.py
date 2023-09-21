@@ -78,6 +78,13 @@ def test_list_all_measures(
         "name": "completed_repairs",
     }
 
+    response = client_with_roads.get("/measures/random_measure")
+    assert not response.ok
+    assert (
+        response.json()["message"]
+        == "Measure with name `random_measure` does not exist"
+    )
+
 
 def test_create_measure(
     client_with_roads: TestClient,

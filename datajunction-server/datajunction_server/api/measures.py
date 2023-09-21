@@ -3,7 +3,7 @@ Measures related APIs.
 """
 
 import logging
-from typing import List, Optional
+from typing import List
 
 from fastapi import Depends
 from sqlmodel import Session, select
@@ -24,13 +24,22 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["measures"])
 
 
-def get_measure_by_name(session: Session, measure_name: str) -> Optional[Measure]:
+def get_measure_by_name(
+    session: Session,
+    measure_name: str,
+    raise_if_not_exists: bool = True,
+) -> Measure:
     """Retrieve a measure by name"""
-    return (
+    measure = (
         session.exec(select(Measure).where(Measure.name == measure_name))
         .unique()
         .one_or_none()
     )
+    if raise_if_not_exists and not measure:
+        raise DJDoesNotExistException(
+            message=f"Measure with name `{measure_name}` does not exist",
+        )
+    return measure
 
 
 @router.get("/measures/", response_model=List[str])
@@ -49,11 +58,7 @@ def get_measure(
     """
     Get info on a measure.
     """
-    measure = get_measure_by_name(session, measure_name)
-    if not measure:
-        raise DJDoesNotExistException(
-            message=f"Measure with name `{measure_name}` does not exist",
-        )
+    measure = get_measure_by_name(session, measure_name, raise_if_not_exists=True)
     return measure
 
 
@@ -69,7 +74,7 @@ def add_measure(
     """
     Add a measure
     """
-    measure = get_measure_by_name(session, data.name)
+    measure = get_measure_by_name(session, data.name, raise_if_not_exists=False)
     if measure:
         raise DJAlreadyExistsException(message=f"Measure `{data.name}` already exists!")
     measure_columns = []
@@ -109,11 +114,7 @@ def edit_measure(
     """
     Edit a measure
     """
-    measure = get_measure_by_name(session, measure_name)
-    if not measure:
-        raise DJDoesNotExistException(
-            message=f"Measure with name `{measure_name}` does not exist",
-        )
+    measure = get_measure_by_name(session, measure_name, raise_if_not_exists=True)
 
     if data.description:
         measure.description = data.description
