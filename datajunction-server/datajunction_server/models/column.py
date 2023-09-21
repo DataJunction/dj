@@ -6,10 +6,15 @@ from typing import TYPE_CHECKING, List, Optional, Tuple, TypedDict
 from pydantic import root_validator
 from sqlalchemy import TypeDecorator
 from sqlalchemy.sql.schema import Column as SqlaColumn
-from sqlalchemy.types import Text
+from sqlalchemy.types import String, Text
 from sqlmodel import Field, Relationship
 
-from datajunction_server.models.base import BaseSQLModel, NodeColumns
+from datajunction_server.models.base import (
+    BaseSQLModel,
+    NodeColumns,
+    generate_display_name,
+    labelize,
+)
 from datajunction_server.sql.parsing.types import ColumnType
 
 if TYPE_CHECKING:
@@ -57,6 +62,13 @@ class Column(BaseSQLModel, table=True):  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
+    display_name: Optional[str] = Field(
+        sa_column=SqlaColumn(
+            "display_name",
+            String,
+            default=generate_display_name,
+        ),
+    )
     type: ColumnType = Field(sa_column=SqlaColumn(ColumnTypeDecorator, nullable=False))
 
     dimension_id: Optional[int] = Field(default=None, foreign_key="node.id")
@@ -81,6 +93,16 @@ class Column(BaseSQLModel, table=True):  # type: ignore
     )
     measure_id: Optional[int] = Field(default=None, foreign_key="measures.id")
     measure: "Measure" = Relationship(back_populates="columns")
+
+    @root_validator(pre=True)
+    def default_display_name(cls, values):  # pylint: disable=no-self-argument
+        """
+        Populate unset display name based on the column's name
+        """
+        values = dict(values)
+        if "display_name" not in values or not values["display_name"]:
+            values["display_name"] = labelize(values["name"])
+        return values
 
     def identifier(self) -> Tuple[str, ColumnType]:
         """
