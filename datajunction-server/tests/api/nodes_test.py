@@ -3165,6 +3165,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "id": None,
                 "name": "payment_id",
                 "type": "int",
+                "display_name": "Payment Id",
                 "measure_id": None,
             },
         ]
@@ -3267,6 +3268,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                     "name": "col0",
                     "type": "int",
                     "dimension_id": None,
+                    "display_name": "Col0",
                     "dimension_column": None,
                     "measure_id": None,
                 },
@@ -3307,6 +3309,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "name": "col0",
                 "type": "int",
                 "dimension_id": None,
+                "display_name": "Col0",
                 "dimension_column": None,
                 "measure_id": None,
             },
