@@ -11,11 +11,13 @@ from sqlmodel import Session, select
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
 from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.models import Column
 from datajunction_server.models.measure import (
     CreateMeasure,
     EditMeasure,
     Measure,
     MeasureOutput,
+    NodeColumn,
 )
 from datajunction_server.utils import get_session, get_settings
 
@@ -40,6 +42,25 @@ def get_measure_by_name(
             message=f"Measure with name `{measure_name}` does not exist",
         )
     return measure
+
+
+def get_node_columns(session: Session, node_columns: List[NodeColumn]) -> List[Column]:
+    """
+    Finds all the specified node columns or raises if they don't exist
+    """
+    measure_columns = []
+    for node_column in node_columns:
+        node = get_node_by_name(session, node_column.node)
+        available = [
+            col for col in node.current.columns if col.name == node_column.column
+        ]
+        if len(available) != 1:
+            raise DJDoesNotExistException(
+                message=f"Column `{node_column.column}` does not exist on "
+                f"node `{node_column.node}`",
+            )
+        measure_columns.extend(available)
+    return measure_columns
 
 
 @router.get("/measures/", response_model=List[str])
@@ -77,18 +98,7 @@ def add_measure(
     measure = get_measure_by_name(session, data.name, raise_if_not_exists=False)
     if measure:
         raise DJAlreadyExistsException(message=f"Measure `{data.name}` already exists!")
-    measure_columns = []
-    for node_column in data.columns:
-        node = get_node_by_name(session, node_column.node)
-        available = [
-            col for col in node.current.columns if col.name == node_column.column
-        ]
-        if len(available) != 1:
-            raise DJDoesNotExistException(
-                message=f"Column `{node_column.column}` does not exist on "
-                f"node `{node_column.node}`",
-            )
-        measure_columns.extend(available)
+    measure_columns = get_node_columns(session, data.columns)
     measure = Measure(
         name=data.name,
         display_name=data.display_name,
@@ -120,18 +130,7 @@ def edit_measure(
         measure.description = data.description
 
     if data.columns is not None:
-        measure_columns = []
-        for node_column in data.columns:
-            node = get_node_by_name(session, node_column.node)
-            available = [
-                col for col in node.current.columns if col.name == node_column.column
-            ]
-            if len(available) != 1:
-                raise DJDoesNotExistException(
-                    message=f"Column `{node_column.column}` does not "
-                    f"exist on node `{node_column.node}`",
-                )
-            measure_columns.extend(available)
+        measure_columns = get_node_columns(session, data.columns)
         measure.columns = measure_columns
 
     if data.additive:
