@@ -2193,8 +2193,7 @@ FROM (
       EXTRACT(YEAR, default_DOT_repair_orders.order_date),
       EXTRACT(MONTH, default_DOT_repair_orders.order_date),
       EXTRACT(DAY, default_DOT_repair_orders.order_date)
-  ) AS default_DOT_regional_level_agg_structs
-GROUP BY default_DOT_regional_level_agg_structs.location_hierarchy""",
+  ) AS default_DOT_regional_level_agg_structs""",
         )
 
     def test_node_with_incremental_materialization(

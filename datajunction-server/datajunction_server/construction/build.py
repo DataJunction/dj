@@ -368,6 +368,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
     dimensions: Optional[List[str]] = None,
     orderby: Optional[List[str]] = None,
     limit: Optional[int] = None,
+    include_dimensions_in_groupby: bool = True,
 ):
     """
     Add filters and dimensions to a query ast
@@ -379,7 +380,8 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             temp_select = parse(
                 f"select * group by {agg}",
             ).select
-            query.select.group_by += temp_select.group_by  # type:ignore
+            if include_dimensions_in_groupby:
+                query.select.group_by += temp_select.group_by  # type:ignore
             for col in temp_select.find_all(ast.Column):
                 projection_addition[col.identifier(False)] = col
 
@@ -530,6 +532,7 @@ def build_node(  # pylint: disable=too-many-arguments
         dimensions,
         orderby,
         limit,
+        include_dimensions_in_groupby=(node.type == NodeType.METRIC),
     )
     memoized_queries: Dict[int, ast.Query] = {}
     _logger.info("Calling build_ast on %s", node.name)
