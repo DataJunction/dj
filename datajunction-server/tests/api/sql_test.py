@@ -339,6 +339,38 @@ def test_sql(
             GROUP BY default_DOT_us_state.state_region_description
             """,
         ),
+        # querying on source node while pulling in joinable dimension
+        # (should not group by the dimension attribute)
+        (
+            ["ROADS"],
+            "default.repair_orders",
+            ["default.hard_hat.state"],
+            ["default.hard_hat.state='CA'"],
+            """
+                SELECT default_DOT_hard_hat.state,
+                  default_DOT_repair_orders.dispatched_date,
+                  default_DOT_repair_orders.dispatcher_id,
+                  default_DOT_repair_orders.hard_hat_id,
+                  default_DOT_repair_orders.municipality_id,
+                  default_DOT_repair_orders.order_date,
+                  default_DOT_repair_orders.repair_order_id,
+                  default_DOT_repair_orders.required_date
+                FROM roads.repair_orders AS default_DOT_repair_orders
+                  LEFT OUTER JOIN (
+                    SELECT default_DOT_repair_orders.dispatcher_id,
+                      default_DOT_repair_orders.hard_hat_id,
+                      default_DOT_repair_orders.municipality_id,
+                      default_DOT_repair_orders.repair_order_id
+                    FROM roads.repair_orders AS default_DOT_repair_orders
+                  ) AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
+                  LEFT OUTER JOIN (
+                    SELECT default_DOT_hard_hats.hard_hat_id,
+                      default_DOT_hard_hats.state
+                    FROM roads.hard_hats AS default_DOT_hard_hats
+                  ) AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
+                WHERE default_DOT_hard_hat.state = 'CA'
+                """,
+        ),
     ],
 )
 def test_sql_with_filters(  # pylint: disable=too-many-arguments
