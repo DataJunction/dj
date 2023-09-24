@@ -393,7 +393,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "valid_through_ts": 20230125,
                 },
                 "pre": {},
-                "user": None,
+                "user": "dj",
             },
         ]
 
@@ -526,7 +526,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "valid_through_ts": 20230125,
                 },
                 "pre": {},
-                "user": None,
+                "user": "dj",
             },
             {
                 "activity_type": "create",
@@ -558,7 +558,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
                 },
-                "user": None,
+                "user": "dj",
             },
             {
                 "activity_type": "create",
@@ -590,7 +590,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
                 },
-                "user": None,
+                "user": "dj",
             },
         ]
 

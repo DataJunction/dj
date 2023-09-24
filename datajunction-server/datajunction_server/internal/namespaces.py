@@ -2,7 +2,7 @@
 Helper methods for namespaces endpoints.
 """
 from datetime import datetime
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from sqlalchemy import or_
 from sqlalchemy.sql.operators import is_
@@ -14,7 +14,7 @@ from datajunction_server.errors import (
     DJException,
     DJInvalidInputException,
 )
-from datajunction_server.models import History
+from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import Node, NodeNamespace, NodeRevision, NodeType
 from datajunction_server.typing import UTCDatetime
@@ -84,6 +84,7 @@ def mark_namespace_deactivated(
     session: Session,
     namespace: NodeNamespace,
     message: str = None,
+    current_user: Optional[User] = None,
 ):
     """
     Deactivates the node namespace and updates history indicating so
@@ -104,6 +105,7 @@ def mark_namespace_deactivated(
             node=None,
             activity_type=ActivityType.DELETE,
             details={"message": message or ""},
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -113,6 +115,7 @@ def mark_namespace_restored(
     session: Session,
     namespace: NodeNamespace,
     message: str = None,
+    current_user: Optional[User] = None,
 ):
     """
     Restores the node namespace and updates history indicating so
@@ -125,6 +128,7 @@ def mark_namespace_restored(
             node=None,
             activity_type=ActivityType.RESTORE,
             details={"message": message or ""},
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -155,6 +159,7 @@ def create_namespace(
     session: Session,
     namespace: str,
     include_parents: bool = True,
+    current_user: Optional[User] = None,
 ) -> List[str]:
     """
     Creates a namespace entry in the database table.
@@ -178,13 +183,19 @@ def create_namespace(
                     entity_name=namespace,
                     node=None,
                     activity_type=ActivityType.CREATE,
+                    user=current_user.username if current_user else None,
                 ),
             )
     session.commit()
     return parents
 
 
-def hard_delete_namespace(session: Session, namespace: str, cascade: bool = False):
+def hard_delete_namespace(
+    session: Session,
+    namespace: str,
+    cascade: bool = False,
+    current_user: Optional[User] = None,
+):
     """
     Hard delete a node namespace.
     """
@@ -209,7 +220,11 @@ def hard_delete_namespace(session: Session, namespace: str, cascade: bool = Fals
 
     impacts = {}
     for node_name in node_names:
-        impacts[node_name] = hard_delete_node(node_name, session)
+        impacts[node_name] = hard_delete_node(
+            node_name,
+            session,
+            current_user=current_user,
+        )
 
     namespaces = list_namespaces_in_hierarchy(session, namespace)
     for _namespace in namespaces:

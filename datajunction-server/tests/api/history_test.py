@@ -46,7 +46,7 @@ def test_get_history_entity(client_with_roads: TestClient):
             "entity_type": "node",
             "entity_name": "default.repair_orders",
             "activity_type": "create",
-            "user": None,
+            "user": "dj",
             "details": {},
         },
     ]
@@ -72,7 +72,7 @@ def test_get_history_node(client_with_roads: TestClient):
             "id": mock.ANY,
             "post": {},
             "pre": {},
-            "user": None,
+            "user": "dj",
         },
         {
             "activity_type": "set_attribute",
@@ -92,7 +92,7 @@ def test_get_history_node(client_with_roads: TestClient):
             "id": mock.ANY,
             "post": {},
             "pre": {},
-            "user": None,
+            "user": "dj",
         },
         {
             "activity_type": "create",
@@ -108,7 +108,7 @@ def test_get_history_node(client_with_roads: TestClient):
             "id": mock.ANY,
             "post": {},
             "pre": {},
-            "user": None,
+            "user": "dj",
         },
         {
             "activity_type": "create",
@@ -124,7 +124,7 @@ def test_get_history_node(client_with_roads: TestClient):
             "id": mock.ANY,
             "post": {},
             "pre": {},
-            "user": None,
+            "user": "dj",
         },
         {
             "activity_type": "create",
@@ -140,7 +140,7 @@ def test_get_history_node(client_with_roads: TestClient):
             "id": mock.ANY,
             "post": {},
             "pre": {},
-            "user": None,
+            "user": "dj",
         },
     ]
 
@@ -165,6 +165,6 @@ def test_get_history_namespace(client_with_service_setup: TestClient):
             "id": mock.ANY,
             "post": {},
             "pre": {},
-            "user": None,
+            "user": "dj",
         },
     ]
