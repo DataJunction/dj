@@ -15,10 +15,12 @@ from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, create_engine
+from starlette.requests import Request
 from yarl import URL
 
 from datajunction_server.config import Settings
 from datajunction_server.errors import DJException
+from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
 
 
@@ -203,3 +205,12 @@ def amenable_name(name: str) -> str:
             cont = []
 
     return ("_".join(ret) + "_" + "".join(cont)).strip("_")
+
+
+async def get_current_user(request: Request) -> Optional[User]:
+    """
+    Returns the current authenticated user
+    """
+    if hasattr(request.state, "user"):
+        return request.state.user
+    return None  # pragma: no cover
