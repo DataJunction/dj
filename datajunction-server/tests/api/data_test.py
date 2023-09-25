@@ -33,8 +33,15 @@ class TestDataForNode:
             },
         )
         data = response.json()
-        assert response.status_code == 422
-        assert data["message"] == "Cannot set dimensions for node type dimension!"
+        assert response.status_code == 500
+        assert data["message"] == (
+            "Cannot resolve type of column something in SELECT  "
+            "default_DOT_payment_type_table.id,\n"
+            "\tdefault_DOT_payment_type_table.payment_type_classification,\n"
+            "\tdefault_DOT_payment_type_table.payment_type_name,\n"
+            "\tsomething \n"
+            " FROM accounting.payment_type_table AS default_DOT_payment_type_table\n"
+        )
 
     def test_get_dimension_data(
         self,

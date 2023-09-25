@@ -197,12 +197,6 @@ def get_query(  # pylint: disable=too-many-arguments
     """
     node = get_node_by_name(session=session, name=node_name)
 
-    if node.type in (NodeType.DIMENSION, NodeType.SOURCE):
-        if dimensions:
-            raise DJInvalidInputException(
-                message=f"Cannot set dimensions for node type {node.type}!",
-            )
-
     # Builds the node for the engine's dialect if one is set or defaults to Spark
     if (
         not engine
