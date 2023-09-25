@@ -66,7 +66,7 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         sa_column=SqlaColumn(
             "display_name",
             String,
-            default=generate_display_name,
+            default=generate_display_name("name"),
         ),
     )
     type: ColumnType = Field(sa_column=SqlaColumn(ColumnTypeDecorator, nullable=False))

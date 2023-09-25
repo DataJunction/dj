@@ -33,6 +33,7 @@ from datajunction_server.api import (
     health,
     history,
     materializations,
+    measures,
     metrics,
     namespaces,
     nodes,
@@ -90,6 +91,7 @@ app.include_router(djsql.router)
 app.include_router(nodes.router)
 app.include_router(namespaces.router)
 app.include_router(materializations.router)
+app.include_router(measures.router)
 app.include_router(data.router)
 app.include_router(health.router)
 app.include_router(history.router)
