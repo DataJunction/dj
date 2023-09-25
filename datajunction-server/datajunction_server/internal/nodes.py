@@ -24,6 +24,7 @@ from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
 )
+from datajunction_server.internal.namespaces import SEPARATOR
 from datajunction_server.materialization.jobs import (
     DefaultCubeMaterialization,
     DruidCubeMaterializationJob,
@@ -374,6 +375,7 @@ def save_node(
     current_user: Optional[User] = None,
 ):
     """
+    Saves the newly created node revision
     Links the node and node revision together and saves them
     """
     node_revision.node = node
@@ -413,13 +415,36 @@ def save_node(
     session.refresh(node.current)
 
 
-def _update_node(
+def update_any_node(
     name: str,
     data: UpdateNode,
     session: Session,
     query_service_client: QueryServiceClient = None,
     current_user: Optional[User] = None,
-):
+) -> Node:
+    """
+    Node update helper function that handles updating any node
+    """
+    node = get_node_by_name(session, name, for_update=True, include_inactive=True)
+    if node.type == NodeType.CUBE:
+        node_revision = update_cube_node(session, node.current, data, query_service_client, current_user)
+        return node_revision.node
+    return update_node_with_query(
+        name,
+        data,
+        session,
+        query_service_client,
+        current_user,
+    )
+
+
+def update_node_with_query(
+    name: str,
+    data: UpdateNode,
+    session: Session,
+    query_service_client: QueryServiceClient = None,
+    current_user: Optional[User] = None,
+) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
     Propagate these changes to all of the node's downstream children.
@@ -490,6 +515,7 @@ def _update_node(
         session,
         node,
         history_events,
+        query_service_client=query_service_client,
         current_user=current_user,
     )
 
@@ -497,10 +523,76 @@ def _update_node(
     return node
 
 
+def update_cube_node(
+    session: Session,
+    node_revision: NodeRevision,
+    data: UpdateNode,
+    query_service_client: QueryServiceClient,
+    current_user: Optional[User] = None,
+) -> NodeRevision:
+    """
+    Update cube node based on changes
+    """
+    new_cube_revision = create_cube_node_revision(
+        session,
+        CreateCubeNode(
+            name=node_revision.name,
+            display_name=data.display_name or node_revision.display_name,
+            description=data.description or node_revision.description,
+            metrics=data.metrics or [m.name for m in node_revision.cube_metrics()],
+            dimensions=data.dimensions or node_revision.cube_dimensions(),
+            mode=data.mode or node_revision.mode,
+            filters=data.filters or [],
+            orderby=data.orderby or None,
+            limit=data.limit or None,
+        ),
+    )
+
+    new_cube_elements = {element.id for element in new_cube_revision.cube_elements}
+    existing_cube_elements = {element.id for element in node_revision.cube_elements}
+
+    if new_cube_elements != existing_cube_elements or new_cube_revision.status != node_revision.status:
+        old_version = Version.parse(node_revision.version)
+        new_cube_revision.version = str(old_version.next_major_version())
+        new_cube_revision.node = node_revision.node
+        new_cube_revision.node.current_version = new_cube_revision.version
+
+        # Handle materializations
+        active_materializations = [
+            mat for mat in new_cube_revision.materializations
+            if not mat.deactivated_at and mat.name != 'default'
+        ]
+        if active_materializations:
+            for old in active_materializations:
+                new_cube_revision.materializations.append(
+                    create_new_materialization(
+                        session,
+                        new_cube_revision,
+                        UpsertMaterialization(
+                            **old.dict(), **{"engine": old.engine.dict()}
+                        ),
+                    ),
+                )
+            schedule_materialization_jobs(
+                new_cube_revision.materializations,
+                query_service_client,
+            )
+        session.add(new_cube_revision)
+        session.add(new_cube_revision.node)
+        session.commit()
+
+        session.refresh(new_cube_revision)
+        session.refresh(new_cube_revision.node)
+        session.refresh(new_cube_revision.node.current)
+        return new_cube_revision
+    return node_revision
+
+
 def propagate_update_downstream(
     session: Session,
     node: Node,
     history_events: Dict[str, Any],
+    query_service_client: QueryServiceClient = None,
     current_user: Optional[User] = None,
 ):
     """
@@ -524,67 +616,78 @@ def propagate_update_downstream(
         if child.name not in processed:
             processed.add(child.name)
 
-            node_validator = validate_node_data(
-                data=child,
-                session=session,
-            )
-
-            # Update the child with a new node revision if its columns or status have changed
-            if node_validator.differs_from(child):
-                new_revision = copy_existing_node_revision(child)
-                new_revision.version = str(
-                    Version.parse(child.version).next_major_version(),
+            if child.type == NodeType.CUBE:
+                update_cube_node(
+                    session,
+                    child,
+                    UpdateNode(
+                        metrics=[metric.name for metric in child.cube_metrics()],
+                        dimensions=child.cube_dimensions(),
+                    ),
+                    query_service_client=query_service_client,
+                )
+            else:
+                node_validator = validate_node_data(
+                    data=child,
+                    session=session,
                 )
 
-                new_revision.status = node_validator.status
-                new_revision.lineage = [
-                    lineage.dict()
-                    for lineage in get_column_level_lineage(session, new_revision)
-                ]
+                # Update the child with a new node revision if its columns or status have changed
+                if node_validator.differs_from(child):
+                    new_revision = copy_existing_node_revision(child)
+                    new_revision.version = str(
+                        Version.parse(child.version).next_major_version(),
+                    )
 
-                # Save which columns were modified and update the columns with the changes
-                updated_columns = node_validator.modified_columns(new_revision)
-                new_revision.columns = node_validator.columns
+                    new_revision.status = node_validator.status
+                    new_revision.lineage = [
+                        lineage.dict()
+                        for lineage in get_column_level_lineage(session, new_revision)
+                    ]
 
-                # Save the new revision of the child
-                new_revision.node = child.node
-                new_revision.node.current_version = new_revision.version
-                session.add(new_revision)
-                session.add(new_revision.node)
+                    # Save which columns were modified and update the columns with the changes
+                    updated_columns = node_validator.modified_columns(new_revision)
+                    new_revision.columns = node_validator.columns
 
-                # Add grandchildren for processing
-                for grandchild in child.node.children:
-                    new_changelog = changelog + [grandchild]
-                    to_process.append(new_changelog)
+                    # Save the new revision of the child
+                    new_revision.node = child.node
+                    new_revision.node.current_version = new_revision.version
+                    session.add(new_revision)
+                    session.add(new_revision.node)
 
-                # Record history event
-                history_events[child.name] = {
-                    "name": child.name,
-                    "current_version": new_revision.version,
-                    "previous_version": child.version,
-                    "updated_columns": sorted(list(updated_columns)),
-                }
-                event = History(
-                    entity_type=EntityType.NODE,
-                    entity_name=child.name,
-                    node=child.name,
-                    activity_type=ActivityType.STATUS_CHANGE,
-                    details={
-                        "upstreams": [
-                            history_events[entry.name]
-                            for entry in changelog
-                            if entry.name in history_events
-                        ],
-                        "reason": f"Caused by update of `{node.name}` to {node.current_version}",
-                    },
-                    pre={"status": child.status},
-                    post={"status": node_validator.status},
-                    user=current_user.username if current_user else None,
-                )
-                session.add(event)
-                session.commit()
-                session.refresh(new_revision)
-                session.refresh(new_revision.node)
+                    # Add grandchildren for processing
+                    for grandchild in child.node.children:
+                        new_changelog = changelog + [grandchild]
+                        to_process.append(new_changelog)
+
+                    # Record history event
+                    history_events[child.name] = {
+                        "name": child.name,
+                        "current_version": new_revision.version,
+                        "previous_version": child.version,
+                        "updated_columns": sorted(list(updated_columns)),
+                    }
+                    event = History(
+                        entity_type=EntityType.NODE,
+                        entity_name=child.name,
+                        node=child.name,
+                        activity_type=ActivityType.STATUS_CHANGE,
+                        details={
+                            "upstreams": [
+                                history_events[entry.name]
+                                for entry in changelog
+                                if entry.name in history_events
+                            ],
+                            "reason": f"Caused by update of `{node.name}` to {node.current_version}",
+                        },
+                        pre={"status": child.status},
+                        post={"status": node_validator.status},
+                        user=current_user.username if current_user else None,
+                    )
+                    session.add(event)
+                    session.commit()
+                    session.refresh(new_revision)
+                    session.refresh(new_revision.node)
 
 
 def copy_existing_node_revision(old_revision: NodeRevision):
@@ -633,7 +736,7 @@ def _create_node_from_inactive(
                 "you need to remove all the traces of the previous node with a <TODO> command.",
                 http_status_code=HTTPStatus.CONFLICT,
             )
-        _update_node(
+        update_node_with_query(
             name=data.name,
             data=UpdateNode(
                 # MutableNodeFields

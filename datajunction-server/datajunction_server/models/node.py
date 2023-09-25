@@ -829,6 +829,24 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             )
         )
 
+    def cube_referenced_node_revisions(self):
+        if self.type != NodeType.CUBE:
+            return []
+        return [element.node_revision() for element in self.cube_elements]
+
+    def cube_metrics(self) -> List[Node]:
+        return [
+            node_rev.node for node_rev in self.cube_referenced_node_revisions()
+            if node_rev.type == NodeType.METRIC
+        ]
+
+    def cube_dimensions(self) -> List[str]:
+        return [
+            element.node_revision().name + "." + element.name
+            for element in self.cube_elements
+            if element.node_revision().type != NodeType.METRIC
+        ]
+
 
 class ImmutableNodeFields(BaseSQLModel):
     """
@@ -988,10 +1006,8 @@ class SourceNodeFields(BaseSQLModel):
 
 class CubeNodeFields(BaseSQLModel):
     """
-    Cube node fields that can be changed
+    Cube-specific fields that can be changed
     """
-
-    display_name: Optional[str]
     metrics: List[str]
     dimensions: List[str]
     filters: Optional[List[str]]
@@ -1031,7 +1047,7 @@ class CreateSourceNode(ImmutableNodeFields, MutableNodeFields, SourceNodeFields)
     """
 
 
-class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
+class CreateCubeNode(ImmutableNodeFields, MutableNodeFields, CubeNodeFields):
     """
     A create object for cube nodes
     """
@@ -1048,6 +1064,7 @@ class UpdateNode(MutableNodeFields, SourceNodeFields):
             **SourceNodeFields.__annotations__,  # pylint: disable=E1101
             **MutableNodeFields.__annotations__,  # pylint: disable=E1101
             **MutableNodeQueryField.__annotations__,  # pylint: disable=E1101
+            **CubeNodeFields.__annotations__,
         }.items()
     }
 
