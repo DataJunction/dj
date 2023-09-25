@@ -155,6 +155,13 @@ class Column(BaseSQLModel, table=True):  # type: ignore
         values["type"] = str(values.get("type"))
         return values
 
+    def node_revision(self) -> "NodeRevision":
+        """
+        Returns the most recent node revision associated with this columns
+        """
+        available_revisions = sorted(self.node_revisions, key=lambda n: n.updated_at)
+        return available_revisions[-1] if available_revisions else None
+
 
 class ColumnAttributeInput(BaseSQLModel):
     """

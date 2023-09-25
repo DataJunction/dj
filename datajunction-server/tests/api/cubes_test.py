@@ -354,6 +354,56 @@ def repair_orders_cube_measures() -> Dict:
     }
 
 
+@pytest.fixture
+def repairs_cube_elements():
+    return sorted([
+        {
+            "name": "default_DOT_discounted_orders_rate",
+            "node_name": "default.discounted_orders_rate",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_num_repair_orders",
+            "node_name": "default.num_repair_orders",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_avg_repair_price",
+            "node_name": "default.avg_repair_price",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_total_repair_cost",
+            "node_name": "default.total_repair_cost",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_total_repair_order_discounts",
+            "node_name": "default.total_repair_order_discounts",
+            "type": "metric",
+        },
+        {
+            "name": "default_DOT_double_total_repair_cost",
+            "node_name": "default.double_total_repair_cost",
+            "type": "metric",
+        },
+        {"name": "country", "node_name": "default.hard_hat", "type": "dimension"},
+        {"name": "postal_code", "node_name": "default.hard_hat", "type": "dimension"},
+        {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
+        {"name": "state", "node_name": "default.hard_hat", "type": "dimension"},
+        {
+            "name": "company_name",
+            "node_name": "default.dispatcher",
+            "type": "dimension",
+        },
+        {
+            "name": "local_region",
+            "node_name": "default.municipality_dim",
+            "type": "dimension",
+        },
+    ], key=lambda x: x["name"])
+
+
 def test_invalid_cube(client_with_roads: TestClient):
     """
     Test that creating a cube without valid dimensions fails
@@ -1199,17 +1249,20 @@ def test_unlink_node_column_dimension(
     assert data["status"] == "invalid"
 
 
-def test_deactivating_node_upstream_from_cube(
+def test_changing_node_upstream_from_cube(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+    repairs_cube_elements: List[Dict],
 ):
     """
-    Verify deactivating and activating a node upstream from a cube
+    Verify changing nodes upstream from a cube
     """
+    # Verify effects on cube after deactivating a node upstream from the cube
     client_with_repairs_cube.delete("/nodes/default.repair_orders/")
     response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     data = response.json()
     assert data["status"] == "invalid"
 
+    # Verify effects on cube after restoring a node upstream from the cube
     client_with_repairs_cube.post("/nodes/default.repair_orders/restore/")
     response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     data = response.json()
@@ -1217,49 +1270,42 @@ def test_deactivating_node_upstream_from_cube(
 
     response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
-    assert data["cube_elements"] == [
-        {
-            "name": "default_DOT_discounted_orders_rate",
-            "node_name": "default.discounted_orders_rate",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_num_repair_orders",
-            "node_name": "default.num_repair_orders",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_avg_repair_price",
-            "node_name": "default.avg_repair_price",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_total_repair_cost",
-            "node_name": "default.total_repair_cost",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_total_repair_order_discounts",
-            "node_name": "default.total_repair_order_discounts",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_double_total_repair_cost",
-            "node_name": "default.double_total_repair_cost",
-            "type": "metric",
-        },
-        {"name": "country", "node_name": "default.hard_hat", "type": "dimension"},
-        {"name": "postal_code", "node_name": "default.hard_hat", "type": "dimension"},
-        {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
-        {"name": "state", "node_name": "default.hard_hat", "type": "dimension"},
-        {
-            "name": "company_name",
-            "node_name": "default.dispatcher",
-            "type": "dimension",
-        },
-        {
-            "name": "local_region",
-            "node_name": "default.municipality_dim",
-            "type": "dimension",
-        },
-    ]
+    assert sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
+
+    # Verify effects on cube after updating a node upstream from the cube
+    client_with_repairs_cube.patch("/nodes/default.discounted_orders_rate/", json={
+        "query": """SELECT
+  cast(sum(if(discount > 0.0, 1, 0)) as double)
+FROM default.repair_order_details"""
+    })
+    response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
+    data = response.json()
+    assert data["status"] == "valid"
+
+    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    data = response.json()
+    assert sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
+
+
+def test_updating_cube(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+    repairs_cube_elements: List[Dict],
+):
+    """
+    Verify updating a cube
+    """
+    response = client_with_repairs_cube.patch("/nodes/default.repairs_cube", json={
+        "metrics": ["default.discounted_orders_rate"],
+        "dimensions": ["default.hard_hat.city"],
+    })
+    result = response.json()
+    assert result["version"] == "v2.0"
+    assert result["columns"] == [{'attributes': [],
+              'dimension': None,
+              'name': 'default_DOT_discounted_orders_rate',
+              'type': 'double'},
+             {'attributes': [{'attribute_type': {'name': 'dimension',
+                                                 'namespace': 'system'}}],
+              'dimension': None,
+              'name': 'city',
+              'type': 'string'}]
