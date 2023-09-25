@@ -73,7 +73,7 @@ def test_update_source_node(
                 "node": "default.national_level_agg",
                 "post": {"status": "invalid"},
                 "pre": {"status": "valid"},
-                "user": None,
+                "user": "dj",
             },
         ],
         "default.regional_level_agg": [
@@ -111,7 +111,7 @@ def test_update_source_node(
                 "node": "default.regional_level_agg",
                 "post": {"status": "invalid"},
                 "pre": {"status": "valid"},
-                "user": None,
+                "user": "dj",
             },
         ],
         "default.avg_repair_price": [
@@ -121,7 +121,7 @@ def test_update_source_node(
                 "entity_name": "default.avg_repair_price",
                 "node": "default.avg_repair_price",
                 "activity_type": "status_change",
-                "user": None,
+                "user": "dj",
                 "pre": {"status": "valid"},
                 "post": {"status": "invalid"},
                 "details": {
@@ -155,7 +155,7 @@ def test_update_source_node(
                 "entity_name": "default.regional_repair_efficiency",
                 "node": "default.regional_repair_efficiency",
                 "activity_type": "status_change",
-                "user": None,
+                "user": "dj",
                 "pre": {"status": "valid"},
                 "post": {"status": "invalid"},
                 "details": {

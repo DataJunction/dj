@@ -60,7 +60,7 @@ class TestTags:
                 "id": mock.ANY,
                 "post": {},
                 "pre": {},
-                "user": None,
+                "user": "dj",
             },
         ]
 

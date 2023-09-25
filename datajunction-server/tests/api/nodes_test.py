@@ -363,7 +363,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "id": mock.ANY,
                 "post": {},
                 "pre": {},
-                "user": None,
+                "user": "dj",
             },
             {
                 "activity_type": "delete",
@@ -375,7 +375,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "id": mock.ANY,
                 "post": {},
                 "pre": {},
-                "user": None,
+                "user": "dj",
             },
             {
                 "id": mock.ANY,
@@ -383,7 +383,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "entity_name": "basic.source.users",
                 "node": "basic.source.users",
                 "activity_type": "update",
-                "user": None,
+                "user": "dj",
                 "pre": {},
                 "post": {},
                 "details": {"version": "v2.0"},
@@ -395,7 +395,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "entity_name": "basic.source.users",
                 "node": "basic.source.users",
                 "activity_type": "restore",
-                "user": None,
+                "user": "dj",
                 "pre": {},
                 "post": {},
                 "details": {},
@@ -3144,7 +3144,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         """
         Test validating a valid node
         """
-        response = client_with_account_revenue.post(
+        response = client_with_account_revenue.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3179,7 +3179,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating an invalid node
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3207,7 +3207,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating an invalid node with invalid SQL
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3244,7 +3244,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating a node with a query that has missing parents
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3287,7 +3287,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating a draft node that's allowed to have missing parents
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3331,7 +3331,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating a source node which is not possible
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",

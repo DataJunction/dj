@@ -23,7 +23,7 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.internal.authentication.http import SecureAPIRouter
-from datajunction_server.models import History
+from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import (
@@ -38,6 +38,7 @@ from datajunction_server.models.query import (
 )
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
+    get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -53,6 +54,7 @@ def add_availability_state(
     data: AvailabilityStateBase,
     *,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Add an availability state to a node
@@ -106,6 +108,7 @@ def add_availability_state(
             if old_availability
             else {},
             post=AvailabilityStateBase.parse_obj(node_revision.availability).dict(),
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()

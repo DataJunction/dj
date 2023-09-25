@@ -11,6 +11,7 @@ from sqlalchemy.sql.schema import Column as SqlaColumn
 from sqlmodel import JSON, Field, SQLModel
 
 from datajunction_server.models.node import NodeRevision, NodeStatus
+from datajunction_server.models.user import User
 from datajunction_server.typing import UTCDatetime
 
 
@@ -76,6 +77,7 @@ def status_change_history(
     start_status: NodeStatus,
     end_status: NodeStatus,
     parent_node: str = None,
+    current_user: Optional[User] = None,
 ) -> History:
     """
     Returns a status change history activity entry
@@ -88,4 +90,5 @@ def status_change_history(
         pre={"status": start_status},
         post={"status": end_status},
         details={"upstream_node": parent_node if parent_node else None},
+        user=current_user.username if current_user else None,
     )

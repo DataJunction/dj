@@ -35,6 +35,7 @@ from datajunction_server.models import (
     History,
     Node,
     NodeRevision,
+    User,
 )
 from datajunction_server.models.attribute import (
     AttributeTypeIdentifier,
@@ -69,12 +70,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.utils import (
-    Version,
-    VersionUpgrade,
-    get_query_service_client,
-    get_session,
-)
+from datajunction_server.utils import Version, VersionUpgrade, get_session
 
 _logger = logging.getLogger(__name__)
 
@@ -132,6 +128,7 @@ def set_node_column_attributes(
     node: Node,
     column_name: str,
     attributes: List[AttributeTypeIdentifier],
+    current_user: Optional[User] = None,
 ) -> List[Column]:
     """
     Sets the column attributes on the node if allowed.
@@ -193,6 +190,7 @@ def set_node_column_attributes(
                 "column": column.name,
                 "attributes": [attr.dict() for attr in attributes],
             },
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -373,6 +371,7 @@ def save_node(
     node_revision: NodeRevision,
     node: Node,
     node_mode: NodeMode,
+    current_user: Optional[User] = None,
 ):
     """
     Links the node and node revision together and saves them
@@ -396,6 +395,7 @@ def save_node(
             entity_type=EntityType.NODE,
             entity_name=node.name,
             activity_type=ActivityType.CREATE,
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -408,6 +408,7 @@ def save_node(
         session=session,
         valid_nodes=newly_valid_nodes,
         catalog_id=node.current.catalog_id,  # pylint: disable=no-member
+        current_user=current_user,
     )
     session.refresh(node.current)
 
@@ -416,7 +417,8 @@ def _update_node(
     name: str,
     data: UpdateNode,
     session: Session,
-    query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    query_service_client: QueryServiceClient = None,
+    current_user: Optional[User] = None,
 ):
     """
     Update the named node with the changes defined in the UpdateNode object.
@@ -426,7 +428,7 @@ def _update_node(
     old_revision = node.current
     new_revision = create_new_revision_from_existing(
         session,
-        query_service_client,
+        query_service_client,  # type: ignore
         old_revision,
         node,
         data,
@@ -454,6 +456,7 @@ def _update_node(
             details={
                 "version": new_revision.version,  # type: ignore
             },
+            user=current_user.username if current_user else None,
         ),
     )
 
@@ -463,6 +466,7 @@ def _update_node(
                 new_revision,  # type: ignore
                 old_revision.status,
                 new_revision.status,  # type: ignore
+                current_user=current_user,
             ),
         )
     session.commit()
@@ -482,7 +486,12 @@ def _update_node(
             if col.name not in old_columns_map or old_columns_map[col.name] != col.type
         ],
     }
-    propagate_update_downstream(session, node, history_events)
+    propagate_update_downstream(
+        session,
+        node,
+        history_events,
+        current_user=current_user,
+    )
 
     session.refresh(node.current)
     return node
@@ -492,6 +501,7 @@ def propagate_update_downstream(
     session: Session,
     node: Node,
     history_events: Dict[str, Any],
+    current_user: Optional[User] = None,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -569,6 +579,7 @@ def propagate_update_downstream(
                     },
                     pre={"status": child.status},
                     post={"status": node_validator.status},
+                    user=current_user.username if current_user else None,
                 )
                 session.add(event)
                 session.commit()
@@ -602,6 +613,7 @@ def _create_node_from_inactive(
     new_node_type: NodeType,
     data: CreateSourceNode,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = None,
 ) -> Optional[Node]:
     """
     If the node existed and is inactive the re-creation takes different steps than
@@ -635,9 +647,10 @@ def _create_node_from_inactive(
                 columns=data.columns,
             ),
             session=session,
+            current_user=current_user,
         )
         try:
-            activate_node(name=data.name, session=session)
+            activate_node(name=data.name, session=session, current_user=current_user)
             return get_node_by_name(session, data.name, with_current=True)
         except Exception as exc:  # pragma: no cover
             raise DJException(
