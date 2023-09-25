@@ -25,6 +25,7 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_restored,
     validate_namespace,
 )
+from datajunction_server.models import User
 from datajunction_server.models.node import (
     NamespaceOutput,
     Node,
@@ -32,7 +33,7 @@ from datajunction_server.models.node import (
     NodeNamespace,
     NodeType,
 )
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_current_user, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -44,6 +45,7 @@ def create_node_namespace(
     namespace: str,
     include_parents: Optional[bool] = False,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Create a node namespace
@@ -60,7 +62,12 @@ def create_node_namespace(
             },
         )
     validate_namespace(namespace)
-    created_namespaces = create_namespace(session, namespace, include_parents)  # type: ignore
+    created_namespaces = create_namespace(
+        session,
+        namespace,
+        include_parents,  # type: ignore
+        current_user=current_user,
+    )
     return JSONResponse(
         status_code=HTTPStatus.CREATED,
         content={
@@ -120,6 +127,7 @@ def deactivate_a_namespace(
         description="Cascade the deletion down to the nodes in the namespace",
     ),
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Deactivates a node namespace
@@ -154,12 +162,18 @@ def deactivate_a_namespace(
                 session,
                 node_name,
                 f"Cascaded from deactivating namespace `{namespace}`",
+                current_user=current_user,
             )
         message = (
             f"Namespace `{namespace}` has been deactivated. The following nodes"
             f" have also been deactivated: {','.join(node_names)}"
         )
-        mark_namespace_deactivated(session, node_namespace, message)
+        mark_namespace_deactivated(
+            session,
+            node_namespace,
+            message,
+            current_user=current_user,
+        )
 
         return JSONResponse(
             status_code=HTTPStatus.OK,
@@ -185,6 +199,7 @@ def restore_a_namespace(
         description="Cascade the restore down to the nodes in the namespace",
     ),
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Restores a node namespace
@@ -209,6 +224,7 @@ def restore_a_namespace(
                 name=node_name,
                 session=session,
                 message=f"Cascaded from restoring namespace `{namespace}`",
+                current_user=current_user,
             )
 
         message = (
@@ -226,7 +242,7 @@ def restore_a_namespace(
 
     # Otherwise just restore this namespace
     message = f"Namespace `{namespace}` has been restored."
-    mark_namespace_restored(session, node_namespace, message)
+    mark_namespace_restored(session, node_namespace, message, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.CREATED,
         content={"message": message},
@@ -239,6 +255,7 @@ def hard_delete_node_namespace(
     *,
     cascade: bool = False,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Hard delete a namespace, which will completely remove the namespace. Additionally,
@@ -250,6 +267,7 @@ def hard_delete_node_namespace(
         session=session,
         namespace=namespace,
         cascade=cascade,
+        current_user=current_user,
     )
     return JSONResponse(
         status_code=HTTPStatus.OK,

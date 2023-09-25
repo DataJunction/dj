@@ -5,7 +5,7 @@ Node materialization related APIs.
 import logging
 from datetime import datetime
 from http import HTTPStatus
-from typing import List
+from typing import List, Optional
 
 from fastapi import Depends
 from fastapi.responses import JSONResponse
@@ -18,6 +18,7 @@ from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
 )
+from datajunction_server.models import User
 from datajunction_server.models.history import ActivityType, EntityType, History
 from datajunction_server.models.materialization import (
     MaterializationConfigInfoUnified,
@@ -27,6 +28,7 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
 from datajunction_server.utils import (
+    get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -48,6 +50,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Add or update a materialization of the specified node. If a name is specified
@@ -84,6 +87,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
                     node=node.name,
                     activity_type=ActivityType.RESTORE,
                     details={},
+                    user=current_user.username if current_user else None,
                 ),
             )
             session.commit()
@@ -138,6 +142,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
                 "node": node.name,
                 "materialization": new_materialization.name,
             },
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -203,6 +208,7 @@ def deactivate_node_materializations(
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> List[MaterializationConfigInfoUnified]:
     """
     Deactivate the node materialization with the provided name.
@@ -233,6 +239,7 @@ def deactivate_node_materializations(
             node=node.name,
             activity_type=ActivityType.DELETE,
             details={},
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()

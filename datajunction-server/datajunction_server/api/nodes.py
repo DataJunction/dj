@@ -41,6 +41,7 @@ from datajunction_server.internal.nodes import (
     save_node,
     set_node_column_attributes,
 )
+from datajunction_server.models import User
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column
@@ -73,6 +74,7 @@ from datajunction_server.sql.dag import get_dimensions, get_nodes_with_dimension
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.utils import (
     Version,
+    get_current_user,
     get_namespace_from_name,
     get_query_service_client,
     get_session,
@@ -84,14 +86,14 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["nodes"])
 
 
-@router.post("/nodes/validate/", response_model=NodeValidation)
+@router.get("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
     data: Union[NodeRevisionBase, NodeRevision],
     response: Response,
     session: Session = Depends(get_session),
 ) -> NodeValidation:
     """
-    Validate a node.
+    Determines whether the provided node is valid and returns metadata from node validation.
     """
 
     if data.type == NodeType.SOURCE:
@@ -117,11 +119,12 @@ def validate_node(
 def revalidate(
     name: str,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeValidation:
     """
     Revalidate a single existing node and update its status appropriately
     """
-    status = revalidate_node(name=name, session=session)
+    status = revalidate_node(name=name, session=session, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
@@ -142,6 +145,7 @@ def set_column_attributes(
     attributes: List[AttributeTypeIdentifier],
     *,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> List[ColumnOutput]:
     """
     Set column attributes for the node.
@@ -152,6 +156,7 @@ def set_column_attributes(
         node,
         column_name,
         attributes,
+        current_user=current_user,
     )
     return columns  # type: ignore
 
@@ -186,11 +191,16 @@ def get_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutpu
 
 
 @router.delete("/nodes/{name}/")
-def delete_node(name: str, *, session: Session = Depends(get_session)):
+def delete_node(
+    name: str,
+    *,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     """
     Delete (aka deactivate) the specified node.
     """
-    deactivate_node(session, name)
+    deactivate_node(session, name, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully deleted."},
@@ -201,12 +211,13 @@ def delete_node(name: str, *, session: Session = Depends(get_session)):
 def hard_delete(
     name: str,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
     """
-    impact = hard_delete_node(name=name, session=session)
+    impact = hard_delete_node(name=name, session=session, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={
@@ -217,11 +228,16 @@ def hard_delete(
 
 
 @router.post("/nodes/{name}/restore/")
-def restore_node(name: str, *, session: Session = Depends(get_session)):
+def restore_node(
+    name: str,
+    *,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+):
     """
     Restore (aka re-activate) the specified node.
     """
-    activate_node(session, name)
+    activate_node(session, name, current_user=current_user)
     return JSONResponse(
         status_code=HTTPStatus.OK,
         content={"message": f"Node `{name}` has been successfully restored."},
@@ -243,6 +259,7 @@ def list_node_revisions(
 def create_source(
     data: CreateSourceNode,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
     """
     Create a source node. If columns are not provided, the source node's schema
@@ -255,6 +272,7 @@ def create_source(
         new_node_type=NodeType.SOURCE,
         data=data,
         session=session,
+        current_user=current_user,
     ):
         return recreated_node
 
@@ -306,7 +324,7 @@ def create_source(
     )
 
     # Point the node to the new node revision.
-    save_node(session, node_revision, node, data.mode)
+    save_node(session, node_revision, node, data.mode, current_user=current_user)
 
     return node  # type: ignore
 
@@ -334,6 +352,7 @@ def create_node(
     request: Request,
     *,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
     """
     Create a node.
@@ -353,6 +372,7 @@ def create_node(
         new_node_type=node_type,
         data=data,
         session=session,
+        current_user=current_user,
     ):
         return recreated_node  # pragma: no cover
 
@@ -370,7 +390,7 @@ def create_node(
         current_version=0,
     )
     node_revision = create_node_revision(data, node_type, session)
-    save_node(session, node_revision, node, data.mode)
+    save_node(session, node_revision, node, data.mode, current_user=current_user)
     session.refresh(node_revision)
     session.refresh(node)
 
@@ -390,6 +410,7 @@ def create_node(
                     node,
                     key_column,
                     [AttributeTypeIdentifier(name="primary_key", namespace="system")],
+                    current_user=current_user,
                 )
     session.refresh(node)
     session.refresh(node.current)
@@ -407,6 +428,7 @@ def create_cube(
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
     """
     Create a cube node.
@@ -418,6 +440,7 @@ def create_cube(
         new_node_type=NodeType.CUBE,
         data=data,
         session=session,
+        current_user=current_user,
     ):
         return recreated_node  # pragma: no cover
 
@@ -435,7 +458,7 @@ def create_cube(
         current_version=0,
     )
     node_revision = create_cube_node_revision(session=session, data=data)
-    save_node(session, node_revision, node, data.mode)
+    save_node(session, node_revision, node, data.mode, current_user=current_user)
 
     # Schedule materialization jobs, if any
     schedule_materialization_jobs(
@@ -456,6 +479,7 @@ def register_table(  # pylint: disable=too-many-arguments
     table: str,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
     """
     Register a table. This creates a source node in the SOURCE_NODE_NAMESPACE and
@@ -471,12 +495,16 @@ def register_table(  # pylint: disable=too-many-arguments
     raise_if_node_exists(session, name)
 
     # Create the namespace if required (idempotent)
-    create_node_namespace(namespace=namespace, session=session)
+    create_node_namespace(
+        namespace=namespace,
+        session=session,
+        current_user=current_user,
+    )
 
     # Use reflection to get column names and types
     _catalog = get_catalog_by_name(session=session, name=catalog)
     columns = query_service_client.get_columns_for_table(
-        _catalog,
+        _catalog.name,
         schema_,
         table,
         _catalog.engines[0] if len(_catalog.engines) >= 1 else None,
@@ -494,16 +522,18 @@ def register_table(  # pylint: disable=too-many-arguments
             mode=NodeMode.PUBLISHED,
         ),
         session=session,
+        current_user=current_user,
     )
 
 
 @router.post("/nodes/{name}/columns/{column}/", status_code=201)
-def link_dimension(
+def link_dimension(  # pylint: disable=too-many-arguments
     name: str,
     column: str,
     dimension: str,
     dimension_column: Optional[str] = None,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Add information to a node column
@@ -555,6 +585,7 @@ def link_dimension(
                 "dimension": dimension_node.name,
                 "dimension_column": dimension_column or "",
             },
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -571,12 +602,13 @@ def link_dimension(
 
 
 @router.delete("/nodes/{name}/columns/{column}/", status_code=201)
-def delete_dimension_link(
+def delete_dimension_link(  # pylint: disable=too-many-arguments
     name: str,
     column: str,
     dimension: str,
     dimension_column: Optional[str] = None,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Remove the link between a node column and a dimension node
@@ -614,6 +646,7 @@ def delete_dimension_link(
                         node,
                         NodeStatus.VALID,
                         NodeStatus.INVALID,
+                        current_user=current_user,
                     ),
                 )
 
@@ -632,6 +665,7 @@ def delete_dimension_link(
                 "dimension": dimension,
                 "dimension_column": dimension_column or "",
             },
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -650,7 +684,11 @@ def delete_dimension_link(
 
 @router.post("/nodes/{name}/tag/", status_code=201, tags=["tags"], name="Tag A Node")
 def tag_node(
-    name: str, tag_name: str, *, session: Session = Depends(get_session)
+    name: str,
+    tag_name: str,
+    *,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
     Add a tag to a node
@@ -669,6 +707,7 @@ def tag_node(
             details={
                 "tag": tag_name,
             },
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -695,6 +734,7 @@ def refresh_source_node(
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    current_user: Optional[User] = Depends(get_current_user),
 ):
     """
     Refresh a source node with the latest columns from the query service.
@@ -748,6 +788,7 @@ def refresh_source_node(
             details={
                 "version": new_revision.version,
             },
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -762,6 +803,7 @@ def update_node(
     *,
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> NodeOutput:
     """
     Update a node.
@@ -771,6 +813,7 @@ def update_node(
         data,
         session=session,
         query_service_client=query_service_client,
+        current_user=current_user,
     )
     return node  # type: ignore
 

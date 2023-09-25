@@ -33,7 +33,7 @@ from datajunction_server.errors import (
     DJNodeNotFound,
     ErrorCode,
 )
-from datajunction_server.models import AttributeType, Catalog, Column, Engine
+from datajunction_server.models import AttributeType, Catalog, Column, Engine, User
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import (
@@ -538,6 +538,7 @@ def validate_node_data(  # pylint: disable=too-many-locals
 def resolve_downstream_references(
     session: Session,
     node_revision: NodeRevision,
+    current_user: Optional[User] = None,
 ) -> List[NodeRevision]:
     """
     Find all node revisions with missing parent references to `node` and resolve them
@@ -569,11 +570,23 @@ def resolve_downstream_references(
                 data=downstream_node_revision,
                 session=session,
             )
+            event = None
+            if downstream_node_revision.status != node_validator.status:
+                event = status_change_history(
+                    downstream_node_revision,
+                    downstream_node_revision.status,
+                    node_validator.status,
+                    parent_node=node_revision.name,
+                    current_user=current_user,
+                )
+
             downstream_node_revision.status = node_validator.status
             downstream_node_revision.columns = node_validator.columns
             if node_validator.status == NodeStatus.VALID:
                 newly_valid_nodes.append(downstream_node_revision)
             session.add(downstream_node_revision)
+            if event:
+                session.add(event)
             session.commit()
             session.refresh(downstream_node_revision)
 
@@ -585,6 +598,7 @@ def propagate_valid_status(
     session: Session,
     valid_nodes: List[NodeRevision],
     catalog_id: int,
+    current_user: Optional[User] = None,
 ) -> None:
     """
     Propagate a valid status by revalidating all downstream nodes
@@ -616,6 +630,7 @@ def propagate_valid_status(
                             node.current,
                             NodeStatus.INVALID,
                             NodeStatus.VALID,
+                            current_user=current_user,
                         ),
                     )
                     newly_valid_nodes.append(node.current)
@@ -968,7 +983,12 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
     )
 
 
-def deactivate_node(session: Session, name: str, message: str = None):
+def deactivate_node(
+    session: Session,
+    name: str,
+    message: str = None,
+    current_user: Optional[User] = None,
+):
     """
     Deactivates a node and propagates to all downstreams.
     """
@@ -985,6 +1005,7 @@ def deactivate_node(session: Session, name: str, message: str = None):
                     NodeStatus.VALID,
                     NodeStatus.INVALID,
                     parent_node=node.name,
+                    current_user=current_user,
                 ),
             )
             session.add(downstream)
@@ -1006,12 +1027,18 @@ def deactivate_node(session: Session, name: str, message: str = None):
             node=node.name,
             activity_type=ActivityType.DELETE,
             details={"message": message} if message else {},
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
 
 
-def activate_node(session: Session, name: str, message: str = None):
+def activate_node(
+    session: Session,
+    name: str,
+    message: str = None,
+    current_user: Optional[User] = None,
+):
     """Restores node and revalidate all downstreams."""
     node = get_node_by_name(session, name, with_current=True, include_inactive=True)
     if not node.deactivated_at:
@@ -1048,6 +1075,7 @@ def activate_node(session: Session, name: str, message: str = None):
                     old_status,
                     downstream.current.status,
                     parent_node=node.name,
+                    current_user=current_user,
                 ),
             )
 
@@ -1059,12 +1087,18 @@ def activate_node(session: Session, name: str, message: str = None):
             node=node.name,
             activity_type=ActivityType.RESTORE,
             details={"message": message} if message else {},
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
 
 
-def revalidate_node(name: str, session: Session, parent_node: str = None):
+def revalidate_node(
+    name: str,
+    session: Session,
+    parent_node: str = None,
+    current_user: Optional[User] = None,
+):
     """
     Revalidate a single existing node and update its status appropriately
     """
@@ -1078,6 +1112,7 @@ def revalidate_node(name: str, session: Session, parent_node: str = None):
                     current_node_revision,
                     NodeStatus.INVALID,
                     NodeStatus.VALID,
+                    current_user=current_user,
                 ),
             )
             session.add(current_node_revision)
@@ -1095,6 +1130,7 @@ def revalidate_node(name: str, session: Session, parent_node: str = None):
                 previous_status,
                 current_node_revision.status,
                 parent_node=parent_node,
+                current_user=current_user,
             ),
         )
         session.commit()
@@ -1103,7 +1139,11 @@ def revalidate_node(name: str, session: Session, parent_node: str = None):
     return current_node_revision.status
 
 
-def hard_delete_node(name: str, session: Session):
+def hard_delete_node(
+    name: str,
+    session: Session,
+    current_user: Optional[User] = None,
+):
     """
     Hard delete a node, destroying all links and invalidating all downstream nodes.
     This should be used with caution, deactivating a node is preferred.
@@ -1130,9 +1170,15 @@ def hard_delete_node(name: str, session: Session):
                 entity_name=name,
                 node=node.name,
                 activity_type=ActivityType.DELETE,
+                user=current_user.username if current_user else None,
             ),
         )
-        status = revalidate_node(name=node.name, session=session, parent_node=name)
+        status = revalidate_node(
+            name=node.name,
+            session=session,
+            parent_node=name,
+            current_user=current_user,
+        )
         impact.append(
             {
                 "name": node.name,
@@ -1149,9 +1195,14 @@ def hard_delete_node(name: str, session: Session):
                 entity_name=name,
                 node=node.name,
                 activity_type=ActivityType.DELETE,
+                user=current_user.username if current_user else None,
             ),
         )
-        status = revalidate_node(name=node.name, session=session)
+        status = revalidate_node(
+            name=node.name,
+            session=session,
+            current_user=current_user,
+        )
         impact.append(
             {
                 "name": node.name,
@@ -1168,6 +1219,7 @@ def hard_delete_node(name: str, session: Session):
             details={
                 "impact": impact,
             },
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()  # Commit the history events

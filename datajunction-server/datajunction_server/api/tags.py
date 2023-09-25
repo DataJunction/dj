@@ -10,11 +10,11 @@ from sqlmodel import Session, select
 
 from datajunction_server.errors import DJException
 from datajunction_server.internal.authentication.http import SecureAPIRouter
-from datajunction_server.models import History
+from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeType
 from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_current_user, get_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["tags"])
@@ -69,6 +69,7 @@ def get_a_tag(name: str, *, session: Session = Depends(get_session)) -> Tag:
 def create_a_tag(
     data: CreateTag,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> Tag:
     """
     Create a tag.
@@ -86,6 +87,7 @@ def create_a_tag(
             entity_type=EntityType.TAG,
             entity_name=tag.name,
             activity_type=ActivityType.CREATE,
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()
@@ -98,6 +100,7 @@ def update_a_tag(
     name: str,
     data: UpdateTag,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> Tag:
     """
     Update a tag.
@@ -115,6 +118,7 @@ def update_a_tag(
             entity_name=tag.name,
             activity_type=ActivityType.UPDATE,
             details=data,
+            user=current_user.username if current_user else None,
         ),
     )
     session.commit()

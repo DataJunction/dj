@@ -4,12 +4,13 @@ A secure API router for routes that require authentication
 from http import HTTPStatus
 from typing import Any, Callable
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from fastapi.security import HTTPBearer
 from fastapi.security.utils import get_authorization_scheme_param
 from fastapi.types import DecoratedCallable
 from jose.exceptions import JWEError, JWTError
 from sqlmodel import Session
+from starlette.requests import Request
 
 from datajunction_server.constants import DJ_AUTH_COOKIE
 from datajunction_server.errors import DJError, DJException, ErrorCode
