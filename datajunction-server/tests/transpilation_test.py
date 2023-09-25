@@ -55,3 +55,18 @@ def test_translated_sql(mocker: MockerFixture) -> None:
         dialect=Dialect.SPARK,
     )
     assert translated_sql.sql == "1"
+
+
+def test_druid_sql(mocker: MockerFixture) -> None:
+    """
+    Verify that the TranslatedSQL object will call the configured transpilation plugin
+    """
+    mock_settings = mocker.MagicMock()
+    mock_settings.return_value = MockSettings()
+    mocker.patch("datajunction_server.models.metric.get_settings", mock_settings)
+    translated_sql = TranslatedSQL(
+        sql="SELECT 1",
+        columns=[],
+        dialect=Dialect.DRUID,
+    )
+    assert translated_sql.sql == "SELECT 1"
