@@ -65,7 +65,12 @@ class SQLGlotTranspilationPlugin(SQLTranspilationPlugin):
         """
         import sqlglot  # pylint: disable=import-outside-toplevel,import-error
 
-        if input_dialect and output_dialect:
+        # Check to make sure that the output dialect is supported by sqlglot before transpiling
+        if (
+            input_dialect
+            and output_dialect
+            and output_dialect.name in dir(sqlglot.dialects.Dialects)
+        ):
             value = sqlglot.transpile(
                 query,
                 read=str(input_dialect.name.lower()),  # type: ignore
