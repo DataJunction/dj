@@ -62,6 +62,14 @@ def test_list_all_measures(
     assert response.ok
     assert response.json() == ["completed_repairs"]
 
+    response = client_with_roads.get("/measures/?prefix=comp")
+    assert response.ok
+    assert response.json() == ["completed_repairs"]
+
+    response = client_with_roads.get("/measures/?prefix=xyz")
+    assert response.ok
+    assert response.json() == []
+
     response = client_with_roads.get("/measures/completed_repairs")
     assert response.ok
     assert response.json() == {

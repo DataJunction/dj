@@ -3,7 +3,7 @@ Measures related APIs.
 """
 
 import logging
-from typing import List
+from typing import List, Optional
 
 from fastapi import Depends
 from sqlmodel import Session, select
@@ -54,7 +54,7 @@ def get_node_columns(session: Session, node_columns: List[NodeColumn]) -> List[C
         available = [
             col for col in node.current.columns if col.name == node_column.column
         ]
-        if len(available) != 1:
+        if len(available) == 0:
             raise DJDoesNotExistException(
                 message=f"Column `{node_column.column}` does not exist on "
                 f"node `{node_column.node}`",
@@ -64,12 +64,19 @@ def get_node_columns(session: Session, node_columns: List[NodeColumn]) -> List[C
 
 
 @router.get("/measures/", response_model=List[str])
-def list_measures(*, session: Session = Depends(get_session)) -> List[str]:
+def list_measures(
+    prefix: Optional[str] = None,
+    session: Session = Depends(get_session),
+) -> List[str]:
     """
     List all measures.
     """
-    measures = session.exec(select(Measure.name)).all()
-    return measures
+    statement = select(Measure.name)
+    if prefix:
+        statement = statement.where(
+            Measure.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
+        )
+    return session.exec(statement).all()
 
 
 @router.get("/measures/{measure_name}", response_model=MeasureOutput)
