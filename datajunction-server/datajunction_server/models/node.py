@@ -1085,7 +1085,7 @@ class UpdateNode(MutableNodeFields, SourceNodeFields):
             **SourceNodeFields.__annotations__,  # pylint: disable=E1101
             **MutableNodeFields.__annotations__,  # pylint: disable=E1101
             **MutableNodeQueryField.__annotations__,  # pylint: disable=E1101
-            **CubeNodeFields.__annotations__,
+            **CubeNodeFields.__annotations__,  # pylint: disable=E1101
         }.items()
     }
 
