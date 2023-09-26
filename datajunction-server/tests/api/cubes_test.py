@@ -1377,6 +1377,36 @@ def test_updating_cube(
     data = response.json()
     assert_updated_repairs_cube(data)
 
+    response = client_with_repairs_cube.get("/history?node=default.repairs_cube")
+    assert [
+        event for event in response.json() if event["activity_type"] == "update"
+    ] == [
+        {
+            "activity_type": "update",
+            "created_at": mock.ANY,
+            "details": {"version": "v1.1"},
+            "entity_name": "default.repairs_cube",
+            "entity_type": "node",
+            "id": mock.ANY,
+            "node": "default.repairs_cube",
+            "post": {},
+            "pre": {},
+            "user": "dj",
+        },
+        {
+            "activity_type": "update",
+            "created_at": mock.ANY,
+            "details": {"version": "v2.0"},
+            "entity_name": "default.repairs_cube",
+            "entity_type": "node",
+            "id": mock.ANY,
+            "node": "default.repairs_cube",
+            "post": {},
+            "pre": {},
+            "user": "dj",
+        },
+    ]
+
 
 def test_updating_cube_with_existing_materialization(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
@@ -1467,3 +1497,33 @@ def test_updating_cube_with_existing_materialization(
         "name": "date_int_0",
         "schedule": "@daily",
     }
+
+    response = client_with_repairs_cube.get("/history?node=default.repairs_cube")
+    assert [
+        event for event in response.json() if event["activity_type"] == "update"
+    ] == [
+        {
+            "activity_type": "update",
+            "created_at": "2023-09-26T15:01:41.888399+00:00",
+            "details": {"version": "v2.0"},
+            "entity_name": "default.repairs_cube",
+            "entity_type": "node",
+            "id": 56,
+            "node": "default.repairs_cube",
+            "post": {},
+            "pre": {},
+            "user": "dj",
+        },
+        {
+            "activity_type": "update",
+            "created_at": "2023-09-26T15:01:41.890344+00:00",
+            "details": {},
+            "entity_name": "date_int_0",
+            "entity_type": "materialization",
+            "id": 57,
+            "node": "default.repairs_cube",
+            "post": {},
+            "pre": {},
+            "user": "dj",
+        },
+    ]

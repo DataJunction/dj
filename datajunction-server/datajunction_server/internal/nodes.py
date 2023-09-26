@@ -477,19 +477,7 @@ def update_node_with_query(
 
     session.add(new_revision)
     session.add(node)
-
-    session.add(
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.UPDATE,
-            details={
-                "version": new_revision.version,  # type: ignore
-            },
-            user=current_user.username if current_user else None,
-        ),
-    )
+    session.add(node_update_history_event(new_revision, current_user))
 
     if new_revision.status != old_revision.status:  # type: ignore
         session.add(
@@ -544,6 +532,22 @@ def has_minor_changes(old_revision: NodeRevision, data: UpdateNode):
     )
 
 
+def node_update_history_event(new_revision: NodeRevision, current_user: Optional[User]):
+    """
+    History event for node updates
+    """
+    return History(
+        entity_type=EntityType.NODE,
+        entity_name=new_revision.name,
+        node=new_revision.name,
+        activity_type=ActivityType.UPDATE,
+        details={
+            "version": new_revision.version,  # type: ignore
+        },
+        user=current_user.username if current_user else None,
+    )
+
+
 def update_cube_node(
     session: Session,
     node_revision: NodeRevision,
@@ -579,18 +583,20 @@ def update_cube_node(
     old_version = Version.parse(node_revision.version)
     if major_changes:
         new_cube_revision.version = str(old_version.next_major_version())
-    if minor_changes:
+    elif minor_changes:
         new_cube_revision.version = str(old_version.next_minor_version())
     new_cube_revision.node = node_revision.node
     new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
 
-    # Handle materializations
+    session.add(node_update_history_event(new_cube_revision, current_user))
+
+    # Update existing materializations
     active_materializations = [
         mat
         for mat in node_revision.materializations
         if not mat.deactivated_at and mat.name != "default"
     ]
-    if active_materializations:
+    if major_changes and active_materializations:
         for old in active_materializations:
             new_cube_revision.materializations.append(
                 create_new_materialization(
