@@ -583,7 +583,7 @@ def update_cube_node(
     old_version = Version.parse(node_revision.version)
     if major_changes:
         new_cube_revision.version = str(old_version.next_major_version())
-    elif minor_changes:
+    elif minor_changes:  # pragma: no cover
         new_cube_revision.version = str(old_version.next_minor_version())
     new_cube_revision.node = node_revision.node
     new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore

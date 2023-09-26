@@ -11,6 +11,7 @@ from sqlmodel import Field, Relationship, SQLModel
 
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.engine import Engine, EngineInfo, EngineRef
+from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.typing import UTCDatetime
 
 if TYPE_CHECKING:
@@ -142,6 +143,7 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
     """
 
     query: Optional[str]
+    columns: Optional[List[ColumnMetadata]]
     upstream_tables: Optional[List[str]]
 
     def identifier(self) -> str:

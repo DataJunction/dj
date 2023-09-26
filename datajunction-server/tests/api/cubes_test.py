@@ -467,6 +467,52 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
     assert default_materialization["job"] == "DefaultCubeMaterialization"
     assert default_materialization["name"] == "default"
     assert default_materialization["schedule"] == "@daily"
+    assert sorted(
+        default_materialization["config"]["columns"],
+        key=lambda x: x["name"],
+    ) == sorted(
+        [
+            {
+                "name": "m0_default_DOT_discounted_orders_rate_placeholder_count",
+                "type": "bigint",
+            },
+            {
+                "name": "m0_default_DOT_discounted_orders_rate_discount3789599758_sum",
+                "type": "bigint",
+            },
+            {
+                "name": "m1_default_DOT_num_repair_orders_repair_order_id3825669267_count",
+                "type": "bigint",
+            },
+            {
+                "name": "m2_default_DOT_avg_repair_price_price3402113753_count",
+                "type": "bigint",
+            },
+            {
+                "name": "m2_default_DOT_avg_repair_price_price3402113753_sum",
+                "type": "double",
+            },
+            {
+                "name": "m3_default_DOT_total_repair_cost_price3402113753_sum",
+                "type": "double",
+            },
+            {
+                "name": "m4_default_DOT_total_repair_order_discounts_price_discount2203488025_sum",
+                "type": "double",
+            },
+            {
+                "name": "m5_default_DOT_double_total_repair_cost_price3402113753_sum",
+                "type": "double",
+            },
+            {"name": "local_region", "type": "string"},
+            {"name": "country", "type": "string"},
+            {"name": "postal_code", "type": "string"},
+            {"name": "city", "type": "string"},
+            {"name": "company_name", "type": "string"},
+            {"name": "state", "type": "string"},
+        ],
+        key=lambda x: x["name"],
+    )
     assert default_materialization["config"]["partitions"] == []
     assert default_materialization["config"]["upstream_tables"] == [
         "default.roads.dispatchers",
@@ -1441,6 +1487,7 @@ def test_updating_cube_with_existing_materialization(
     # Check that the existing materialization was updated
     assert data["materializations"][1] == {
         "config": {
+            "columns": None,
             "dimensions": ["city"],
             "druid": {
                 "granularity": "DAY",
@@ -1504,11 +1551,11 @@ def test_updating_cube_with_existing_materialization(
     ] == [
         {
             "activity_type": "update",
-            "created_at": "2023-09-26T15:01:41.888399+00:00",
+            "created_at": mock.ANY,
             "details": {"version": "v2.0"},
             "entity_name": "default.repairs_cube",
             "entity_type": "node",
-            "id": 56,
+            "id": mock.ANY,
             "node": "default.repairs_cube",
             "post": {},
             "pre": {},
@@ -1516,11 +1563,11 @@ def test_updating_cube_with_existing_materialization(
         },
         {
             "activity_type": "update",
-            "created_at": "2023-09-26T15:01:41.890344+00:00",
+            "created_at": mock.ANY,
             "details": {},
             "entity_name": "date_int_0",
             "entity_type": "materialization",
-            "id": 57,
+            "id": mock.ANY,
             "node": "default.repairs_cube",
             "post": {},
             "pre": {},
