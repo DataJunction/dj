@@ -454,6 +454,9 @@ def update_node_with_query(
     """
     Update the named node with the changes defined in the UpdateNode object.
     Propagate these changes to all of the node's downstream children.
+
+    Note: this function works for both source nodes and nodes with query (transforms,
+    dimensions, metrics). We should update it to separate out the logic for source nodes
     """
     node = get_node_by_name(session, name, for_update=True, include_inactive=True)
     old_revision = node.current
