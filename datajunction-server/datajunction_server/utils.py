@@ -214,3 +214,6 @@ async def get_current_user(request: Request) -> Optional[User]:
     if hasattr(request.state, "user"):
         return request.state.user
     return None  # pragma: no cover
+
+
+SEPARATOR = "."
