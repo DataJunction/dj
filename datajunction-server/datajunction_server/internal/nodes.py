@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """Nodes endpoint helper functions"""
 import logging
 from collections import defaultdict, deque
@@ -24,7 +25,6 @@ from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
 )
-from datajunction_server.internal.namespaces import SEPARATOR
 from datajunction_server.materialization.jobs import (
     DefaultCubeMaterialization,
     DruidCubeMaterializationJob,
@@ -71,7 +71,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.utils import Version, VersionUpgrade, get_session
+from datajunction_server.utils import SEPARATOR, Version, VersionUpgrade, get_session
 
 _logger = logging.getLogger(__name__)
 
@@ -295,7 +295,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     dimension_attribute = session.exec(
         select(AttributeType).where(AttributeType.name == "dimension"),
     ).one()
-    dimensions_set = {dim.rsplit(".", 1)[1] for dim in data.dimensions}
+    dimensions_set = {dim.rsplit(SEPARATOR, 1)[1] for dim in data.dimensions}
 
     node_columns = []
     status = NodeStatus.VALID
@@ -427,7 +427,13 @@ def update_any_node(
     """
     node = get_node_by_name(session, name, for_update=True, include_inactive=True)
     if node.type == NodeType.CUBE:
-        node_revision = update_cube_node(session, node.current, data, query_service_client, current_user)
+        node_revision = update_cube_node(
+            session,
+            node.current,
+            data,
+            query_service_client,
+            current_user,
+        )
         return node_revision.node
     return update_node_with_query(
         name,
@@ -527,7 +533,7 @@ def update_cube_node(
     session: Session,
     node_revision: NodeRevision,
     data: UpdateNode,
-    query_service_client: QueryServiceClient,
+    query_service_client: Optional[QueryServiceClient],
     current_user: Optional[User] = None,
 ) -> NodeRevision:
     """
@@ -548,10 +554,16 @@ def update_cube_node(
         ),
     )
 
-    new_cube_elements = {element.id for element in new_cube_revision.cube_elements}
+    new_cube_elements = {
+        element.id
+        for element in new_cube_revision.cube_elements  # pylint: disable=not-an-iterable
+    }
     existing_cube_elements = {element.id for element in node_revision.cube_elements}
 
-    if new_cube_elements != existing_cube_elements or new_cube_revision.status != node_revision.status:
+    if (
+        new_cube_elements != existing_cube_elements
+        or new_cube_revision.status != node_revision.status
+    ):
         old_version = Version.parse(node_revision.version)
         new_cube_revision.version = str(old_version.next_major_version())
         new_cube_revision.node = node_revision.node
@@ -559,8 +571,9 @@ def update_cube_node(
 
         # Handle materializations
         active_materializations = [
-            mat for mat in new_cube_revision.materializations
-            if not mat.deactivated_at and mat.name != 'default'
+            mat
+            for mat in node_revision.materializations
+            if not mat.deactivated_at and mat.name != "default"
         ]
         if active_materializations:
             for old in active_materializations:
@@ -573,10 +586,21 @@ def update_cube_node(
                         ),
                     ),
                 )
-            schedule_materialization_jobs(
-                new_cube_revision.materializations,
-                query_service_client,
-            )
+                session.add(
+                    History(
+                        entity_type=EntityType.MATERIALIZATION,
+                        entity_name=old.name,
+                        node=node_revision.name,
+                        activity_type=ActivityType.UPDATE,
+                        details={},
+                        user=current_user.username if current_user else None,
+                    ),
+                )
+            if query_service_client:
+                schedule_materialization_jobs(
+                    new_cube_revision.materializations,
+                    query_service_client,
+                )
         session.add(new_cube_revision)
         session.add(new_cube_revision.node)
         session.commit()
@@ -678,7 +702,8 @@ def propagate_update_downstream(
                                 for entry in changelog
                                 if entry.name in history_events
                             ],
-                            "reason": f"Caused by update of `{node.name}` to {node.current_version}",
+                            "reason": f"Caused by update of `{node.name}` to "
+                            f"{node.current_version}",
                         },
                         pre={"status": child.status},
                         post={"status": node_validator.status},

@@ -3,8 +3,10 @@
 Tests for the cubes API.
 """
 from typing import Callable, Dict, Iterator, List, Optional
+from unittest import mock
 
 import pytest
+import requests
 from fastapi.testclient import TestClient
 
 from datajunction_server.service_clients import QueryServiceClient
@@ -262,30 +264,30 @@ def repair_orders_cube_measures() -> Dict:
     """
     return {
         "default_DOT_avg_repair_price": {
-            "combiner": "sum(price_sum) / count(price_count)",
+            "combiner": "sum(price3402113753_sum) / " "count(price3402113753_count)",
             "measures": [
                 {
                     "agg": "count",
-                    "field_name": "m2_default_DOT_avg_repair_price_price_count",
-                    "name": "price_count",
+                    "field_name": "m2_default_DOT_avg_repair_price_price3402113753_count",
+                    "name": "price3402113753_count",
                     "type": "bigint",
                 },
                 {
                     "agg": "sum",
-                    "field_name": "m2_default_DOT_avg_repair_price_price_sum",
-                    "name": "price_sum",
+                    "field_name": "m2_default_DOT_avg_repair_price_price3402113753_sum",
+                    "name": "price3402113753_sum",
                     "type": "double",
                 },
             ],
             "metric": "default_DOT_avg_repair_price",
         },
         "default_DOT_discounted_orders_rate": {
-            "combiner": "sum(discount_sum) / " "count(placeholder_count)",
+            "combiner": "sum(discount3789599758_sum) " "/ " "count(placeholder_count)",
             "measures": [
                 {
                     "agg": "sum",
-                    "field_name": "m0_default_DOT_discounted_orders_rate_discount_sum",
-                    "name": "discount_sum",
+                    "field_name": "m0_default_DOT_discounted_orders_rate_discount3789599758_sum",
+                    "name": "discount3789599758_sum",
                     "type": "bigint",
                 },
                 {
@@ -298,54 +300,56 @@ def repair_orders_cube_measures() -> Dict:
             "metric": "default_DOT_discounted_orders_rate",
         },
         "default_DOT_double_total_repair_cost": {
-            "combiner": "sum(price_sum) + " "sum(price_sum)",
+            "combiner": "sum(price3402113753_sum) " "+ " "sum(price3402113753_sum)",
             "measures": [
                 {
                     "agg": "sum",
-                    "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
-                    "name": "price_sum",
+                    "field_name": "m5_default_DOT_double_total_repair_cost_price3402113753_sum",
+                    "name": "price3402113753_sum",
                     "type": "double",
                 },
                 {
                     "agg": "sum",
-                    "field_name": "m5_default_DOT_double_total_repair_cost_price_sum",
-                    "name": "price_sum",
+                    "field_name": "m5_default_DOT_double_total_repair_cost_price3402113753_sum",
+                    "name": "price3402113753_sum",
                     "type": "double",
                 },
             ],
             "metric": "default_DOT_double_total_repair_cost",
         },
         "default_DOT_num_repair_orders": {
-            "combiner": "count(repair_order_id_count)",
+            "combiner": "count(repair_order_id3825669267_count)",
             "measures": [
                 {
                     "agg": "count",
-                    "field_name": "m1_default_DOT_num_repair_orders_repair_order_id_count",
-                    "name": "repair_order_id_count",
+                    "field_name": "m1_default_DOT_num_repair_orders_"
+                    "repair_order_id3825669267_count",
+                    "name": "repair_order_id3825669267_count",
                     "type": "bigint",
                 },
             ],
             "metric": "default_DOT_num_repair_orders",
         },
         "default_DOT_total_repair_cost": {
-            "combiner": "sum(price_sum)",
+            "combiner": "sum(price3402113753_sum)",
             "measures": [
                 {
                     "agg": "sum",
-                    "field_name": "m3_default_DOT_total_repair_cost_price_sum",
-                    "name": "price_sum",
+                    "field_name": "m3_default_DOT_total_repair_cost_price3402113753_sum",
+                    "name": "price3402113753_sum",
                     "type": "double",
                 },
             ],
             "metric": "default_DOT_total_repair_cost",
         },
         "default_DOT_total_repair_order_discounts": {
-            "combiner": "sum(price_discount_sum)",
+            "combiner": "sum(price_discount2203488025_sum)",
             "measures": [
                 {
                     "agg": "sum",
-                    "field_name": "m4_default_DOT_total_repair_order_discounts_price_discount_sum",
-                    "name": "price_discount_sum",
+                    "field_name": "m4_default_DOT_total_repair_order_discounts_"
+                    "price_discount2203488025_sum",
+                    "name": "price_discount2203488025_sum",
                     "type": "double",
                 },
             ],
@@ -356,52 +360,62 @@ def repair_orders_cube_measures() -> Dict:
 
 @pytest.fixture
 def repairs_cube_elements():
-    return sorted([
-        {
-            "name": "default_DOT_discounted_orders_rate",
-            "node_name": "default.discounted_orders_rate",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_num_repair_orders",
-            "node_name": "default.num_repair_orders",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_avg_repair_price",
-            "node_name": "default.avg_repair_price",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_total_repair_cost",
-            "node_name": "default.total_repair_cost",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_total_repair_order_discounts",
-            "node_name": "default.total_repair_order_discounts",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_double_total_repair_cost",
-            "node_name": "default.double_total_repair_cost",
-            "type": "metric",
-        },
-        {"name": "country", "node_name": "default.hard_hat", "type": "dimension"},
-        {"name": "postal_code", "node_name": "default.hard_hat", "type": "dimension"},
-        {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
-        {"name": "state", "node_name": "default.hard_hat", "type": "dimension"},
-        {
-            "name": "company_name",
-            "node_name": "default.dispatcher",
-            "type": "dimension",
-        },
-        {
-            "name": "local_region",
-            "node_name": "default.municipality_dim",
-            "type": "dimension",
-        },
-    ], key=lambda x: x["name"])
+    """
+    Fixture of repairs cube elements
+    """
+    return sorted(
+        [
+            {
+                "name": "default_DOT_discounted_orders_rate",
+                "node_name": "default.discounted_orders_rate",
+                "type": "metric",
+            },
+            {
+                "name": "default_DOT_num_repair_orders",
+                "node_name": "default.num_repair_orders",
+                "type": "metric",
+            },
+            {
+                "name": "default_DOT_avg_repair_price",
+                "node_name": "default.avg_repair_price",
+                "type": "metric",
+            },
+            {
+                "name": "default_DOT_total_repair_cost",
+                "node_name": "default.total_repair_cost",
+                "type": "metric",
+            },
+            {
+                "name": "default_DOT_total_repair_order_discounts",
+                "node_name": "default.total_repair_order_discounts",
+                "type": "metric",
+            },
+            {
+                "name": "default_DOT_double_total_repair_cost",
+                "node_name": "default.double_total_repair_cost",
+                "type": "metric",
+            },
+            {"name": "country", "node_name": "default.hard_hat", "type": "dimension"},
+            {
+                "name": "postal_code",
+                "node_name": "default.hard_hat",
+                "type": "dimension",
+            },
+            {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
+            {"name": "state", "node_name": "default.hard_hat", "type": "dimension"},
+            {
+                "name": "company_name",
+                "node_name": "default.dispatcher",
+                "type": "dimension",
+            },
+            {
+                "name": "local_region",
+                "node_name": "default.municipality_dim",
+                "type": "dimension",
+            },
+        ],
+        key=lambda x: x["name"],
+    )
 
 
 def test_invalid_cube(client_with_roads: TestClient):
@@ -689,58 +703,16 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
 def test_cube_materialization_sql_and_measures(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
     repair_orders_cube_measures,  # pylint: disable=redefined-outer-name
+    repairs_cube_elements,  # pylint: disable=redefined-outer-name
 ):
     """
     Verifies a cube's materialization SQL + measures
     """
     response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
-    assert data["cube_elements"] == [
-        {
-            "name": "default_DOT_discounted_orders_rate",
-            "node_name": "default.discounted_orders_rate",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_num_repair_orders",
-            "node_name": "default.num_repair_orders",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_avg_repair_price",
-            "node_name": "default.avg_repair_price",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_total_repair_cost",
-            "node_name": "default.total_repair_cost",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_total_repair_order_discounts",
-            "node_name": "default.total_repair_order_discounts",
-            "type": "metric",
-        },
-        {
-            "name": "default_DOT_double_total_repair_cost",
-            "node_name": "default.double_total_repair_cost",
-            "type": "metric",
-        },
-        {"name": "country", "node_name": "default.hard_hat", "type": "dimension"},
-        {"name": "postal_code", "node_name": "default.hard_hat", "type": "dimension"},
-        {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
-        {"name": "state", "node_name": "default.hard_hat", "type": "dimension"},
-        {
-            "name": "company_name",
-            "node_name": "default.dispatcher",
-            "type": "dimension",
-        },
-        {
-            "name": "local_region",
-            "node_name": "default.municipality_dim",
-            "type": "dimension",
-        },
-    ]
+    assert (
+        sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
+    )
     expected_materialization_query = """
     WITH
         m0_default_DOT_discounted_orders_rate AS (SELECT  default_DOT_hard_hat.city,
@@ -749,7 +721,7 @@ def test_cube_materialization_sql_and_measures(
             count(*) placeholder_count,
             default_DOT_municipality_dim.local_region,
             default_DOT_hard_hat.postal_code,
-            sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) discount_sum,
+            sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) discount3789599758_sum,
             default_DOT_hard_hat.country
     FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
             default_DOT_repair_orders.hard_hat_id,
@@ -782,7 +754,7 @@ def test_cube_materialization_sql_and_measures(
         default_DOT_municipality_dim.local_region,
         default_DOT_hard_hat.postal_code,
         default_DOT_hard_hat.country,
-        count(default_DOT_repair_orders.repair_order_id) repair_order_id_count
+        count(default_DOT_repair_orders.repair_order_id) repair_order_id3825669267_count
     FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
@@ -811,9 +783,9 @@ def test_cube_materialization_sql_and_measures(
         m2_default_DOT_avg_repair_price AS (SELECT  default_DOT_hard_hat.city,
             default_DOT_dispatcher.company_name,
             default_DOT_hard_hat.state,
-            sum(default_DOT_repair_order_details.price) price_sum,
+            sum(default_DOT_repair_order_details.price) price3402113753_sum,
             default_DOT_municipality_dim.local_region,
-            count(default_DOT_repair_order_details.price) price_count,
+            count(default_DOT_repair_order_details.price) price3402113753_count,
             default_DOT_hard_hat.postal_code,
             default_DOT_hard_hat.country
     FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
@@ -844,7 +816,7 @@ def test_cube_materialization_sql_and_measures(
         m3_default_DOT_total_repair_cost AS (SELECT  default_DOT_hard_hat.city,
             default_DOT_dispatcher.company_name,
             default_DOT_hard_hat.state,
-            sum(default_DOT_repair_order_details.price) price_sum,
+            sum(default_DOT_repair_order_details.price) price3402113753_sum,
             default_DOT_municipality_dim.local_region,
             default_DOT_hard_hat.postal_code,
             default_DOT_hard_hat.country
@@ -876,7 +848,7 @@ def test_cube_materialization_sql_and_measures(
         m4_default_DOT_total_repair_order_discounts AS (SELECT  default_DOT_hard_hat.city,
             default_DOT_dispatcher.company_name,
             default_DOT_hard_hat.state,
-            sum(default_DOT_repair_order_details.price * default_DOT_repair_order_details.discount) price_discount_sum,
+            sum(default_DOT_repair_order_details.price * default_DOT_repair_order_details.discount) price_discount2203488025_sum,
             default_DOT_municipality_dim.local_region,
             default_DOT_hard_hat.postal_code,
             default_DOT_hard_hat.country
@@ -908,7 +880,7 @@ def test_cube_materialization_sql_and_measures(
         m5_default_DOT_double_total_repair_cost AS (SELECT  default_DOT_hard_hat.city,
             default_DOT_dispatcher.company_name,
             default_DOT_hard_hat.state,
-            sum(default_DOT_repair_order_details.price) price_sum,
+            sum(default_DOT_repair_order_details.price) price3402113753_sum,
             default_DOT_municipality_dim.local_region,
             default_DOT_hard_hat.postal_code,
             default_DOT_hard_hat.country
@@ -936,26 +908,27 @@ def test_cube_materialization_sql_and_measures(
     AS default_DOT_municipality_dim ON default_DOT_repair_order.municipality_id = default_DOT_municipality_dim.municipality_id
     WHERE  default_DOT_hard_hat.state = 'AZ'
     GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.postal_code, default_DOT_hard_hat.city, default_DOT_hard_hat.state, default_DOT_dispatcher.company_name, default_DOT_municipality_dim.local_region
-    )SELECT  m0_default_DOT_discounted_orders_rate.placeholder_count m0_default_DOT_discounted_orders_rate_placeholder_count,
-            m0_default_DOT_discounted_orders_rate.discount_sum m0_default_DOT_discounted_orders_rate_discount_sum,
-            m1_default_DOT_num_repair_orders.repair_order_id_count m1_default_DOT_num_repair_orders_repair_order_id_count,
-            m2_default_DOT_avg_repair_price.price_sum m2_default_DOT_avg_repair_price_price_sum,
-            m2_default_DOT_avg_repair_price.price_count m2_default_DOT_avg_repair_price_price_count,
-            m3_default_DOT_total_repair_cost.price_sum m3_default_DOT_total_repair_cost_price_sum,
-            m4_default_DOT_total_repair_order_discounts.price_discount_sum m4_default_DOT_total_repair_order_discounts_price_discount_sum,
-            m5_default_DOT_double_total_repair_cost.price_sum m5_default_DOT_double_total_repair_cost_price_sum,
-            COALESCE(m0_default_DOT_discounted_orders_rate.city, m1_default_DOT_num_repair_orders.city, m2_default_DOT_avg_repair_price.city, m3_default_DOT_total_repair_cost.city, m4_default_DOT_total_repair_order_discounts.city, m5_default_DOT_double_total_repair_cost.city) city,
+    )SELECT m0_default_DOT_discounted_orders_rate.placeholder_count m0_default_DOT_discounted_orders_rate_placeholder_count,
+            m0_default_DOT_discounted_orders_rate.discount3789599758_sum m0_default_DOT_discounted_orders_rate_discount3789599758_sum,
+            m1_default_DOT_num_repair_orders.repair_order_id3825669267_count m1_default_DOT_num_repair_orders_repair_order_id3825669267_count,
+            m2_default_DOT_avg_repair_price.price3402113753_count m2_default_DOT_avg_repair_price_price3402113753_count,
+            m2_default_DOT_avg_repair_price.price3402113753_sum m2_default_DOT_avg_repair_price_price3402113753_sum,
+            m3_default_DOT_total_repair_cost.price3402113753_sum m3_default_DOT_total_repair_cost_price3402113753_sum,
+            m4_default_DOT_total_repair_order_discounts.price_discount2203488025_sum m4_default_DOT_total_repair_order_discounts_price_discount2203488025_sum,
+            m5_default_DOT_double_total_repair_cost.price3402113753_sum m5_default_DOT_double_total_repair_cost_price3402113753_sum,
+            COALESCE(m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_num_repair_orders.country, m2_default_DOT_avg_repair_price.country, m3_default_DOT_total_repair_cost.country, m4_default_DOT_total_repair_order_discounts.country, m5_default_DOT_double_total_repair_cost.country) country,
             COALESCE(m0_default_DOT_discounted_orders_rate.company_name, m1_default_DOT_num_repair_orders.company_name, m2_default_DOT_avg_repair_price.company_name, m3_default_DOT_total_repair_cost.company_name, m4_default_DOT_total_repair_order_discounts.company_name, m5_default_DOT_double_total_repair_cost.company_name) company_name,
             COALESCE(m0_default_DOT_discounted_orders_rate.state, m1_default_DOT_num_repair_orders.state, m2_default_DOT_avg_repair_price.state, m3_default_DOT_total_repair_cost.state, m4_default_DOT_total_repair_order_discounts.state, m5_default_DOT_double_total_repair_cost.state) state,
             COALESCE(m0_default_DOT_discounted_orders_rate.local_region, m1_default_DOT_num_repair_orders.local_region, m2_default_DOT_avg_repair_price.local_region, m3_default_DOT_total_repair_cost.local_region, m4_default_DOT_total_repair_order_discounts.local_region, m5_default_DOT_double_total_repair_cost.local_region) local_region,
             COALESCE(m0_default_DOT_discounted_orders_rate.postal_code, m1_default_DOT_num_repair_orders.postal_code, m2_default_DOT_avg_repair_price.postal_code, m3_default_DOT_total_repair_cost.postal_code, m4_default_DOT_total_repair_order_discounts.postal_code, m5_default_DOT_double_total_repair_cost.postal_code) postal_code,
-            COALESCE(m0_default_DOT_discounted_orders_rate.country, m1_default_DOT_num_repair_orders.country, m2_default_DOT_avg_repair_price.country, m3_default_DOT_total_repair_cost.country, m4_default_DOT_total_repair_order_discounts.country, m5_default_DOT_double_total_repair_cost.country) country
+            COALESCE(m0_default_DOT_discounted_orders_rate.city, m1_default_DOT_num_repair_orders.city, m2_default_DOT_avg_repair_price.city, m3_default_DOT_total_repair_cost.city, m4_default_DOT_total_repair_order_discounts.city, m5_default_DOT_double_total_repair_cost.city) city
          FROM m0_default_DOT_discounted_orders_rate FULL OUTER JOIN m1_default_DOT_num_repair_orders ON m0_default_DOT_discounted_orders_rate.company_name = m1_default_DOT_num_repair_orders.company_name AND m0_default_DOT_discounted_orders_rate.city = m1_default_DOT_num_repair_orders.city AND m0_default_DOT_discounted_orders_rate.country = m1_default_DOT_num_repair_orders.country AND m0_default_DOT_discounted_orders_rate.postal_code = m1_default_DOT_num_repair_orders.postal_code AND m0_default_DOT_discounted_orders_rate.state = m1_default_DOT_num_repair_orders.state AND m0_default_DOT_discounted_orders_rate.local_region = m1_default_DOT_num_repair_orders.local_region
         FULL OUTER JOIN m2_default_DOT_avg_repair_price ON m0_default_DOT_discounted_orders_rate.company_name = m2_default_DOT_avg_repair_price.company_name AND m0_default_DOT_discounted_orders_rate.city = m2_default_DOT_avg_repair_price.city AND m0_default_DOT_discounted_orders_rate.country = m2_default_DOT_avg_repair_price.country AND m0_default_DOT_discounted_orders_rate.postal_code = m2_default_DOT_avg_repair_price.postal_code AND m0_default_DOT_discounted_orders_rate.state = m2_default_DOT_avg_repair_price.state AND m0_default_DOT_discounted_orders_rate.local_region = m2_default_DOT_avg_repair_price.local_region
         FULL OUTER JOIN m3_default_DOT_total_repair_cost ON m0_default_DOT_discounted_orders_rate.company_name = m3_default_DOT_total_repair_cost.company_name AND m0_default_DOT_discounted_orders_rate.city = m3_default_DOT_total_repair_cost.city AND m0_default_DOT_discounted_orders_rate.country = m3_default_DOT_total_repair_cost.country AND m0_default_DOT_discounted_orders_rate.postal_code = m3_default_DOT_total_repair_cost.postal_code AND m0_default_DOT_discounted_orders_rate.state = m3_default_DOT_total_repair_cost.state AND m0_default_DOT_discounted_orders_rate.local_region = m3_default_DOT_total_repair_cost.local_region
         FULL OUTER JOIN m4_default_DOT_total_repair_order_discounts ON m0_default_DOT_discounted_orders_rate.company_name = m4_default_DOT_total_repair_order_discounts.company_name AND m0_default_DOT_discounted_orders_rate.city = m4_default_DOT_total_repair_order_discounts.city AND m0_default_DOT_discounted_orders_rate.country = m4_default_DOT_total_repair_order_discounts.country AND m0_default_DOT_discounted_orders_rate.postal_code = m4_default_DOT_total_repair_order_discounts.postal_code AND m0_default_DOT_discounted_orders_rate.state = m4_default_DOT_total_repair_order_discounts.state AND m0_default_DOT_discounted_orders_rate.local_region = m4_default_DOT_total_repair_order_discounts.local_region
         FULL OUTER JOIN m5_default_DOT_double_total_repair_cost ON m0_default_DOT_discounted_orders_rate.company_name = m5_default_DOT_double_total_repair_cost.company_name AND m0_default_DOT_discounted_orders_rate.city = m5_default_DOT_double_total_repair_cost.city AND m0_default_DOT_discounted_orders_rate.country = m5_default_DOT_double_total_repair_cost.country AND m0_default_DOT_discounted_orders_rate.postal_code = m5_default_DOT_double_total_repair_cost.postal_code AND m0_default_DOT_discounted_orders_rate.state = m5_default_DOT_double_total_repair_cost.state AND m0_default_DOT_discounted_orders_rate.local_region = m5_default_DOT_double_total_repair_cost.local_region
     """
+    print("QUERY", data["materializations"][0]["config"]["query"])
     assert compare_query_strings(
         data["materializations"][0]["config"]["query"],
         expected_materialization_query,
@@ -1030,14 +1003,14 @@ def test_add_materialization_cube_failures(
     )
 
 
-def test_add_materialization_config_to_cube(
+@pytest.fixture
+def repairs_cube_with_materialization(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
-    query_service_client: Iterator[QueryServiceClient],
 ):
     """
-    Verifies adding materialization config to a cube
+    Repairs cube with a configured materialization
     """
-    response = client_with_repairs_cube.post(
+    return client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "engine": {"name": "druid", "version": ""},
@@ -1060,7 +1033,17 @@ def test_add_materialization_config_to_cube(
             "schedule": "",
         },
     )
-    assert response.json() == {
+
+
+def test_add_materialization_config_to_cube(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+    repairs_cube_with_materialization: requests.Response,  # pylint: disable=redefined-outer-name
+    query_service_client: Iterator[QueryServiceClient],
+):
+    """
+    Verifies adding materialization config to a cube
+    """
+    assert repairs_cube_with_materialization.json() == {
         "message": "Successfully updated materialization config named `date_int_0` "
         "for node `default.repairs_cube`",
         "urls": [["http://fake.url/job"]],
@@ -1096,8 +1079,8 @@ def test_add_materialization_config_to_cube(
             },
             "metricsSpec": [
                 {
-                    "fieldName": "m0_default_DOT_discounted_orders_rate_discount_sum",
-                    "name": "discount_sum",
+                    "fieldName": "m0_default_DOT_discounted_orders_rate_discount3789599758_sum",
+                    "name": "discount3789599758_sum",
                     "type": "longSum",
                 },
                 {
@@ -1106,23 +1089,25 @@ def test_add_materialization_config_to_cube(
                     "type": "longSum",
                 },
                 {
-                    "fieldName": "m1_default_DOT_num_repair_orders_repair_order_id_count",
-                    "name": "repair_order_id_count",
+                    "fieldName": "m1_default_DOT_num_repair_orders_repair_"
+                    "order_id3825669267_count",
+                    "name": "repair_order_id3825669267_count",
                     "type": "longSum",
                 },
                 {
-                    "fieldName": "m2_default_DOT_avg_repair_price_price_count",
-                    "name": "price_count",
+                    "fieldName": "m2_default_DOT_avg_repair_price_price3402113753_count",
+                    "name": "price3402113753_count",
                     "type": "longSum",
                 },
                 {
-                    "fieldName": "m4_default_DOT_total_repair_order_discounts_price_discount_sum",
-                    "name": "price_discount_sum",
+                    "fieldName": "m4_default_DOT_total_repair_order_discounts_"
+                    "price_discount2203488025_sum",
+                    "name": "price_discount2203488025_sum",
                     "type": "doubleSum",
                 },
                 {
-                    "fieldName": "m5_default_DOT_double_total_repair_cost_price_sum",
-                    "name": "price_sum",
+                    "fieldName": "m5_default_DOT_double_total_repair_cost_price3402113753_sum",
+                    "name": "price3402113753_sum",
                     "type": "doubleSum",
                 },
             ],
@@ -1219,10 +1204,12 @@ def test_add_availability_to_cube(
             {"name": "postal_code", "type": "string"},
         ],
         "dialect": "spark",
-        "sql": "SELECT  sum(discount_sum) / count(placeholder_count) "
+        "sql": "SELECT  sum(discount3789599758_sum) / count(placeholder_count) "
         "default_DOT_discounted_orders_rate,\n"
-        "\tcount(repair_order_id_count) default_DOT_num_repair_orders,\n"
-        "\tsum(price_sum) / count(price_count) default_DOT_avg_repair_price,\n"
+        "\tcount(repair_order_id3825669267_count) "
+        "default_DOT_num_repair_orders,\n"
+        "\tsum(price3402113753_sum) / count(price3402113753_count) "
+        "default_DOT_avg_repair_price,\n"
         "\tcountry,\n"
         "\tpostal_code \n"
         " FROM repairs_cube \n"
@@ -1251,7 +1238,7 @@ def test_unlink_node_column_dimension(
 
 def test_changing_node_upstream_from_cube(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
-    repairs_cube_elements: List[Dict],
+    repairs_cube_elements: List[Dict],  # pylint: disable=redefined-outer-name
 ):
     """
     Verify changing nodes upstream from a cube
@@ -1270,42 +1257,200 @@ def test_changing_node_upstream_from_cube(
 
     response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
-    assert sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
+    assert (
+        sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
+    )
 
     # Verify effects on cube after updating a node upstream from the cube
-    client_with_repairs_cube.patch("/nodes/default.discounted_orders_rate/", json={
-        "query": """SELECT
+    client_with_repairs_cube.patch(
+        "/nodes/default.discounted_orders_rate/",
+        json={
+            "query": """SELECT
   cast(sum(if(discount > 0.0, 1, 0)) as double)
-FROM default.repair_order_details"""
-    })
+FROM default.repair_order_details""",
+        },
+    )
     response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     data = response.json()
     assert data["status"] == "valid"
 
     response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
     data = response.json()
-    assert sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
+    assert (
+        sorted(data["cube_elements"], key=lambda x: x["name"]) == repairs_cube_elements
+    )
+
+
+def assert_updated_repairs_cube(data):
+    """
+    Asserts that the updated repairs cube has the right cube elements and default materialization
+    """
+    assert sorted(data["cube_elements"], key=lambda x: x["name"]) == [
+        {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
+        {
+            "name": "default_DOT_discounted_orders_rate",
+            "node_name": "default.discounted_orders_rate",
+            "type": "metric",
+        },
+    ]
+    assert data["materializations"][0]["config"]["dimensions"] == ["city"]
+    assert data["materializations"][0]["config"]["measures"] == {
+        "default_DOT_discounted_orders_rate": {
+            "combiner": "sum(discount3789599758_sum) " "/ " "count(placeholder_count)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "m0_default_DOT_discounted_orders_rate_discount3789599758_sum",
+                    "name": "discount3789599758_sum",
+                    "type": "bigint",
+                },
+                {
+                    "agg": "count",
+                    "field_name": "m0_default_DOT_discounted_orders_rate_placeholder_count",
+                    "name": "placeholder_count",
+                    "type": "bigint",
+                },
+            ],
+            "metric": "default_DOT_discounted_orders_rate",
+        },
+    }
+    assert data["materializations"][0]["config"]["partitions"] == []
+    assert "discount3789599758_sum" in data["materializations"][0]["config"]["query"]
+    assert data["materializations"][0]["config"]["upstream_tables"] == [
+        "default.roads.hard_hats",
+        "default.roads.repair_order_details",
+        "default.roads.repair_orders",
+    ]
+    assert data["materializations"][0]["job"] == "DefaultCubeMaterialization"
+    assert data["materializations"][0]["name"] == "default"
 
 
 def test_updating_cube(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
-    repairs_cube_elements: List[Dict],
 ):
     """
     Verify updating a cube
     """
-    response = client_with_repairs_cube.patch("/nodes/default.repairs_cube", json={
-        "metrics": ["default.discounted_orders_rate"],
-        "dimensions": ["default.hard_hat.city"],
-    })
+    response = client_with_repairs_cube.patch(
+        "/nodes/default.repairs_cube",
+        json={
+            "metrics": ["default.discounted_orders_rate"],
+            "dimensions": ["default.hard_hat.city"],
+        },
+    )
     result = response.json()
     assert result["version"] == "v2.0"
-    assert result["columns"] == [{'attributes': [],
-              'dimension': None,
-              'name': 'default_DOT_discounted_orders_rate',
-              'type': 'double'},
-             {'attributes': [{'attribute_type': {'name': 'dimension',
-                                                 'namespace': 'system'}}],
-              'dimension': None,
-              'name': 'city',
-              'type': 'string'}]
+    assert sorted(result["columns"], key=lambda x: x["name"]) == sorted(
+        [
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "default_DOT_discounted_orders_rate",
+                "type": "double",
+            },
+            {
+                "attributes": [
+                    {"attribute_type": {"name": "dimension", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "name": "city",
+                "type": "string",
+            },
+        ],
+        key=lambda x: x["name"],  # type: ignore
+    )
+
+    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    data = response.json()
+    assert_updated_repairs_cube(data)
+
+
+def test_updating_cube_with_existing_materialization(
+    client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+    repairs_cube_with_materialization: requests.Response,  # pylint: disable=redefined-outer-name
+):
+    """
+    Verify updating a cube with existing materialization
+    """
+    assert repairs_cube_with_materialization.ok
+
+    # Make sure that the cube already has an additional materialization configured
+    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    data = response.json()
+    assert len(data["materializations"]) == 2
+
+    # Update the cube
+    response = client_with_repairs_cube.patch(
+        "/nodes/default.repairs_cube",
+        json={
+            "metrics": ["default.discounted_orders_rate"],
+            "dimensions": ["default.hard_hat.city"],
+        },
+    )
+    result = response.json()
+    assert result["version"] == "v2.0"
+
+    # Check that the cube was updated
+    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    data = response.json()
+    assert_updated_repairs_cube(data)
+
+    # Check that the existing materialization was updated
+    assert data["materializations"][1] == {
+        "config": {
+            "dimensions": ["city"],
+            "druid": {
+                "granularity": "DAY",
+                "intervals": ["2021-01-01/2022-01-01"],
+                "parse_spec_format": None,
+                "timestamp_column": "date_int",
+                "timestamp_format": None,
+            },
+            "measures": {
+                "default_DOT_discounted_orders_rate": {
+                    "combiner": "sum(discount3789599758_sum) "
+                    "/ "
+                    "count(placeholder_count)",
+                    "measures": [
+                        {
+                            "agg": "sum",
+                            "field_name": "m0_default_DOT_discounted_orders_"
+                            "rate_discount3789599758_sum",
+                            "name": "discount3789599758_sum",
+                            "type": "bigint",
+                        },
+                        {
+                            "agg": "count",
+                            "field_name": "m0_default_DOT_discounted_orders_rate_"
+                            "placeholder_count",
+                            "name": "placeholder_count",
+                            "type": "bigint",
+                        },
+                    ],
+                    "metric": "default_DOT_discounted_orders_rate",
+                },
+            },
+            "partitions": [
+                {
+                    "expression": None,
+                    "name": "date_int",
+                    "range": [20210101, 20220101],
+                    "type_": "temporal",
+                    "values": [],
+                },
+            ],
+            "prefix": "",
+            "query": mock.ANY,
+            "spark": {},
+            "suffix": "",
+            "upstream_tables": [
+                "default.roads.hard_hats",
+                "default.roads.repair_order_details",
+                "default.roads.repair_orders",
+            ],
+        },
+        "engine": {"dialect": "druid", "name": "druid", "uri": None, "version": ""},
+        "job": "DruidCubeMaterializationJob",
+        "name": "date_int_0",
+        "schedule": "@daily",
+    }

@@ -37,7 +37,7 @@ from datajunction_server.models.materialization import (
 from datajunction_server.models.tag import Tag, TagNodeRelationship
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import Version, amenable_name
+from datajunction_server.utils import SEPARATOR, Version, amenable_name
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
 DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
@@ -829,22 +829,35 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             )
         )
 
-    def cube_referenced_node_revisions(self):
-        if self.type != NodeType.CUBE:
-            return []
-        return [element.node_revision() for element in self.cube_elements]
-
     def cube_metrics(self) -> List[Node]:
+        """
+        Cube node's metrics
+        """
+        if self.type != NodeType.CUBE:
+            raise DJInvalidInputException(
+                message="Cannot retrieve metrics for a non-cube node!",
+            )
         return [
-            node_rev.node for node_rev in self.cube_referenced_node_revisions()
-            if node_rev.type == NodeType.METRIC
+            element.node_revision().node  # type: ignore
+            for element in self.cube_elements  # pylint: disable=not-an-iterable
+            if element.type == NodeType.METRIC
         ]
 
     def cube_dimensions(self) -> List[str]:
+        """
+        Cube node's dimension attributes
+        """
+        if self.type != NodeType.CUBE:
+            raise DJInvalidInputException(
+                "Cannot retrieve dimensions for a non-cube node!",
+            )
         return [
-            element.node_revision().name + "." + element.name
-            for element in self.cube_elements
-            if element.node_revision().type != NodeType.METRIC
+            node_rev.name + SEPARATOR + dimension_attr.name
+            for dimension_attr, node_rev in [
+                (element, element.node_revision())
+                for element in self.cube_elements  # pylint: disable=not-an-iterable
+            ]
+            if node_rev and node_rev.type != NodeType.METRIC
         ]
 
 
@@ -1008,6 +1021,7 @@ class CubeNodeFields(BaseSQLModel):
     """
     Cube-specific fields that can be changed
     """
+
     metrics: List[str]
     dimensions: List[str]
     filters: Optional[List[str]]

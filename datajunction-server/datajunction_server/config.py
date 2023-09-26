@@ -28,7 +28,7 @@ class Settings(
     cors_origin_whitelist: List[str] = ["http://localhost:3000"]
 
     # SQLAlchemy URI for the metadata database.
-    index: str = "sqlite:///dj.db?check_same_thread=False"
+    index: str = "cockroachdb://netflix_user@localhost:8196/dj?sslmode=disable"
 
     # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
     # "databases".
