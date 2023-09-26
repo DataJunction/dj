@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """Nodes endpoint helper functions"""
 import logging
 from collections import defaultdict, deque
@@ -70,7 +71,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
-from datajunction_server.utils import Version, VersionUpgrade, get_session
+from datajunction_server.utils import SEPARATOR, Version, VersionUpgrade, get_session
 
 _logger = logging.getLogger(__name__)
 
@@ -294,7 +295,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     dimension_attribute = session.exec(
         select(AttributeType).where(AttributeType.name == "dimension"),
     ).one()
-    dimensions_set = {dim.rsplit(".", 1)[1] for dim in data.dimensions}
+    dimensions_set = {dim.rsplit(SEPARATOR, 1)[1] for dim in data.dimensions}
 
     node_columns = []
     status = NodeStatus.VALID
@@ -374,6 +375,7 @@ def save_node(
     current_user: Optional[User] = None,
 ):
     """
+    Saves the newly created node revision
     Links the node and node revision together and saves them
     """
     node_revision.node = node
@@ -413,16 +415,48 @@ def save_node(
     session.refresh(node.current)
 
 
-def _update_node(
+def update_any_node(
     name: str,
     data: UpdateNode,
     session: Session,
     query_service_client: QueryServiceClient = None,
     current_user: Optional[User] = None,
-):
+) -> Node:
+    """
+    Node update helper function that handles updating any node
+    """
+    node = get_node_by_name(session, name, for_update=True, include_inactive=True)
+    if node.type == NodeType.CUBE:
+        node_revision = update_cube_node(
+            session,
+            node.current,
+            data,
+            query_service_client,
+            current_user,
+        )
+        return node_revision.node if node_revision else node
+    return update_node_with_query(
+        name,
+        data,
+        session,
+        query_service_client,
+        current_user,
+    )
+
+
+def update_node_with_query(
+    name: str,
+    data: UpdateNode,
+    session: Session,
+    query_service_client: QueryServiceClient = None,
+    current_user: Optional[User] = None,
+) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
     Propagate these changes to all of the node's downstream children.
+
+    Note: this function works for both source nodes and nodes with query (transforms,
+    dimensions, metrics). We should update it to separate out the logic for source nodes
     """
     node = get_node_by_name(session, name, for_update=True, include_inactive=True)
     old_revision = node.current
@@ -446,19 +480,7 @@ def _update_node(
 
     session.add(new_revision)
     session.add(node)
-
-    session.add(
-        History(
-            entity_type=EntityType.NODE,
-            entity_name=node.name,
-            node=node.name,
-            activity_type=ActivityType.UPDATE,
-            details={
-                "version": new_revision.version,  # type: ignore
-            },
-            user=current_user.username if current_user else None,
-        ),
-    )
+    session.add(node_update_history_event(new_revision, current_user))
 
     if new_revision.status != old_revision.status:  # type: ignore
         session.add(
@@ -490,6 +512,7 @@ def _update_node(
         session,
         node,
         history_events,
+        query_service_client=query_service_client,
         current_user=current_user,
     )
 
@@ -497,10 +520,126 @@ def _update_node(
     return node
 
 
+def has_minor_changes(old_revision: NodeRevision, data: UpdateNode):
+    """
+    Whether the node has minor changes
+    """
+    return (
+        (data and data.description and old_revision.description != data.description)
+        or (data and data.mode and old_revision.mode != data.mode)
+        or (
+            data
+            and data.display_name
+            and old_revision.display_name != data.display_name
+        )
+    )
+
+
+def node_update_history_event(new_revision: NodeRevision, current_user: Optional[User]):
+    """
+    History event for node updates
+    """
+    return History(
+        entity_type=EntityType.NODE,
+        entity_name=new_revision.name,
+        node=new_revision.name,
+        activity_type=ActivityType.UPDATE,
+        details={
+            "version": new_revision.version,  # type: ignore
+        },
+        user=current_user.username if current_user else None,
+    )
+
+
+def update_cube_node(
+    session: Session,
+    node_revision: NodeRevision,
+    data: UpdateNode,
+    query_service_client: Optional[QueryServiceClient],
+    current_user: Optional[User] = None,
+) -> Optional[NodeRevision]:
+    """
+    Update cube node based on changes
+    """
+    minor_changes = has_minor_changes(node_revision, data)
+    old_metrics = [m.name for m in node_revision.cube_metrics()]
+    old_dimensions = node_revision.cube_dimensions()
+    major_changes = (data.metrics and data.metrics != old_metrics) or (
+        data.dimensions and data.dimensions != old_dimensions
+    )
+    create_cube = CreateCubeNode(
+        name=node_revision.name,
+        display_name=data.display_name or node_revision.display_name,
+        description=data.description or node_revision.description,
+        metrics=data.metrics or old_metrics,
+        dimensions=data.dimensions or old_dimensions,
+        mode=data.mode or node_revision.mode,
+        filters=data.filters or [],
+        orderby=data.orderby or None,
+        limit=data.limit or None,
+    )
+    if not major_changes and not minor_changes:
+        return None
+
+    new_cube_revision = create_cube_node_revision(session, create_cube)
+
+    old_version = Version.parse(node_revision.version)
+    if major_changes:
+        new_cube_revision.version = str(old_version.next_major_version())
+    elif minor_changes:  # pragma: no cover
+        new_cube_revision.version = str(old_version.next_minor_version())
+    new_cube_revision.node = node_revision.node
+    new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
+
+    session.add(node_update_history_event(new_cube_revision, current_user))
+
+    # Update existing materializations
+    active_materializations = [
+        mat
+        for mat in node_revision.materializations
+        if not mat.deactivated_at and mat.name != "default"
+    ]
+    if major_changes and active_materializations:
+        for old in active_materializations:
+            new_cube_revision.materializations.append(
+                create_new_materialization(
+                    session,
+                    new_cube_revision,
+                    UpsertMaterialization(
+                        **old.dict(), **{"engine": old.engine.dict()}
+                    ),
+                ),
+            )
+            session.add(
+                History(
+                    entity_type=EntityType.MATERIALIZATION,
+                    entity_name=old.name,
+                    node=node_revision.name,
+                    activity_type=ActivityType.UPDATE,
+                    details={},
+                    user=current_user.username if current_user else None,
+                ),
+            )
+        if query_service_client:  # pragma: no cover
+            schedule_materialization_jobs(
+                new_cube_revision.materializations,
+                query_service_client,
+            )
+    session.add(new_cube_revision)
+    session.add(new_cube_revision.node)
+    session.commit()
+
+    session.refresh(new_cube_revision)
+    session.refresh(new_cube_revision.node)
+    session.refresh(new_cube_revision.node.current)
+    return new_cube_revision
+
+
 def propagate_update_downstream(
     session: Session,
     node: Node,
     history_events: Dict[str, Any],
+    query_service_client: QueryServiceClient = None,
     current_user: Optional[User] = None,
 ):
     """
@@ -523,6 +662,18 @@ def propagate_update_downstream(
         # Only process if it hasn't already been processed before
         if child.name not in processed:
             processed.add(child.name)
+
+            if child.type == NodeType.CUBE:
+                update_cube_node(
+                    session,
+                    child,
+                    UpdateNode(
+                        metrics=[metric.name for metric in child.cube_metrics()],
+                        dimensions=child.cube_dimensions(),
+                    ),
+                    query_service_client=query_service_client,
+                )
+                continue
 
             node_validator = validate_node_data(
                 data=child,
@@ -575,7 +726,8 @@ def propagate_update_downstream(
                             for entry in changelog
                             if entry.name in history_events
                         ],
-                        "reason": f"Caused by update of `{node.name}` to {node.current_version}",
+                        "reason": f"Caused by update of `{node.name}` to "
+                        f"{node.current_version}",
                     },
                     pre={"status": child.status},
                     post={"status": node_validator.status},
@@ -633,7 +785,7 @@ def _create_node_from_inactive(
                 "you need to remove all the traces of the previous node with a <TODO> command.",
                 http_status_code=HTTPStatus.CONFLICT,
             )
-        _update_node(
+        update_node_with_query(
             name=data.name,
             data=UpdateNode(
                 # MutableNodeFields

@@ -1,4 +1,5 @@
 """Node materialization helper functions"""
+import zlib
 from typing import Dict, List, Set, Tuple, Union
 
 from pydantic import ValidationError
@@ -30,8 +31,11 @@ from datajunction_server.models.materialization import (
     UpsertMaterialization,
 )
 from datajunction_server.models.node import NodeType
+from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
+
+MAX_COLUMN_NAME_LENGTH = 128
 
 
 def build_cube_config(  # pylint: disable=too-many-locals
@@ -59,6 +63,13 @@ def build_cube_config(  # pylint: disable=too-many-locals
     }
     metrics_to_measures = {}
     measures_tracker = {}
+
+    # Track columns to return later as a part of the default config
+    intermediate_columns = {
+        ColumnMetadata(name=dim.name, type=str(dim.type))
+        for dim in cube_node.columns
+        if dim.has_dimension_attribute()
+    }
     for cte in combined_ast.ctes:
         metrics_to_measures.update(decompose_metrics(cte, dimensions_set))
         new_select_projection: Set[Union[ast.Aliasable, ast.Expression]] = set()
@@ -76,6 +87,14 @@ def build_cube_config(  # pylint: disable=too-many-locals
                         combiner=str(combiner),
                     )
                 for measure in measures:
+                    intermediate_columns.add(
+                        ColumnMetadata(
+                            name=str(
+                                f"{cte.alias_or_name}_{measure.alias_or_name}",
+                            ),
+                            type=str(measure.type),
+                        ),
+                    )
                     measures_tracker[metric_key].measures.append(  # type: ignore
                         Measure(
                             name=measure.alias_or_name.name,
@@ -129,8 +148,13 @@ def build_cube_config(  # pylint: disable=too-many-locals
             },
         ),
     )
+    ordering = {
+        col.alias_or_name.name: idx  # type: ignore
+        for idx, col in enumerate(combined_ast.select.projection)
+    }
     return GenericCubeConfig(
         query=str(combined_ast),
+        columns=sorted(list(intermediate_columns), key=lambda x: ordering[x.name]),
         dimensions=sorted(list(dimensions_set)),
         measures=measures_tracker,
         partitions=[],
@@ -282,8 +306,12 @@ def _get_readable_name(expr):
     if we want to represent the expression as a single measure, which needs a name
     """
     columns = [col for arg in expr.args for col in arg.find_all(ast.Column)]
+    readable_name = "_".join(
+        str(col.alias_or_name).rsplit(".", maxsplit=1)[-1] for col in columns
+    )
     return (
-        "_".join(str(col.alias_or_name).rsplit(".", maxsplit=1)[-1] for col in columns)
+        readable_name[: MAX_COLUMN_NAME_LENGTH - 28]
+        + str(zlib.crc32(readable_name.encode("utf-8")))
         if columns
         else "placeholder"
     )

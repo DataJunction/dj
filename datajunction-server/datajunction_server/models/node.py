@@ -37,7 +37,7 @@ from datajunction_server.models.materialization import (
 from datajunction_server.models.tag import Tag, TagNodeRelationship
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
-from datajunction_server.utils import Version, amenable_name
+from datajunction_server.utils import SEPARATOR, Version, amenable_name
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
 DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
@@ -829,6 +829,44 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             )
         )
 
+    def cube_elements_with_nodes(self) -> List[Tuple[Column, Optional["NodeRevision"]]]:
+        """
+        Cube elements along with their nodes
+        """
+        return [
+            (element, element.node_revision())
+            for element in self.cube_elements  # pylint: disable=not-an-iterable
+        ]
+
+    def cube_metrics(self) -> List[Node]:
+        """
+        Cube node's metrics
+        """
+        if self.type != NodeType.CUBE:
+            raise DJInvalidInputException(  # pragma: no cover
+                message="Cannot retrieve metrics for a non-cube node!",
+            )
+
+        return [
+            node_revision.node  # type: ignore
+            for element, node_revision in self.cube_elements_with_nodes()
+            if node_revision and node_revision.type == NodeType.METRIC
+        ]
+
+    def cube_dimensions(self) -> List[str]:
+        """
+        Cube node's dimension attributes
+        """
+        if self.type != NodeType.CUBE:
+            raise DJInvalidInputException(  # pragma: no cover
+                "Cannot retrieve dimensions for a non-cube node!",
+            )
+        return [
+            node_revision.name + SEPARATOR + element.name
+            for element, node_revision in self.cube_elements_with_nodes()
+            if node_revision and node_revision.type != NodeType.METRIC
+        ]
+
 
 class ImmutableNodeFields(BaseSQLModel):
     """
@@ -988,10 +1026,9 @@ class SourceNodeFields(BaseSQLModel):
 
 class CubeNodeFields(BaseSQLModel):
     """
-    Cube node fields that can be changed
+    Cube-specific fields that can be changed
     """
 
-    display_name: Optional[str]
     metrics: List[str]
     dimensions: List[str]
     filters: Optional[List[str]]
@@ -1031,7 +1068,7 @@ class CreateSourceNode(ImmutableNodeFields, MutableNodeFields, SourceNodeFields)
     """
 
 
-class CreateCubeNode(ImmutableNodeFields, CubeNodeFields):
+class CreateCubeNode(ImmutableNodeFields, MutableNodeFields, CubeNodeFields):
     """
     A create object for cube nodes
     """
@@ -1048,6 +1085,7 @@ class UpdateNode(MutableNodeFields, SourceNodeFields):
             **SourceNodeFields.__annotations__,  # pylint: disable=E1101
             **MutableNodeFields.__annotations__,  # pylint: disable=E1101
             **MutableNodeQueryField.__annotations__,  # pylint: disable=E1101
+            **CubeNodeFields.__annotations__,  # pylint: disable=E1101
         }.items()
     }
 
