@@ -829,6 +829,15 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             )
         )
 
+    def cube_elements_with_nodes(self) -> List[Tuple[Column, Optional["NodeRevision"]]]:
+        """
+        Cube elements along with their nodes
+        """
+        return [
+            (element, element.node_revision())
+            for element in self.cube_elements  # pylint: disable=not-an-iterable
+        ]
+
     def cube_metrics(self) -> List[Node]:
         """
         Cube node's metrics
@@ -837,10 +846,11 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             raise DJInvalidInputException(
                 message="Cannot retrieve metrics for a non-cube node!",
             )
+
         return [
-            element.node_revision().node  # type: ignore
-            for element in self.cube_elements  # pylint: disable=not-an-iterable
-            if element.type == NodeType.METRIC
+            node_revision.node  # type: ignore
+            for element, node_revision in self.cube_elements_with_nodes()
+            if node_revision and node_revision.type == NodeType.METRIC
         ]
 
     def cube_dimensions(self) -> List[str]:
@@ -852,12 +862,9 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
                 "Cannot retrieve dimensions for a non-cube node!",
             )
         return [
-            node_rev.name + SEPARATOR + dimension_attr.name
-            for dimension_attr, node_rev in [
-                (element, element.node_revision())
-                for element in self.cube_elements  # pylint: disable=not-an-iterable
-            ]
-            if node_rev and node_rev.type != NodeType.METRIC
+            node_revision.name + SEPARATOR + element.name
+            for element, node_revision in self.cube_elements_with_nodes()
+            if node_revision and node_revision.type != NodeType.METRIC
         ]
 
 
