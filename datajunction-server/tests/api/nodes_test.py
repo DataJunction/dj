@@ -2398,6 +2398,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "dialect": "spark",
                 },
                 "config": {
+                    "columns": None,
                     "partitions": [
                         {
                             "name": "country",
@@ -2592,6 +2593,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                         "dialect": "spark",
                     },
                     "config": {
+                        "columns": None,
                         "query": "SELECT  basic_DOT_source_DOT_users.country,\n\tCOUNT( "
                         "DISTINCT basic_DOT_source_DOT_users.id) AS num_users \n "
                         "FROM basic.dim_users AS basic_DOT_source_DOT_users \n WHERE"
@@ -2614,6 +2616,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                 },
                 {
                     "config": {
+                        "columns": None,
                         "partitions": [],
                         "query": "SELECT  basic_DOT_source_DOT_users.country,\n"
                         "\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS "
@@ -2689,6 +2692,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                         "dialect": "spark",
                     },
                     "config": {
+                        "columns": None,
                         "query": "SELECT  default_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats."
                         "birth_date,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats."
                         "contractor_id,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard"
@@ -2740,6 +2744,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             [
                 {
                     "config": {
+                        "columns": None,
                         "partitions": [
                             {
                                 "expression": None,
