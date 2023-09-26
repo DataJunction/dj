@@ -843,7 +843,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         Cube node's metrics
         """
         if self.type != NodeType.CUBE:
-            raise DJInvalidInputException(
+            raise DJInvalidInputException(  # pragma: no cover
                 message="Cannot retrieve metrics for a non-cube node!",
             )
 
@@ -858,7 +858,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         Cube node's dimension attributes
         """
         if self.type != NodeType.CUBE:
-            raise DJInvalidInputException(
+            raise DJInvalidInputException(  # pragma: no cover
                 "Cannot retrieve dimensions for a non-cube node!",
             )
         return [
