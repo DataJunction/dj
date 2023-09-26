@@ -254,6 +254,7 @@ def client_with_repairs_cube(
         },
     )
     assert response.status_code == 201
+    assert response.json()["version"] == "v1.0"
     return custom_client
 
 
@@ -1331,6 +1332,18 @@ def test_updating_cube(
     """
     Verify updating a cube
     """
+    # Check a minor update to the cube
+    response = client_with_repairs_cube.patch(
+        "/nodes/default.repairs_cube",
+        json={
+            "description": "This cube has a new description",
+        },
+    )
+    data = response.json()
+    assert data["version"] == "v1.1"
+    assert data["description"] == "This cube has a new description"
+
+    # Check a major update to the cube
     response = client_with_repairs_cube.patch(
         "/nodes/default.repairs_cube",
         json={
