@@ -1,4 +1,5 @@
 """Node materialization helper functions"""
+import zlib
 from typing import Dict, List, Set, Tuple, Union
 
 from pydantic import ValidationError
@@ -32,6 +33,8 @@ from datajunction_server.models.materialization import (
 from datajunction_server.models.node import NodeType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
+
+MAX_COLUMN_NAME_LENGTH = 128
 
 
 def build_cube_config(  # pylint: disable=too-many-locals
@@ -282,8 +285,12 @@ def _get_readable_name(expr):
     if we want to represent the expression as a single measure, which needs a name
     """
     columns = [col for arg in expr.args for col in arg.find_all(ast.Column)]
+    readable_name = "_".join(
+        str(col.alias_or_name).rsplit(".", maxsplit=1)[-1] for col in columns
+    )
     return (
-        "_".join(str(col.alias_or_name).rsplit(".", maxsplit=1)[-1] for col in columns)
+        readable_name[: MAX_COLUMN_NAME_LENGTH - 28]
+        + str(zlib.crc32(readable_name.encode("utf-8")))
         if columns
         else "placeholder"
     )

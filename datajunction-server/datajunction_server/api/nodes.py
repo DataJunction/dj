@@ -34,12 +34,12 @@ from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.internal.materializations import schedule_materialization_jobs
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
-    update_node_with_query,
     create_cube_node_revision,
     create_node_revision,
     get_column_level_lineage,
     save_node,
-    set_node_column_attributes, update_any_node,
+    set_node_column_attributes,
+    update_any_node,
 )
 from datajunction_server.models import User
 from datajunction_server.models.attribute import AttributeTypeIdentifier

@@ -18,8 +18,7 @@ from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import Node, NodeNamespace, NodeRevision, NodeType
 from datajunction_server.typing import UTCDatetime
-
-SEPARATOR = "."
+from datajunction_server.utils import SEPARATOR
 
 
 def get_nodes_in_namespace(

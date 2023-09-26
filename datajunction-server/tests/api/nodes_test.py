@@ -4157,10 +4157,10 @@ def test_decompose_expression():
     res = decompose_expression(
         ast.Function(ast.Name("avg"), args=[ast.Column(ast.Name("orders"))]),
     )
-    assert str(res[0]) == "sum(orders_sum) / count(orders_count)"
+    assert str(res[0]) == "sum(orders3845127662_sum) / count(orders3845127662_count)"
     assert [measure.alias_or_name.name for measure in res[1]] == [
-        "orders_sum",
-        "orders_count",
+        "orders3845127662_sum",
+        "orders3845127662_count",
     ]
 
     # Decompose `avg(orders) + 5.5`
@@ -4171,10 +4171,12 @@ def test_decompose_expression():
             op=ast.BinaryOpKind.Plus,
         ),
     )
-    assert str(res[0]) == "sum(orders_sum) / count(orders_count) + 5.5"
+    assert (
+        str(res[0]) == "sum(orders3845127662_sum) / count(orders3845127662_count) + 5.5"
+    )
     assert [measure.alias_or_name.name for measure in res[1]] == [
-        "orders_sum",
-        "orders_count",
+        "orders3845127662_sum",
+        "orders3845127662_count",
     ]
 
     # Decompose `max(avg(orders_a) + avg(orders_b))`
@@ -4197,8 +4199,9 @@ def test_decompose_expression():
         ),
     )
     assert (
-        str(res[0]) == "max(sum(orders_a_sum) / count(orders_a_count) "
-        "+ sum(orders_b_sum) / count(orders_b_count))"
+        str(res[0])
+        == "max(sum(orders_a1170126662_sum) / count(orders_a1170126662_count) "
+        "+ sum(orders_b3703039740_sum) / count(orders_b3703039740_count))"
     )
 
     # Decompose `sum(max(orders))`
@@ -4213,8 +4216,10 @@ def test_decompose_expression():
             ],
         ),
     )
-    assert str(res[0]) == "sum(max(orders_max))"
-    assert [measure.alias_or_name.name for measure in res[1]] == ["orders_max"]
+    assert str(res[0]) == "sum(max(orders3845127662_max))"
+    assert [measure.alias_or_name.name for measure in res[1]] == [
+        "orders3845127662_max",
+    ]
 
     # Decompose `(max(orders) + min(validations))/sum(total)`
     res = decompose_expression(
@@ -4234,11 +4239,14 @@ def test_decompose_expression():
             op=ast.BinaryOpKind.Divide,
         ),
     )
-    assert str(res[0]) == "max(orders_max) + min(validations_min) / sum(total_sum)"
+    assert (
+        str(res[0])
+        == "max(orders3845127662_max) + min(validations2970758927_min) / sum(total3257917790_sum)"
+    )
     assert [measure.alias_or_name.name for measure in res[1]] == [
-        "orders_max",
-        "validations_min",
-        "total_sum",
+        "orders3845127662_max",
+        "validations2970758927_min",
+        "total3257917790_sum",
     ]
 
     # Decompose `cast(sum(coalesce(has_ordered, 0.0)) as double)/count(total)`
@@ -4263,10 +4271,10 @@ def test_decompose_expression():
             op=ast.BinaryOpKind.Divide,
         ),
     )
-    assert str(res[0]) == "sum(has_ordered_sum) / sum(total_sum)"
+    assert str(res[0]) == "sum(has_ordered2766370626_sum) / sum(total3257917790_sum)"
     assert [measure.alias_or_name.name for measure in res[1]] == [
-        "has_ordered_sum",
-        "total_sum",
+        "has_ordered2766370626_sum",
+        "total3257917790_sum",
     ]
 
 
