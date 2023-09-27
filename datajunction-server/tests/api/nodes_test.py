@@ -2398,7 +2398,11 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "dialect": "spark",
                 },
                 "config": {
-                    "columns": None,
+                    "columns": [
+                        {"name": "country", "type": "string"},
+                        {"name": "num_users", "type": "bigint"},
+                        {"name": "languages", "type": "bigint"},
+                    ],
                     "partitions": [
                         {
                             "name": "country",
@@ -2593,7 +2597,10 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                         "dialect": "spark",
                     },
                     "config": {
-                        "columns": None,
+                        "columns": [
+                            {"name": "country", "type": "string"},
+                            {"name": "num_users", "type": "bigint"},
+                        ],
                         "query": "SELECT  basic_DOT_source_DOT_users.country,\n\tCOUNT( "
                         "DISTINCT basic_DOT_source_DOT_users.id) AS num_users \n "
                         "FROM basic.dim_users AS basic_DOT_source_DOT_users \n WHERE"
@@ -2616,7 +2623,10 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                 },
                 {
                     "config": {
-                        "columns": None,
+                        "columns": [
+                            {"name": "country", "type": "string"},
+                            {"name": "num_users", "type": "bigint"},
+                        ],
                         "partitions": [],
                         "query": "SELECT  basic_DOT_source_DOT_users.country,\n"
                         "\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS "
@@ -2692,7 +2702,21 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                         "dialect": "spark",
                     },
                     "config": {
-                        "columns": None,
+                        "columns": [
+                            {"name": "hard_hat_id", "type": "int"},
+                            {"name": "last_name", "type": "string"},
+                            {"name": "first_name", "type": "string"},
+                            {"name": "title", "type": "string"},
+                            {"name": "birth_date", "type": "timestamp"},
+                            {"name": "hire_date", "type": "timestamp"},
+                            {"name": "address", "type": "string"},
+                            {"name": "city", "type": "string"},
+                            {"name": "state", "type": "string"},
+                            {"name": "postal_code", "type": "string"},
+                            {"name": "country", "type": "string"},
+                            {"name": "manager", "type": "int"},
+                            {"name": "contractor_id", "type": "int"},
+                        ],
                         "query": "SELECT  default_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats."
                         "birth_date,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats."
                         "contractor_id,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard"
@@ -2744,7 +2768,21 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             [
                 {
                     "config": {
-                        "columns": None,
+                        "columns": [
+                            {"name": "hard_hat_id", "type": "int"},
+                            {"name": "last_name", "type": "string"},
+                            {"name": "first_name", "type": "string"},
+                            {"name": "title", "type": "string"},
+                            {"name": "birth_date", "type": "timestamp"},
+                            {"name": "hire_date", "type": "timestamp"},
+                            {"name": "address", "type": "string"},
+                            {"name": "city", "type": "string"},
+                            {"name": "state", "type": "string"},
+                            {"name": "postal_code", "type": "string"},
+                            {"name": "country", "type": "string"},
+                            {"name": "manager", "type": "int"},
+                            {"name": "contractor_id", "type": "int"},
+                        ],
                         "partitions": [
                             {
                                 "expression": None,
