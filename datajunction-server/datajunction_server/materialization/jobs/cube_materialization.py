@@ -152,5 +152,8 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 druid_spec=druid_spec,
                 partitions=cube_config.partitions,
                 upstream_tables=cube_config.upstream_tables or [],
+                # Cube materialization involves creating an intermediate dataset,
+                # which will have measures columns for all metrics in the cube
+                intermediate_columns=cube_config.columns,
             ),
         )
