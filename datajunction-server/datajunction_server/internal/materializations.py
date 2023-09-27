@@ -258,6 +258,7 @@ def create_new_materialization(
                 druid=DruidConf.parse_obj(upsert.config.druid),
                 partitions=upsert.config.partitions,
                 upstream_tables=default_job_config.upstream_tables,
+                columns=default_job_config.columns,
             )
         except (KeyError, ValidationError, AttributeError) as exc:
             raise DJInvalidInputException(
