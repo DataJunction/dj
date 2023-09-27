@@ -42,6 +42,7 @@ class DruidMaterializationInput(GenericMaterializationInput):
     """
 
     druid_spec: Dict
+    intermediate_columns: List[ColumnMetadata]
 
 
 class MaterializationInfo(BaseModel):

@@ -9,6 +9,7 @@ import pytest
 import requests
 from fastapi.testclient import TestClient
 
+from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from tests.sql.utils import compare_query_strings
 
@@ -1116,6 +1117,49 @@ def test_add_materialization_config_to_cube(
         called_kwargs.druid_spec["dataSchema"]["metricsSpec"],
         key=lambda x: x["fieldName"],
     )
+    assert sorted(called_kwargs.intermediate_columns, key=lambda x: x.name) == sorted(
+        [
+            ColumnMetadata(
+                name="m0_default_DOT_discounted_orders_rate_discount3789599758_sum",
+                type="bigint",
+            ),
+            ColumnMetadata(
+                name="m0_default_DOT_discounted_orders_rate_placeholder_count",
+                type="bigint",
+            ),
+            ColumnMetadata(
+                name="m1_default_DOT_num_repair_orders_repair_order_id3825669267_count",
+                type="bigint",
+            ),
+            ColumnMetadata(
+                name="m2_default_DOT_avg_repair_price_price3402113753_sum",
+                type="double",
+            ),
+            ColumnMetadata(
+                name="m2_default_DOT_avg_repair_price_price3402113753_count",
+                type="bigint",
+            ),
+            ColumnMetadata(
+                name="m3_default_DOT_total_repair_cost_price3402113753_sum",
+                type="double",
+            ),
+            ColumnMetadata(
+                name="m4_default_DOT_total_repair_order_discounts_price_discount2203488025_sum",
+                type="double",
+            ),
+            ColumnMetadata(
+                name="m5_default_DOT_double_total_repair_cost_price3402113753_sum",
+                type="double",
+            ),
+            ColumnMetadata(name="company_name", type="string"),
+            ColumnMetadata(name="country", type="string"),
+            ColumnMetadata(name="city", type="string"),
+            ColumnMetadata(name="state", type="string"),
+            ColumnMetadata(name="local_region", type="string"),
+            ColumnMetadata(name="postal_code", type="string"),
+        ],
+        key=lambda x: x.name,
+    )
     assert called_kwargs.druid_spec == {
         "dataSchema": {
             "dataSource": "default_DOT_repairs_cube",
@@ -1487,7 +1531,11 @@ def test_updating_cube_with_existing_materialization(
     # Check that the existing materialization was updated
     assert data["materializations"][1] == {
         "config": {
-            "columns": None,
+            "columns": [
+                {"name": mock.ANY, "type": mock.ANY},
+                {"name": mock.ANY, "type": mock.ANY},
+                {"name": mock.ANY, "type": mock.ANY},
+            ],
             "dimensions": ["city"],
             "druid": {
                 "granularity": "DAY",
