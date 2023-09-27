@@ -40,12 +40,12 @@ router = SecureAPIRouter(tags=["materializations"])
 
 
 @router.post(
-    "/nodes/{name}/materialization/",
+    "/nodes/{node_name}/materialization/",
     status_code=201,
     name="Insert or Update a Materialization for a Node",
 )
 def upsert_materialization(  # pylint: disable=too-many-locals
-    name: str,
+    node_name: str,
     data: UpsertMaterialization,
     *,
     session: Session = Depends(get_session),
@@ -53,14 +53,14 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
-    Add or update a materialization of the specified node. If a name is specified
+    Add or update a materialization of the specified node. If a node_name is specified
     for the materialization config, it will always update that named config.
     """
-    node = get_node_by_name(session, name, with_current=True)
+    node = get_node_by_name(session, node_name, with_current=True)
     if node.type == NodeType.SOURCE:
         raise DJException(
             http_status_code=HTTPStatus.BAD_REQUEST,
-            message=f"Cannot set materialization config for source node `{name}`!",
+            message=f"Cannot set materialization config for source node `{node_name}`!",
         )
     current_revision = node.current
     old_materializations = {mat.name: mat for mat in current_revision.materializations}
@@ -93,7 +93,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
             session.commit()
             session.refresh(existing_materialization)
         existing_materialization_info = query_service_client.get_materialization_info(
-            name,
+            node_name,
             current_revision.version,  # type: ignore
             new_materialization.name,  # type: ignore
         )
@@ -102,10 +102,10 @@ def upsert_materialization(  # pylint: disable=too-many-locals
             content={
                 "message": (
                     f"The same materialization config with name `{new_materialization.name}` "
-                    f"already exists for node `{name}` so no update was performed."
+                    f"already exists for node `{node_name}` so no update was performed."
                     if not deactivated_before
                     else f"The same materialization config with name `{new_materialization.name}` "
-                    f"already exists for node `{name}` but was deactivated. It has now been "
+                    f"already exists for node `{node_name}` but was deactivated. It has now been "
                     f"restored."
                 ),
                 "info": existing_materialization_info.dict(),
@@ -156,7 +156,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
         content={
             "message": (
                 f"Successfully updated materialization config named `{new_materialization.name}` "
-                f"for node `{name}`"
+                f"for node `{node_name}`"
             ),
             "urls": [output.urls for output in materialization_response.values()],
         },

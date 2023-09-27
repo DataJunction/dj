@@ -237,6 +237,10 @@ def create_new_materialization(
                 f"{current_revision.catalog.name}.{tbl.identifier()}"
                 for tbl in materialization_ast.find_all(ast.Table)
             ],
+            columns=[
+                ColumnMetadata(name=col.name, type=str(col.type))
+                for col in current_revision.columns
+            ],
         )
 
     if current_revision.type == NodeType.CUBE:
