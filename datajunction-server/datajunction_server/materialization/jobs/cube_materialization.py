@@ -152,5 +152,6 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 druid_spec=druid_spec,
                 partitions=cube_config.partitions,
                 upstream_tables=cube_config.upstream_tables or [],
+                intermediate_columns=cube_config.columns,
             ),
         )
