@@ -53,16 +53,19 @@ def test_read_cube(client_with_account_revenue: TestClient) -> None:
         """
         WITH default_DOT_account_type AS (
           SELECT
-            default_DOT_account_type.account_type_name default_DOT_account_type_DOT_account_type_name,
-            count(default_DOT_account_type.id) default_DOT_number_of_account_types 
+            default_DOT_account_type.account_type_name
+              default_DOT_account_type_DOT_account_type_name,
+            count(default_DOT_account_type.id)
+              default_DOT_number_of_account_types
           FROM (SELECT  default_DOT_account_type_table.account_type_classification,
               default_DOT_account_type_table.account_type_name,
               default_DOT_account_type_table.id
-          FROM accounting.account_type_table AS default_DOT_account_type_table) AS default_DOT_account_type 
+          FROM accounting.account_type_table AS default_DOT_account_type_table)
+          AS default_DOT_account_type
           GROUP BY  default_DOT_account_type.account_type_name
         )
         SELECT  default_DOT_account_type.default_DOT_number_of_account_types,
-            default_DOT_account_type.default_DOT_account_type_DOT_account_type_name 
+            default_DOT_account_type.default_DOT_account_type_DOT_account_type_name
          FROM default_DOT_account_type
         """,
     )
@@ -632,7 +635,7 @@ def test_cube_materialization_sql_and_measures(
             sum(if(default_DOT_repair_order_details.discount > 0.0, 1, 0)) discount3789599758_sum,
             default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
             default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-            default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name 
+            default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name
     FROM roads.repair_order_details AS default_DOT_repair_order_details LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
             default_DOT_repair_orders.hard_hat_id,
             default_DOT_repair_orders.municipality_id,
@@ -664,7 +667,7 @@ def test_cube_materialization_sql_and_measures(
         default_DOT_hard_hat.country default_DOT_hard_hat_DOT_country,
         count(default_DOT_repair_orders.repair_order_id) repair_order_id3825669267_count,
         default_DOT_hard_hat.city default_DOT_hard_hat_DOT_city,
-        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name 
+        default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name
     FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
         default_DOT_repair_orders.hard_hat_id,
         default_DOT_repair_orders.municipality_id,
@@ -701,7 +704,7 @@ def test_cube_materialization_sql_and_measures(
         COALESCE(default_DOT_repair_order_details.default_DOT_hard_hat_DOT_postal_code, default_DOT_repair_orders.default_DOT_hard_hat_DOT_postal_code) default_DOT_hard_hat_DOT_postal_code,
         COALESCE(default_DOT_repair_order_details.default_DOT_hard_hat_DOT_country, default_DOT_repair_orders.default_DOT_hard_hat_DOT_country) default_DOT_hard_hat_DOT_country,
         COALESCE(default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city, default_DOT_repair_orders.default_DOT_hard_hat_DOT_city) default_DOT_hard_hat_DOT_city,
-        COALESCE(default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name, default_DOT_repair_orders.default_DOT_dispatcher_DOT_company_name) default_DOT_dispatcher_DOT_company_name 
+        COALESCE(default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name, default_DOT_repair_orders.default_DOT_dispatcher_DOT_company_name) default_DOT_dispatcher_DOT_company_name
      FROM default_DOT_repair_order_details FULL OUTER JOIN default_DOT_repair_orders ON default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name = default_DOT_repair_orders.default_DOT_dispatcher_DOT_company_name AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city = default_DOT_repair_orders.default_DOT_hard_hat_DOT_city AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_country = default_DOT_repair_orders.default_DOT_hard_hat_DOT_country AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_postal_code = default_DOT_repair_orders.default_DOT_hard_hat_DOT_postal_code AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_state = default_DOT_repair_orders.default_DOT_hard_hat_DOT_state AND default_DOT_repair_order_details.default_DOT_municipality_dim_DOT_local_region = default_DOT_repair_orders.default_DOT_municipality_dim_DOT_local_region
     """
     assert compare_query_strings(
@@ -848,77 +851,102 @@ def test_add_materialization_config_to_cube(
     assert sorted(called_kwargs.columns, key=lambda x: x.name) == sorted(
         [
             ColumnMetadata(
-                name="m0_default_DOT_discounted_orders_rate_discount3789599758_sum",
+                name="default_DOT_dispatcher_DOT_company_name",
+                type="string",
+            ),
+            ColumnMetadata(name="default_DOT_hard_hat_DOT_city", type="string"),
+            ColumnMetadata(name="default_DOT_hard_hat_DOT_country", type="string"),
+            ColumnMetadata(name="default_DOT_hard_hat_DOT_postal_code", type="string"),
+            ColumnMetadata(name="default_DOT_hard_hat_DOT_state", type="string"),
+            ColumnMetadata(
+                name="default_DOT_municipality_dim_DOT_local_region",
+                type="string",
+            ),
+            ColumnMetadata(
+                name="default_DOT_repair_order_details_discount3789599758_sum",
                 type="bigint",
             ),
             ColumnMetadata(
-                name="m0_default_DOT_discounted_orders_rate_placeholder_count",
+                name="default_DOT_repair_order_details_placeholder_count",
                 type="bigint",
             ),
             ColumnMetadata(
-                name="m1_default_DOT_num_repair_orders_repair_order_id3825669267_count",
+                name="default_DOT_repair_order_details_price3402113753_count",
                 type="bigint",
             ),
             ColumnMetadata(
-                name="m2_default_DOT_avg_repair_price_price3402113753_sum",
+                name="default_DOT_repair_order_details_price3402113753_sum",
                 type="double",
             ),
             ColumnMetadata(
-                name="m2_default_DOT_avg_repair_price_price3402113753_count",
+                name="default_DOT_repair_order_details_price_discount2203488025_sum",
+                type="double",
+            ),
+            ColumnMetadata(
+                name="default_DOT_repair_orders_repair_order_id3825669267_count",
                 type="bigint",
             ),
-            ColumnMetadata(
-                name="m3_default_DOT_total_repair_cost_price3402113753_sum",
-                type="double",
-            ),
-            ColumnMetadata(
-                name="m4_default_DOT_total_repair_order_discounts_price_discount2203488025_sum",
-                type="double",
-            ),
-            ColumnMetadata(
-                name="m5_default_DOT_double_total_repair_cost_price3402113753_sum",
-                type="double",
-            ),
-            ColumnMetadata(name="company_name", type="string"),
-            ColumnMetadata(name="country", type="string"),
-            ColumnMetadata(name="city", type="string"),
-            ColumnMetadata(name="state", type="string"),
-            ColumnMetadata(name="local_region", type="string"),
-            ColumnMetadata(name="postal_code", type="string"),
         ],
         key=lambda x: x.name,
     )
-    assert called_kwargs.druid_spec == {'dataSchema': {'dataSource': 'default_DOT_repairs_cube',
-                'granularitySpec': {'intervals': ['2021-01-01/2022-01-01'],
-                                    'segmentGranularity': 'DAY',
-                                    'type': 'uniform'},
-                'metricsSpec': [{'fieldName': 'default_DOT_repair_order_details_discount3789599758_sum',
-                                 'name': 'discount3789599758_sum',
-                                 'type': 'longSum'},
-                                {'fieldName': 'default_DOT_repair_order_details_placeholder_count',
-                                 'name': 'placeholder_count',
-                                 'type': 'longSum'},
-                                {'fieldName': 'default_DOT_repair_order_details_price3402113753_count',
-                                 'name': 'price3402113753_count',
-                                 'type': 'longSum'},
-                                {'fieldName': 'default_DOT_repair_order_details_price3402113753_sum',
-                                 'name': 'price3402113753_sum',
-                                 'type': 'doubleSum'},
-                                {'fieldName': 'default_DOT_repair_order_details_price_discount2203488025_sum',
-                                 'name': 'price_discount2203488025_sum',
-                                 'type': 'doubleSum'},
-                                {'fieldName': 'default_DOT_repair_orders_repair_order_id3825669267_count',
-                                 'name': 'repair_order_id3825669267_count',
-                                 'type': 'longSum'}],
-                'parser': {'parseSpec': {'dimensionsSpec': {'dimensions': ['default_DOT_dispatcher_DOT_company_name',
-                                                                           'default_DOT_hard_hat_DOT_city',
-                                                                           'default_DOT_hard_hat_DOT_country',
-                                                                           'default_DOT_hard_hat_DOT_postal_code',
-                                                                           'default_DOT_hard_hat_DOT_state',
-                                                                           'default_DOT_municipality_dim_DOT_local_region']},
-                                         'format': 'parquet',
-                                         'timestampSpec': {'column': 'date_int',
-                                                           'format': 'yyyyMMdd'}}}}}
+    assert called_kwargs.druid_spec == {
+        "dataSchema": {
+            "dataSource": "default_DOT_repairs_cube",
+            "granularitySpec": {
+                "intervals": ["2021-01-01/2022-01-01"],
+                "segmentGranularity": "DAY",
+                "type": "uniform",
+            },
+            "metricsSpec": [
+                {
+                    "fieldName": "default_DOT_repair_order_details_discount3789599758_sum",
+                    "name": "discount3789599758_sum",
+                    "type": "longSum",
+                },
+                {
+                    "fieldName": "default_DOT_repair_order_details_placeholder_count",
+                    "name": "placeholder_count",
+                    "type": "longSum",
+                },
+                {
+                    "fieldName": "default_DOT_repair_order_details_price3402113753_count",
+                    "name": "price3402113753_count",
+                    "type": "longSum",
+                },
+                {
+                    "fieldName": "default_DOT_repair_order_details_price3402113753_sum",
+                    "name": "price3402113753_sum",
+                    "type": "doubleSum",
+                },
+                {
+                    "fieldName": "default_DOT_repair_order_details_price_discount2203488025_sum",
+                    "name": "price_discount2203488025_sum",
+                    "type": "doubleSum",
+                },
+                {
+                    "fieldName": "default_DOT_repair_orders_repair_order_id3825669267_count",
+                    "name": "repair_order_id3825669267_count",
+                    "type": "longSum",
+                },
+            ],
+            "parser": {
+                "parseSpec": {
+                    "dimensionsSpec": {
+                        "dimensions": [
+                            "default_DOT_dispatcher_DOT_company_name",
+                            "default_DOT_hard_hat_DOT_city",
+                            "default_DOT_hard_hat_DOT_country",
+                            "default_DOT_hard_hat_DOT_postal_code",
+                            "default_DOT_hard_hat_DOT_state",
+                            "default_DOT_municipality_dim_DOT_local_region",
+                        ],
+                    },
+                    "format": "parquet",
+                    "timestampSpec": {"column": "date_int", "format": "yyyyMMdd"},
+                },
+            },
+        },
+    }
     response = client_with_repairs_cube.get("/nodes/default.repairs_cube/")
     materializations = response.json()["materializations"]
     assert len(materializations) == 2
@@ -933,12 +961,14 @@ def test_add_materialization_config_to_cube(
         "uri": None,
         "dialect": "druid",
     }
-    assert set(druid_materialization["config"]["dimensions"]) == {'default_DOT_dispatcher_DOT_company_name',
- 'default_DOT_hard_hat_DOT_city',
- 'default_DOT_hard_hat_DOT_country',
- 'default_DOT_hard_hat_DOT_postal_code',
- 'default_DOT_hard_hat_DOT_state',
- 'default_DOT_municipality_dim_DOT_local_region'}
+    assert set(druid_materialization["config"]["dimensions"]) == {
+        "default_DOT_dispatcher_DOT_company_name",
+        "default_DOT_hard_hat_DOT_city",
+        "default_DOT_hard_hat_DOT_country",
+        "default_DOT_hard_hat_DOT_postal_code",
+        "default_DOT_hard_hat_DOT_state",
+        "default_DOT_municipality_dim_DOT_local_region",
+    }
     assert druid_materialization["config"]["partitions"] == [
         {
             "name": "date_int",
@@ -1081,19 +1111,29 @@ def assert_updated_repairs_cube(data):
             "type": "metric",
         },
     ]
-    assert data["materializations"][0]["config"]["dimensions"] == ["default_DOT_hard_hat_DOT_city"]
-    assert data["materializations"][0]["config"]["measures"] == {'default_DOT_discounted_orders_rate': {'combiner': 'sum(discount3789599758_sum) '
-                                                    '/ '
-                                                    'count(placeholder_count)',
-                                        'measures': [{'agg': 'sum',
-                                                      'field_name': 'default_DOT_repair_order_details_discount3789599758_sum',
-                                                      'name': 'discount3789599758_sum',
-                                                      'type': 'bigint'},
-                                                     {'agg': 'count',
-                                                      'field_name': 'default_DOT_repair_order_details_placeholder_count',
-                                                      'name': 'placeholder_count',
-                                                      'type': 'bigint'}],
-                                        'metric': 'default_DOT_discounted_orders_rate'}}
+    assert data["materializations"][0]["config"]["dimensions"] == [
+        "default_DOT_hard_hat_DOT_city",
+    ]
+    assert data["materializations"][0]["config"]["measures"] == {
+        "default_DOT_discounted_orders_rate": {
+            "combiner": "sum(discount3789599758_sum) " "/ " "count(placeholder_count)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "default_DOT_repair_order_details_discount3789599758_sum",
+                    "name": "discount3789599758_sum",
+                    "type": "bigint",
+                },
+                {
+                    "agg": "count",
+                    "field_name": "default_DOT_repair_order_details_placeholder_count",
+                    "name": "placeholder_count",
+                    "type": "bigint",
+                },
+            ],
+            "metric": "default_DOT_discounted_orders_rate",
+        },
+    }
     assert data["materializations"][0]["config"]["partitions"] == []
     assert "discount3789599758_sum" in data["materializations"][0]["config"]["query"]
     assert data["materializations"][0]["config"]["upstream_tables"] == [
@@ -1133,15 +1173,22 @@ def test_updating_cube(
     result = response.json()
     assert result["version"] == "v2.0"
     assert sorted(result["columns"], key=lambda x: x["name"]) == sorted(
-        [{'attributes': [],
-          'dimension': None,
-          'name': 'default_DOT_discounted_orders_rate',
-          'type': 'double'},
-         {'attributes': [{'attribute_type': {'name': 'dimension',
-                                             'namespace': 'system'}}],
-          'dimension': None,
-          'name': 'default_DOT_hard_hat_DOT_city',
-          'type': 'string'}],
+        [
+            {
+                "attributes": [],
+                "dimension": None,
+                "name": "default_DOT_discounted_orders_rate",
+                "type": "double",
+            },
+            {
+                "attributes": [
+                    {"attribute_type": {"name": "dimension", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "name": "default_DOT_hard_hat_DOT_city",
+                "type": "string",
+            },
+        ],
         key=lambda x: x["name"],  # type: ignore
     )
 

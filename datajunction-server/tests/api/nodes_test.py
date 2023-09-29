@@ -30,6 +30,7 @@ def materialization_compare(response, expected):
     """Compares two materialization lists of json
     configs paying special attention to query comparison"""
     for materialization_response, materialization_expected in zip(response, expected):
+        print("RES", materialization_response["config"]["query"])
         assert compare_query_strings(
             materialization_response["config"]["query"],
             materialization_expected["config"]["query"],
@@ -2118,83 +2119,62 @@ GROUP BY
             json={
                 "description": "Total Repair Amounts during the COVID-19 Pandemic",
                 "name": "default.total_amount_in_region_from_struct_transform",
-                "query": "SELECT C.location_hierarchy, SUM(IF(C.order_year = 2020, measures.total_amount_in_region, 0)) "
-                "col0 FROM default.regional_level_agg_structs C",
+                "query": "SELECT location_hierarchy, SUM(IF(order_year = 2020, "
+                "measures.total_amount_in_region, 0)) "
+                "col0 FROM default.regional_level_agg_structs",
                 "mode": "published",
             },
         )
         response = client_with_roads.get(
             "/sql/default.total_amount_in_region_from_struct_transform?filters="
-            "&dimensions=default.regional_level_agg_structs.location_hierarchy",
+            "&dimensions=location_hierarchy",
         )
-        print("QUERSTR", response.json())
         assert compare_query_strings(
             response.json()["sql"],
-            """SELECT SUM(
-    IF(
-      default_DOT_regional_level_agg_structs.order_year = 2020,
-      default_DOT_regional_level_agg_structs.measures.total_amount_in_region,
-      0
-    )
-  ) col0,
+            """SELECT  default_DOT_total_amount_in_region_from_struct_transform.col0,
+        default_DOT_total_amount_in_region_from_struct_transform.location_hierarchy
+ FROM (SELECT  SUM(IF(default_DOT_regional_level_agg_structs.order_year = 2020,
+ default_DOT_regional_level_agg_structs.measures.total_amount_in_region, 0)) col0,
   default_DOT_regional_level_agg_structs.location_hierarchy
-FROM (
-    SELECT CONCAT(
-        default_DOT_us_states.state_name,
-        '-',
-        default_DOT_us_region.us_region_description
-      ) AS location_hierarchy,
-      struct(
-        COUNT(
-          DISTINCT CASE
-            WHEN default_DOT_repair_orders.dispatched_date IS NOT NULL
-            THEN default_DOT_repair_orders.repair_order_id
+ FROM (SELECT  CONCAT(default_DOT_us_states.state_name, '-',
+ default_DOT_us_region.us_region_description) AS location_hierarchy,
+        struct(COUNT( DISTINCT CASE
+        WHEN default_DOT_repair_orders.dispatched_date IS NOT NULL THEN
+        default_DOT_repair_orders.repair_order_id
             ELSE NULL
-          END
-        ) AS completed_repairs,
-        COUNT(
-          DISTINCT default_DOT_repair_orders.repair_order_id
-        ) AS total_repairs_dispatched,
-        SUM(
-          default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity
-        ) AS total_amount_in_region,
-        AVG(
-          default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity
-        ) AS avg_repair_amount_in_region,
-        AVG(
-          DATEDIFF(
-            default_DOT_repair_orders.dispatched_date,
-            default_DOT_repair_orders.order_date
-          )
-        ) AS avg_dispatch_delay,
-        COUNT(DISTINCT default_DOT_contractors.contractor_id) AS unique_contractors
-      ) AS measures,
+    END) AS completed_repairs, COUNT( DISTINCT default_DOT_repair_orders.repair_order_id)
+    AS total_repairs_dispatched, SUM(default_DOT_repair_order_details.price *
+    default_DOT_repair_order_details.quantity) AS total_amount_in_region,
+    AVG(default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity)
+    AS avg_repair_amount_in_region, AVG(DATEDIFF(default_DOT_repair_orders.dispatched_date,
+    default_DOT_repair_orders.order_date)) AS avg_dispatch_delay,
+    COUNT( DISTINCT default_DOT_contractors.contractor_id) AS unique_contractors) AS measures,
       EXTRACT(DAY, default_DOT_repair_orders.order_date) AS order_day,
       EXTRACT(MONTH, default_DOT_repair_orders.order_date) AS order_month,
       EXTRACT(YEAR, default_DOT_repair_orders.order_date) AS order_year,
       default_DOT_us_states.state_name,
       default_DOT_us_region.us_region_id
-    FROM roads.repair_orders AS default_DOT_repair_orders
-      JOIN roads.municipality AS default_DOT_municipality
-        ON default_DOT_repair_orders.municipality_id = default_DOT_municipality.municipality_id
-      JOIN roads.us_states AS default_DOT_us_states
-        ON default_DOT_municipality.state_id = default_DOT_us_states.state_id
-      JOIN roads.us_states AS default_DOT_us_states
-        ON default_DOT_municipality.state_id = default_DOT_us_states.state_id
-      JOIN roads.us_region AS default_DOT_us_region
-        ON default_DOT_us_states.state_region = default_DOT_us_region.us_region_id
-      JOIN roads.repair_order_details AS default_DOT_repair_order_details
-        ON default_DOT_repair_orders.repair_order_id =
-            default_DOT_repair_order_details.repair_order_id
-      JOIN roads.repair_type AS default_DOT_repair_type
-        ON default_DOT_repair_order_details.repair_type_id = default_DOT_repair_type.repair_type_id
-      JOIN roads.contractors AS default_DOT_contractors
-        ON default_DOT_repair_type.contractor_id = default_DOT_contractors.contractor_id
-    GROUP BY default_DOT_us_region.us_region_id,
-      EXTRACT(YEAR, default_DOT_repair_orders.order_date),
-      EXTRACT(MONTH, default_DOT_repair_orders.order_date),
-      EXTRACT(DAY, default_DOT_repair_orders.order_date)
-  ) AS default_DOT_regional_level_agg_structs""",
+ FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.municipality
+    AS default_DOT_municipality ON default_DOT_repair_orders.municipality_id
+    = default_DOT_municipality.municipality_id
+JOIN roads.us_states AS default_DOT_us_states ON default_DOT_municipality.state_id
+= default_DOT_us_states.state_id
+JOIN roads.us_states AS default_DOT_us_states ON default_DOT_municipality.state_id
+= default_DOT_us_states.state_id
+JOIN roads.us_region AS default_DOT_us_region ON default_DOT_us_states.state_region
+= default_DOT_us_region.us_region_id
+JOIN roads.repair_order_details AS default_DOT_repair_order_details ON
+default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id
+JOIN roads.repair_type AS default_DOT_repair_type
+  ON default_DOT_repair_order_details.repair_type_id = default_DOT_repair_type.repair_type_id
+JOIN roads.contractors AS default_DOT_contractors ON default_DOT_repair_type.contractor_id
+= default_DOT_contractors.contractor_id
+GROUP BY  default_DOT_us_region.us_region_id,
+  EXTRACT(YEAR, default_DOT_repair_orders.order_date),
+  EXTRACT(MONTH, default_DOT_repair_orders.order_date),
+  EXTRACT(DAY, default_DOT_repair_orders.order_date))
+ AS default_DOT_regional_level_agg_structs)
+ AS default_DOT_total_amount_in_region_from_struct_transform""",
         )
 
     def test_node_with_incremental_materialization(
@@ -2391,39 +2371,52 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         assert response.json()["version"] == "v2.0"
         response = custom_client.get("/nodes/basic.transform.country_agg/")
         node_output = response.json()
-        assert node_output["materializations"] == [{'config': {'columns': [                {"name": "country", "type": "string"},
+        assert node_output["materializations"] == [
+            {
+                "config": {
+                    "columns": [
+                        {"name": "country", "type": "string"},
                         {"name": "num_users", "type": "bigint"},
                         {"name": "languages", "type": "bigint"},
-],
-             'partitions': [{'expression': None,
-                             'name': 'country',
-                             'range': None,
-                             'type_': 'categorical',
-                             'values': ['DE', 'MY']}],
-             'query': 'SELECT  basic_DOT_transform_DOT_country_agg.country,\n'
-                      '\tbasic_DOT_transform_DOT_country_agg.languages,\n'
-                      '\tbasic_DOT_transform_DOT_country_agg.num_users \n'
-                      ' FROM (SELECT  basic_DOT_source_DOT_users.country,\n'
-                      '\tCOUNT( DISTINCT '
-                      'basic_DOT_source_DOT_users.preferred_language) AS '
-                      'languages,\n'
-                      '\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS '
-                      'num_users \n'
-                      ' FROM basic.dim_users AS basic_DOT_source_DOT_users \n'
-                      ' GROUP BY  1)\n'
-                      ' AS basic_DOT_transform_DOT_country_agg \n'
-                      ' WHERE  basic_DOT_transform_DOT_country_agg.country IN '
-                      "('DE', 'MY')\n"
-                      '\n',
-             'spark': {},
-             'upstream_tables': ['public.basic.dim_users']},
-  'engine': {'dialect': 'spark',
-             'name': 'spark',
-             'uri': None,
-             'version': '2.4.4'},
-  'job': 'SparkSqlMaterializationJob',
-  'name': 'country_3491792861',
-  'schedule': '0 * * * *'}]
+                    ],
+                    "partitions": [
+                        {
+                            "expression": None,
+                            "name": "country",
+                            "range": None,
+                            "type_": "categorical",
+                            "values": ["DE", "MY"],
+                        },
+                    ],
+                    "query": "SELECT  basic_DOT_transform_DOT_country_agg.country,\n"
+                    "\tbasic_DOT_transform_DOT_country_agg.languages,\n"
+                    "\tbasic_DOT_transform_DOT_country_agg.num_users \n"
+                    " FROM (SELECT  basic_DOT_source_DOT_users.country,\n"
+                    "\tCOUNT( DISTINCT "
+                    "basic_DOT_source_DOT_users.preferred_language) AS "
+                    "languages,\n"
+                    "\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS "
+                    "num_users \n"
+                    " FROM basic.dim_users AS basic_DOT_source_DOT_users \n"
+                    " GROUP BY  1)\n"
+                    " AS basic_DOT_transform_DOT_country_agg \n"
+                    " WHERE  basic_DOT_transform_DOT_country_agg.country IN "
+                    "('DE', 'MY')\n"
+                    "\n",
+                    "spark": {},
+                    "upstream_tables": ["public.basic.dim_users"],
+                },
+                "engine": {
+                    "dialect": "spark",
+                    "name": "spark",
+                    "uri": None,
+                    "version": "2.4.4",
+                },
+                "job": "SparkSqlMaterializationJob",
+                "name": "country_3491792861",
+                "schedule": "0 * * * *",
+            },
+        ]
 
     def test_add_materialization_success(self, client_with_query_service: TestClient):
         """
@@ -2600,11 +2593,14 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                             {"name": "country", "type": "string"},
                             {"name": "num_users", "type": "bigint"},
                         ],
-                        "query": "SELECT  basic_DOT_source_DOT_users.country,\n\tCOUNT( "
-                        "DISTINCT basic_DOT_source_DOT_users.id) AS num_users \n "
-                        "FROM basic.dim_users AS basic_DOT_source_DOT_users \n WHERE"
-                        "  basic_DOT_source_DOT_users.country IN ('DE', 'MY') \n "
-                        "GROUP BY  1\n",
+                        "query": """SELECT  basic_DOT_transform_DOT_country_agg.country,
+    basic_DOT_transform_DOT_country_agg.num_users
+ FROM (SELECT  basic_DOT_source_DOT_users.country,
+    COUNT( DISTINCT basic_DOT_source_DOT_users.id) AS num_users
+ FROM basic.dim_users AS basic_DOT_source_DOT_users
+ GROUP BY  1)
+ AS basic_DOT_transform_DOT_country_agg
+ WHERE  basic_DOT_transform_DOT_country_agg.country IN ('DE', 'MY')""",
                         "partitions": [
                             {
                                 "name": "country",
@@ -2627,11 +2623,13 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                             {"name": "num_users", "type": "bigint"},
                         ],
                         "partitions": [],
-                        "query": "SELECT  basic_DOT_source_DOT_users.country,\n"
-                        "\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS "
-                        "num_users \n"
-                        " FROM basic.dim_users AS basic_DOT_source_DOT_users \n"
-                        " GROUP BY  1\n",
+                        "query": """SELECT  basic_DOT_transform_DOT_country_agg.country,
+    basic_DOT_transform_DOT_country_agg.num_users
+ FROM (SELECT  basic_DOT_source_DOT_users.country,
+    COUNT( DISTINCT basic_DOT_source_DOT_users.id) AS num_users
+ FROM basic.dim_users AS basic_DOT_source_DOT_users
+ GROUP BY  1)
+ AS basic_DOT_transform_DOT_country_agg""",
                         "spark": {},
                         "upstream_tables": ["public.basic.dim_users"],
                     },
@@ -2716,16 +2714,36 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                             {"name": "manager", "type": "int"},
                             {"name": "contractor_id", "type": "int"},
                         ],
-                        "query": "SELECT  default_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats."
-                        "birth_date,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats."
-                        "contractor_id,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard"
-                        "_hats.first_name,\n\tdefault_DOT_hard_hats.hard_hat_id,\n\tdefault_D"
-                        "OT_hard_hats.hire_date,\n\tdefault_DOT_hard_hats.last_name,\n\tdefau"
-                        "lt_DOT_hard_hats.manager,\n\tdefault_DOT_hard_hats.postal_code,\n\t"
-                        "default_DOT_hard_hats.state,\n\tdefault_DOT_hard_hats.title \n FROM"
-                        " roads.hard_hats AS default_DOT_hard_hats \n WHERE  default_DOT_har"
-                        "d_hats.country IN ('DE', 'MY') AND default_DOT_hard_hats.contractor"
-                        "_id BETWEEN 1 AND 10\n",
+                        "query": """SELECT  default_DOT_hard_hat.address,
+    default_DOT_hard_hat.birth_date,
+    default_DOT_hard_hat.city,
+    default_DOT_hard_hat.contractor_id,
+    default_DOT_hard_hat.country,
+    default_DOT_hard_hat.first_name,
+    default_DOT_hard_hat.hard_hat_id,
+    default_DOT_hard_hat.hire_date,
+    default_DOT_hard_hat.last_name,
+    default_DOT_hard_hat.manager,
+    default_DOT_hard_hat.postal_code,
+    default_DOT_hard_hat.state,
+    default_DOT_hard_hat.title
+ FROM (SELECT  default_DOT_hard_hats.address,
+    default_DOT_hard_hats.birth_date,
+    default_DOT_hard_hats.city,
+    default_DOT_hard_hats.contractor_id,
+    default_DOT_hard_hats.country,
+    default_DOT_hard_hats.first_name,
+    default_DOT_hard_hats.hard_hat_id,
+    default_DOT_hard_hats.hire_date,
+    default_DOT_hard_hats.last_name,
+    default_DOT_hard_hats.manager,
+    default_DOT_hard_hats.postal_code,
+    default_DOT_hard_hats.state,
+    default_DOT_hard_hats.title
+ FROM roads.hard_hats AS default_DOT_hard_hats)
+ AS default_DOT_hard_hat
+ WHERE  default_DOT_hard_hat.country IN ('DE', 'MY')
+     AND default_DOT_hard_hat.contractor_id BETWEEN 1 AND 10""",
                         "partitions": [
                             {
                                 "name": "country",
@@ -2805,23 +2823,36 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                                 "values": None,
                             },
                         ],
-                        "query": "SELECT  default_DOT_hard_hats.address,\n"
-                        "\tdefault_DOT_hard_hats.birth_date,\n"
-                        "\tdefault_DOT_hard_hats.city,\n"
-                        "\tdefault_DOT_hard_hats.contractor_id,\n"
-                        "\tdefault_DOT_hard_hats.country,\n"
-                        "\tdefault_DOT_hard_hats.first_name,\n"
-                        "\tdefault_DOT_hard_hats.hard_hat_id,\n"
-                        "\tdefault_DOT_hard_hats.hire_date,\n"
-                        "\tdefault_DOT_hard_hats.last_name,\n"
-                        "\tdefault_DOT_hard_hats.manager,\n"
-                        "\tdefault_DOT_hard_hats.postal_code,\n"
-                        "\tdefault_DOT_hard_hats.state,\n"
-                        "\tdefault_DOT_hard_hats.title \n"
-                        " FROM roads.hard_hats AS default_DOT_hard_hats \n"
-                        " WHERE  default_DOT_hard_hats.country IN ('DE', 'MY') "
-                        "AND default_DOT_hard_hats.contractor_id BETWEEN 1 AND "
-                        "10\n",
+                        "query": """SELECT  default_DOT_hard_hat.address,
+    default_DOT_hard_hat.birth_date,
+    default_DOT_hard_hat.city,
+    default_DOT_hard_hat.contractor_id,
+    default_DOT_hard_hat.country,
+    default_DOT_hard_hat.first_name,
+    default_DOT_hard_hat.hard_hat_id,
+    default_DOT_hard_hat.hire_date,
+    default_DOT_hard_hat.last_name,
+    default_DOT_hard_hat.manager,
+    default_DOT_hard_hat.postal_code,
+    default_DOT_hard_hat.state,
+    default_DOT_hard_hat.title
+ FROM (SELECT  default_DOT_hard_hats.address,
+    default_DOT_hard_hats.birth_date,
+    default_DOT_hard_hats.city,
+    default_DOT_hard_hats.contractor_id,
+    default_DOT_hard_hats.country,
+    default_DOT_hard_hats.first_name,
+    default_DOT_hard_hats.hard_hat_id,
+    default_DOT_hard_hats.hire_date,
+    default_DOT_hard_hats.last_name,
+    default_DOT_hard_hats.manager,
+    default_DOT_hard_hats.postal_code,
+    default_DOT_hard_hats.state,
+    default_DOT_hard_hats.title
+ FROM roads.hard_hats AS default_DOT_hard_hats)
+ AS default_DOT_hard_hat
+ WHERE  default_DOT_hard_hat.country IN ('DE', 'MY')
+     AND default_DOT_hard_hat.contractor_id BETWEEN 1 AND 10""",
                         "spark": {},
                         "upstream_tables": ["default.roads.hard_hats"],
                     },
@@ -3662,7 +3693,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert {node["name"] for node in data} == {
-            'default.country_dim',
+            "default.country_dim",
             "default.event_source",
             "default.long_events",
             "default.long_events_distinct_countries",

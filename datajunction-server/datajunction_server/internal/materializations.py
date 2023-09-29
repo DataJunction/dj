@@ -34,7 +34,6 @@ from datajunction_server.models.node import NodeType
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
-from datajunction_server.utils import SEPARATOR
 
 MAX_COLUMN_NAME_LENGTH = 128
 
@@ -62,8 +61,6 @@ def build_cube_config(  # pylint: disable=too-many-locals
     dimensions_set = {
         dim.name for dim in cube_node.columns if dim.has_dimension_attribute()
     }
-    print("cubec", cube_node.columns)
-    print("dimensions_set", dimensions_set)
     metrics_to_measures = {}
     measures_tracker = {}
 
@@ -98,7 +95,6 @@ def build_cube_config(  # pylint: disable=too-many-locals
                             type=str(measure.type),
                         ),
                     )
-                    print("MEASURE", measure)
                     measures_tracker[metric_key].measures.append(  # type: ignore
                         Measure(
                             name=measure.alias_or_name.name,
@@ -212,7 +208,6 @@ def create_new_materialization(
     """
     generic_config = None
     engine = get_engine(session, upsert.engine.name, upsert.engine.version)
-
     if current_revision.type in (
         NodeType.DIMENSION,
         NodeType.TRANSFORM,
