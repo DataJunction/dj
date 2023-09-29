@@ -244,6 +244,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 spark_conf={},
                 upstream_tables=["default.hard_hats"],
                 partitions=[],
+                columns=[],
             ),
         )
 
@@ -259,6 +260,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 "schedule": "0 * * * *",
                 "spark_conf": {},
                 "upstream_tables": ["default.hard_hats"],
+                "columns": [],
             },
         )
 
@@ -358,6 +360,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 spark_conf={},
                 upstream_tables=["default.hard_hats"],
                 partitions=[],
+                columns=[],
             ),
         )
         mock_request.assert_called_with(
@@ -372,6 +375,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
                 "upstream_tables": ["default.hard_hats"],
                 "spark_conf": {},
                 "partitions": [],
+                "columns": [],
             },
         )
         assert response == {
