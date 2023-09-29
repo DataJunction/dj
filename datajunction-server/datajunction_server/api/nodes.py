@@ -86,7 +86,7 @@ settings = get_settings()
 router = SecureAPIRouter(tags=["nodes"])
 
 
-@router.get("/nodes/validate/", response_model=NodeValidation)
+@router.post("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
     data: Union[NodeRevisionBase, NodeRevision],
     response: Response,
