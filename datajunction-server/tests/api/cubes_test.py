@@ -1105,6 +1105,7 @@ def test_add_materialization_config_to_cube(
     assert called_kwargs.node_type == "cube"
     assert called_kwargs.schedule == "@daily"
     assert called_kwargs.spark_conf == {}
+    assert len(called_kwargs.columns) > 0
     dimensions_sorted = sorted(
         called_kwargs.druid_spec["dataSchema"]["parser"]["parseSpec"]["dimensionsSpec"][
             "dimensions"
@@ -1117,7 +1118,7 @@ def test_add_materialization_config_to_cube(
         called_kwargs.druid_spec["dataSchema"]["metricsSpec"],
         key=lambda x: x["fieldName"],
     )
-    assert sorted(called_kwargs.intermediate_columns, key=lambda x: x.name) == sorted(
+    assert sorted(called_kwargs.columns, key=lambda x: x.name) == sorted(
         [
             ColumnMetadata(
                 name="m0_default_DOT_discounted_orders_rate_discount3789599758_sum",
