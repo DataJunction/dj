@@ -7,7 +7,7 @@ import os
 from http import HTTPStatus
 from typing import List, Optional, Union, cast
 
-from fastapi import Depends, Response
+from fastapi import Depends, Response, BackgroundTasks
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -804,6 +804,7 @@ def update_node(
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Update a node.
@@ -811,6 +812,7 @@ def update_node(
     node = update_any_node(
         name,
         data,
+        background_tasks=background_tasks,
         session=session,
         query_service_client=query_service_client,
         current_user=current_user,

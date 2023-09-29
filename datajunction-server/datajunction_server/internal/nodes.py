@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 from http import HTTPStatus
 from typing import Any, Dict, List, Optional
 
-from fastapi import Depends
+from fastapi import Depends, BackgroundTasks
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import (
@@ -367,6 +367,21 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     return node_revision
 
 
+def save_lineage(session: Session, node_name: str):
+    """
+    Compute and save column-level lineage for the node
+    """
+    print("Running backgroundtask: save_lineage! for ", node_name)
+    node = get_node_by_name(session, node_name)
+    node.current.lineage = [
+        lineage.dict() for lineage in get_column_level_lineage(session, node.current)
+    ]
+    session.add(node.current)
+    session.commit()
+    session.refresh(node.current)
+
+
+
 def save_node(
     session: Session,
     node_revision: NodeRevision,
@@ -419,6 +434,7 @@ def update_any_node(
     name: str,
     data: UpdateNode,
     session: Session,
+    background_tasks: BackgroundTasks,
     query_service_client: QueryServiceClient = None,
     current_user: Optional[User] = None,
 ) -> Node:
@@ -439,6 +455,7 @@ def update_any_node(
         name,
         data,
         session,
+        background_tasks,
         query_service_client,
         current_user,
     )
@@ -448,6 +465,7 @@ def update_node_with_query(
     name: str,
     data: UpdateNode,
     session: Session,
+    background_tasks: BackgroundTasks,
     query_service_client: QueryServiceClient = None,
     current_user: Optional[User] = None,
 ) -> Node:
@@ -474,9 +492,6 @@ def update_node_with_query(
     node.current_version = new_revision.version  # type: ignore
 
     new_revision.extra_validation()
-    new_revision.lineage = [
-        lineage.dict() for lineage in get_column_level_lineage(session, new_revision)
-    ]
 
     session.add(new_revision)
     session.add(node)
@@ -495,6 +510,7 @@ def update_node_with_query(
 
     session.refresh(new_revision)
     session.refresh(node)
+    background_tasks.add_task(save_lineage, session, node.name)
 
     history_events = {}
     old_columns_map = {col.name: col.type for col in old_revision.columns}
@@ -764,6 +780,7 @@ def copy_existing_node_revision(old_revision: NodeRevision):
 def _create_node_from_inactive(
     new_node_type: NodeType,
     data: CreateSourceNode,
+    background_tasks: BackgroundTasks,
     session: Session = Depends(get_session),
     current_user: Optional[User] = None,
 ) -> Optional[Node]:
@@ -800,6 +817,7 @@ def _create_node_from_inactive(
             ),
             session=session,
             current_user=current_user,
+            background_tasks=background_tasks,
         )
         try:
             activate_node(name=data.name, session=session, current_user=current_user)
