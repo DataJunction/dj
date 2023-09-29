@@ -295,7 +295,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     dimension_attribute = session.exec(
         select(AttributeType).where(AttributeType.name == "dimension"),
     ).one()
-    dimensions_set = {dim.rsplit(SEPARATOR, 1)[1] for dim in data.dimensions}
+    dimensions_set = {dim.replace(SEPARATOR, "_DOT_") for dim in data.dimensions}
 
     node_columns = []
     status = NodeStatus.VALID
@@ -495,6 +495,29 @@ def update_node_with_query(
 
     session.refresh(new_revision)
     session.refresh(node)
+
+    # Handle materializations: Note that this must be done after we commit the new revision,
+    # as otherwise the SQL build won't know about the new revision's query
+    active_materializations = [
+        mat for mat in old_revision.materializations if not mat.deactivated_at
+    ]
+    if active_materializations and new_revision.query != old_revision.query:
+        for old in active_materializations:
+            new_revision.materializations.append(
+                create_new_materialization(
+                    session,
+                    new_revision,
+                    UpsertMaterialization(
+                        **old.dict(), **{"engine": old.engine.dict()}
+                    ),
+                ),
+            )
+        schedule_materialization_jobs(
+            new_revision.materializations,
+            query_service_client,
+        )
+        session.add(new_revision)
+        session.commit()
 
     history_events = {}
     old_columns_map = {col.name: col.type for col in old_revision.columns}
@@ -960,26 +983,6 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             new_revision.name,
             new_revision.version,
             [p.name for p in new_revision.parents],
-        )
-
-    # Handle materializations
-    active_materializations = [
-        mat for mat in old_revision.materializations if not mat.deactivated_at
-    ]
-    if active_materializations and query_changes:
-        for old in active_materializations:
-            new_revision.materializations.append(
-                create_new_materialization(
-                    session,
-                    new_revision,
-                    UpsertMaterialization(
-                        **old.dict(), **{"engine": old.engine.dict()}
-                    ),
-                ),
-            )
-        schedule_materialization_jobs(
-            new_revision.materializations,
-            query_service_client,
         )
     return new_revision
 

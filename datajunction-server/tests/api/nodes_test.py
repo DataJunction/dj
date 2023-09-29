@@ -2118,8 +2118,8 @@ GROUP BY
             json={
                 "description": "Total Repair Amounts during the COVID-19 Pandemic",
                 "name": "default.total_amount_in_region_from_struct_transform",
-                "query": "SELECT SUM(IF(order_year = 2020, measures.total_amount_in_region, 0)) "
-                "col0 FROM default.regional_level_agg_structs",
+                "query": "SELECT C.location_hierarchy, SUM(IF(C.order_year = 2020, measures.total_amount_in_region, 0)) "
+                "col0 FROM default.regional_level_agg_structs C",
                 "mode": "published",
             },
         )
@@ -2127,6 +2127,7 @@ GROUP BY
             "/sql/default.total_amount_in_region_from_struct_transform?filters="
             "&dimensions=default.regional_level_agg_structs.location_hierarchy",
         )
+        print("QUERSTR", response.json())
         assert compare_query_strings(
             response.json()["sql"],
             """SELECT SUM(
@@ -2386,45 +2387,43 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                 ),
             },
         )
+        response = custom_client.get("/nodes/basic.transform.country_agg")
+        assert response.json()["version"] == "v2.0"
         response = custom_client.get("/nodes/basic.transform.country_agg/")
         node_output = response.json()
-        assert node_output["materializations"] == [
-            {
-                "name": "country_3491792861",
-                "engine": {
-                    "name": "spark",
-                    "version": "2.4.4",
-                    "uri": None,
-                    "dialect": "spark",
-                },
-                "config": {
-                    "columns": [
-                        {"name": "country", "type": "string"},
+        assert node_output["materializations"] == [{'config': {'columns': [                {"name": "country", "type": "string"},
                         {"name": "num_users", "type": "bigint"},
                         {"name": "languages", "type": "bigint"},
-                    ],
-                    "partitions": [
-                        {
-                            "name": "country",
-                            "values": ["DE", "MY"],
-                            "range": None,
-                            "expression": None,
-                            "type_": "categorical",
-                        },
-                    ],
-                    "spark": {},
-                    "query": "SELECT  basic_DOT_source_DOT_users.country,\n\t"
-                    "COUNT( DISTINCT basic_DOT_source_DOT_users.preferred_language) "
-                    "AS languages,\n\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) "
-                    "AS num_users \n FROM basic.dim_users AS basic_DOT_source_DOT_users "
-                    "\n WHERE  basic_DOT_source_DOT_users.country IN ('DE', 'MY') \n "
-                    "GROUP BY  1\n\n",
-                    "upstream_tables": ["public.basic.dim_users"],
-                },
-                "schedule": "0 * * * *",
-                "job": "SparkSqlMaterializationJob",
-            },
-        ]
+],
+             'partitions': [{'expression': None,
+                             'name': 'country',
+                             'range': None,
+                             'type_': 'categorical',
+                             'values': ['DE', 'MY']}],
+             'query': 'SELECT  basic_DOT_transform_DOT_country_agg.country,\n'
+                      '\tbasic_DOT_transform_DOT_country_agg.languages,\n'
+                      '\tbasic_DOT_transform_DOT_country_agg.num_users \n'
+                      ' FROM (SELECT  basic_DOT_source_DOT_users.country,\n'
+                      '\tCOUNT( DISTINCT '
+                      'basic_DOT_source_DOT_users.preferred_language) AS '
+                      'languages,\n'
+                      '\tCOUNT( DISTINCT basic_DOT_source_DOT_users.id) AS '
+                      'num_users \n'
+                      ' FROM basic.dim_users AS basic_DOT_source_DOT_users \n'
+                      ' GROUP BY  1)\n'
+                      ' AS basic_DOT_transform_DOT_country_agg \n'
+                      ' WHERE  basic_DOT_transform_DOT_country_agg.country IN '
+                      "('DE', 'MY')\n"
+                      '\n',
+             'spark': {},
+             'upstream_tables': ['public.basic.dim_users']},
+  'engine': {'dialect': 'spark',
+             'name': 'spark',
+             'uri': None,
+             'version': '2.4.4'},
+  'job': 'SparkSqlMaterializationJob',
+  'name': 'country_3491792861',
+  'schedule': '0 * * * *'}]
 
     def test_add_materialization_success(self, client_with_query_service: TestClient):
         """
@@ -3663,6 +3662,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert {node["name"] for node in data} == {
+            'default.country_dim',
             "default.event_source",
             "default.long_events",
             "default.long_events_distinct_countries",

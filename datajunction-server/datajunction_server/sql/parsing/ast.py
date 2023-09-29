@@ -868,8 +868,12 @@ class Column(Aliasable, Named, Expression):
         # If nothing was found in the initial AST, traverse through dimensions graph
         # to find another table in DJ that could be its origin
         to_process = collections.deque(direct_tables)
+        processed = set()
         while to_process:
             current_table = to_process.pop()
+            if current_table in processed:
+                continue
+            processed.add(current_table)
             if (
                 not namespace
                 or current_table.alias_or_name.identifier(False) == namespace
@@ -2405,10 +2409,14 @@ class Query(TableExpression, UnNamed):
         """
         Transforms a query ast by replacing dj node references with their asts
         """
+
+        print("INITIALQUERY", self)
         from datajunction_server.construction.build import _build_select_ast
 
         self.bake_ctes()  # pylint: disable=W0212
         _build_select_ast(session, self.select, memoized_queries, build_criteria)
+
+        print("_build_select_ast", self)
         self.select.add_aliases_to_unnamed_columns()
 
         # Make the generated query deterministic
