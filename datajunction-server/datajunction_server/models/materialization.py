@@ -33,6 +33,7 @@ class GenericMaterializationInput(BaseModel):
     upstream_tables: List[str]
     spark_conf: Optional[Dict] = None
     partitions: Optional[List[Dict]] = None
+    columns: List[ColumnMetadata]
 
 
 class DruidMaterializationInput(GenericMaterializationInput):
@@ -42,7 +43,6 @@ class DruidMaterializationInput(GenericMaterializationInput):
     """
 
     druid_spec: Dict
-    intermediate_columns: List[ColumnMetadata]
 
 
 class MaterializationInfo(BaseModel):

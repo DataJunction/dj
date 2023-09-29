@@ -86,6 +86,7 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                 partitions=[
                     partition.dict() for partition in generic_config.partitions
                 ],
+                columns=generic_config.columns,
             ),
         )
         return result
