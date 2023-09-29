@@ -32,6 +32,9 @@ spellcheck:
 check:
 	pdm run pre-commit run --all-files
 
+lint:
+	make check
+
 version:
 	@hatch version $(v)
 	@git add __about__.py

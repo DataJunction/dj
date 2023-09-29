@@ -27,3 +27,6 @@ spellcheck:
 
 check:
 	pdm run pre-commit run --all-files
+
+lint:
+	make check
