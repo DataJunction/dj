@@ -103,7 +103,6 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
     def mock_submit_query(
         query_create: QueryCreate,
     ) -> Collection[Collection[str]]:
-        print("QUERY", query_create.submitted_query)
         return QUERY_DATA_MAPPINGS[
             query_create.submitted_query.strip()
             .replace('"', "")

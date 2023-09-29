@@ -44,7 +44,6 @@ async def test_build_node(node_name: str, db_id: int, request):
             construction_session,
             node.current,
         )
-        print("FOUND1", str(ast))
         assert compare_query_strings(str(ast), expected)
     else:
         with pytest.raises(Exception) as exc:
