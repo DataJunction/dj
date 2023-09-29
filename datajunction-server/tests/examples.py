@@ -1451,6 +1451,13 @@ EVENT = (  # type: ignore
         {},
     ),
     (
+        (
+            "/nodes/default.long_events/columns/country/?"
+            "dimension=default.country_dim&dimension_column=country"
+        ),
+        {},
+    ),
+    (
         "/nodes/metric/",
         {
             "name": "default.device_ids_count",
@@ -1926,31 +1933,7 @@ COLUMN_MAPPINGS = {
 
 QUERY_DATA_MAPPINGS = {
     (
-        "WITHm0_default_DOT_num_repair_ordersAS(SELECTdefault_DOT_dispatcher.company_name,\t"
-        "count(default_DOT_repair_orders.repair_order_id)default_DOT_num_repair_ordersFROM"
-        "roads.repair_ordersASdefault_DOT_repair_ordersLEFTOUTERJOIN(SELECTdefault_DOT_repair"
-        "_orders.dispatcher_id,\tdefault_DOT_repair_orders.hard_hat_id,\tdefault_DOT_repair_"
-        "orders.municipality_id,\tdefault_DOT_repair_orders.repair_order_idFROMroads.repair_"
-        "ordersASdefault_DOT_repair_orders)ASdefault_DOT_repair_orderONdefault_DOT_repair_"
-        "orders.repair_order_id=default_DOT_repair_order.repair_order_idLEFTOUTERJOIN(SELECT"
-        "default_DOT_dispatchers.company_name,\tdefault_DOT_dispatchers.dispatcher_idFROMroads"
-        ".dispatchersASdefault_DOT_dispatchers)ASdefault_DOT_dispatcherONdefault_DOT_repair_order"
-        ".dispatcher_id=default_DOT_dispatcher.dispatcher_idGROUPBYdefault_DOT_dispatcher."
-        "company_name),m1_default_DOT_avg_repair_priceAS(SELECTdefault_DOT_dispatcher.company_"
-        "name,\tavg(default_DOT_repair_order_details.price)ASdefault_DOT_avg_repair_priceFROM"
-        "roads.repair_order_detailsASdefault_DOT_repair_order_detailsLEFTOUTERJOIN(SELECTdefault"
-        "_DOT_repair_orders.dispatcher_id,\tdefault_DOT_repair_orders.hard_hat_id,\tdefault_DOT"
-        "_repair_orders.municipality_id,\tdefault_DOT_repair_orders.repair_order_idFROMroads."
-        "repair_ordersASdefault_DOT_repair_orders)ASdefault_DOT_repair_orderONdefault_DOT_repair"
-        "_order_details.repair_order_id=default_DOT_repair_order.repair_order_idLEFTOUTERJOIN("
-        "SELECTdefault_DOT_dispatchers.company_name,\tdefault_DOT_dispatchers.dispatcher_idFROM"
-        "roads.dispatchersASdefault_DOT_dispatchers)ASdefault_DOT_dispatcherONdefault_DOT_repair"
-        "_order.dispatcher_id=default_DOT_dispatcher.dispatcher_idGROUPBYdefault_DOT_dispatcher."
-        "company_name)SELECTm0_default_DOT_num_repair_orders.default_DOT_num_repair_orders,\tm1_"
-        "default_DOT_avg_repair_price.default_DOT_avg_repair_price,\tCOALESCE(m0_default_DOT_num_"
-        "repair_orders.company_name,m1_default_DOT_avg_repair_price.company_name)company_nameFROM"
-        "m0_default_DOT_num_repair_ordersFULLOUTERJOINm1_default_DOT_avg_repair_priceONm0_default_"
-        "DOT_num_repair_orders.company_name=m1_default_DOT_avg_repair_price.company_nameLIMIT10"
+        "WITHdefault_DOT_repair_ordersAS(SELECTdefault_DOT_dispatcher.company_namedefault_DOT_dispatcher_DOT_company_name,count(default_DOT_repair_orders.repair_order_id)default_DOT_num_repair_ordersFROMroads.repair_ordersASdefault_DOT_repair_ordersLEFTOUTERJOIN(SELECTdefault_DOT_repair_orders.dispatcher_id,default_DOT_repair_orders.hard_hat_id,default_DOT_repair_orders.municipality_id,default_DOT_repair_orders.repair_order_idFROMroads.repair_ordersASdefault_DOT_repair_orders)ASdefault_DOT_repair_orderONdefault_DOT_repair_orders.repair_order_id=default_DOT_repair_order.repair_order_idLEFTOUTERJOIN(SELECTdefault_DOT_dispatchers.company_name,default_DOT_dispatchers.dispatcher_idFROMroads.dispatchersASdefault_DOT_dispatchers)ASdefault_DOT_dispatcherONdefault_DOT_repair_order.dispatcher_id=default_DOT_dispatcher.dispatcher_idGROUPBYdefault_DOT_dispatcher.company_name),default_DOT_repair_order_detailsAS(SELECTdefault_DOT_dispatcher.company_namedefault_DOT_dispatcher_DOT_company_name,avg(default_DOT_repair_order_details.price)ASdefault_DOT_avg_repair_priceFROMroads.repair_order_detailsASdefault_DOT_repair_order_detailsLEFTOUTERJOIN(SELECTdefault_DOT_repair_orders.dispatcher_id,default_DOT_repair_orders.hard_hat_id,default_DOT_repair_orders.municipality_id,default_DOT_repair_orders.repair_order_idFROMroads.repair_ordersASdefault_DOT_repair_orders)ASdefault_DOT_repair_orderONdefault_DOT_repair_order_details.repair_order_id=default_DOT_repair_order.repair_order_idLEFTOUTERJOIN(SELECTdefault_DOT_dispatchers.company_name,default_DOT_dispatchers.dispatcher_idFROMroads.dispatchersASdefault_DOT_dispatchers)ASdefault_DOT_dispatcherONdefault_DOT_repair_order.dispatcher_id=default_DOT_dispatcher.dispatcher_idGROUPBYdefault_DOT_dispatcher.company_name)SELECTdefault_DOT_repair_orders.default_DOT_num_repair_orders,default_DOT_repair_order_details.default_DOT_avg_repair_price,COALESCE(default_DOT_repair_orders.default_DOT_dispatcher_DOT_company_name,default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name)default_DOT_dispatcher_DOT_company_nameFROMdefault_DOT_repair_ordersFULLOUTERJOINdefault_DOT_repair_order_detailsONdefault_DOT_repair_orders.default_DOT_dispatcher_DOT_company_name=default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_nameLIMIT10"
     )
     .strip()
     .replace('"', "")
@@ -2079,11 +2062,7 @@ QUERY_DATA_MAPPINGS = {
         }
     ),
     (
-        "SELECT  default_DOT_revenue.account_type,\n\tdefault_DOT_revenue.customer_id,"
-        "\n\tdefault_DOT_revenue.payment_amount,"
-        '\n\tdefault_DOT_revenue.payment_id \n FROM "accounting"."revenue" '
-        "AS default_DOT_revenue\n \n WHERE  default_DOT_revenue.payment_amount "
-        "> 1000000"
+        "SELECTdefault_DOT_large_revenue_payments_only.account_type,default_DOT_large_revenue_payments_only.customer_id,default_DOT_large_revenue_payments_only.payment_amount,default_DOT_large_revenue_payments_only.payment_idFROM(SELECTdefault_DOT_revenue.account_type,default_DOT_revenue.customer_id,default_DOT_revenue.payment_amount,default_DOT_revenue.payment_idFROMaccounting.revenueASdefault_DOT_revenueWHEREdefault_DOT_revenue.payment_amount>1000000)ASdefault_DOT_large_revenue_payments_only"
     )
     .strip()
     .replace('"', "")
@@ -2207,42 +2186,7 @@ SELECT  node_query_0.country,
         }
     ),
     (
-        """
-WITH
-metric_query_0 AS (SELECT  m0_default_DOT_avg_repair_price.default_DOT_avg_repair_price,
-        m0_default_DOT_avg_repair_price.city,
-        m0_default_DOT_avg_repair_price.country
- FROM (SELECT  default_DOT_hard_hat.city,
-        default_DOT_hard_hat.country,
-        avg(default_DOT_repair_order_details.price) AS default_DOT_avg_repair_price
- FROM roads.repair_order_details AS default_DOT_repair_order_details
- LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatcher_id,
-        default_DOT_repair_orders.hard_hat_id,
-        default_DOT_repair_orders.municipality_id,
-        default_DOT_repair_orders.repair_order_id
- FROM roads.repair_orders AS default_DOT_repair_orders)
- AS default_DOT_repair_order ON
- default_DOT_repair_order_details.repair_order_id = default_DOT_repair_order.repair_order_id
-LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.city,
-        default_DOT_hard_hats.country,
-        default_DOT_hard_hats.hard_hat_id,
-        default_DOT_hard_hats.state
- FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_order.hard_hat_id = default_DOT_hard_hat.hard_hat_id
- GROUP BY  default_DOT_hard_hat.country, default_DOT_hard_hat.city
-) AS m0_default_DOT_avg_repair_price
-LIMIT 5
-)
-
-SELECT  Sum(avg_repair_price),
-        city
- FROM (SELECT  metric_query_0.default_DOT_avg_repair_price AS avg_repair_price,
-        metric_query_0.country,
-        metric_query_0.city
- FROM metric_query_0
-)
- GROUP BY  city
-        """
+        """WITHmetric_query_0AS(SELECTdefault_DOT_repair_order_details.default_DOT_avg_repair_price,default_DOT_repair_order_details.default_DOT_total_repair_cost,default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city,default_DOT_repair_order_details.default_DOT_hard_hat_DOT_countryFROM(SELECTdefault_DOT_hard_hat.citydefault_DOT_hard_hat_DOT_city,default_DOT_hard_hat.countrydefault_DOT_hard_hat_DOT_country,avg(default_DOT_repair_order_details.price)ASdefault_DOT_avg_repair_price,sum(default_DOT_repair_order_details.price)default_DOT_total_repair_costFROMroads.repair_order_detailsASdefault_DOT_repair_order_detailsLEFTOUTERJOIN(SELECTdefault_DOT_repair_orders.dispatcher_id,default_DOT_repair_orders.hard_hat_id,default_DOT_repair_orders.municipality_id,default_DOT_repair_orders.repair_order_idFROMroads.repair_ordersASdefault_DOT_repair_orders)ASdefault_DOT_repair_orderONdefault_DOT_repair_order_details.repair_order_id=default_DOT_repair_order.repair_order_idLEFTOUTERJOIN(SELECTdefault_DOT_hard_hats.city,default_DOT_hard_hats.country,default_DOT_hard_hats.hard_hat_id,default_DOT_hard_hats.stateFROMroads.hard_hatsASdefault_DOT_hard_hats)ASdefault_DOT_hard_hatONdefault_DOT_repair_order.hard_hat_id=default_DOT_hard_hat.hard_hat_idGROUPBYdefault_DOT_hard_hat.country,default_DOT_hard_hat.city)ASdefault_DOT_repair_order_details)SELECTmetric_query_0.default_DOT_avg_repair_priceASavg_repair_price,metric_query_0.default_DOT_total_repair_costAStotal_cost,metric_query_0.default_DOT_hard_hat_DOT_country,metric_query_0.default_DOT_hard_hat_DOT_cityFROMmetric_query_0"""
     )
     .strip()
     .replace('"', "")

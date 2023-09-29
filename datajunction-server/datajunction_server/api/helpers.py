@@ -837,6 +837,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     validate_orderby(orderby, metrics, dimensions)
 
     if cube and cube.materializations and cube.availability:
+        materialized_cube_catalog = get_catalog_by_name(session, cube.availability.catalog)
         query_ast = build_materialized_cube_node(
             metric_columns,
             dimension_columns,
@@ -849,7 +850,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
                     ColumnMetadata(name=col.name, type=str(col.type))
                     for col in (metric_columns + dimension_columns)
                 ],
-                dialect=engine.dialect,
+                dialect=materialized_cube_catalog.engines[0].dialect,
             ),
             engine,
             cube.catalog,
