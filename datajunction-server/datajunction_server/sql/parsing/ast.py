@@ -2409,14 +2409,10 @@ class Query(TableExpression, UnNamed):
         """
         Transforms a query ast by replacing dj node references with their asts
         """
-
-        print("INITIALQUERY", self)
         from datajunction_server.construction.build import _build_select_ast
 
         self.bake_ctes()  # pylint: disable=W0212
         _build_select_ast(session, self.select, memoized_queries, build_criteria)
-
-        print("_build_select_ast", self)
         self.select.add_aliases_to_unnamed_columns()
 
         # Make the generated query deterministic

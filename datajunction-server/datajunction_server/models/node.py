@@ -867,14 +867,6 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             if node_revision and node_revision.type != NodeType.METRIC
         ]
 
-    def __copy__(self):
-        """
-        Note: We should not use copy or deepcopy to copy any SQLAlchemy objects.
-        This is implemented here to make copying of AST structures easier, but does
-        not actually copy anything
-        """
-        return None
-
     def __deepcopy__(self, memo):
         """
         Note: We should not use copy or deepcopy to copy any SQLAlchemy objects.

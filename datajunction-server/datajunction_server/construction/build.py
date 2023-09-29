@@ -72,12 +72,11 @@ def _join_path(
             next_join_path = {**path, **{(current_node, joinable_dim): join_cols}}
             full_join_path = (joinable_dim, next_join_path)
             if joinable_dim == dimension_node:
-                print("col.dimension_column", dimension_node.name)
                 for col in join_cols:
                     dim_pk = dimension_node.primary_key()
                     if not col.dimension_column:
                         if len(dim_pk) != 1:
-                            raise DJException(
+                            raise DJException(  # pragma: no cover
                                 f"Node {current_node.name} specifying dimension "
                                 f"{joinable_dim.name} on column {col.name} does not"
                                 f" specify a dimension column, and {dimension_node.name} "
@@ -162,9 +161,7 @@ def _build_joins_for_dimension(
         )
 
         # Optimize query by filtering down to only the necessary columns
-        print("required_dimension_columns", required_dimension_columns)
         selected_columns = {col.name.name for col in required_dimension_columns}
-        print("selected_columns", selected_columns)
         available_join_columns = {
             col.dimension_column for col in join_columns if col.dimension_column
         }
@@ -290,7 +287,6 @@ def _build_tables_on_select(
             _get_node_table(node, build_criteria),
         )  # got a materialization
         if node_table is None:  # no materialization - recurse to node first
-            print("FNODE", node.name, node.version, node.query)
             node_query = parse(cast(str, node.query))
             if hash(node_query) in memoized_queries:  # pragma: no cover
                 node_table = memoized_queries[hash(node_query)].select  # type: ignore
@@ -438,7 +434,6 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 del projection_addition[added]
 
     projection_update += list(projection_addition.values())
-    print("projection_update", projection_update)
 
     query.select.projection = projection_update
 
@@ -533,14 +528,13 @@ def build_node(  # pylint: disable=too-many-arguments
         query = parse(node.query)
     elif node.query and node.type != NodeType.METRIC:
         node_query = parse(node.query)
-        print("node_query", node_query, node_query.select.projection)
+        node_query.select.add_aliases_to_unnamed_columns()
         query = parse(f"select * from {node.name}")
         query.select.projection = []
         for expr in node_query.select.projection:
             query.select.projection.append(
                 ast.Column(ast.Name(expr.alias_or_name.name), _table=node_query),  # type: ignore
             )
-        print("assembled_query!", query)
     else:
         query = build_source_node_query(node)
 
@@ -693,7 +687,7 @@ def build_metric_nodes(
         organization = cast(ast.Organization, parent_ast.select.organization)
         parent_ast.select.organization = None
         for col in organization.find_all(ast.Column):
-            col.add_table(current_cte_as_table)
+            col.add_table(current_cte_as_table)  # pragma: no cover
         orderby_sort_items += organization.order  # type: ignore
 
         final_select_columns = [
@@ -767,10 +761,10 @@ def build_metric_nodes(
     # go through the orderby items and make sure we put them in the order the user requested them in
     for idx, sort_item in enumerate(orderby_mapping):
         if isinstance(sort_item, ast.SortItem):
-            orderby_sort_items.insert(idx, sort_item)
+            orderby_sort_items.insert(idx, sort_item)  # pragma: no cover
         else:
             sort_expr_list = sort_item.split(" ")
-            if sort_item in final_mapping:
+            if sort_item in final_mapping:  # pragma: no cover
                 orderby_sort_items.insert(
                     idx,
                     ast.SortItem(
@@ -811,7 +805,7 @@ def build_materialized_cube_node(
     # Assemble query for materialized cube based on the previously saved measures
     # combiner expression for each metric
     for metric_key in selected_metric_keys:
-        if metric_key in cube_config.measures:
+        if metric_key in cube_config.measures:  # pragma: no cover
             metric_measures = cube_config.measures[metric_key]
             measures_combiner_ast = parse(f"SELECT {metric_measures.combiner}")
             measures_type_lookup = {

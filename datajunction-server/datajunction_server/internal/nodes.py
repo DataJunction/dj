@@ -462,7 +462,6 @@ def update_node_with_query(
     old_revision = node.current
     new_revision = create_new_revision_from_existing(
         session,
-        query_service_client,  # type: ignore
         old_revision,
         node,
         data,
@@ -514,7 +513,7 @@ def update_node_with_query(
             )
         schedule_materialization_jobs(
             new_revision.materializations,
-            query_service_client,
+            query_service_client,  # type: ignore
         )
         session.add(new_revision)
         session.commit()
@@ -837,7 +836,6 @@ def _create_node_from_inactive(
 
 def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-many-arguments,too-many-branches
     session: Session,
-    query_service_client: QueryServiceClient,
     old_revision: NodeRevision,
     node: Node,
     data: UpdateNode = None,

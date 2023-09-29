@@ -152,7 +152,7 @@ def resolve_metric_queries(  # pylint: disable=R0914,R0912,R0915
             built.compile(ctx)
             for built_col in built.columns:
                 built_col.alias_or_name.namespace = None
-            for is_metric, cur_col in curr_cols:
+            for _, cur_col in curr_cols:
                 name = amenable_name(cur_col.identifier(False))
                 ref_type = [
                     col for col in built.columns if col.alias_or_name.name == name
