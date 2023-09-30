@@ -18,7 +18,7 @@ from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
-from datajunction_server.utils import SEPARATOR, amenable_name
+from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR, amenable_name
 
 _logger = logging.getLogger(__name__)
 
@@ -655,7 +655,7 @@ def build_metric_nodes(
         parent_ast.select.projection = [
             expr
             for expr in parent_ast.select.projection
-            if str(expr).replace("_DOT_", SEPARATOR) in dimensions
+            if str(expr).replace(f"_{LOOKUP_CHARS.get('.')}_", SEPARATOR) in dimensions
         ]
         # Re-alias the dimensions with better names, but keep the group by alias-free
         parent_ast.select.group_by = [
@@ -753,7 +753,10 @@ def build_metric_nodes(
         for col_name, columns in dimension_grouping.items()
     ]
     for dim_col in dimension_columns:
-        dimension_name = dim_col.alias_or_name.name.replace("_DOT_", SEPARATOR)
+        dimension_name = dim_col.alias_or_name.name.replace(
+            f"_{LOOKUP_CHARS.get('.')}_",
+            SEPARATOR,
+        )
         final_mapping[dimension_name] = dim_col
 
     combined_ast.select.projection.extend(dimension_columns)

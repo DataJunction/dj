@@ -1,4 +1,4 @@
-import { useContext, useState } from 'react';
+import { useContext, useEffect, useRef, useState } from 'react';
 import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
 import { Form, Formik } from 'formik';
@@ -14,6 +14,20 @@ export default function LinkDimensionPopover({
 }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [popoverAnchor, setPopoverAnchor] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = event => {
+      if (ref.current && !ref.current.contains(event.target)) {
+        setPopoverAnchor(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside, true);
+    return () => {
+      document.removeEventListener('click', handleClickOutside, true);
+    };
+  }, [setPopoverAnchor]);
+
   const columnDimension = column.dimension;
 
   const handleSubmit = async (
@@ -73,6 +87,7 @@ export default function LinkDimensionPopover({
         role="dialog"
         aria-label="client-code"
         style={{ display: popoverAnchor === false ? 'none' : 'block' }}
+        ref={ref}
       >
         <Formik
           initialValues={{
