@@ -43,6 +43,7 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
+from datajunction_server.models import access
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["data"])
@@ -137,12 +138,19 @@ def get_data(  # pylint: disable=too-many-locals
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
 ) -> QueryWithResults:
     """
     Gets data for a node
     """
-    node = get_node_by_name(session, node_name)
 
+    node = get_node_by_name(session, node_name)
+    access_control = access.AccessControl(
+        state=access.AccessControlState.IMMEDIATE,
+        user = current_user,
+        immediate_requests = []
+        )
+    
     available_engines = node.current.catalog.engines
     engine = (
         get_engine(session, engine_name, engine_version)  # type: ignore
@@ -163,6 +171,7 @@ def get_data(  # pylint: disable=too-many-locals
         orderby=orderby,
         limit=limit,
         engine=engine,
+        access_control=access_control,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore

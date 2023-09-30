@@ -62,6 +62,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
+from datajunction_server.models import access
 
 _logger = logging.getLogger(__name__)
 
@@ -191,6 +192,7 @@ def get_query(  # pylint: disable=too-many-arguments
     orderby: List[str],
     limit: Optional[int] = None,
     engine: Optional[Engine] = None,
+    access_control: Optional[access.AccessControl] = None,
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -217,6 +219,7 @@ def get_query(  # pylint: disable=too-many-arguments
         orderby=orderby,
         limit=limit,
         build_criteria=build_criteria,
+        access_control=access_control,
     )
 
     return query_ast

@@ -4,7 +4,7 @@ Configuration for the datajunction server.
 import urllib.parse
 from datetime import timedelta
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, TYPE_CHECKING
 
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
@@ -12,6 +12,8 @@ from cachelib.redis import RedisCache
 from celery import Celery
 from pydantic import BaseSettings
 
+if TYPE_CHECKING:
+    from datajunction_server.models.access import AccessControl
 
 class Settings(
     BaseSettings,
@@ -96,3 +98,10 @@ class Settings(
             password=parsed.password,
             db=parsed.path.strip("/"),
         )
+
+
+    def validate_access(self, access_control: AccessControl)->bool: 
+        """
+        Determine whether a request from a user is allowed.
+        """
+        return True
