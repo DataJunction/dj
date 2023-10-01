@@ -981,7 +981,7 @@ def test_add_materialization_config_to_cube(
     assert druid_materialization["schedule"] == "@daily"
 
 
-def test_add_availability_to_cube(
+def test_cube_sql_generation_with_availability(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
 ):
     """
@@ -996,6 +996,8 @@ def test_add_availability_to_cube(
             "valid_through_ts": 1010129120,
         },
     )
+
+    # Ask for SQL with metrics, dimensions, filters, order by, and limit
     response = client_with_repairs_cube.get(
         "/sql/",
         params={
@@ -1008,31 +1010,71 @@ def test_add_availability_to_cube(
                 "default.hard_hat.country",
                 "default.hard_hat.postal_code",
             ],
-            "filters": [],
-            "orderby": [],
+            "filters": ["default.hard_hat.country='NZ'"],
+            "orderby": ["default.hard_hat.country ASC"],
             "limit": 100,
         },
     )
-    assert response.json() == {
-        "columns": [
-            {"name": "default_DOT_discounted_orders_rate", "type": "double"},
-            {"name": "default_DOT_num_repair_orders", "type": "bigint"},
-            {"name": "default_DOT_avg_repair_price", "type": "double"},
-            {"name": "country", "type": "string"},
-            {"name": "postal_code", "type": "string"},
-        ],
-        "dialect": "spark",
-        "sql": "SELECT  sum(discount3789599758_sum) / count(placeholder_count) "
-        "default_DOT_discounted_orders_rate,\n"
-        "\tcount(repair_order_id3825669267_count) "
-        "default_DOT_num_repair_orders,\n"
-        "\tsum(price3402113753_sum) / count(price3402113753_count) "
-        "default_DOT_avg_repair_price,\n"
-        "\tcountry,\n"
-        "\tpostal_code \n"
-        " FROM repairs_cube \n"
-        " GROUP BY  country, postal_code\n",
-    }
+    data = response.json()
+    assert data["columns"] == [
+        {"name": "default_DOT_discounted_orders_rate", "type": "double"},
+        {"name": "default_DOT_num_repair_orders", "type": "bigint"},
+        {"name": "default_DOT_avg_repair_price", "type": "double"},
+        {"name": "default_DOT_hard_hat_DOT_country", "type": "string"},
+        {"name": "default_DOT_hard_hat_DOT_postal_code", "type": "string"},
+    ]
+    assert compare_query_strings(
+        data["sql"],
+        """SELECT
+  sum(discount3789599758_sum) / count(placeholder_count) default_DOT_discounted_orders_rate,
+  count(repair_order_id3825669267_count) default_DOT_num_repair_orders,
+  sum(price3402113753_sum) / count(price3402113753_count) default_DOT_avg_repair_price,
+  default_DOT_hard_hat_DOT_country,
+  default_DOT_hard_hat_DOT_postal_code
+FROM repairs_cube
+WHERE
+  default_DOT_hard_hat_DOT_country = 'NZ'
+GROUP BY
+  default_DOT_hard_hat_DOT_country, default_DOT_hard_hat_DOT_postal_code
+ORDER BY default_DOT_hard_hat_DOT_country ASC
+LIMIT 100""",
+    )
+
+    # Ask for SQL with only metrics and dimensions
+    response = client_with_repairs_cube.get(
+        "/sql/",
+        params={
+            "metrics": [
+                "default.discounted_orders_rate",
+                "default.num_repair_orders",
+                "default.avg_repair_price",
+            ],
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.hard_hat.postal_code",
+            ],
+        },
+    )
+    data = response.json()
+    assert data["columns"] == [
+        {"name": "default_DOT_discounted_orders_rate", "type": "double"},
+        {"name": "default_DOT_num_repair_orders", "type": "bigint"},
+        {"name": "default_DOT_avg_repair_price", "type": "double"},
+        {"name": "default_DOT_hard_hat_DOT_country", "type": "string"},
+        {"name": "default_DOT_hard_hat_DOT_postal_code", "type": "string"},
+    ]
+    assert compare_query_strings(
+        data["sql"],
+        """SELECT
+  sum(discount3789599758_sum) / count(placeholder_count) default_DOT_discounted_orders_rate,
+  count(repair_order_id3825669267_count) default_DOT_num_repair_orders,
+  sum(price3402113753_sum) / count(price3402113753_count) default_DOT_avg_repair_price,
+  default_DOT_hard_hat_DOT_country,
+  default_DOT_hard_hat_DOT_postal_code
+FROM repairs_cube
+GROUP BY
+  default_DOT_hard_hat_DOT_country, default_DOT_hard_hat_DOT_postal_code""",
+    )
 
 
 def test_unlink_node_column_dimension(

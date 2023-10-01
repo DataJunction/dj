@@ -784,10 +784,28 @@ def build_metric_nodes(
     return combined_ast
 
 
+def build_temp_select(temp_query: str):
+    """
+    Builds an intermediate select ast used to build cube queries
+    """
+    temp_select = parse(temp_query).select
+
+    for col in temp_select.find_all(ast.Column):
+        dimension_column = col.identifier(False).replace(
+            SEPARATOR,
+            f"_{LOOKUP_CHARS.get(SEPARATOR)}_",
+        )
+        col.name = ast.Name(dimension_column)
+    return temp_select
+
+
 def build_materialized_cube_node(
     selected_metrics: List[Column],
     selected_dimensions: List[Column],
     cube: NodeRevision,
+    filters: List[str] = None,
+    orderby: List[str] = None,
+    limit: Optional[int] = None,
 ) -> ast.Query:
     """
     Build query for a materialized cube node
@@ -829,10 +847,42 @@ def build_materialized_cube_node(
 
     # Add in selected dimension attributes to the query
     for selected_dim in selected_dimensions:
-        dimension_column = ast.Column(name=ast.Name(selected_dim.name))
+        dimension_column = ast.Column(
+            name=ast.Name(
+                (
+                    selected_dim.node_revision().name  # type: ignore
+                    + SEPARATOR
+                    + selected_dim.name
+                ).replace(SEPARATOR, f"_{LOOKUP_CHARS.get(SEPARATOR)}_"),
+            ),
+        )
         combined_ast.select.projection.append(dimension_column)
         combined_ast.select.group_by.append(dimension_column)
 
+    # Add in filters to the query
+    filter_asts = []
+    for filter_ in filters:  # type: ignore
+        temp_select = build_temp_select(
+            f"select * where {filter_}",
+        )
+        filter_asts.append(temp_select.where)
+
+    if filter_asts:
+        # pylint: disable=no-value-for-parameter
+        combined_ast.select.where = ast.BinaryOp.And(*filter_asts)
+
+    # Add orderby
+    if orderby:
+        temp_select = build_temp_select(
+            f"select * order by {','.join(orderby)}",
+        )
+        combined_ast.select.organization = temp_select.organization
+
+    # Add limit
+    if limit:
+        combined_ast.select.limit = ast.Number(value=limit)
+
+    # Set up FROM clause
     combined_ast.select.from_.relations.append(  # type: ignore
         ast.Relation(primary=ast.Table(ast.Name(cube.availability.table))),  # type: ignore
     )
