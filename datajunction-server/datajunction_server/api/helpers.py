@@ -62,6 +62,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
+from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR
 
 _logger = logging.getLogger(__name__)
 
@@ -746,7 +747,7 @@ def validate_orderby(
     """
     invalid_orderbys = []
     for orderby_element in orderby:
-        if orderby_element not in metrics + dimension_attributes:
+        if orderby_element.split(" ")[0] not in metrics + dimension_attributes:
             invalid_orderbys.append(orderby_element)
     if invalid_orderbys:
         raise DJException(
@@ -845,14 +846,27 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
             metric_columns,
             dimension_columns,
             cube,
+            filters,
+            orderby,
+            limit,
         )
+        query_metric_columns = [
+            ColumnMetadata(name=col.name, type=str(col.type)) for col in metric_columns
+        ]
+        query_dimension_columns = [
+            ColumnMetadata(
+                name=(col.node_revision().name + SEPARATOR + col.name).replace(  # type: ignore
+                    SEPARATOR,
+                    f"_{LOOKUP_CHARS.get(SEPARATOR)}_",
+                ),
+                type=str(col.type),
+            )
+            for col in dimension_columns
+        ]
         return (
             TranslatedSQL(
                 sql=str(query_ast),
-                columns=[
-                    ColumnMetadata(name=col.name, type=str(col.type))
-                    for col in (metric_columns + dimension_columns)
-                ],
+                columns=query_metric_columns + query_dimension_columns,
                 dialect=materialized_cube_catalog.engines[0].dialect,
             ),
             engine,
