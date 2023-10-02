@@ -1,4 +1,4 @@
-import { useContext, useState } from 'react';
+import {useContext, useEffect, useRef, useState} from 'react';
 import * as React from 'react';
 import DJClientContext from '../../providers/djclient';
 import { Form, Formik } from 'formik';
@@ -9,6 +9,19 @@ import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
 export default function EditColumnPopover({ column, node, options, onSubmit }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [popoverAnchor, setPopoverAnchor] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = event => {
+      if (ref.current && !ref.current.contains(event.target)) {
+        setPopoverAnchor(false);
+      }
+    };
+    document.addEventListener('click', handleClickOutside, true);
+    return () => {
+      document.removeEventListener('click', handleClickOutside, true);
+    };
+  }, [setPopoverAnchor]);
 
   const saveAttributes = async (
     { node, column, attributes },
@@ -44,6 +57,7 @@ export default function EditColumnPopover({ column, node, options, onSubmit }) {
         role="dialog"
         aria-label="client-code"
         style={{ display: popoverAnchor === false ? 'none' : 'block' }}
+        ref={ref}
       >
         <Formik
           initialValues={{

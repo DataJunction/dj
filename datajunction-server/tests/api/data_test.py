@@ -36,11 +36,15 @@ class TestDataForNode:
         assert response.status_code == 500
         assert data["message"] == (
             "Cannot resolve type of column something in SELECT  "
-            "default_DOT_payment_type_table.id,\n"
-            "\tdefault_DOT_payment_type_table.payment_type_classification,\n"
-            "\tdefault_DOT_payment_type_table.payment_type_name,\n"
+            "default_DOT_payment_type.id,\n"
+            "\tdefault_DOT_payment_type.payment_type_classification,\n"
+            "\tdefault_DOT_payment_type.payment_type_name,\n"
             "\tsomething \n"
-            " FROM accounting.payment_type_table AS default_DOT_payment_type_table\n"
+            " FROM (SELECT  default_DOT_payment_type_table.id,\n"
+            "\tdefault_DOT_payment_type_table.payment_type_classification,\n"
+            "\tdefault_DOT_payment_type_table.payment_type_name \n"
+            " FROM accounting.payment_type_table AS default_DOT_payment_type_table)\n"
+            " AS default_DOT_payment_type\n"
         )
 
     def test_get_dimension_data(
@@ -271,7 +275,10 @@ class TestDataForNode:
                             "type": "bigint",
                         },
                         {"name": "default_DOT_avg_repair_price", "type": "double"},
-                        {"name": "company_name", "type": "string"},
+                        {
+                            "name": "default_DOT_dispatcher_DOT_company_name",
+                            "type": "string",
+                        },
                     ],
                     "rows": [[1.0, "Foo", 100], [2.0, "Bar", 200]],
                     "row_count": 0,
