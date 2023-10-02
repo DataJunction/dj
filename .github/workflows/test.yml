@@ -34,6 +34,8 @@ jobs:
           filters: |
             client:
               - 'datajunction-clients/python/**'
+              # run Python unit tests also when server is updated (because server changes can break the client)
+              - 'datajunction-server/**'
             server:
               - 'datajunction-server/**'
             djqs:

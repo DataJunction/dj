@@ -319,7 +319,10 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         )
 
         expected_df = pandas.DataFrame.from_dict(
-            {"default_DOT_avg_repair_price": [1.0, 2.0], "city": ["Foo", "Bar"]},
+            {
+                "default_DOT_avg_repair_price": [1.0, 2.0],
+                "default_DOT_hard_hat_DOT_city": ["Foo", "Bar"],
+            },
         )
         pandas.testing.assert_frame_equal(result, expected_df)
 
