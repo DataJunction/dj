@@ -88,6 +88,10 @@ class AccessControl(BaseModel):
         return self._intermediate_requests
 
     @property
+    def requests(self)->Set[ResourceRequest]:
+        return self._immediate_requests|self._intermediate_requests
+        
+    @property
     def validation_request_count(self) -> int:
         return self._validation_request_count
 
