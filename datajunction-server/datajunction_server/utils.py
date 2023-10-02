@@ -14,6 +14,8 @@ from typing import Iterator, List, Optional
 from dotenv import load_dotenv
 from rich.logging import RichHandler
 from sqlalchemy.engine import Engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, AsyncEngine
 from sqlmodel import Session, create_engine
 from starlette.requests import Request
 from yarl import URL
@@ -57,9 +59,23 @@ def get_engine() -> Engine:
     Create the metadata engine.
     """
     settings = get_settings()
+    db_url = "sqlite///dj.internal.db"  # + settings.index.split("///")[1]
+    print(db_url)
     engine = create_engine(settings.index)
 
     return engine
+
+
+def get_async_engine() -> AsyncEngine:
+    """
+    Create async engine.
+    """
+    settings = get_settings()
+    # db_url = "sqlite+aiosqlite///" + settings.index.split("///")[1]
+    db_url = "sqlite+aiosqlite:///dj.internal.db"
+    print(db_url)
+    async_engine = create_async_engine(db_url)
+    return async_engine
 
 
 def get_session() -> Iterator[Session]:
@@ -69,6 +85,16 @@ def get_session() -> Iterator[Session]:
     engine = get_engine()
 
     with Session(engine, autoflush=False) as session:  # pragma: no cover
+        yield session
+
+
+async def get_async_session() -> Iterator[Session]:
+    """
+    Async session.
+    """
+    async_engine = get_async_engine()
+    async_session = sessionmaker(async_engine, class_=AsyncSession, expire_on_commit=False)
+    async with async_session() as session:
         yield session
 
 

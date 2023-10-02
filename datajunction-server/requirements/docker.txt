@@ -2,6 +2,7 @@
 # Please do not edit it manually.
 
 accept-types==0.4.1
+aiosqlite==0.19.0
 alembic==1.11.2
 amqp==5.1.1
 antlr4-python3-runtime==4.12.0

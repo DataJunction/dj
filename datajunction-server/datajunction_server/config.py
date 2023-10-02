@@ -30,6 +30,9 @@ class Settings(
     # SQLAlchemy URI for the metadata database.
     index: str = "sqlite:///dj.db?check_same_thread=False"
 
+    # SQLAlchemy URI for the metadata database.
+    # index_async: str = "sqlite+aiosqlite:///dj.db?check_same_thread=False"
+
     # Directory where the repository lives. This should have 2 subdirectories, "nodes" and
     # "databases".
     repository: Path = Path(".")

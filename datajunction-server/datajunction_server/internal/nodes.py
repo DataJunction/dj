@@ -25,6 +25,7 @@ from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,
 )
+from sqlalchemy.orm import joinedload, selectinload
 from datajunction_server.materialization.jobs import (
     DefaultCubeMaterialization,
     DruidCubeMaterializationJob,
@@ -71,6 +72,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
+from sqlalchemy.ext.asyncio import AsyncSession
 from datajunction_server.utils import (
     LOOKUP_CHARS,
     SEPARATOR,
@@ -80,6 +82,25 @@ from datajunction_server.utils import (
 )
 
 _logger = logging.getLogger(__name__)
+
+
+async def get_node_revisions(async_session: AsyncSession, name: str) -> List[NodeRevision]:
+    """
+    Gets all node revisions for a node
+    """
+    result = await async_session.execute(
+        select(NodeRevision)
+        .where(NodeRevision.name == name)
+        .order_by(NodeRevision.updated_at.desc())
+        .options(
+            selectinload(NodeRevision.availability),
+            selectinload(NodeRevision.catalog),
+            selectinload(NodeRevision.columns),
+            selectinload(NodeRevision.materializations),
+            selectinload(NodeRevision.parents),
+        )
+    )
+    return result.unique().scalars().all()
 
 
 def get_node_column(node: Node, column_name: str) -> Column:

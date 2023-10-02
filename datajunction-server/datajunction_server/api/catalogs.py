@@ -10,11 +10,13 @@ from fastapi import Depends, HTTPException
 from sqlmodel import Session, select
 
 from datajunction_server.api.engines import EngineInfo, get_engine
-from datajunction_server.api.helpers import get_catalog_by_name
+from datajunction_server.api.helpers import get_catalog_by_name, get_catalog_by_name_async
 from datajunction_server.errors import DJException
 from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models.catalog import Catalog, CatalogInfo
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_session, get_settings, get_async_session
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -22,19 +24,30 @@ router = SecureAPIRouter(tags=["catalogs"])
 
 
 @router.get("/catalogs/", response_model=List[CatalogInfo])
-def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInfo]:
+async def list_catalogs(
+    async_session: AsyncSession = Depends(get_async_session)
+) -> List[CatalogInfo]:
     """
     List all available catalogs
     """
-    return list(session.exec(select(Catalog)))
+    results = await async_session.execute(
+        select(Catalog).options(selectinload(Catalog.engines))
+    )
+    results = results.scalars().all()
+    return results
 
 
 @router.get("/catalogs/{name}/", response_model=CatalogInfo, name="Get a Catalog")
-def get_catalog(name: str, *, session: Session = Depends(get_session)) -> CatalogInfo:
+async def get_catalog(
+    name: str,
+    *,
+    async_session: AsyncSession = Depends(get_async_session)
+) -> CatalogInfo:
     """
     Return a catalog by name
     """
-    return get_catalog_by_name(session, name)
+    catalog = await get_catalog_by_name_async(async_session, name)
+    return catalog
 
 
 @router.post(
@@ -82,7 +95,7 @@ def add_catalog(
     status_code=201,
     name="Add Engines to a Catalog",
 )
-def add_engines_to_catalog(
+async def add_engines_to_catalog(
     name: str,
     data: List[EngineInfo],
     *,

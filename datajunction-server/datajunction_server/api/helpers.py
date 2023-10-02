@@ -16,7 +16,8 @@ from typing import Dict, List, Optional, Set, Tuple, Union
 
 from fastapi import HTTPException
 from sqlalchemy.exc import NoResultFound
-from sqlalchemy.orm import joinedload
+from sqlalchemy.orm import joinedload, selectinload
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
 
@@ -124,6 +125,53 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     return node
 
 
+async def get_node_by_name_async(  # pylint: disable=too-many-arguments
+    async_session: AsyncSession,
+    name: Optional[str],
+    node_type: Optional[NodeType] = None,
+    with_current: bool = False,
+    raise_if_not_exists: bool = True,
+    include_inactive: bool = False,
+    for_update: bool = False,
+) -> Node:
+    """
+    Get a node by name
+    """
+    statement = select(Node).where(Node.name == name)
+    if for_update:
+        statement = statement.with_for_update().execution_options(
+            populate_existing=True,
+        )
+    if not include_inactive:
+        statement = statement.where(is_(Node.deactivated_at, None))
+    if node_type:
+        statement = statement.where(Node.type == node_type)
+    if with_current:
+        statement = statement.options(
+            selectinload(Node.current).selectinload(NodeRevision.availability),
+            selectinload(Node.current).selectinload(NodeRevision.catalog),
+            selectinload(Node.current).selectinload(NodeRevision.columns),
+            selectinload(Node.current).selectinload(NodeRevision.materializations),
+            selectinload(Node.current).selectinload(NodeRevision.parents),
+            selectinload(Node.tags),
+        )
+        results = await async_session.execute(statement)
+        node = results.unique().scalars().one_or_none()
+    else:
+        results = await async_session.execute(statement)
+        node = results.scalars().one_or_none()
+    if raise_if_not_exists:
+        if not node:
+            raise DJNodeNotFound(
+                message=(
+                    f"A {'' if not node_type else node_type + ' '}"
+                    f"node with name `{name}` does not exist."
+                ),
+                http_status_code=404,
+            )
+    return node
+
+
 def raise_if_node_exists(session: Session, name: str) -> None:
     """
     Raise an error if the node with the given name already exists.
@@ -176,6 +224,21 @@ def get_catalog_by_name(session: Session, name: str) -> Catalog:
     """
     statement = select(Catalog).where(Catalog.name == name)
     catalog = session.exec(statement).one_or_none()
+    if not catalog:
+        raise DJException(
+            message=f"Catalog with name `{name}` does not exist.",
+            http_status_code=404,
+        )
+    return catalog
+
+
+async def get_catalog_by_name_async(async_session: AsyncSession, name: str) -> Catalog:
+    """
+    Get a catalog by name
+    """
+    statement = select(Catalog).where(Catalog.name == name).options(selectinload(Catalog.engines))
+    result = await async_session.execute(statement)
+    catalog = result.scalars().one_or_none()
     if not catalog:
         raise DJException(
             message=f"Catalog with name `{name}` does not exist.",
@@ -242,6 +305,27 @@ def get_engine(session: Session, name: str, version: str) -> Engine:
     return engine
 
 
+async def get_engine_async(async_session: AsyncSession, name: str, version: str) -> Engine:
+    """
+    Return an Engine instance given an engine name and version
+    """
+    statement = (
+        select(Engine)
+        .where(Engine.name == name)
+        .where(Engine.version == (version or ""))
+    )
+    try:
+        engine = (
+            await async_session.execute(statement)
+        ).scalars().one_or_none()
+    except NoResultFound as exc:
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail=f"Engine not found: `{name}` version `{version}`",
+        ) from exc
+    return engine
+
+
 def get_downstream_nodes(
     session: Session,
     node_name: str,
@@ -288,6 +372,66 @@ def get_downstream_nodes(
     return [
         downstream
         for downstream in results
+        if downstream.type == node_type or node_type is None
+    ]
+
+
+async def get_downstream_nodes_async(
+    async_session: AsyncSession,
+    node_name: str,
+    node_type: NodeType = None,
+) -> List[Node]:
+    """
+    Gets all downstream children of the given node, filterable by node type.
+    Uses a recursive CTE query to build out all descendants from the node.
+    """
+    node = await get_node_by_name_async(async_session=async_session, name=node_name, include_inactive=True)
+
+    dag = (
+        select(
+            NodeRelationship.parent_id,
+            NodeRevision.node_id,
+        )
+        .where(NodeRelationship.parent_id == node.id)
+        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
+        .join(
+            Node,
+            (Node.id == NodeRevision.node_id)
+            & (Node.current_version == NodeRevision.version),
+        )
+    ).cte("dag", recursive=True)
+
+    paths = dag.union_all(
+        select(
+            dag.c.parent_id,
+            NodeRevision.node_id,
+        )
+        .join(NodeRelationship, dag.c.node_id == NodeRelationship.parent_id)
+        .join(NodeRevision, NodeRelationship.child_id == NodeRevision.id)
+        .join(Node, Node.id == NodeRevision.node_id),
+    )
+
+    statement = (
+        select(Node)
+        .join(paths, paths.c.node_id == Node.id)
+        .options(
+            selectinload(Node.current).options(
+                selectinload(NodeRevision.availability),
+                selectinload(NodeRevision.catalog),
+                selectinload(NodeRevision.columns),
+                selectinload(NodeRevision.materializations),
+                selectinload(NodeRevision.parents)
+            ),
+            selectinload(Node.tags),
+        )
+    )
+
+    results = await async_session.execute(statement)
+    downstreams = results.unique().scalars().all()
+
+    return [
+        downstream
+        for downstream in downstreams
         if downstream.type == node_type or node_type is None
     ]
 

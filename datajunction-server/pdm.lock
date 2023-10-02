@@ -6,7 +6,7 @@ groups = ["default", "test", "uvicorn", "transpilation"]
 cross_platform = true
 static_urls = false
 lock_version = "4.3"
-content_hash = "sha256:1b94e47c1a8330b54309280af06db9926b932fea30f4eb69009eeb66e012b7e5"
+content_hash = "sha256:524ba0aa768b9c65159bc0fece90b7c0275c7e3a3bbfa594e7a598273e76e1cb"
 
 [[package]]
 name = "accept-types"
@@ -15,6 +15,16 @@ summary = "Determine the best content to send in an HTTP response"
 files = [
     {file = "accept-types-0.4.1.tar.gz", hash = "sha256:fb27099716d8f0360408c8ca86d69dbfed44455834b70d1506250abe521b535a"},
     {file = "accept_types-0.4.1-py3-none-any.whl", hash = "sha256:c87feccdffb66b02f9343ff387d7fd5c451ccb2e1221fbd37ea0cedef5cf290f"},
+]
+
+[[package]]
+name = "aiosqlite"
+version = "0.19.0"
+requires_python = ">=3.7"
+summary = "asyncio bridge to the standard sqlite3 module"
+files = [
+    {file = "aiosqlite-0.19.0-py3-none-any.whl", hash = "sha256:edba222e03453e094a3ce605db1b970c4b3376264e56f32e2a4959f948d66a96"},
+    {file = "aiosqlite-0.19.0.tar.gz", hash = "sha256:95ee77b91c8d2808bd08a59fbebf66270e9090c3d92ffbf260dc0db0b979577d"},
 ]
 
 [[package]]

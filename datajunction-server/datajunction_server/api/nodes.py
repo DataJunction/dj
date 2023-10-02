@@ -10,6 +10,9 @@ from typing import List, Optional, Union, cast
 from fastapi import Depends, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload, selectinload
+
 from sqlmodel import Session, select
 from starlette.requests import Request
 
@@ -26,6 +29,8 @@ from datajunction_server.api.helpers import (
     raise_if_node_exists,
     revalidate_node,
     validate_node_data,
+    get_node_by_name_async,
+    get_downstream_nodes_async,
 )
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tag_by_name
@@ -39,7 +44,7 @@ from datajunction_server.internal.nodes import (
     get_column_level_lineage,
     save_node,
     set_node_column_attributes,
-    update_any_node,
+    update_any_node, get_node_revisions,
 )
 from datajunction_server.models import User
 from datajunction_server.models.attribute import AttributeTypeIdentifier
@@ -78,7 +83,7 @@ from datajunction_server.utils import (
     get_namespace_from_name,
     get_query_service_client,
     get_session,
-    get_settings,
+    get_settings, get_async_session,
 )
 
 _logger = logging.getLogger(__name__)
@@ -162,11 +167,11 @@ def set_column_attributes(
 
 
 @router.get("/nodes/", response_model=List[str])
-def list_nodes(
+async def list_nodes(
     node_type: Optional[NodeType] = None,
     prefix: Optional[str] = None,
     *,
-    session: Session = Depends(get_session),
+    async_session: AsyncSession = Depends(get_async_session),
 ) -> List[str]:
     """
     List the available nodes.
@@ -178,15 +183,17 @@ def list_nodes(
         )
     if node_type:
         statement = statement.where(Node.type == node_type)
-    return session.exec(statement).unique().all()
+
+    results = await async_session.execute(statement)
+    return results.scalars().all()
 
 
 @router.get("/nodes/{name}/", response_model=NodeOutput)
-def get_node(name: str, *, session: Session = Depends(get_session)) -> NodeOutput:
+async def get_node(name: str, *, async_session: AsyncSession = Depends(get_async_session)) -> NodeOutput:
     """
     Show the active version of the specified node.
     """
-    node = get_node_by_name(session, name, with_current=True)
+    node = await get_node_by_name_async(async_session, name, with_current=True)
     return node  # type: ignore
 
 
@@ -245,14 +252,14 @@ def restore_node(
 
 
 @router.get("/nodes/{name}/revisions/", response_model=List[NodeRevisionOutput])
-def list_node_revisions(
-    name: str, *, session: Session = Depends(get_session)
+async def list_node_revisions(
+    name: str, *, async_session: AsyncSession = Depends(get_async_session),
 ) -> List[NodeRevisionOutput]:
     """
     List all revisions for the node.
     """
-    node = get_node_by_name(session, name, with_current=False)
-    return node.revisions  # type: ignore
+    revisions = await get_node_revisions(async_session, name)
+    return revisions
 
 
 @router.post("/nodes/source/", response_model=NodeOutput, name="Create A Source Node")
@@ -819,14 +826,17 @@ def update_node(
 
 
 @router.get("/nodes/similarity/{node1_name}/{node2_name}")
-def calculate_node_similarity(
-    node1_name: str, node2_name: str, *, session: Session = Depends(get_session)
+async def calculate_node_similarity(
+    node1_name: str,
+    node2_name: str,
+    *,
+    async_session: AsyncSession = Depends(get_async_session),
 ) -> JSONResponse:
     """
     Compare two nodes by how similar their queries are
     """
-    node1 = get_node_by_name(session=session, name=node1_name)
-    node2 = get_node_by_name(session=session, name=node2_name)
+    node1 = await get_node_by_name_async(async_session=async_session, name=node1_name, with_current=True)
+    node2 = await get_node_by_name_async(async_session=async_session, name=node2_name, with_current=True)
     if NodeType.SOURCE in (node1.type, node2.type):
         raise DJException(
             message="Cannot determine similarity of source nodes",
@@ -843,7 +853,22 @@ def calculate_node_similarity(
     response_model=List[NodeOutput],
     name="List Downstream Nodes For A Node",
 )
-def list_downstream_nodes(
+async def list_downstream_nodes(
+    name: str, *, node_type: NodeType = None, async_session: AsyncSession = Depends(get_async_session)
+) -> List[NodeOutput]:
+    """
+    List all nodes that are downstream from the given node, filterable by type.
+    """
+    return await get_downstream_nodes_async(async_session, name, node_type)  # type: ignore
+
+
+
+@router.get(
+    "/nodes/{name}/downstreamzz/",
+    response_model=List[NodeOutput],
+    name="List Downstream Nodes For A Node",
+)
+def list_downstream_nodeszz(
     name: str, *, node_type: NodeType = None, session: Session = Depends(get_session)
 ) -> List[NodeOutput]:
     """

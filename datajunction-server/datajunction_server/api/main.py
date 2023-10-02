@@ -8,6 +8,7 @@ Main DJ server app.
 # pylint: disable=unused-import,ungrouped-imports
 
 import logging
+import time
 from http import HTTPStatus
 from logging import config
 from os import path
@@ -40,7 +41,7 @@ from datajunction_server.api import (
     sql,
     tags,
 )
-from datajunction_server.api.attributes import default_attribute_types
+# from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.api.authentication import whoami
 from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.constants import DJ_AUTH_COOKIE, DJ_LOGGED_IN_FLAG_COOKIE
@@ -64,7 +65,7 @@ config.fileConfig(
     disable_existing_loggers=False,
 )
 
-dependencies = [Depends(default_attribute_types)]
+# dependencies = [Depends(default_attribute_types)]
 
 app = FastAPI(
     title=settings.name,
@@ -74,7 +75,7 @@ app = FastAPI(
         "name": "MIT License",
         "url": "https://mit-license.org/",
     },
-    dependencies=dependencies,
+    # dependencies=dependencies,
 )
 app.add_middleware(
     CORSMiddleware,
@@ -103,6 +104,15 @@ app.include_router(client.router)
 app.include_router(dimensions.router)
 app.include_router(graphql_app, prefix="/graphql")
 app.include_router(whoami.router)
+
+
+@app.middleware("http")
+async def add_process_time_header(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    process_time = time.time() - start_time
+    response.headers["X-Process-Time"] = str(process_time)
+    return response
 
 
 @app.exception_handler(DJException)
