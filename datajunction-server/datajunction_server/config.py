@@ -98,10 +98,3 @@ class Settings(
             password=parsed.password,
             db=parsed.path.strip("/"),
         )
-
-
-    def validate_access(self, access_control: AccessControl)->bool: 
-        """
-        Determine whether a request from a user is allowed.
-        """
-        return True

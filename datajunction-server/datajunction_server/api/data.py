@@ -44,6 +44,7 @@ from datajunction_server.utils import (
     get_settings,
 )
 from datajunction_server.models import access
+from datajunction_server.models.access import validate_access
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["data"])
@@ -139,6 +140,7 @@ def get_data(  # pylint: disable=too-many-locals
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
+    validate_access: Callable[[access.AccessControl], bool] = Depends(validate_access)
 ) -> QueryWithResults:
     """
     Gets data for a node
@@ -146,9 +148,8 @@ def get_data(  # pylint: disable=too-many-locals
 
     node = get_node_by_name(session, node_name)
     access_control = access.AccessControl(
-        state=access.AccessControlState.IMMEDIATE,
-        user = current_user,
-        immediate_requests = []
+        _validate_access = validate_access,
+        _user = current_user,
         )
     
     available_engines = node.current.catalog.engines
