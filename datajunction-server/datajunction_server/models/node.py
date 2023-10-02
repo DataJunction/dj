@@ -41,6 +41,7 @@ from datajunction_server.utils import SEPARATOR, Version, amenable_name
 
 DEFAULT_DRAFT_VERSION = Version(major=0, minor=1)
 DEFAULT_PUBLISHED_VERSION = Version(major=1, minor=0)
+MIN_VALID_THROUGH_TS = -sys.maxsize - 1
 
 
 @dataclass(frozen=True)
@@ -285,7 +286,7 @@ class AvailabilityNode(TemporalPartitionRange):
     """A node in the availability trie tracker"""
 
     children: Dict = {}
-    valid_through_ts: Optional[int] = Field(default=-sys.maxsize - 1)
+    valid_through_ts: Optional[int] = Field(default=MIN_VALID_THROUGH_TS)
 
     def merge_temporal(self, other: "AvailabilityNode"):
         """
@@ -430,20 +431,19 @@ class AvailabilityStateBase(TemporalPartitionRange):
             else partition
             for partition in self.partitions + other.partitions  # type: ignore
         ]
+        min_range = [
+            x for x in (self.min_temporal_partition, other.min_temporal_partition) if x
+        ]
+        max_range = [
+            x for x in (self.max_temporal_partition, other.max_temporal_partition) if x
+        ]
         top_level_partition = PartitionAvailability(
             value=[None for _ in other.categorical_partitions]
             if other.categorical_partitions
             else [],
-            min_temporal_partition=min(
-                x
-                for x in (self.min_temporal_partition, other.min_temporal_partition)
-                if x
-            ),
-            max_temporal_partition=max(
-                x
-                for x in (self.max_temporal_partition, other.max_temporal_partition)
-                if x
-            ),
+            min_temporal_partition=min(min_range) if min_range else None,
+            max_temporal_partition=max(max_range) if max_range else None,
+            valid_through_ts=max(self.valid_through_ts, other.valid_through_ts),
         )
         all_partitions += [top_level_partition]
 
@@ -472,6 +472,12 @@ class AvailabilityStateBase(TemporalPartitionRange):
                 top_level_partition.max_temporal_partition
                 or merged_top_level[0].max_temporal_partition
             )
+            self.valid_through_ts = (
+                top_level_partition.valid_through_ts
+                or merged_top_level[0].valid_through_ts
+                or MIN_VALID_THROUGH_TS
+            )
+
         return self
 
 

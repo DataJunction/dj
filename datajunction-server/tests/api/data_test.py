@@ -1260,7 +1260,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
         node_dict = large_revenue_payments_only.current.availability.dict()
         node_dict.pop("updated_at")
         assert node_dict == {
-            "valid_through_ts": 20221231,
+            "valid_through_ts": 20230101,
             "catalog": "default",
             "min_temporal_partition": ["2022", "01", "01"],
             "table": "large_pmts",

@@ -57,7 +57,7 @@ def add_availability_state(
     current_user: Optional[User] = Depends(get_current_user),
 ) -> JSONResponse:
     """
-    Add an availability state to a node
+    Add an availability state to a node.
     """
     node = get_node_by_name(session, node_name)
 
@@ -66,8 +66,8 @@ def add_availability_state(
     if node.current.type == NodeType.SOURCE:
         if (
             data.catalog != node_revision.catalog.name
-            or node_revision.schema_ != data.schema_
-            or node_revision.table != data.table
+            or data.schema_ != node_revision.schema_
+            or data.table != node_revision.table
         ):
             raise DJException(
                 message=(
