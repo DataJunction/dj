@@ -66,8 +66,8 @@ def test_get_djsql_data_only_nested_metrics(
     (
         SELECT
         default.avg_repair_price avg_repair_price,
-        default.hard_hat.country,
-        default.hard_hat.city
+        default.hard_hat.country country,
+        default.hard_hat.city city
         FROM
         metrics
         GROUP BY
