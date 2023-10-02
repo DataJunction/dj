@@ -49,6 +49,10 @@ class ResourceRequest(BaseModel):
             return ResourceObjectKind.NAMESPACE
         return ResourceObjectKind.NODE
 
+    def __str__(self)->str:
+        obj_str = self.access_object if self.object_kind==ResourceObjectKind.NAMESPACE else self.access_object.name
+        return f"{self.verb}:{self.object_kind}/{obj_str}"
+
 class AccessControlState(Enum):
     """
     State values used by the ACS function to track when 
@@ -90,7 +94,7 @@ class AccessControl(BaseModel):
     @property
     def requests(self)->Set[ResourceRequest]:
         return self._immediate_requests|self._intermediate_requests
-        
+
     @property
     def validation_request_count(self) -> int:
         return self._validation_request_count
