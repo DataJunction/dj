@@ -47,7 +47,6 @@ def get_authorize_url(
         prompt="consent",
         state=state,
     )
-    print(state)
     return authorization_url
 
 
