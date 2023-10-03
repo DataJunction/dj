@@ -4365,3 +4365,12 @@ def test_list_dimension_attributes(client_with_roads: TestClient) -> None:
         {"name": "default.regional_level_agg.state_name", "path": [], "type": "string"},
         {"name": "default.regional_level_agg.us_region_id", "path": [], "type": "int"},
     ]
+def test_update_column_display_name(self, client_with_roads: TestClient):
+    """
+    Test that updating a column display name works.
+    """
+    response = client_with_roads.patch(
+            "/nodes/default.repair_orders/columns/repair_order_id",
+            json={"display_name": "test"},
+        )
+    assert response.ok
