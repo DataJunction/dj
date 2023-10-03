@@ -12,7 +12,7 @@ export const DataJunctionAPI = {
   },
 
   logout: async function () {
-    await await fetch(`${DJ_URL}/basic/logout/`, {
+    await await fetch(`${DJ_URL}/logout/`, {
       credentials: 'include',
       method: 'POST',
     });
