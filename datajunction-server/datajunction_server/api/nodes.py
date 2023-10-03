@@ -387,7 +387,6 @@ def create_node(
         name=data.name,
         namespace=data.namespace,
         type=NodeType(node_type),
-        display_name = data.display_name,
         current_version=0,
     )
     node_revision = create_node_revision(data, node_type, session)
@@ -917,18 +916,14 @@ def column_lineage(
         return node.current.lineage  # type: ignore
     return get_column_level_lineage(session, node.current)  # pragma: no cover
 
-@router.patch(
-    "/nodes/{node_name}/columns/{column_name}/",
-    response_model= ColumnOutput,
-    status_code=201,
-)
+
 def set_column_display_name(
     node_name: str,
     column_name: str,
     display_name: str,
     current_user: Optional[User] = Depends(get_current_user),
     *,
-    session: Session = Depends(get_session)
+    session: Session = Depends(get_session),
 ) -> ColumnOutput:
     """
     Set column name for the node
@@ -944,7 +939,7 @@ def set_column_display_name(
             activity_type=ActivityType.UPDATE,
             details={
                 "column": column.name,
-                "display_name" : display_name,
+                "display_name": display_name,
             },
             user=current_user.username if current_user else None,
         ),

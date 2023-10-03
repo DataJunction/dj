@@ -49,6 +49,7 @@ class EntityType(str, Enum):
     TAG = "tag"
     DISPLAY_NAME = "display_name"
 
+
 class History(SQLModel, table=True):  # type: ignore
     """
     An event to store as part of the server's activity history
