@@ -1117,29 +1117,34 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "message": "The node `default.repair_orders` has been completely removed.",
             "impact": [
                 {
-                    "name": "default.repair_order",
-                    "status": "invalid",
-                    "effect": "downstream node is now invalid",
+                    "name": "default.repair_order_details",
+                    "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "downstream node is now invalid",
-                    "name": "default.regional_level_agg",
-                    "status": "invalid",
+                    "name": "default.avg_repair_price",
+                    "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "effect": "downstream node is now invalid",
-                    "name": "default.regional_repair_efficiency",
-                    "status": "invalid",
+                    "name": "default.total_repair_cost",
+                    "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "name": "default.num_repair_orders",
-                    "status": "invalid",
-                    "effect": "downstream node is now invalid",
+                    "name": "default.discounted_orders_rate",
+                    "status": "valid",
+                    "effect": "broken link",
                 },
                 {
-                    "name": "default.avg_time_to_dispatch",
-                    "status": "invalid",
-                    "effect": "downstream node is now invalid",
+                    "name": "default.total_repair_order_discounts",
+                    "status": "valid",
+                    "effect": "broken link",
+                },
+                {
+                    "name": "default.avg_repair_order_discounts",
+                    "status": "valid",
+                    "effect": "broken link",
                 },
             ],
         }
@@ -3217,7 +3222,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         """
         Test validating a valid node
         """
-        response = client_with_account_revenue.post(
+        response = client_with_account_revenue.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3252,7 +3257,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating an invalid node
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3280,7 +3285,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating an invalid node with invalid SQL
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3317,7 +3322,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating a node with a query that has missing parents
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3360,7 +3365,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating a draft node that's allowed to have missing parents
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -3404,7 +3409,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         Test validating a source node which is not possible
         """
 
-        response = client.post(
+        response = client.get(
             "/nodes/validate/",
             json={
                 "name": "foo",
@@ -4374,3 +4379,19 @@ def test_update_column_display_name(self, client_with_roads: TestClient):
             json={"display_name": "test"},
         )
     assert response.ok
+    assert response.json() == [
+        {
+            "name": "us_region_id",
+            "display_name": "test",
+            "type": "int",
+            "attributes": [
+                {
+                    "attribute_type": {
+                        "namespace": "system",
+                        "name": "primary_key"
+                    }
+                }
+            ],
+            "dimension": null
+        }
+    ]
