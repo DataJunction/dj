@@ -387,6 +387,7 @@ def create_node(
         name=data.name,
         namespace=data.namespace,
         type=NodeType(node_type),
+        display_name = data.display_name,
         current_version=0,
     )
     node_revision = create_node_revision(data, node_type, session)
@@ -915,3 +916,41 @@ def column_lineage(
     if node.current.lineage:
         return node.current.lineage  # type: ignore
     return get_column_level_lineage(session, node.current)  # pragma: no cover
+
+@router.patch(
+    "/nodes/{node_name}/columns/{column_name}/",
+    response_model= ColumnOutput,
+    status_code=201,
+)
+def set_column_display_name(
+    node_name: str,
+    column_name: str,
+    display_name: str,
+    current_user: Optional[User] = Depends(get_current_user),
+    *,
+    session: Session = Depends(get_session)
+) -> ColumnOutput:
+    """
+    Set column name for the node
+    """
+    node = get_node_by_name(session, node_name)
+    column = get_column(node.current, column_name)
+    column.display_name = display_name
+    session.add(column)
+    session.add(
+        History(
+            entity_type=EntityType.DISPLAY_NAME,
+            node=node.name,
+            activity_type=ActivityType.UPDATE,
+            details={
+                "column": column.name,
+                "display_name" : display_name,
+            },
+            user=current_user.username if current_user else None,
+        ),
+    )
+    session.commit()
+    session.refresh(column)
+    session.refresh(node)
+    session.refresh(node.current)
+    return column
