@@ -946,6 +946,7 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
 def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-locals
     session: Session,
     query: str,
+    access_control: access.AccessControl,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
@@ -953,9 +954,14 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
     Build SQL for multiple metrics. Used by /djsql endpoints
     """
 
-    query_ast, metrics = build_dj_query(session, query)
+    query_ast, dj_nodes = build_dj_query(session, query)
 
-    leading_metric_node = metrics[0]
+    for node in dj_nodes:
+        access_control.add_request_by_node(node.current)
+
+    access_control.validate_and_raise()
+        
+    leading_metric_node = dj_nodes[0]
     available_engines = leading_metric_node.current.catalog.engines
 
     # Check if selected engine is available
@@ -975,6 +981,7 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
         for col in query_ast.select.projection
     ]
+
     return (
         TranslatedSQL(
             sql=str(query_ast),

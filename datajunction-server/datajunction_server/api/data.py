@@ -57,14 +57,22 @@ def add_availability_state(
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(validate_access)
 ) -> JSONResponse:
     """
     Add an availability state to a node
     """
     node = get_node_by_name(session, node_name)
-
+    access_control = access.AccessControl(
+        validate_access = validate_access,
+        user = current_user,
+    )
+    
     # Source nodes require that any availability states set are for one of the defined tables
     node_revision = node.current
+    access_control.add_request_by_node(access.ResourceRequestVerb.WRITE, node_revision)
+    access_control.validate_and_raise()
+
     if node.current.type == NodeType.SOURCE:
         if (
             data.catalog != node_revision.catalog.name
@@ -140,17 +148,13 @@ def get_data(  # pylint: disable=too-many-locals
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: Callable[[access.AccessControl], Set[access.ResourceRequest]] = Depends(validate_access)
+    validate_access: access.ValidateAccessFn = Depends(validate_access)
 ) -> QueryWithResults:
     """
     Gets data for a node
     """
 
     node = get_node_by_name(session, node_name)
-    access_control = access.AccessControl(
-        validate_access = validate_access,
-        user = current_user,
-        )
     
     available_engines = node.current.catalog.engines
     engine = (
@@ -164,6 +168,12 @@ def get_data(  # pylint: disable=too-many-locals
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
     validate_orderby(orderby, [node_name], dimensions)
+
+    access_control = access.AccessControl(
+        validate_access = validate_access,
+        user = current_user,
+    )
+
     query_ast = get_query(
         session=session,
         node_name=node_name,
@@ -174,10 +184,12 @@ def get_data(  # pylint: disable=too-many-locals
         engine=engine,
         access_control=access_control,
     )
+
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
         for col in query_ast.select.projection
     ]
+
     query = TranslatedSQL(
         sql=str(query_ast),
         columns=columns,

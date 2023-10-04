@@ -2,7 +2,7 @@
 Dimensions related APIs.
 """
 import logging
-from typing import List, Optional, Union
+from typing import List, Optional, Union, Set
 
 from fastapi import Depends, Query
 from sqlmodel import Session
@@ -17,6 +17,15 @@ from datajunction_server.sql.dag import (
     get_nodes_with_dimension,
 )
 from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import (
+    get_current_user,
+    get_query_service_client,
+    get_session,
+    get_settings,
+)
+from datajunction_server.models import History, User
+from datajunction_server.models import access
+from datajunction_server.models.access import validate_access
 
 settings = get_settings()
 _logger = logging.getLogger(__name__)
@@ -39,13 +48,25 @@ def find_nodes_with_dimension(
     *,
     node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(validate_access)
 ) -> List[NodeRevisionOutput]:
     """
     List all nodes that have the specified dimension
     """
     dimension_node = get_node_by_name(session, name)
     nodes = get_nodes_with_dimension(session, dimension_node, node_type)
-    return nodes
+
+    access_control = access.AccessControl(
+        validate_access = validate_access,
+        user = current_user,
+    )
+    for node in nodes:
+        access_control.add_request_by_node(node)
+
+    validation_results = access_control.validate()
+
+    return [request.resource_object for request in validation_results if request.approved]
 
 
 @router.get("/dimensions/common/", response_model=List[NodeRevisionOutput])
@@ -54,6 +75,8 @@ def find_nodes_with_common_dimensions(
     node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
     *,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(validate_access)
 ) -> List[NodeRevisionOutput]:
     """
     Find all nodes that have the list of common dimensions
@@ -63,4 +86,14 @@ def find_nodes_with_common_dimensions(
         [get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
     )
-    return nodes
+    access_control = access.AccessControl(
+        validate_access = validate_access,
+        user = current_user,
+    )
+    for node in nodes:
+        access_control.add_request_by_node(node)
+
+    validation_results = access_control.validate()
+
+    return [request.resource_object for request in validation_results if request.approved]
+

@@ -388,7 +388,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 projection_addition[col.identifier(False)] = col
 
-                if access_control: access_control._add_request_by_node_name(session, access.AccessVerb.READ, col.namespace.identifier(False))
+                if access_control: access_control.add_request_by_node_name(session, access.AccessVerb.READ, col.namespace.identifier(False))
 
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
@@ -404,7 +404,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 if not dimensions:
                     projection_addition[col.identifier(False)] = col
-                if access_control: access_control._add_request_by_node_name(session, access.AccessVerb.READ, col.namespace.identifier(False))
+                if access_control: access_control.add_request_by_node_name(session, access.AccessVerb.READ, col.namespace.identifier(False))
 
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
@@ -420,7 +420,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 temp_query.select.organization.order  # type:ignore
             )
             for col in temp_query.find_all(ast.Column):
-                if access_control: access_control._add_request_by_node_name(session, access.AccessVerb.READ, col.namespace.identifier(False))
+                if access_control: access_control.add_request_by_node_name(session, access.AccessVerb.READ, col.namespace.identifier(False))
 
     # add all used dimension columns to the projection without duplicates
     projection_update = []
@@ -557,7 +557,7 @@ def build_node(  # pylint: disable=too-many-arguments
     built_ast = build_ast(session, query, memoized_queries, build_criteria)
     if access_control:
         for tbl in build_ast.filter(lambda ast_node: isinstance(ast_node, ast.Table) and ast_node.dj_node is not None):
-            access_control._add_request_by_node(session, access.AccessVerb.READ, tbl.dj_node)
+            access_control.add_request_by_node(access.AccessVerb.READ, tbl.dj_node)
         access_control.validate_and_raise()
     _logger.info("Finished build_ast on %s", node.name)
     return built_ast

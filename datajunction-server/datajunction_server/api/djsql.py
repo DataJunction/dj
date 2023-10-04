@@ -17,6 +17,15 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
+from datajunction_server.models import access
+from datajunction_server.models.access import validate_access
+from datajunction_server.utils import (
+    get_current_user,
+    get_query_service_client,
+    get_session,
+    get_settings,
+)
+from datajunction_server.models import History, User
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["DJSQL"])
@@ -31,13 +40,20 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(validate_access)
 ) -> QueryWithResults:
     """
     Return data for a DJ SQL query
     """
+    access_control = access.AccessControl(
+        validate_access = validate_access,
+        user = current_user,
+    )
     translated_sql, engine, catalog = build_sql_for_dj_query(
         session,
         query,
+        access_control,
         engine_name,
         engine_version,
     )
@@ -68,13 +84,20 @@ async def get_data_stream_for_djsql(  # pragma: no cover
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(validate_access)
 ) -> QueryWithResults:  # pragma: no cover
     """
     Return data for a DJ SQL query using server side events
     """
+    access_control = access.AccessControl(
+        validate_access = validate_access,
+        user = current_user,
+    )
     translated_sql, engine, catalog = build_sql_for_dj_query(
         session,
         query,
+        access_control,
         engine_name,
         engine_version,
     )
@@ -86,6 +109,7 @@ async def get_data_stream_for_djsql(  # pragma: no cover
         submitted_query=translated_sql.sql,
         async_=True,
     )
+
     # Submits the query, equivalent to calling POST /data/ directly
     initial_query_info = query_service_client.submit_query(query_create)
     return EventSourceResponse(
