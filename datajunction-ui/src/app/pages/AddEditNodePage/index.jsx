@@ -33,6 +33,7 @@ export function AddEditNodePage() {
   const action = name !== undefined ? Action.Edit : Action.Add;
 
   const [namespaces, setNamespaces] = useState([]);
+  const [tags, setTags] = useState([]);
 
   const initialValues = {
     name: action === Action.Edit ? name : '',
@@ -134,6 +135,9 @@ export function AddEditNodePage() {
       values.mode,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
     );
+    for (const tag of values.tags) {
+      await djClient.tagNode(values.name, tag);
+    }
     if (status === 200 || status === 201) {
       setStatus({
         success: (
@@ -166,6 +170,22 @@ export function AddEditNodePage() {
     </div>
   );
 
+  const tagsInput = (
+    <div
+      className="TagsInput"
+      style={{ width: '25%', margin: '1rem 0 1rem 1.2rem' }}
+    >
+      <ErrorMessage name="tags" component="span" />
+      <label htmlFor="react-select-3-input">Tags</label>
+      <FormikSelect
+        isMulti={true}
+        selectOptions={tags}
+        formikFieldName="tags"
+        placeholder="Choose Tags"
+      />
+    </div>
+  );
+
   const fullNameInput = (
     <div className="FullNameInput NodeCreationInput">
       <ErrorMessage name="name" component="span" />
@@ -186,6 +206,7 @@ export function AddEditNodePage() {
       'description',
       'primary_key',
       'mode',
+      'tags',
     ];
     fields.forEach(field => {
       if (
@@ -195,7 +216,18 @@ export function AddEditNodePage() {
       ) {
         data[field] = data[field].join(', ');
       }
-      setFieldValue(field, data[field] || '', false);
+      if (
+        field === 'tags' &&
+        data[field] !== undefined &&
+        Array.isArray(data[field])
+      ) {
+        setFieldValue(
+          field,
+          data[field].map(val => val.name),
+        );
+      } else {
+        setFieldValue(field, data[field] || '', false);
+      }
     });
   };
 
@@ -223,6 +255,20 @@ export function AddEditNodePage() {
       fetchData().catch(console.error);
     }
   }, [action, djClient, djClient.metrics]);
+
+  // Get list of tags
+  useEffect(() => {
+    const fetchData = async () => {
+      const tags = await djClient.listTags();
+      setTags(
+        tags.map(tag => ({
+          value: tag.name,
+          label: tag.name,
+        })),
+      );
+    };
+    fetchData().catch(console.error);
+  }, [djClient, djClient.listTags]);
 
   return (
     <div className="mid">
@@ -317,6 +363,7 @@ export function AddEditNodePage() {
                             placeholder="Comma-separated list of PKs"
                           />
                         </div>
+                        {tagsInput}
                         <div className="NodeModeInput NodeCreationInput">
                           <ErrorMessage name="mode" component="span" />
                           <label htmlFor="Mode">Mode</label>

@@ -993,3 +993,14 @@ pre {
 .deleteNode {
   display: inline-block;
 }
+
+.tag_value {
+  color: #5c3b8f;
+  background-color: #5c3b8f25;
+  margin: 0.25rem;
+  font-size: 100%;
+}
+
+.tag_value:hover {
+  background-color: #5c3b8f50;
+}

@@ -230,7 +230,15 @@ class TestTags:
         response_data = response.json()
         assert len(response_data) == 1
         assert response_data == [
-            "default.items_sold_count",
+            {
+                "display_name": "Default: Items Sold Count",
+                "mode": "published",
+                "name": "default.items_sold_count",
+                "status": "valid",
+                "type": "metric",
+                "updated_at": mock.ANY,
+                "version": "v1.0",
+            },
         ]
 
         # Tag a second node
@@ -259,8 +267,24 @@ class TestTags:
         response_data = response.json()
         assert len(response_data) == 2
         assert response_data == [
-            "default.items_sold_count",
-            "default.total_profit",
+            {
+                "display_name": "Default: Items Sold Count",
+                "mode": "published",
+                "name": "default.items_sold_count",
+                "status": "valid",
+                "type": "metric",
+                "updated_at": mock.ANY,
+                "version": "v1.0",
+            },
+            {
+                "display_name": "Default: Total Profit",
+                "mode": "published",
+                "name": "default.total_profit",
+                "status": "valid",
+                "type": "metric",
+                "updated_at": mock.ANY,
+                "version": "v1.0",
+            },
         ]
 
         # Check finding nodes for tag

@@ -12,7 +12,7 @@ from datajunction_server.errors import DJException
 from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node import NodeMinimumDetail, NodeType
 from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
@@ -126,13 +126,13 @@ def update_a_tag(
     return tag
 
 
-@router.get("/tags/{name}/nodes/", response_model=List[str])
+@router.get("/tags/{name}/nodes/", response_model=List[NodeMinimumDetail])
 def list_nodes_for_a_tag(
     name: str,
     node_type: Optional[NodeType] = None,
     *,
     session: Session = Depends(get_session),
-) -> List[str]:
+) -> List[NodeMinimumDetail]:
     """
     Find nodes tagged with the tag, filterable by node type.
     """
@@ -144,5 +144,8 @@ def list_nodes_for_a_tag(
             http_status_code=404,
         )
     if not node_type:
-        return sorted([node.name for node in tag.nodes])
-    return sorted([node.name for node in tag.nodes if node.type == node_type])
+        return sorted([node.current for node in tag.nodes], key=lambda x: x.name)
+    return sorted(
+        [node.current for node in tag.nodes if node.type == node_type],
+        key=lambda x: x.name,
+    )
