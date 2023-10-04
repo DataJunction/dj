@@ -308,7 +308,7 @@ describe('<NodePage />', () => {
       ).toBeInTheDocument();
 
       expect(screen.getByRole('dialog', { name: 'Tags' })).toHaveTextContent(
-        'purpose',
+        'Purpose',
       );
 
       expect(

@@ -15,7 +15,7 @@ export default function NodeInfoTab({ node }) {
   const [checked, setChecked] = useState(false);
   const nodeTags = node?.tags.map(tag => (
     <div className={'badge tag_value'}>
-      <a href={`/tags/${tag.name}`}>{tag.name}</a>
+      <a href={`/tags/${tag.name}`}>{tag.display_name}</a>
     </div>
   ));
   const djClient = useContext(DJClientContext).DataJunctionAPI;
