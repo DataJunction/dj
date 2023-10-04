@@ -1,5 +1,5 @@
 """
-Models for users and auth
+Models for authorization
 """
 from enum import Enum
 from typing import Union, List, Set, Callable, Optional
