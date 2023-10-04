@@ -497,4 +497,47 @@ export const DataJunctionAPI = {
     });
     return { status: response.status, json: await response.json() };
   },
+  listTags: async function () {
+    const response = await fetch(`${DJ_URL}/tags`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return await response.json();
+  },
+  getTag: async function (tagName) {
+    const response = await fetch(`${DJ_URL}/tags/${tagName}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return await response.json();
+  },
+  listNodesForTag: async function (tagName) {
+    const response = await fetch(`${DJ_URL}/tags/${tagName}/nodes`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return await response.json();
+  },
+  tagNode: async function (nodeName, tagName) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/tag?tag_name=${tagName}`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
 };

@@ -12,7 +12,6 @@ export default class Tab extends Component {
               className="nav-link"
               tabIndex="0"
               onClick={onClick}
-              role="button"
               aria-label={this.props.name}
               aria-hidden="false"
             >
