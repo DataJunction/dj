@@ -125,6 +125,9 @@ class AccessControlStore(BaseModel):
             )
 
     def raise_if_invalid_requests(self):
+        """
+        Raises if validate has ever given any invalid requests
+        """
         if self.invalid_requests:
             message = f"Authorization of User `{self.user.username}` for this request failed."
             f"\nThe following requests were denied:\n{self.invalid_requests}."
@@ -138,7 +141,10 @@ class AccessControlStore(BaseModel):
                 ],
             )
 
-    def validate(self):
+    def validate(self)->Set[ResourceRequest]:
+        """
+        Checks with ACS and stores any returned invalid requests        
+        """
         self.validation_request_count += 1
         access_control = AccessControl(
             state=self.state,
@@ -148,9 +154,14 @@ class AccessControlStore(BaseModel):
             },
             validation_request_count=self.validation_request_count,
         )
-        self.invalid_requests|=self.validate_access(access_control)
+        invalid_requests = self.validate_access(access_control)
+        self.invalid_requests|=invalid_requests
+        return invalid_requests
 
     def validate_and_raise(self):
+        """
+        Validates with ACS and raises if any resources were denied    
+        """
         self.validate()
         self.raise_if_invalid_requests()
 
