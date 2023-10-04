@@ -100,13 +100,14 @@ class TestTags:
             json={
                 "description": "Helpful sales metrics",
                 "tag_metadata": {"order": 1},
+                "display_name": "Sales Metrics",
             },
         )
         assert response.status_code == 200
         response_data = response.json()
         assert response_data == {
             "tag_metadata": {"order": 1},
-            "display_name": "Sales Report",
+            "display_name": "Sales Metrics",
             "id": 1,
             "description": "Helpful sales metrics",
             "name": "sales_report",
@@ -120,7 +121,7 @@ class TestTags:
         )
         assert response.json() == {
             "tag_metadata": {"order": 1},
-            "display_name": "Sales Report",
+            "display_name": "Sales Metrics",
             "id": 1,
             "description": "Helpful sales metrics",
             "name": "sales_report",

@@ -128,6 +128,8 @@ def update_a_tag(
         tag.description = data.description
     if data.tag_metadata:
         tag.tag_metadata = data.tag_metadata
+    if data.display_name:
+        tag.display_name = data.display_name
     session.add(tag)
     session.add(
         History(

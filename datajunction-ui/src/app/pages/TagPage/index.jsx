@@ -37,6 +37,10 @@ export function TagPage() {
           </h3>
           <div>
             <div style={{ marginBottom: '1.5rem' }}>
+              <h6 className="mb-0 w-100">Display Name</h6>
+              <p className="mb-0 opacity-75">{tag.display_name}</p>
+            </div>
+            <div style={{ marginBottom: '1.5rem' }}>
               <h6 className="mb-0 w-100">Name</h6>
               <p className="mb-0 opacity-75">{name}</p>
             </div>

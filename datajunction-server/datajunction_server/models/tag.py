@@ -20,6 +20,13 @@ class MutableTagFields(BaseSQLModel):
     """
 
     description: str
+    display_name: Optional[str] = Field(
+        sa_column=SqlaColumn(
+            "display_name",
+            String,
+            default=generate_display_name("name"),
+        ),
+    )
     tag_metadata: Dict[str, Any] = Field(default={}, sa_column=SqlaColumn(JSON))
 
     class Config:  # pylint: disable=too-few-public-methods
@@ -36,13 +43,6 @@ class ImmutableTagFields(BaseSQLModel):
     """
 
     name: str = Field(sa_column=SqlaColumn("name", String, unique=True))
-    display_name: Optional[str] = Field(
-        sa_column=SqlaColumn(
-            "display_name",
-            String,
-            default=generate_display_name("name"),
-        ),
-    )
     tag_type: str
 
 
