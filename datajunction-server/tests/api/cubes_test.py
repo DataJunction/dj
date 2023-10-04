@@ -1146,21 +1146,23 @@ def assert_updated_repairs_cube(data):
     Asserts that the updated repairs cube has the right cube elements and default materialization
     """
     assert sorted(data["cube_elements"], key=lambda x: x["name"]) == [
-    {
-        'attributes': [],
-        'dimension': None,
-        'display_name': 'Default Dot Discounted Orders Rate',
-        'name': 'default_DOT_discounted_orders_rate',
-        'type': 'double'
-    },
-    {
-        'attributes': [{'attribute_type': {'name': 'dimension', 'namespace': 'system'}}],
-        'dimension': None,
-        'display_name': 'Default Dot Hard Hat Dot City',
-        'name': 'default_DOT_hard_hat_DOT_city',
-        'type': 'string'
-    },
-]
+        {
+            "attributes": [],
+            "dimension": None,
+            "display_name": "Default Dot Discounted Orders Rate",
+            "name": "default_DOT_discounted_orders_rate",
+            "type": "double",
+        },
+        {
+            "attributes": [
+                {"attribute_type": {"name": "dimension", "namespace": "system"}},
+            ],
+            "dimension": None,
+            "display_name": "Default Dot Hard Hat Dot City",
+            "name": "default_DOT_hard_hat_DOT_city",
+            "type": "string",
+        },
+    ]
 
     assert data["materializations"][0]["config"]["dimensions"] == [
         "default_DOT_hard_hat_DOT_city",

@@ -917,6 +917,11 @@ def column_lineage(
     return get_column_level_lineage(session, node.current)  # pragma: no cover
 
 
+@router.patch(
+    "/nodes/{node_name}/columns/{column_name}/",
+    response_model=ColumnOutput,
+    status_code=201,
+)
 def set_column_display_name(
     node_name: str,
     column_name: str,
