@@ -12,6 +12,7 @@ import { NodePage } from './pages/NodePage/Loadable';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
 import { TagPage } from './pages/TagPage/Loadable';
 import { AddEditNodePage } from './pages/AddEditNodePage/Loadable';
+import { AddEditTagPage } from './pages/AddEditTagPage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterTablePage } from './pages/RegisterTablePage';
@@ -61,6 +62,11 @@ export function App() {
                           key="namespaces"
                         />
                       </Route>
+                      <Route
+                        path="create/tag"
+                        key="createtag"
+                        element={<AddEditTagPage />}
+                      ></Route>
                       <Route
                         path="create/source"
                         key="register"

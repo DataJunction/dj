@@ -451,6 +451,12 @@ tbody th {
   background-color: #dbafff !important;
   color: #580076;
 }
+
+.entity__tag {
+  font-family: 'Jost';
+  background-color: #afd4ff !important;
+  color: #002176;
+}
 .react-flow__node .node_type__cube {
   background-color: #c2180750 !important;
   color: #c2180750;

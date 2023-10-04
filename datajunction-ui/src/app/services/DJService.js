@@ -540,4 +540,39 @@ export const DataJunctionAPI = {
     });
     return { status: response.status, json: await response.json() };
   },
+  addTag: async function (name, displayName, tagType, description) {
+    const response = await fetch(`${DJ_URL}/tags`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: name,
+        display_name: displayName,
+        tag_type: tagType,
+        description: description,
+      }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+  editTag: async function (name, description, displayName) {
+    const updates = {};
+    if (description) {
+      updates.description = description;
+    }
+    if (displayName) {
+      updates.display_name = displayName;
+    }
+
+    const response = await fetch(`${DJ_URL}/tags/${name}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
 };
