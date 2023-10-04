@@ -43,7 +43,7 @@ from datajunction_server.api import (
 from datajunction_server.api.attributes import default_attribute_types
 from datajunction_server.api.authentication import whoami
 from datajunction_server.api.graphql.main import graphql_app
-from datajunction_server.constants import DJ_AUTH_COOKIE, DJ_LOGGED_IN_FLAG_COOKIE
+from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJException
 from datajunction_server.models.catalog import Catalog
 from datajunction_server.models.column import Column
@@ -121,8 +121,8 @@ async def dj_exception_handler(  # pylint: disable=unused-argument
     )
     # If unauthorized, clear out any DJ cookies
     if exc.http_status_code == HTTPStatus.UNAUTHORIZED:
-        response.delete_cookie(DJ_AUTH_COOKIE, httponly=True)
-        response.delete_cookie(DJ_LOGGED_IN_FLAG_COOKIE)
+        response.delete_cookie(AUTH_COOKIE, httponly=True)
+        response.delete_cookie(LOGGED_IN_FLAG_COOKIE)
     return response
 
 
@@ -143,3 +143,16 @@ if all(
     from datajunction_server.api.authentication import github
 
     app.include_router(github.router)
+
+# Only mount google auth router if a google oauth is configured
+if all(
+    [
+        settings.secret,
+        settings.google_oauth_client_id,
+        settings.google_oauth_client_secret,
+        settings.google_oauth_client_secret_file,
+    ],
+):  # pragma: no cover
+    from datajunction_server.api.authentication import google
+
+    app.include_router(google.router)

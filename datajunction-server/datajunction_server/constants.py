@@ -16,5 +16,5 @@ DEFAULT_DIMENSION_COLUMN = "id"
 QUERY_EXECUTE_TIMEOUT = timedelta(seconds=60)
 GET_COLUMNS_TIMEOUT = timedelta(seconds=60)
 
-DJ_AUTH_COOKIE = "__dj"
-DJ_LOGGED_IN_FLAG_COOKIE = "__djlif"
+AUTH_COOKIE = "__dj"
+LOGGED_IN_FLAG_COOKIE = "__djlif"

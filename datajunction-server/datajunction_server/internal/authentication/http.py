@@ -12,7 +12,7 @@ from jose.exceptions import JWEError, JWTError
 from sqlmodel import Session
 from starlette.requests import Request
 
-from datajunction_server.constants import DJ_AUTH_COOKIE
+from datajunction_server.constants import AUTH_COOKIE
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.authentication.basic import get_user
 from datajunction_server.internal.authentication.tokens import decode_token
@@ -30,7 +30,7 @@ class DJHTTPBearer(HTTPBearer):  # pylint: disable=too-few-public-methods
         session: Session = Depends(get_session),
     ) -> None:
         # First check for a JWT sent in a cookie
-        jwt = request.cookies.get(DJ_AUTH_COOKIE)
+        jwt = request.cookies.get(AUTH_COOKIE)
         if jwt:
             try:
                 jwt_data = await decode_token(jwt)

@@ -6,6 +6,8 @@ omit =
     */datajunction_server/sql/parsing/backends/grammar/generated/*
     */datajunction_server/sql/parsing/backends/antlr4.py
     */datajunction_server/sql/parsing/ast.py
+    */datajunction_server/internal/authentication/google.py
+    */datajunction_server/api/authentication/google.py
 
 [paths]
 source =
