@@ -80,7 +80,14 @@ export default function NodeMaterializationTab({ node, djClient }) {
                     ) : null}
                   </div>
                 </div>
-              ) : null,
+              ) : (
+                <span
+                  className={`badge partition_value_highlight`}
+                  style={{ fontSize: '100%' }}
+                >
+                  {partition.name}
+                </span>
+              ),
             )
           ) : (
             <br />
@@ -101,7 +108,6 @@ export default function NodeMaterializationTab({ node, djClient }) {
             </div>
           ))}
         </td>
-        {/*<td>{Object.keys(materialization.config.spark).map(key => <li className={`list-group-item`}>{key}: {materialization.config.spark[key]}</li>)}</td>*/}
 
         <td>
           {materialization.config.partitions ? (
@@ -137,38 +143,112 @@ export default function NodeMaterializationTab({ node, djClient }) {
     ));
   };
   return (
-    <div className="table-responsive">
-      {materializations.length > 0 ? (
-        <table
-          className="card-inner-table table"
-          aria-label="Materializations"
-          aria-hidden="false"
-        >
-          <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
-            <tr>
-              <th className="text-start">Name</th>
-              <th>Schedule</th>
-              <th>Engine</th>
-              <th>Partitions</th>
-              <th>Output Tables</th>
-              <th>Backfills</th>
-              <th>URLs</th>
-            </tr>
-          </thead>
-          <tbody>
-            {materializationRows(
-              materializations.filter(
-                materialization =>
-                  !(materialization.name === 'default' && node.type === 'cube'),
-              ),
-            )}
-          </tbody>
-        </table>
-      ) : (
-        <div className="message alert" style={{ marginTop: '10px' }}>
-          No materializations available for this node
+    <>
+      <div className="table-vertical">
+        <div>
+          <h2>Workflows</h2>
+          {materializations.length > 0 ? (
+            <table
+              className="card-inner-table table"
+              aria-label="Materializations"
+              aria-hidden="false"
+            >
+              <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+                <tr>
+                  <th className="text-start">Name</th>
+                  <th>Schedule</th>
+                  <th>Engine</th>
+                  <th>Partitions</th>
+                  <th>Output Tables</th>
+                  <th>Backfills</th>
+                  <th>URLs</th>
+                </tr>
+              </thead>
+              <tbody>
+                {materializationRows(
+                  materializations.filter(
+                    materialization =>
+                      !(
+                        materialization.name === 'default' &&
+                        node.type === 'cube'
+                      ),
+                  ),
+                )}
+              </tbody>
+            </table>
+          ) : (
+            <div className="message alert" style={{ marginTop: '10px' }}>
+              No materialization workflows configured for this node.
+            </div>
+          )}
         </div>
-      )}
-    </div>
+        <div>
+          <h2>Materialized Datasets</h2>
+          {node && node.availability !== null ? (
+            <table
+              className="card-inner-table table"
+              aria-label="Availability"
+              aria-hidden="false"
+            >
+              <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
+                <tr>
+                  <th className="text-start">Catalog</th>
+                  <th>Schema</th>
+                  <th>Table</th>
+                  <th>Valid Through</th>
+                  <th>Partitions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>{node.availability.schema_}</td>
+                  <td>
+                    {
+                      <div
+                        className={`table__full`}
+                        key={node.availability.table}
+                      >
+                        <div className="table__header">
+                          <TableIcon />{' '}
+                          <span className={`entity-info`}>
+                            {node.availability.catalog +
+                              '.' +
+                              node.availability.schema_}
+                          </span>
+                        </div>
+                        <div className={`table__body upstream_tables`}>
+                          <a href={node.availability.url}>
+                            {node.availability.table}
+                          </a>
+                        </div>
+                      </div>
+                    }
+                  </td>
+                  <td>{node.availability.valid_through_ts}</td>
+                  <td>
+                    <span
+                      className={`badge partition_value`}
+                      style={{ fontSize: '100%' }}
+                    >
+                      <span className={`badge partition_value_highlight`}>
+                        {node.availability.min_temporal_partition}
+                      </span>
+                      to
+                      <span className={`badge partition_value_highlight`}>
+                        {node.availability.max_temporal_partition}
+                      </span>
+                    </span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          ) : (
+            <div className="message alert" style={{ marginTop: '10px' }}>
+              No materialized datasets available for this node.
+            </div>
+          )}
+        </div>
+      </div>
+    </>
   );
 }

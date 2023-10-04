@@ -384,6 +384,7 @@ class AvailabilityStateBase(TemporalPartitionRange):
     schema_: Optional[str] = Field(default=None)
     table: str
     valid_through_ts: int
+    url: Optional[str]
 
     # An ordered list of categorical partitions like ["country", "group_id"]
     # or ["region_id", "age_group"]

@@ -175,6 +175,7 @@ def test_merging_availability_simple_no_partitions() -> None:
         "partitions": [],
         "id": None,
         "updated_at": mock.ANY,
+        "url": None,
     }
 
 
@@ -218,6 +219,7 @@ def test_merging_availability_complex_no_partitions() -> None:
         "partitions": [],
         "id": 903836919789355000,
         "updated_at": mock.ANY,
+        "url": None,
     }
 
 
@@ -301,4 +303,5 @@ def test_merging_availability_complex_with_partitions() -> None:
         ],
         "id": 903836919789355000,
         "updated_at": mock.ANY,
+        "url": None,
     }
