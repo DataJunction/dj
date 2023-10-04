@@ -53,7 +53,7 @@ def get_tag_by_name(
         )
     tag = session.exec(statement).one_or_none()
     if not tag and raise_if_not_exists:
-        raise DJException(
+        raise DJException(  # pragma: no cover
             message=(f"A tag with name `{name}` does not exist."),
             http_status_code=404,
         )

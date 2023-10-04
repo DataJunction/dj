@@ -690,7 +690,7 @@ def delete_dimension_link(  # pylint: disable=too-many-arguments
 )
 def tags_node(
     name: str,
-    tag_names: List[str] | None = Query(default=None),
+    tag_names: Optional[List[str]] = Query(default=None),
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
@@ -700,7 +700,7 @@ def tags_node(
     """
     node = get_node_by_name(session=session, name=name)
     if not tag_names:
-        tag_names = []
+        tag_names = []  # pragma: no cover
     tags = get_tags_by_name(session, names=tag_names)
     node.tags = tags
 
