@@ -1,0 +1,58 @@
+name: Publish new versions of all DJ Services and Clients.
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - datajunction-server/datajunction_server/__about__.py
+      - datajunction-query/djqs/__about__.py
+      - datajunction-server/datajunction_server/__about__.py
+      - datajunction-ui/package.json
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10']
+    runs-on: 'ubuntu-latest'
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Hatch
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatch
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+
+      - name: Publish to PYPI
+        run: |
+          echo "Publish DJ Server ..."
+          cd datajunction-server
+          hatch build
+          hatch publish
+
+          echo "Publish DJ Client ..."
+          cd ../datajunction-clients/python
+          hatch build
+          hatch publish
+        env:
+          HATCH_INDEX_USER: __token__
+          HATCH_INDEX_AUTH: ${{ secrets.PYPI_TOKEN }}          
+
+      - name: Publish to NPM
+        run: |
+          echo "Publish DJ UI ..."
+          cd ./datajunction-ui
+          npm publish
