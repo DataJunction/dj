@@ -393,6 +393,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                 "valid_through_ts": 20230125,
                 "max_temporal_partition": ["2023", "01", "25"],
                 "min_temporal_partition": ["2022", "01", "01"],
+                "url": "http://some.catalog.com/default.accounting.pmts",
             },
         )
         data = response.json()
@@ -427,9 +428,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
+                    "url": "http://some.catalog.com/default.accounting.pmts",
                 },
                 "pre": {},
-                "user": "dj",
+                "user": None,
             },
         ]
 
@@ -450,6 +452,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "id": 1,
             "categorical_partitions": [],
             "temporal_partitions": [],
+            "url": "http://some.catalog.com/default.accounting.pmts",
         }
 
     def test_availability_catalog_mismatch(
@@ -560,9 +563,10 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
+                    "url": None,
                 },
                 "pre": {},
-                "user": "dj",
+                "user": None,
             },
             {
                 "activity_type": "create",
@@ -582,6 +586,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
+                    "url": None,
                 },
                 "pre": {
                     "catalog": "default",
@@ -593,8 +598,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
+                    "url": None,
                 },
-                "user": "dj",
+                "user": None,
             },
             {
                 "activity_type": "create",
@@ -614,6 +620,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "table": "new_payments_table",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
+                    "url": None,
                 },
                 "pre": {
                     "catalog": "default",
@@ -625,8 +632,9 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "table": "pmts",
                     "temporal_partitions": [],
                     "valid_through_ts": 20230125,
+                    "url": None,
                 },
-                "user": "dj",
+                "user": None,
             },
         ]
 
@@ -647,6 +655,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "id": 3,
             "categorical_partitions": [],
             "temporal_partitions": [],
+            "url": None,
         }
 
     def test_that_update_at_timestamp_is_being_updated(
@@ -788,6 +797,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "id": 2,
             "categorical_partitions": [],
             "temporal_partitions": [],
+            "url": None,
         }
 
     @pytest.fixture
@@ -858,6 +868,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "table": "local_hard_hats",
             "updated_at": mock.ANY,
             "valid_through_ts": 20230101,
+            "url": None,
         }
 
     def test_set_node_level_availability_wider_time_range(
@@ -904,6 +915,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "table": "local_hard_hats",
             "updated_at": mock.ANY,
             "valid_through_ts": 20230101,
+            "url": None,
         }
 
     def test_set_node_level_availability_smaller_time_range(
@@ -1237,6 +1249,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "schema_": "accounting",
             "partitions": [],
             "id": 2,
+            "url": None,
         }
 
     def test_moving_back_valid_through_ts(
@@ -1299,6 +1312,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "id": 2,
             "categorical_partitions": [],
             "temporal_partitions": [],
+            "url": None,
         }
 
     def test_setting_availablity_state_on_a_source_node(
@@ -1342,6 +1356,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
             "id": 1,
             "categorical_partitions": [],
             "temporal_partitions": [],
+            "url": None,
         }
 
     def test_raise_on_setting_invalid_availability_state_on_a_source_node(
