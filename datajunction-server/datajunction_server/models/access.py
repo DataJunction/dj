@@ -176,7 +176,7 @@ class AccessControl(BaseModel):
     requests: Set[ResourceRequest]
     validation_request_count: int
 
-
+# Dummy default if not dependency injected
 def validate_access(access_control: AccessControl) -> Set[ResourceRequest]:
     """
     Return a set of denied ResourceRequests.
