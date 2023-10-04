@@ -21,7 +21,7 @@ import { CookiesProvider, useCookies } from 'react-cookie';
 import * as Constants from './constants';
 
 export function App() {
-  const [cookies] = useCookies([Constants.DJ_LOGGED_IN_FLAG_COOKIE]);
+  const [cookies] = useCookies([Constants.LOGGED_IN_FLAG_COOKIE]);
   return (
     <CookiesProvider>
       <BrowserRouter>

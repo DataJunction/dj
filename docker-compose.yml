@@ -19,6 +19,7 @@ services:
       - OTEL_EXPORTER_OTLP_ENDPOINT=http://jaeger:4317
       - OTEL_RESOURCE_ATTRIBUTES=service.name=datajunction.server
       - DOTENV_FILE=${DOTENV_FILE:-/code/.env}
+      - OAUTHLIB_INSECURE_TRANSPORT=1
     build:
       context: ./datajunction-server
       args:
