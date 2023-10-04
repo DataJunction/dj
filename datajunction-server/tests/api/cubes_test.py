@@ -1146,13 +1146,22 @@ def assert_updated_repairs_cube(data):
     Asserts that the updated repairs cube has the right cube elements and default materialization
     """
     assert sorted(data["cube_elements"], key=lambda x: x["name"]) == [
-        {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
-        {
-            "name": "default_DOT_discounted_orders_rate",
-            "node_name": "default.discounted_orders_rate",
-            "type": "metric",
-        },
-    ]
+    {
+        'attributes': [],
+        'dimension': None,
+        'display_name': 'Default Dot Discounted Orders Rate',
+        'name': 'default_DOT_discounted_orders_rate',
+        'type': 'double'
+    },
+    {
+        'attributes': [{'attribute_type': {'name': 'dimension', 'namespace': 'system'}}],
+        'dimension': None,
+        'display_name': 'Default Dot Hard Hat Dot City',
+        'name': 'default_DOT_hard_hat_DOT_city',
+        'type': 'string'
+    },
+]
+
     assert data["materializations"][0]["config"]["dimensions"] == [
         "default_DOT_hard_hat_DOT_city",
     ]
@@ -1219,6 +1228,7 @@ def test_updating_cube(
             {
                 "attributes": [],
                 "dimension": None,
+                "display_name": "Default Dot Discounted Orders Rate",
                 "name": "default_DOT_discounted_orders_rate",
                 "type": "double",
             },
@@ -1227,6 +1237,7 @@ def test_updating_cube(
                     {"attribute_type": {"name": "dimension", "namespace": "system"}},
                 ],
                 "dimension": None,
+                "display_name": "Default Dot Hard Hat Dot City",
                 "name": "default_DOT_hard_hat_DOT_city",
                 "type": "string",
             },
