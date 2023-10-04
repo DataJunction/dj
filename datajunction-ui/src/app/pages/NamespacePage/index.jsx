@@ -145,6 +145,11 @@ export function NamespacePage() {
                       Dimension
                     </div>
                   </a>
+                  <a href={`/create/tag`}>
+                    <div className="entity__tag node_type_creation_heading">
+                      Tag
+                    </div>
+                  </a>
                 </div>
               </div>
             </span>

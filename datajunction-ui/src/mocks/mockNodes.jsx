@@ -1394,4 +1394,20 @@ export const mocks = {
       display_name: 'Default: Num Repair Orders',
     },
   ],
+  tags: [
+    {
+      description: 'Financial-related reports',
+      display_name: 'Financial Reports',
+      tag_metadata: {},
+      name: 'report.financials',
+      tag_type: 'reports',
+    },
+    {
+      description: 'Forecasting reports',
+      display_name: 'Forecasting Reports',
+      tag_metadata: {},
+      name: 'reports.forecasts',
+      tag_type: 'reports',
+    },
+  ],
 };
