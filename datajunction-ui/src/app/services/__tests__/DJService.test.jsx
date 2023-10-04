@@ -28,7 +28,7 @@ describe('DataJunctionAPI', () => {
   it('calls logout correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify({}));
     await DataJunctionAPI.logout();
-    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/basic/logout/`, {
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/logout/`, {
       credentials: 'include',
       method: 'POST',
     });

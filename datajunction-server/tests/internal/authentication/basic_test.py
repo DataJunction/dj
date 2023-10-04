@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session
 
-from datajunction_server.constants import DJ_AUTH_COOKIE
+from datajunction_server.constants import AUTH_COOKIE
 from datajunction_server.errors import DJException
 from datajunction_server.internal.authentication import basic
 
@@ -17,14 +17,14 @@ def test_login_with_username_and_password(client: TestClient):
     client.post("/basic/user/", data={"username": "dj", "password": "dj"})
     response = client.post("/basic/login/", data={"username": "dj", "password": "dj"})
     assert response.ok
-    assert response.cookies.get(DJ_AUTH_COOKIE)
+    assert response.cookies.get(AUTH_COOKIE)
 
 
 def test_logout(client: TestClient):
     """
     Test validating logging out
     """
-    client.post("/basic/logout/")
+    client.post("/logout/")
 
 
 def test_hash_and_verify_password():
