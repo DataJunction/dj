@@ -549,7 +549,7 @@ def build_node(  # pylint: disable=too-many-arguments
         access_control=access_control
     )
     if access_control: 
-        access_control.validate()
+        access_control.validate_and_raise()
         access_control.state=access.AccessControlState.INTERMEDIATE
 
     memoized_queries: Dict[int, ast.Query] = {}
@@ -558,7 +558,7 @@ def build_node(  # pylint: disable=too-many-arguments
     if access_control:
         for tbl in build_ast.filter(lambda ast_node: isinstance(ast_node, ast.Table) and ast_node.dj_node is not None):
             access_control._add_request_by_node(session, access.AccessVerb.READ, tbl.dj_node)
-        access_control.validate()
+        access_control.validate_and_raise()
     _logger.info("Finished build_ast on %s", node.name)
     return built_ast
 

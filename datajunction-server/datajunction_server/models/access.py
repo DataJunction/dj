@@ -101,15 +101,16 @@ class AccessControlStore(BaseModel):
     immediate_requests: Set[ResourceRequest] = Field(default_factory=set)
     intermediate_requests: Set[ResourceRequest] = Field(default_factory=set)
     validation_request_count: int = 0
+    invalid_requests = Set[ResourceRequest] = Field(default_factory=set)
 
     def add_request_by_node_name(
         self, session: Session, verb: ResourceRequestVerb, node_name: str
     ):
         node = get_dj_node(session, node_name, current=True)
         if self.state == AccessControlState.IMMEDIATE:
-            self._immediate_requests.add(ResourceRequest(verb=verb, access_object=node))
+            self.immediate_requests.add(ResourceRequest(verb=verb, access_object=node))
         else:
-            self._intermediate_requests.add(
+            self.intermediate_requests.add(
                 ResourceRequest(verb=verb, access_object=node)
             )
 
@@ -117,10 +118,24 @@ class AccessControlStore(BaseModel):
         self, session: Session, verb: ResourceRequestVerb, node: NodeRevision
     ):
         if self.state == AccessControlState.IMMEDIATE:
-            self._immediate_requests.add(ResourceRequest(verb=verb, access_object=node))
+            self.immediate_requests.add(ResourceRequest(verb=verb, access_object=node))
         else:
-            self._intermediate_requests.add(
+            self.intermediate_requests.add(
                 ResourceRequest(verb=verb, access_object=node)
+            )
+
+    def raise_if_invalid_requests(self):
+        if self.invalid_requests:
+            message = f"Authorization of User `{self.user.username}` for this request failed."
+            f"\nThe following requests were denied:\n{self.invalid_requests}."
+            raise DJException(
+                http_status_code=HTTPStatus.FORBIDDEN,
+                errors=[
+                    DJError(
+                        code=ErrorCode.UNAUTHORIZED_ACCESS,
+                        message=message,
+                    ),
+                ],
             )
 
     def validate(self):
@@ -133,26 +148,11 @@ class AccessControlStore(BaseModel):
             },
             validation_request_count=self.validation_request_count,
         )
-        valid = False
-        message = (
-            f"Authorization of User `{self.user.username}` for this request failed."
-        )
-        try:
-            invalid_requests = ", ".join(str(rr) for rr in self.validate_access(access_control))
-            message+=f"\nThe following requests were denied:\n{invalid_requests}."
-        except TypeError as exc:
-           pass
+        self.invalid_requests|=self.validate_access(access_control)
 
-        if not valid:
-            raise DJException(
-                http_status_code=HTTPStatus.FORBIDDEN,
-                errors=[
-                    DJError(
-                        code=ErrorCode.UNAUTHORIZED_ACCESS,
-                        message=message,
-                    ),
-                ],
-            )
+    def validate_and_raise(self):
+        self.validate()
+        self.raise_if_invalid_requests()
 
 
 class AccessControl(BaseModel):
