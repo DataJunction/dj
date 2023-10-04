@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import fetchMock from 'jest-fetch-mock';
 import userEvent from '@testing-library/user-event';
 import {
@@ -24,9 +24,19 @@ describe('AddEditNodePage submission succeeded', () => {
   it('for creating a node', async () => {
     const mockDjClient = initializeMockDJClient();
     mockDjClient.DataJunctionAPI.createNode.mockReturnValue({
-      status: 500,
-      json: { message: 'Some columns in the primary key [] were not found' },
+      status: 200,
+      json: { name: 'default.some_test_metric' },
     });
+
+    mockDjClient.DataJunctionAPI.tagsNode.mockReturnValue({
+      status: 200,
+      json: { message: 'Success' },
+    });
+
+    mockDjClient.DataJunctionAPI.listTags.mockReturnValue([
+      { name: 'purpose', display_name: 'Purpose' },
+      { name: 'intent', display_name: 'Intent' },
+    ]);
 
     const element = testElement(mockDjClient);
     const { container } = renderCreateNode(element);
@@ -50,13 +60,18 @@ describe('AddEditNodePage submission succeeded', () => {
         'default',
         null,
       );
-      expect(
-        screen.getByText(/Some columns in the primary key \[] were not found/),
-      ).toBeInTheDocument();
+      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalled();
+      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
+        'default.some_test_metric',
+        undefined,
+      );
+      expect(screen.getByText(/default.some_test_metric/)).toBeInTheDocument();
     });
 
-    // After failed creation, it should return a failure message
-    expect(container.getElementsByClassName('alert')).toMatchSnapshot();
+    // After successful creation, it should return a success message
+    expect(screen.getByTestId('success')).toHaveTextContent(
+      'Successfully created node default.some_test_metric',
+    );
   }, 60000);
 
   it('for editing a node', async () => {
@@ -69,12 +84,26 @@ describe('AddEditNodePage submission succeeded', () => {
       json: { name: 'default.num_repair_orders', type: 'metric' },
     });
 
+    mockDjClient.DataJunctionAPI.tagsNode.mockReturnValue({
+      status: 200,
+      json: { message: 'Success' },
+    });
+
+    mockDjClient.DataJunctionAPI.listTags.mockReturnValue([
+      { name: 'purpose', display_name: 'Purpose' },
+      { name: 'intent', display_name: 'Intent' },
+    ]);
+
     const element = testElement(mockDjClient);
-    renderEditNode(element);
+    const { getByTestId } = renderEditNode(element);
 
     await userEvent.type(screen.getByLabelText('Display Name'), '!!!');
     await userEvent.type(screen.getByLabelText('Description'), '!!!');
     await userEvent.click(screen.getByText('Save'));
+
+    const selectTags = getByTestId('select-tags');
+    await fireEvent.keyDown(selectTags.firstChild, { key: 'ArrowDown' });
+    await fireEvent.click(screen.getByText('Purpose'));
 
     await waitFor(async () => {
       expect(mockDjClient.DataJunctionAPI.patchNode).toBeCalledTimes(1);
@@ -86,6 +115,12 @@ describe('AddEditNodePage submission succeeded', () => {
         'published',
         ['repair_order_id', 'country'],
       );
+      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
+      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
+        'default.num_repair_orders',
+        [{ display_name: 'Purpose', name: 'purpose' }],
+      );
+
       expect(
         await screen.getByDisplayValue('repair_order_id, country'),
       ).toBeInTheDocument();

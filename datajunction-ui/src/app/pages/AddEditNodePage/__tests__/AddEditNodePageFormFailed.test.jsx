@@ -1,5 +1,5 @@
 import React from 'react';
-import { screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import fetchMock from 'jest-fetch-mock';
 import userEvent from '@testing-library/user-event';
 import {
@@ -23,6 +23,10 @@ describe('AddEditNodePage submission failed', () => {
       status: 500,
       json: { message: 'Some columns in the primary key [] were not found' },
     });
+    mockDjClient.DataJunctionAPI.listTags.mockReturnValue([
+      { name: 'purpose', display_name: 'Purpose' },
+      { name: 'intent', display_name: 'Intent' },
+    ]);
 
     const element = testElement(mockDjClient);
     const { container } = renderCreateNode(element);
@@ -63,6 +67,16 @@ describe('AddEditNodePage submission failed', () => {
       json: { message: 'Update failed' },
     });
 
+    mockDjClient.DataJunctionAPI.tagsNode.mockReturnValue({
+      status: 404,
+      json: { message: 'Some tags were not found' },
+    });
+
+    mockDjClient.DataJunctionAPI.listTags.mockReturnValue([
+      { name: 'purpose', display_name: 'Purpose' },
+      { name: 'intent', display_name: 'Intent' },
+    ]);
+
     const element = testElement(mockDjClient);
     renderEditNode(element);
 
@@ -71,7 +85,19 @@ describe('AddEditNodePage submission failed', () => {
     await userEvent.click(screen.getByText('Save'));
     await waitFor(async () => {
       expect(mockDjClient.DataJunctionAPI.patchNode).toBeCalledTimes(1);
-      expect(await screen.getByText('Update failed')).toBeInTheDocument();
+      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalled();
+      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
+        'default.num_repair_orders',
+        [{ display_name: 'Purpose', name: 'purpose' }],
+      );
+      expect(mockDjClient.DataJunctionAPI.tagsNode).toReturnWith({
+        json: { message: 'Some tags were not found' },
+        status: 404,
+      });
+
+      expect(
+        await screen.getByText('Update failed, Some tags were not found'),
+      ).toBeInTheDocument();
     });
   }, 60000);
 });
