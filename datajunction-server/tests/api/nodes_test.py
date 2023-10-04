@@ -257,7 +257,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             },
         )
         assert response.json()["columns"] == [
-            {"attributes": [], "dimension": None, "display_name":"Title Code", "name": "title_code", "type": "int"},
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Title Code",
+                "name": "title_code",
+                "type": "int",
+            },
             {
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
@@ -1255,16 +1261,34 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["schema_"] == "basic"
         assert data["table"] == "comments"
         assert data["columns"] == [
-            {"name": "id", "type": "int", "display_name" : "Id", "attributes": [], "dimension": None},
-            {"name": "user_id", "type": "int", "display_name" : "User Id", "attributes": [], "dimension": None},
             {
-                "name": "timestamp",
-                "type": "timestamp",
-                "display_name" : "Timestamp",
+                "name": "id",
+                "type": "int",
+                "display_name": "Id",
                 "attributes": [],
                 "dimension": None,
             },
-            {"name": "text", "type": "string", "display_name" : "Text", "attributes": [], "dimension": None},
+            {
+                "name": "user_id",
+                "type": "int",
+                "display_name": "User Id",
+                "attributes": [],
+                "dimension": None,
+            },
+            {
+                "name": "timestamp",
+                "type": "timestamp",
+                "display_name": "Timestamp",
+                "attributes": [],
+                "dimension": None,
+            },
+            {
+                "name": "text",
+                "type": "string",
+                "display_name": "Text",
+                "attributes": [],
+                "dimension": None,
+            },
         ]
         assert response.status_code == 201
 
@@ -1284,46 +1308,62 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         # Columns have changed, so the new node revision should be bumped to a new
         # version with an additional `ratings` column. Existing dimension links remain
         new_columns = [
-            {'attributes': [],
-             'dimension': {'name': 'default.repair_order'},
-             'display_name': 'Repair Order Id',
-             'name': 'repair_order_id',
-             'type': 'int'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Municipality Id',
-             'name': 'municipality_id',
-             'type': 'string'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Hard Hat Id',
-             'name': 'hard_hat_id',
-             'type': 'int'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Order Date',
-             'name': 'order_date',
-             'type': 'timestamp'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Required Date',
-             'name': 'required_date',
-             'type': 'timestamp'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Dispatched Date',
-             'name': 'dispatched_date',
-             'type': 'timestamp'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Dispatcher Id',
-             'name': 'dispatcher_id',
-             'type': 'int'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Rating',
-             'name': 'rating',
-             'type': 'int'},
+            {
+                "attributes": [],
+                "dimension": {"name": "default.repair_order"},
+                "display_name": "Repair Order Id",
+                "name": "repair_order_id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Municipality Id",
+                "name": "municipality_id",
+                "type": "string",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Hard Hat Id",
+                "name": "hard_hat_id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Order Date",
+                "name": "order_date",
+                "type": "timestamp",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Required Date",
+                "name": "required_date",
+                "type": "timestamp",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Dispatched Date",
+                "name": "dispatched_date",
+                "type": "timestamp",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Dispatcher Id",
+                "name": "dispatcher_id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Rating",
+                "name": "rating",
+                "type": "int",
+            },
         ]
 
         assert data["version"] == "v2.0"
@@ -1427,28 +1467,35 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         assert data["version"] == "v2.0"
         assert data["columns"] == [
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Id',
-             'name': 'id',
-             'type': 'int'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'User Id',
-             'name': 'user_id',
-             'type': 'int'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Timestamp',
-             'name': 'timestamp',
-             'type': 'timestamp'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Text V2',
-             'name': 'text_v2',
-             'type': 'string'},
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Id",
+                "name": "id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "User Id",
+                "name": "user_id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Timestamp",
+                "name": "timestamp",
+                "type": "timestamp",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Text V2",
+                "name": "text_v2",
+                "type": "string",
+            },
         ]
-
 
     def test_update_nonexistent_node(
         self,
@@ -1615,16 +1662,20 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         assert data["status"] == "valid"
         assert data["columns"] == [
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Country',
-             'name': 'country',
-             'type': 'string'},
-            {'attributes': [],
-             'dimension': None,
-             'display_name': 'Num Users',
-             'name': 'num_users',
-             'type': 'bigint'},
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Country",
+                "name": "country",
+                "type": "string",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Num Users",
+                "name": "num_users",
+                "type": "bigint",
+            },
         ]
 
         assert data["parents"] == [{"name": "basic.source.users"}]
@@ -1678,25 +1729,25 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         assert data["columns"] == [
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Country',
-                'name': 'country',
-                'type': 'string'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Country",
+                "name": "country",
+                "type": "string",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Num Users',
-                'name': 'num_users',
-                'type': 'bigint'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Num Users",
+                "name": "num_users",
+                "type": "bigint",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Num Entries',
-                'name': 'num_entries',
-                'type': 'bigint'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Num Entries",
+                "name": "num_entries",
+                "type": "bigint",
             },
         ]
 
@@ -1718,63 +1769,62 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "FROM basic.source.users",
         }
         assert {rev["version"]: rev["columns"] for rev in data} == {
-            'v1.0': [
+            "v1.0": [
                 {
-                    'attributes': [],
-                    'dimension': None,
-                    'display_name': 'Country',
-                    'name': 'country',
-                    'type': 'string'
+                    "attributes": [],
+                    "dimension": None,
+                    "display_name": "Country",
+                    "name": "country",
+                    "type": "string",
                 },
                 {
-                    'attributes': [],
-                    'dimension': None,
-                    'display_name': 'Num Users',
-                    'name': 'num_users',
-                    'type': 'bigint'
-                }
+                    "attributes": [],
+                    "dimension": None,
+                    "display_name": "Num Users",
+                    "name": "num_users",
+                    "type": "bigint",
+                },
             ],
-            'v1.1': [
+            "v1.1": [
                 {
-                    'attributes': [],
-                    'dimension': None,
-                    'display_name': 'Country',
-                    'name': 'country',
-                    'type': 'string'
+                    "attributes": [],
+                    "dimension": None,
+                    "display_name": "Country",
+                    "name": "country",
+                    "type": "string",
                 },
                 {
-                    'attributes': [],
-                    'dimension': None,
-                    'display_name': 'Num Users',
-                    'name': 'num_users',
-                    'type': 'bigint'
-                }
+                    "attributes": [],
+                    "dimension": None,
+                    "display_name": "Num Users",
+                    "name": "num_users",
+                    "type": "bigint",
+                },
             ],
-            'v2.0': [
+            "v2.0": [
                 {
-                    'attributes': [],
-                    'dimension': None,
-                    'display_name': 'Country',
-                    'name': 'country',
-                    'type': 'string'
+                    "attributes": [],
+                    "dimension": None,
+                    "display_name": "Country",
+                    "name": "country",
+                    "type": "string",
                 },
                 {
-                    'attributes': [],
-                    'dimension': None,
-                    'display_name': 'Num Users',
-                    'name': 'num_users',
-                    'type': 'bigint'
+                    "attributes": [],
+                    "dimension": None,
+                    "display_name": "Num Users",
+                    "name": "num_users",
+                    "type": "bigint",
                 },
                 {
-                    'attributes': [],
-                    'dimension': None,
-                    'display_name': 'Num Entries',
-                    'name': 'num_entries',
-                    'type': 'bigint'
-                }
+                    "attributes": [],
+                    "dimension": None,
+                    "display_name": "Num Entries",
+                    "name": "num_entries",
+                    "type": "bigint",
+                },
             ],
         }
-
 
     def test_update_metric_node(self, client_with_roads: TestClient):
         """
@@ -1876,21 +1926,22 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         assert data["columns"] == [
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'Country',
-                'name': 'country',
-                'type': 'string'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Country",
+                "name": "country",
+                "type": "string",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'User Cnt',
-                'name': 'user_cnt',
-                'type': 'bigint'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "User Cnt",
+                "name": "user_cnt",
+                "type": "bigint",
             },
         ]
-
 
         # Test updating the dimension node with a new query
         response = client.patch(
@@ -1904,14 +1955,15 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         # The columns should have been updated
         assert data["columns"] == [
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'Country',
-                'name': 'country',
-                'type': 'string'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Country",
+                "name": "country",
+                "type": "string",
             },
         ]
-
 
         # Test updating the dimension node with a new primary key
         response = client.patch(
@@ -1927,29 +1979,29 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         assert data["version"] == "v3.0"
         assert data["columns"] == [
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Country',
-                'name': 'country',
-                'type': 'string'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Country",
+                "name": "country",
+                "type": "string",
             },
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'Sum Age',
-                'name': 'sum_age',
-                'type': 'bigint'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Sum Age",
+                "name": "sum_age",
+                "type": "bigint",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Num Users',
-                'name': 'num_users',
-                'type': 'bigint'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Num Users",
+                "name": "num_users",
+                "type": "bigint",
             },
         ]
-
-
 
         response = client.patch(
             "/nodes/default.countries/",
@@ -1959,7 +2011,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         data = response.json()
         assert data["columns"] == [
-            {"attributes": [], "dimension": None, "display_name": "Sum Age", "name": "sum_age", "type": "bigint"},
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Sum Age",
+                "name": "sum_age",
+                "type": "bigint",
+            },
             {
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
@@ -2029,21 +2087,22 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         assert data["columns"] == [
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'Country',
-                'name': 'country',
-                'type': 'string'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Country",
+                "name": "country",
+                "type": "string",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'User Cnt',
-                'name': 'user_cnt',
-                'type': 'bigint'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "User Cnt",
+                "name": "user_cnt",
+                "type": "bigint",
             },
         ]
-
 
         response = client.patch(
             "/nodes/default.countries/",
@@ -2172,7 +2231,7 @@ GROUP BY
             "avg_repair_amount_in_region: double, "
             "avg_dispatch_delay: double, unique_contractors: "
             "bigint>",
-            "display_name" : "Measures"
+            "display_name": "Measures",
         } in response.json()["columns"]
 
         client_with_roads.post(
@@ -3030,7 +3089,7 @@ class TestNodeColumnsAttributes:
             {
                 "name": "id",
                 "type": "int",
-                "display_name" : "Id",
+                "display_name": "Id",
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
@@ -3066,7 +3125,7 @@ class TestNodeColumnsAttributes:
             {
                 "name": "id",
                 "type": "int",
-                "display_name" : "Id",
+                "display_name": "Id",
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
@@ -3088,7 +3147,7 @@ class TestNodeColumnsAttributes:
             {
                 "name": "created_at",
                 "type": "timestamp",
-                "display_name" : "Created At",
+                "display_name": "Created At",
                 "attributes": [
                     {
                         "attribute_type": {
@@ -3111,7 +3170,7 @@ class TestNodeColumnsAttributes:
             {
                 "name": "id",
                 "type": "int",
-                "display_name" : "Id",
+                "display_name": "Id",
                 "attributes": [],
                 "dimension": None,
             },
@@ -3187,7 +3246,7 @@ class TestNodeColumnsAttributes:
             {
                 "name": "user_id",
                 "type": "int",
-                "display_name" : "User Id",
+                "display_name": "User Id",
                 "attributes": [
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
@@ -3232,14 +3291,14 @@ class TestNodeColumnsAttributes:
             {
                 "name": "id",
                 "type": "int",
-                "display_name" : "Id",
+                "display_name": "Id",
                 "attributes": [],
                 "dimension": None,
             },
             {
                 "name": "user_id",
                 "type": "int",
-                "display_name" : "User Id",
+                "display_name": "User Id",
                 "attributes": [
                     {"attribute_type": {"namespace": "system", "name": "primary_key"}},
                 ],
@@ -3248,29 +3307,35 @@ class TestNodeColumnsAttributes:
             {
                 "name": "timestamp",
                 "type": "timestamp",
-                "display_name" : "Timestamp",
+                "display_name": "Timestamp",
                 "attributes": [],
                 "dimension": None,
             },
-            {"name": "text", "type": "string", "display_name" : "Text", "attributes": [], "dimension": None},
+            {
+                "name": "text",
+                "type": "string",
+                "display_name": "Text",
+                "attributes": [],
+                "dimension": None,
+            },
             {
                 "name": "event_timestamp",
                 "type": "timestamp",
-                "display_name" : "Event Timestamp",
+                "display_name": "Event Timestamp",
                 "attributes": [],
                 "dimension": None,
             },
             {
                 "name": "created_at",
                 "type": "timestamp",
-                "display_name" : "Created At",
+                "display_name": "Created At",
                 "attributes": [],
                 "dimension": None,
             },
             {
                 "name": "post_processing_timestamp",
                 "type": "timestamp",
-                "display_name" : "Post Processing Timestamp",
+                "display_name": "Post Processing Timestamp",
                 "attributes": [],
                 "dimension": None,
             },
@@ -3634,28 +3699,29 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_roads.get("/nodes/default.hard_hat").json()
         assert response["columns"] == [
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'Hard Hat Id',
-                'name': 'hard_hat_id',
-                'type': 'int'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Hard Hat Id",
+                "name": "hard_hat_id",
+                "type": "int",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Title',
-                'name': 'title',
-                'type': 'string'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Title",
+                "name": "title",
+                "type": "string",
             },
             {
-                'attributes': [],
-                'dimension': {'name': 'default.us_state'},
-                'display_name': 'State',
-                'name': 'state',
-                'type': 'string'
+                "attributes": [],
+                "dimension": {"name": "default.us_state"},
+                "display_name": "State",
+                "name": "state",
+                "type": "string",
             },
         ]
-
 
         # Check history of the node with column attribute set
         response = client_with_roads.get(
@@ -3879,91 +3945,100 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         response = client_with_roads.get("/nodes/default.regional_level_agg/").json()
         assert response["columns"] == [
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'Us Region Id',
-                'name': 'us_region_id',
-                'type': 'int'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Us Region Id",
+                "name": "us_region_id",
+                "type": "int",
             },
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'State Name',
-                'name': 'state_name',
-                'type': 'string'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "State Name",
+                "name": "state_name",
+                "type": "string",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Location Hierarchy',
-                'name': 'location_hierarchy',
-                'type': 'string'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Location Hierarchy",
+                "name": "location_hierarchy",
+                "type": "string",
             },
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'Order Year',
-                'name': 'order_year',
-                'type': 'int'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Order Year",
+                "name": "order_year",
+                "type": "int",
             },
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'Order Month',
-                'name': 'order_month',
-                'type': 'int'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Order Month",
+                "name": "order_month",
+                "type": "int",
             },
             {
-                'attributes': [{'attribute_type': {'name': 'primary_key', 'namespace': 'system'}}],
-                'dimension': None,
-                'display_name': 'Order Day',
-                'name': 'order_day',
-                'type': 'int'
+                "attributes": [
+                    {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Order Day",
+                "name": "order_day",
+                "type": "int",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Completed Repairs',
-                'name': 'completed_repairs',
-                'type': 'bigint'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Completed Repairs",
+                "name": "completed_repairs",
+                "type": "bigint",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Total Repairs Dispatched',
-                'name': 'total_repairs_dispatched',
-                'type': 'bigint'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Total Repairs Dispatched",
+                "name": "total_repairs_dispatched",
+                "type": "bigint",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Total Amount In Region',
-                'name': 'total_amount_in_region',
-                'type': 'double'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Total Amount In Region",
+                "name": "total_amount_in_region",
+                "type": "double",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Avg Repair Amount In Region',
-                'name': 'avg_repair_amount_in_region',
-                'type': 'double'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Avg Repair Amount In Region",
+                "name": "avg_repair_amount_in_region",
+                "type": "double",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Avg Dispatch Delay',
-                'name': 'avg_dispatch_delay',
-                'type': 'double'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Avg Dispatch Delay",
+                "name": "avg_dispatch_delay",
+                "type": "double",
             },
             {
-                'attributes': [],
-                'dimension': None,
-                'display_name': 'Unique Contractors',
-                'name': 'unique_contractors',
-                'type': 'bigint'
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Unique Contractors",
+                "name": "unique_contractors",
+                "type": "bigint",
             },
         ]
-
 
         response = client_with_roads.get(
             "/nodes/default.regional_repair_efficiency/",
@@ -4449,14 +4524,15 @@ def test_list_dimension_attributes(client_with_roads: TestClient) -> None:
         {"name": "default.regional_level_agg.us_region_id", "path": [], "type": "int"},
     ]
 
+
 def test_update_column_display_name(self, client_with_roads: TestClient):
     """
     Test that updating a column display name works.
     """
     response = client_with_roads.patch(
-            "/nodes/default.repair_orders/columns/repair_order_id",
-            json={"display_name": "test"},
-        )
+        "/nodes/default.repair_orders/columns/repair_order_id",
+        json={"display_name": "test"},
+    )
     assert response.ok
     assert response.json() == [
         {
@@ -4464,13 +4540,8 @@ def test_update_column_display_name(self, client_with_roads: TestClient):
             "display_name": "test",
             "type": "int",
             "attributes": [
-                {
-                    "attribute_type": {
-                        "namespace": "system",
-                        "name": "primary_key"
-                    }
-                }
+                {"attribute_type": {"namespace": "system", "name": "primary_key"}},
             ],
-            "dimension": []
-        }
+            "dimension": [],
+        },
     ]
