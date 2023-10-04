@@ -2991,6 +2991,25 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             ],
         )
 
+    def test_update_column_display_name(self, client_with_roads: TestClient):
+        """
+        Test that updating a column display name works.
+        """
+        response = client_with_roads.patch(
+            url="/nodes/default.hard_hat/columns/hard_hat_id",
+            params={"display_name": "test"},
+        )
+        assert response.status_code == 201
+        assert response.json() == {
+            "attributes": [
+                {"attribute_type": {"name": "primary_key", "namespace": "system"}},
+            ],
+            "dimension": None,
+            "display_name": "test",
+            "name": "hard_hat_id",
+            "type": "int",
+        }
+
 
 class TestNodeColumnsAttributes:
     """
@@ -4522,26 +4541,4 @@ def test_list_dimension_attributes(client_with_roads: TestClient) -> None:
         {"name": "default.regional_level_agg.order_year", "path": [], "type": "int"},
         {"name": "default.regional_level_agg.state_name", "path": [], "type": "string"},
         {"name": "default.regional_level_agg.us_region_id", "path": [], "type": "int"},
-    ]
-
-
-def test_update_column_display_name(self, client_with_roads: TestClient):
-    """
-    Test that updating a column display name works.
-    """
-    response = client_with_roads.patch(
-        "/nodes/default.repair_orders/columns/repair_order_id",
-        json={"display_name": "test"},
-    )
-    assert response.ok
-    assert response.json() == [
-        {
-            "name": "us_region_id",
-            "display_name": "test",
-            "type": "int",
-            "attributes": [
-                {"attribute_type": {"namespace": "system", "name": "primary_key"}},
-            ],
-            "dimension": [],
-        },
     ]
