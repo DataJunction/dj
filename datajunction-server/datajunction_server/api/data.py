@@ -2,7 +2,7 @@
 Data related APIs.
 """
 from http import HTTPStatus
-from typing import List, Optional
+from typing import List, Optional, Callable, Set
 
 from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -140,7 +140,7 @@ def get_data(  # pylint: disable=too-many-locals
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: Callable[[access.AccessControl], bool] = Depends(validate_access)
+    validate_access: Callable[[access.AccessControl], Set[access.ResourceRequest]] = Depends(validate_access)
 ) -> QueryWithResults:
     """
     Gets data for a node
@@ -148,8 +148,8 @@ def get_data(  # pylint: disable=too-many-locals
 
     node = get_node_by_name(session, node_name)
     access_control = access.AccessControl(
-        _validate_access = validate_access,
-        _user = current_user,
+        validate_access = validate_access,
+        user = current_user,
         )
     
     available_engines = node.current.catalog.engines

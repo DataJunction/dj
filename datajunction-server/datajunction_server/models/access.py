@@ -11,6 +11,7 @@ from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.construction.utils import get_dj_node
 from sqlmodel import Session
 
+
 class ResourceRequestVerb(Enum):
     """
     Types of actions for a request
@@ -19,7 +20,8 @@ class ResourceRequestVerb(Enum):
     READ = "read"
     WRITE = "write"
 
-class ResourceObjectKind(Enum):add
+
+class ResourceObjectKind(Enum):
     """
     Types of objects for a request
     """
@@ -27,9 +29,31 @@ class ResourceObjectKind(Enum):add
     NODE = "node"
     NAMESPACE = "namespace"
 
+
 class ResourceRequest(BaseModel):
     """
-    An Access request specifying what action is being attempted
+    Resource Requests provide the information
+    that is available to grant access to a resource
+    """
+
+    verb: ResourceRequestVerb
+    object_kind: ResourceObjectKind
+    access_object: str
+
+    def __hash__(self) -> int:
+        """
+        hash an ResourceRequestInternal
+        """
+        return hash((self.verb, self.access_object, self.access_object))
+
+    def __str__(self) -> str:
+        return f"{self.verb}:{self.object_kind}/{self.access_object}"
+
+
+class ResourceRequestInternal(BaseModel):
+    """
+    An Access request specifying what action
+    is being attempted
     on what kind of object
     and the specific object
     """
@@ -37,89 +61,87 @@ class ResourceRequest(BaseModel):
     verb: ResourceRequestVerb
     access_object: Union[str, NodeRevision]
 
-    def __hash__(self)->int:
-        """
-        hash an ResourceRequest
-        """
-        return hash((self.verb, self.access_object))
+    def to_resource_request(self) -> ResourceRequest:
+        return ResourceRequest(
+            verb=self.verb, object_kind=self.object_kind, access_object=self.obj_str
+        )
 
     @property
-    def object_kind(self) ->ResourceObjectKind:
+    def object_kind(self) -> ResourceObjectKind:
         if isinstance(self.access_object, str):
             return ResourceObjectKind.NAMESPACE
         return ResourceObjectKind.NODE
 
-    def __str__(self)->str:
-        obj_str = self.access_object if self.object_kind==ResourceObjectKind.NAMESPACE else self.access_object.name
-        return f"{self.verb}:{self.object_kind}/{obj_str}"
+    @property
+    def obj_str(self) -> str:
+        return (
+            self.access_object
+            if self.object_kind == ResourceObjectKind.NAMESPACE
+            else self.access_object.name
+        )
+
 
 class AccessControlState(Enum):
     """
-    State values used by the ACS function to track when 
+    State values used by the ACS function to track when
     """
 
     IMMEDIATE = "immediate"
     INTERMEDIATE = "intermediate"
 
 
-
-class AccessControl(BaseModel):
+class AccessControlStore(BaseModel):
     """
-    An access control stores a callback to validate a user 
+    An access control store tracks all ResourceRequests
     """
 
-    _validate_access: Optional[Callable[["AccessControl"], bool]]
-    _user: User
-    _state: AccessControlState = AccessControlState.IMMEDIATE
-    _immediate_requests: Set[ResourceRequest] = Field(default_factory=set)
-    _intermediate_requests: Set[ResourceRequest] = Field(default_factory=set)
-    _validation_request_count: int = 0
-    
-    @property
-    def state(self) -> AccessControlState:
-        return self._state
+    validate_access: Callable[["AccessControl"], bool]
+    user: User
+    state: AccessControlState = AccessControlState.IMMEDIATE
+    immediate_requests: Set[ResourceRequest] = Field(default_factory=set)
+    intermediate_requests: Set[ResourceRequest] = Field(default_factory=set)
+    validation_request_count: int = 0
 
-    @property
-    def user(self) -> User:
-        return self._user
-
-    @property
-    def immediate_requests(self) -> Set[ResourceRequest]:
-        return self._immediate_requests
-
-    @property
-    def intermediate_requests(self) -> Set[ResourceRequest]:
-        return self._intermediate_requests
-
-    @property
-    def requests(self)->Set[ResourceRequest]:
-        return self._immediate_requests|self._intermediate_requests
-
-    @property
-    def validation_request_count(self) -> int:
-        return self._validation_request_count
-
-    def _add_request_by_node_name(self, session: Session, verb: AccessVerb, node_name: str):
+    def add_request_by_node_name(
+        self, session: Session, verb: ResourceRequestVerb, node_name: str
+    ):
         node = get_dj_node(session, node_name, current=True)
         if self.state == AccessControlState.IMMEDIATE:
             self._immediate_requests.add(ResourceRequest(verb=verb, access_object=node))
         else:
-            self._intermediate_requests.add(ResourceRequest(verb=verb, access_object=node))
+            self._intermediate_requests.add(
+                ResourceRequest(verb=verb, access_object=node)
+            )
 
-    def _add_request_by_node(self, session: Session, verb: AccessVerb, node: NodeRevision):
+    def add_request_by_node(
+        self, session: Session, verb: ResourceRequestVerb, node: NodeRevision
+    ):
         if self.state == AccessControlState.IMMEDIATE:
             self._immediate_requests.add(ResourceRequest(verb=verb, access_object=node))
         else:
-            self._intermediate_requests.add(ResourceRequest(verb=verb, access_object=node))
+            self._intermediate_requests.add(
+                ResourceRequest(verb=verb, access_object=node)
+            )
 
-    def _validate(self):
-        self._validation_request_count += 1
+    def validate(self):
+        self.validation_request_count += 1
+        access_control = AccessControl(
+            state=self.state,
+            requests={
+                rr.to_resource_request()
+                for rr in self.immediate_requests | self.intermediate_requests
+            },
+            validation_request_count=self.validation_request_count,
+        )
         valid = False
-        message = f"Authorization of User `{self.user.username}` for this request failed."
+        message = (
+            f"Authorization of User `{self.user.username}` for this request failed."
+        )
         try:
-            valid = self._validate_access(self)
-        except Exception as exc:
-            message += f"\n{exc}"
+            invalid_requests = ", ".join(str(rr) for rr in self.validate_access(access_control))
+            message+=f"\nThe following requests were denied:\n{invalid_requests}."
+        except TypeError as exc:
+           pass
 
         if not valid:
             raise DJException(
@@ -132,9 +154,28 @@ class AccessControl(BaseModel):
                 ],
             )
 
-def validate_access(access_control: AccessControl)->bool: 
-    """
-    Determine whether a request from a user is allowed on a set of .
-    """
-    return True
 
+class AccessControl(BaseModel):
+    """
+    An access control provides all the information
+    necessary to deny or approve a request
+    """
+
+    state: AccessControlState
+    requests: Set[ResourceRequest]
+    validation_request_count: int
+
+
+def validate_access(access_control: AccessControl) -> Set[ResourceRequest]:
+    """
+    Return a set of denied ResourceRequests.
+    An empty set signals approval of all requests.
+
+    Args:
+        access_control (AccessControl): The access control object
+            containing the access control state and requests.
+
+    Returns:
+        Set[ResourceRequest]: A set of denied ResourceRequests.
+    """
+    return set()
