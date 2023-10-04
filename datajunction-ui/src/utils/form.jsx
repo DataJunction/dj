@@ -4,12 +4,12 @@ import * as React from 'react';
 
 export const displayMessageAfterSubmit = status => {
   return status?.success !== undefined ? (
-    <div className="message success">
+    <div className="message success" data-testid="success">
       <ValidIcon />
       {status?.success}
     </div>
   ) : status?.failure !== undefined ? (
-    <div className="message alert">
+    <div className="message alert" data-testid="failure">
       <AlertIcon />
       {status?.failure}
     </div>

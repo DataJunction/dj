@@ -10,12 +10,11 @@ import { useContext, useEffect, useState } from 'react';
 import DJClientContext from '../../providers/djclient';
 import 'styles/node-creation.scss';
 import AlertIcon from '../../icons/AlertIcon';
-import ValidIcon from '../../icons/ValidIcon';
 import { useParams } from 'react-router-dom';
 import { FullNameField } from './FullNameField';
 import { FormikSelect } from './FormikSelect';
 import { NodeQueryField } from './NodeQueryField';
-import { displayMessageAfterSubmit } from '../../../utils/form';
+import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
 
 class Action {
   static Add = new Action('add');
@@ -111,6 +110,7 @@ export function AddEditNodePage() {
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
     );
     if (status === 200 || status === 201) {
+      await djClient.tagsNode(values.name, values.tags);
       setStatus({
         success: (
           <>
@@ -135,10 +135,8 @@ export function AddEditNodePage() {
       values.mode,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
     );
-    for (const tag of values.tags) {
-      await djClient.tagNode(values.name, tag);
-    }
-    if (status === 200 || status === 201) {
+    const tagsResponse = await djClient.tagsNode(values.name, values.tags);
+    if ((status === 200 || status === 201) && tagsResponse.status === 200) {
       setStatus({
         success: (
           <>
@@ -149,7 +147,7 @@ export function AddEditNodePage() {
       });
     } else {
       setStatus({
-        failure: `${json.message}`,
+        failure: `${json.message}, ${tagsResponse.json.message}`,
       });
     }
   };
@@ -166,22 +164,6 @@ export function AddEditNodePage() {
           value: initialNamespace,
           label: initialNamespace,
         }}
-      />
-    </div>
-  );
-
-  const tagsInput = (
-    <div
-      className="TagsInput"
-      style={{ width: '25%', margin: '1rem 0 1rem 1.2rem' }}
-    >
-      <ErrorMessage name="tags" component="span" />
-      <label htmlFor="react-select-3-input">Tags</label>
-      <FormikSelect
-        isMulti={true}
-        selectOptions={tags}
-        formikFieldName="tags"
-        placeholder="Choose Tags"
       />
     </div>
   );
@@ -215,16 +197,6 @@ export function AddEditNodePage() {
         Array.isArray(data[field])
       ) {
         data[field] = data[field].join(', ');
-      }
-      if (
-        field === 'tags' &&
-        data[field] !== undefined &&
-        Array.isArray(data[field])
-      ) {
-        setFieldValue(
-          field,
-          data[field].map(val => val.name),
-        );
       } else {
         setFieldValue(field, data[field] || '', false);
       }
@@ -263,7 +235,7 @@ export function AddEditNodePage() {
       setTags(
         tags.map(tag => ({
           value: tag.name,
-          label: tag.name,
+          label: tag.display_name,
         })),
       );
     };
@@ -284,7 +256,31 @@ export function AddEditNodePage() {
             >
               {function Render({ isSubmitting, status, setFieldValue }) {
                 const [node, setNode] = useState([]);
+                const [selectTags, setSelectTags] = useState(null);
                 const [message, setMessage] = useState('');
+
+                const tagsInput = (
+                  <div
+                    className="TagsInput"
+                    style={{ width: '25%', margin: '1rem 0 1rem 1.2rem' }}
+                  >
+                    <ErrorMessage name="tags" component="span" />
+                    <label htmlFor="react-select-3-input">Tags</label>
+                    <span data-testid="select-tags">
+                      {action === Action.Edit ? (
+                        selectTags
+                      ) : (
+                        <FormikSelect
+                          isMulti={true}
+                          selectOptions={tags}
+                          formikFieldName="tags"
+                          placeholder="Choose Tags"
+                        />
+                      )}
+                    </span>
+                  </div>
+                );
+
                 useEffect(() => {
                   const fetchData = async () => {
                     if (action === Action.Edit) {
@@ -309,10 +305,21 @@ export function AddEditNodePage() {
                       // Update fields with existing data to prepare for edit
                       updateFieldsWithNodeData(data, setFieldValue);
                       setNode(data);
+                      setSelectTags(
+                        <FormikSelect
+                          isMulti={true}
+                          selectOptions={tags}
+                          formikFieldName="tags"
+                          placeholder="Choose Tags"
+                          defaultValue={data.tags.map(t => {
+                            return { value: t.name, label: t.display_name };
+                          })}
+                        />,
+                      );
                     }
                   };
                   fetchData().catch(console.error);
-                }, [setFieldValue]);
+                }, [setFieldValue, tags]);
                 return (
                   <Form>
                     {displayMessageAfterSubmit(status)}

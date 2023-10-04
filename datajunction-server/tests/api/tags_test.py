@@ -27,6 +27,22 @@ class TestTags:
         )
         return response
 
+    def create_another_tag(self, client: TestClient):
+        """
+        Creates another tag
+        """
+        response = client.post(
+            "/tags/",
+            json={
+                "name": "reports",
+                "display_name": "Reports",
+                "description": "Sales metrics",
+                "tag_type": "group",
+                "tag_metadata": {},
+            },
+        )
+        return response
+
     def test_create_and_read_tag(self, client: TestClient) -> None:
         """
         Test ``POST /tags`` and ``GET /tags/{name}``
@@ -200,26 +216,25 @@ class TestTags:
         """
         response = self.create_tag(client_with_dbt)
         assert response.status_code == 201
+        self.create_another_tag(client_with_dbt)
 
         # Trying tag a node with a nonexistent tag should fail
         response = client_with_dbt.post(
-            "/nodes/default.items_sold_count/tag/?tag_name=random_tag",
+            "/nodes/default.items_sold_count/tags?tag_names=random_tag",
         )
         assert response.status_code == 404
         response_data = response.json()
-        assert (
-            response_data["message"] == "A tag with name `random_tag` does not exist."
-        )
+        assert response_data["message"] == "Tags not found: random_tag"
 
         # Trying tag a node with an existing tag should succeed
         response = client_with_dbt.post(
-            "/nodes/default.items_sold_count/tag/?tag_name=sales_report",
+            "/nodes/default.items_sold_count/tags/?tag_names=sales_report",
         )
-        assert response.status_code == 201
+        assert response.status_code == 200
         response_data = response.json()
         assert response_data["message"] == (
-            "Node `default.items_sold_count` has been "
-            "successfully tagged with tag `sales_report`"
+            "Node `default.items_sold_count` has been successfully "
+            "updated with the following tags: sales_report"
         )
 
         # Test finding all nodes for that tag
@@ -243,21 +258,26 @@ class TestTags:
 
         # Tag a second node
         response = client_with_dbt.post(
-            "/nodes/default.total_profit/tag/?tag_name=sales_report",
+            "/nodes/default.total_profit/tags/?tag_names=sales_report&tag_names=reports",
         )
-        assert response.status_code == 201
+        assert response.status_code == 200
         response_data = response.json()
         assert (
             response_data["message"]
-            == "Node `default.total_profit` has been successfully tagged with tag `sales_report`"
+            == "Node `default.total_profit` has been successfully "
+            "updated with the following tags: sales_report, reports"
         )
 
         # Check history
         response = client_with_dbt.get("/history?node=default.total_profit")
         history = response.json()
         assert [
-            (activity["activity_type"], activity["entity_type"]) for activity in history
-        ] == [("create", "node"), ("tag", "node")]
+            (activity["activity_type"], activity["entity_type"], activity["details"])
+            for activity in history
+        ] == [
+            ("create", "node", {}),
+            ("tag", "node", {"tags": ["sales_report", "reports"]}),
+        ]
 
         # Check finding nodes for tag
         response = client_with_dbt.get(

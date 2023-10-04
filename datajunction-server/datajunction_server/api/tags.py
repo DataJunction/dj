@@ -8,7 +8,7 @@ from fastapi import Depends
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
@@ -18,6 +18,23 @@ from datajunction_server.utils import get_current_user, get_session, get_setting
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["tags"])
+
+
+def get_tags_by_name(
+    session: Session,
+    names: List[str],
+) -> List[Tag]:
+    """
+    Retrieves a list of tags by name
+    """
+    statement = select(Tag).where(Tag.name.in_(names))  # type: ignore  # pylint: disable=no-member
+    tags = session.exec(statement).all()
+    difference = set(names) - {tag.name for tag in tags}
+    if difference:
+        raise DJDoesNotExistException(
+            message=f"Tags not found: {', '.join(difference)}",
+        )
+    return tags
 
 
 def get_tag_by_name(

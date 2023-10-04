@@ -527,17 +527,17 @@ export const DataJunctionAPI = {
     });
     return await response.json();
   },
-  tagNode: async function (nodeName, tagName) {
-    const response = await fetch(
-      `${DJ_URL}/nodes/${nodeName}/tag?tag_name=${tagName}`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
+  tagsNode: async function (nodeName, tagNames) {
+    const url = tagNames
+      .map(value => `tag_names=${encodeURIComponent(value)}`)
+      .join('&');
+    const response = await fetch(`${DJ_URL}/nodes/${nodeName}/tags?${url}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
       },
-    );
+      credentials: 'include',
+    });
     return { status: response.status, json: await response.json() };
   },
 };

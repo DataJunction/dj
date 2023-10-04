@@ -84,8 +84,7 @@ export function App() {
                         element={<SQLBuilderPage />}
                       />
                       <Route path="tags" key="tags">
-                        <Route path=":name"
-                        element={<TagPage />} />
+                        <Route path=":name" element={<TagPage />} />
                       </Route>
                     </>
                   }
