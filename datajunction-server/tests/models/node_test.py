@@ -4,10 +4,18 @@ Tests for ``datajunction_server.models.node``.
 
 # pylint: disable=use-implicit-booleaness-not-comparison
 
+from unittest import mock
+
 import pytest
 from sqlmodel import Session
 
-from datajunction_server.models.node import Node, NodeRevision, NodeType
+from datajunction_server.models.node import (
+    AvailabilityState,
+    Node,
+    NodeRevision,
+    NodeType,
+    PartitionAvailability,
+)
 
 
 def test_node_relationship(session: Session) -> None:
@@ -137,3 +145,160 @@ def test_extra_validation() -> None:
         "Node A of type transform cannot have "
         "bound dimensions which are only for metrics."
     )
+
+
+def test_merging_availability_simple_no_partitions() -> None:
+    """
+    Test merging simple availability for no partitions.
+    """
+    avail_1 = AvailabilityState(
+        catalog="catalog",
+        schema_="schema",
+        table="foo",
+        valid_through_ts=111,
+    )
+    avail_2 = AvailabilityState(
+        catalog="catalog",
+        schema_="schema",
+        table="foo",
+        valid_through_ts=222,
+    )
+    assert avail_1.merge(avail_2).dict() == {
+        "min_temporal_partition": None,
+        "max_temporal_partition": None,
+        "catalog": "catalog",
+        "schema_": "schema",
+        "table": "foo",
+        "valid_through_ts": 222,
+        "categorical_partitions": [],
+        "temporal_partitions": [],
+        "partitions": [],
+        "id": None,
+        "updated_at": mock.ANY,
+    }
+
+
+def test_merging_availability_complex_no_partitions() -> None:
+    """
+    Test merging complex availability for no partitions.
+    """
+    avail_1 = AvailabilityState(
+        catalog="druid",
+        schema_="",
+        table="dj_product__launchpad__launchpad_cube",
+        min_temporal_partition=["20230924"],
+        max_temporal_partition=["20230924"],
+        categorical_partitions=[],
+        temporal_partitions=[],
+        partitions=[],
+        id=903836919789355000,
+        valid_through_ts=20230924,
+    )
+    avail_2 = AvailabilityState(
+        catalog="druid",
+        schema_="",
+        table="dj_product__launchpad__launchpad_cube",
+        min_temporal_partition=["20230926"],
+        max_temporal_partition=["20230927"],
+        categorical_partitions=[],
+        temporal_partitions=[],
+        partitions=[],
+        id=903836919789355000,
+        valid_through_ts=20230927,
+    )
+    assert avail_1.merge(avail_2).dict() == {
+        "min_temporal_partition": ["20230924"],
+        "max_temporal_partition": ["20230927"],
+        "catalog": "druid",
+        "schema_": "",
+        "table": "dj_product__launchpad__launchpad_cube",
+        "valid_through_ts": 20230927,
+        "categorical_partitions": [],
+        "temporal_partitions": [],
+        "partitions": [],
+        "id": 903836919789355000,
+        "updated_at": mock.ANY,
+    }
+
+
+def test_merging_availability_complex_with_partitions() -> None:
+    """
+    Test merging complex availability with partitions.
+    """
+    avail_1 = AvailabilityState(
+        catalog="iceberg",
+        schema_="salad",
+        table="dressing",
+        min_temporal_partition=["20230101"],
+        max_temporal_partition=["20230925"],
+        categorical_partitions=["country"],
+        temporal_partitions=["region_date"],
+        partitions=[
+            PartitionAvailability(
+                value=[None],
+                valid_through_ts=20230404,
+                min_temporal_partition=["20230101"],
+                max_temporal_partition=["20230404"],
+            ),
+            PartitionAvailability(
+                value=["US"],
+                valid_through_ts=20230925,
+                min_temporal_partition=["20230924"],
+                max_temporal_partition=["20230925"],
+            ),
+        ],
+        id=903836919789355000,
+        valid_through_ts=20230925,
+    )
+    avail_2 = AvailabilityState(
+        catalog="iceberg",
+        schema_="salad",
+        table="dressing",
+        min_temporal_partition=["20230101"],
+        max_temporal_partition=["20231010"],
+        categorical_partitions=["country"],
+        temporal_partitions=["region_date"],
+        partitions=[
+            PartitionAvailability(
+                value=["US"],
+                valid_through_ts=20230926,
+                min_temporal_partition=["20230924"],
+                max_temporal_partition=["20230926"],
+            ),
+            PartitionAvailability(
+                value=["CA"],
+                valid_through_ts=20231010,
+                min_temporal_partition=["20220101"],
+                max_temporal_partition=["20231010"],
+            ),
+        ],
+        id=903836919789355000,
+        valid_through_ts=20231015,
+    )
+    avail_1 = avail_1.merge(avail_2)
+    assert avail_1.dict() == {
+        "catalog": "iceberg",
+        "schema_": "salad",
+        "table": "dressing",
+        "min_temporal_partition": ["20230101"],
+        "max_temporal_partition": ["20231010"],
+        "valid_through_ts": 20231015,
+        "categorical_partitions": ["country"],
+        "temporal_partitions": ["region_date"],
+        "partitions": [
+            {
+                "value": ["CA"],
+                "valid_through_ts": 20231010,
+                "min_temporal_partition": ["20220101"],
+                "max_temporal_partition": ["20231010"],
+            },
+            {
+                "value": ["US"],
+                "valid_through_ts": 20230926,
+                "min_temporal_partition": ["20230101"],
+                "max_temporal_partition": ["20230926"],
+            },
+        ],
+        "id": 903836919789355000,
+        "updated_at": mock.ANY,
+    }

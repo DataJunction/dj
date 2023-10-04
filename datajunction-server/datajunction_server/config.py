@@ -66,6 +66,9 @@ class Settings(
     # DJ UI host, used for OAuth redirection
     frontend_host: Optional[str] = "http://localhost:3000"
 
+    # Library to use when transpiling SQL to other dialects
+    sql_transpilation_library: Optional[str] = None
+
     # DJ secret, used to encrypt passwords and JSON web tokens
     secret: Optional[str] = None
 
@@ -74,7 +77,15 @@ class Settings(
 
     # GitHub OAuth application client secret
     github_oauth_client_secret: Optional[str] = None
-    sql_transpilation_library: Optional[str] = None
+
+    # Google OAuth application client ID
+    google_oauth_client_id: Optional[str] = None
+
+    # Google OAuth application client secret
+    google_oauth_client_secret: Optional[str] = None
+
+    # Google OAuth application client secret file
+    google_oauth_client_secret_file: Optional[str] = None
 
     @property
     def celery(self) -> Celery:

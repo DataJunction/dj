@@ -868,8 +868,12 @@ class Column(Aliasable, Named, Expression):
         # If nothing was found in the initial AST, traverse through dimensions graph
         # to find another table in DJ that could be its origin
         to_process = collections.deque(direct_tables)
+        processed = set()
         while to_process:
             current_table = to_process.pop()
+            if current_table in processed:
+                continue
+            processed.add(current_table)
             if (
                 not namespace
                 or current_table.alias_or_name.identifier(False) == namespace
