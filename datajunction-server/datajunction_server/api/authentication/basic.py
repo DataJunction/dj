@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlmodel import Session, select
 
-from datajunction_server.constants import DJ_AUTH_COOKIE, DJ_LOGGED_IN_FLAG_COOKIE
+from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.authentication.basic import (
     get_password_hash,
@@ -70,23 +70,23 @@ async def login(
     )
     response = Response(status_code=HTTPStatus.OK)
     response.set_cookie(
-        DJ_AUTH_COOKIE,
+        AUTH_COOKIE,
         create_token({"username": user.username}, expires_delta=timedelta(days=365)),
         httponly=True,
     )
     response.set_cookie(
-        DJ_LOGGED_IN_FLAG_COOKIE,
+        LOGGED_IN_FLAG_COOKIE,
         "true",
     )
     return response
 
 
-@router.post("/basic/logout/")
+@router.post("/logout/")
 async def logout():
     """
     Logout a user by deleting the auth cookie
     """
     response = Response(status_code=HTTPStatus.OK)
-    response.delete_cookie(DJ_AUTH_COOKIE, httponly=True)
-    response.delete_cookie(DJ_LOGGED_IN_FLAG_COOKIE)
+    response.delete_cookie(AUTH_COOKIE, httponly=True)
+    response.delete_cookie(LOGGED_IN_FLAG_COOKIE)
     return response

@@ -15,6 +15,7 @@ class OAuthProvider(Enum):
 
     BASIC = "basic"
     GITHUB = "github"
+    GOOGLE = "google"
 
 
 class User(SQLModel, table=True):  # type: ignore
