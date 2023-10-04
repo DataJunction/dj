@@ -1,0 +1,73 @@
+name: Bump versions of all DJ Services and Clients.
+on:
+  schedule:
+    - cron: "0 0 * * MON"
+  workflow_dispatch:
+    inputs:
+      bump:
+        type: choice
+        description: "Hatch version option (default: alpha)"
+        required: true
+        default: alpha
+        options:
+          - major
+          - minor
+          - patch
+          - alpha
+          - beta
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10']
+    runs-on: 'ubuntu-latest'
+    defaults:
+      run:
+        working-directory: .
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Hatch
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatch
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+
+      - name: Bump versions and make a PR
+        run: |
+          echo "Bump DJ Server version ..."
+          cd datajunction-server
+          hatch version ${{ github.event.inputs.bump }}
+          export NEW_VERSION=v$(hatch version)
+
+          echo "Copy version to DJ Query Service ..."
+          cp ./datajunction_server/__about__.py ../datajunction-query/djqs/
+
+          echo "Apply to DJ Python Client ..."
+          cp ./datajunction_server/__about__.py ../datajunction-clients/python/datajunction/
+
+          echo "Apply to DJ UI Service ..."
+          cd ../datajunction-ui
+          yarn version --new-version $NEW_VERSION --no-git-tag-version
+
+          echo "Make a PR ..."
+          git commit -am "Bumping DJ to version $NEW_VERSION ."
+          git checkout -b releases/version-$NEW_VERSION
+          git push --set-upstream origin releases/version-$NEW_VERSION -f
+
+          echo "Make a tag ..."
+          git tag -a version-$NEW_VERSION -m version-$NEW_VERSION
+          git push origin version-$NEW_VERSION
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
