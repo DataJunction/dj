@@ -99,10 +99,16 @@ async def get_access_token(
     response.set_cookie(
         AUTH_COOKIE,
         create_token({"username": user.username}, expires_delta=timedelta(days=365)),
+        domain="djui.fly.dev",
+        secure=True,
+        samesite="none",
         httponly=True,
     )
     response.set_cookie(
         LOGGED_IN_FLAG_COOKIE,
         "true",
+        domain="djui.fly.dev",
+        secure=True,
+        samesite="none",
     )
     return response
