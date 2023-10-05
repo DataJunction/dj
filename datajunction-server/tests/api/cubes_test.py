@@ -365,51 +365,75 @@ def repairs_cube_elements():
     return sorted(
         [
             {
-                "name": "default_DOT_discounted_orders_rate",
-                "node_name": "default.discounted_orders_rate",
-                "type": "metric",
-            },
-            {
-                "name": "default_DOT_num_repair_orders",
-                "node_name": "default.num_repair_orders",
-                "type": "metric",
-            },
-            {
-                "name": "default_DOT_avg_repair_price",
-                "node_name": "default.avg_repair_price",
-                "type": "metric",
-            },
-            {
-                "name": "default_DOT_total_repair_cost",
-                "node_name": "default.total_repair_cost",
-                "type": "metric",
-            },
-            {
-                "name": "default_DOT_total_repair_order_discounts",
-                "node_name": "default.total_repair_order_discounts",
-                "type": "metric",
-            },
-            {
-                "name": "default_DOT_double_total_repair_cost",
-                "node_name": "default.double_total_repair_cost",
-                "type": "metric",
-            },
-            {"name": "country", "node_name": "default.hard_hat", "type": "dimension"},
-            {
-                "name": "postal_code",
+                "display_name": "City",
+                "name": "city",
                 "node_name": "default.hard_hat",
                 "type": "dimension",
             },
-            {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
-            {"name": "state", "node_name": "default.hard_hat", "type": "dimension"},
             {
+                "display_name": "Company Name",
                 "name": "company_name",
                 "node_name": "default.dispatcher",
                 "type": "dimension",
             },
             {
+                "display_name": "Country",
+                "name": "country",
+                "node_name": "default.hard_hat",
+                "type": "dimension",
+            },
+            {
+                "display_name": "Default: Avg Repair Price",
+                "name": "default_DOT_avg_repair_price",
+                "node_name": "default.avg_repair_price",
+                "type": "metric",
+            },
+            {
+                "display_name": "Default: Discounted Orders Rate",
+                "name": "default_DOT_discounted_orders_rate",
+                "node_name": "default.discounted_orders_rate",
+                "type": "metric",
+            },
+            {
+                "display_name": "Default: Double Total Repair Cost",
+                "name": "default_DOT_double_total_repair_cost",
+                "node_name": "default.double_total_repair_cost",
+                "type": "metric",
+            },
+            {
+                "display_name": "Default: Num Repair Orders",
+                "name": "default_DOT_num_repair_orders",
+                "node_name": "default.num_repair_orders",
+                "type": "metric",
+            },
+            {
+                "display_name": "Default: Total Repair Cost",
+                "name": "default_DOT_total_repair_cost",
+                "node_name": "default.total_repair_cost",
+                "type": "metric",
+            },
+            {
+                "display_name": "Default: Total Repair Order Discounts",
+                "name": "default_DOT_total_repair_order_discounts",
+                "node_name": "default.total_repair_order_discounts",
+                "type": "metric",
+            },
+            {
+                "display_name": "Local Region",
                 "name": "local_region",
                 "node_name": "default.municipality_dim",
+                "type": "dimension",
+            },
+            {
+                "display_name": "Postal Code",
+                "name": "postal_code",
+                "node_name": "default.hard_hat",
+                "type": "dimension",
+            },
+            {
+                "display_name": "State",
+                "name": "state",
+                "node_name": "default.hard_hat",
                 "type": "dimension",
             },
         ],
@@ -1146,8 +1170,14 @@ def assert_updated_repairs_cube(data):
     Asserts that the updated repairs cube has the right cube elements and default materialization
     """
     assert sorted(data["cube_elements"], key=lambda x: x["name"]) == [
-        {"name": "city", "node_name": "default.hard_hat", "type": "dimension"},
         {
+            "display_name": "City",
+            "name": "city",
+            "node_name": "default.hard_hat",
+            "type": "dimension",
+        },
+        {
+            "display_name": "Default: Discounted Orders Rate",
             "name": "default_DOT_discounted_orders_rate",
             "node_name": "default.discounted_orders_rate",
             "type": "metric",

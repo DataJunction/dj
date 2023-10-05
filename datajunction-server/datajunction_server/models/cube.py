@@ -18,6 +18,7 @@ class CubeElementMetadata(SQLModel):
     """
 
     name: str
+    display_name: str
     node_name: str
     type: str
 
