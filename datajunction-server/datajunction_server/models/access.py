@@ -103,7 +103,7 @@ class ResourceRequest(BaseModel):
         return hash((self.verb, self.access_object, self.approved))
 
     def __str__(self) -> str:
-        return f"{self.verb}:{self.access_object.__class__.__name__.lower()}/{self.access_object.name}"
+        return f"{self.verb.value}:{self.access_object.__class__.__name__.lower()}/{self.access_object.name}"
 
 
 class AccessControlState(Enum):
@@ -131,6 +131,13 @@ class AccessControl(BaseModel):
     def requests(self) -> Set[ResourceRequest]:
         return self.direct_requests | self.indirect_requests
 
+    def approve_all(self):
+        for request in self.requests:
+            request.approve()
+
+    def deny_all(self):
+        for request in self.requests:
+            request.deny()
 
 class AccessControlStore(BaseModel):
     """
@@ -195,9 +202,9 @@ class AccessControlStore(BaseModel):
         """
         Raises if validate has ever given any invalid requests
         """
-        denied = [
-            request for request in self.validation_results if not request.approved
-        ]
+        denied = ", ".join([
+            str(request) for request in self.validation_results if not request.approved
+        ])
         if denied:
             message = (
                 f"Authorization of User `{self.user.username}` for this request failed."
@@ -297,13 +304,24 @@ def validate_access()->ValidateAccessFn:
                 containing the access control state and requests.
 
         Example:
-            for request in access_control.requests:
-                if ...:
-                    request.approve()
-                else:
-                    request.deny()
+            if access_control.state == 'direct':
+                access_control.approve_all()
+                return
+
+            if access_control.user=='dj':
+                request.approve_all()
+                return
+
+            request.deny_all()
         """
-        for request in access_control.requests:
-            request.approve()
+        if access_control.state == 'direct':
+            access_control.approve_all()
+            return
+
+        if access_control.user=='dj':
+            access_control.approve_all()
+            return
+            
+        access_control.deny_all()
 
     return _validate_access

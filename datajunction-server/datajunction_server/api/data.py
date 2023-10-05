@@ -63,7 +63,7 @@ def add_availability_state(
     Add an availability state to a node.
     """
     node = get_node_by_name(session, node_name)
-    access_control = access.AccessControl(
+    access_control = access.AccessControlStore(
         validate_access = validate_access,
         user = current_user,
     )
@@ -169,7 +169,7 @@ def get_data(  # pylint: disable=too-many-locals
         )
     validate_orderby(orderby, [node_name], dimensions)
 
-    access_control = access.AccessControl(
+    access_control = access.AccessControlStore(
         validate_access = validate_access,
         user = current_user,
     )
