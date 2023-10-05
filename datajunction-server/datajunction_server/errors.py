@@ -44,7 +44,8 @@ class ErrorCode(int, Enum):
     USER_NOT_FOUND = 403
 
     # Authorization
-    UNAUTHORIZED_ACCESS = 500 
+    UNAUTHORIZED_ACCESS = 500
+    INCOMPLETE_AUTHORIZATION = 501
 
 
 class DebugType(TypedDict, total=False):

@@ -67,6 +67,22 @@ from datajunction_server.models import access
 
 _logger = logging.getLogger(__name__)
 
+def list_nodes(
+        session: Session,
+    node_type: Optional[NodeType] = None,
+    prefix: Optional[str] = None,
+) -> List[str]:
+    """
+    List the available nodes.
+    """
+    statement = select(Node.name).where(is_(Node.deactivated_at, None))
+    if prefix:
+        statement = statement.where(
+            Node.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
+        )
+    if node_type:
+        statement = statement.where(Node.type == node_type)
+    return session.exec(statement).unique()
 
 def get_node_namespace(  # pylint: disable=too-many-arguments
     session: Session,

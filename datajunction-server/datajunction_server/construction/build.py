@@ -558,13 +558,13 @@ def build_node(  # pylint: disable=too-many-arguments
         dimensions,
         orderby,
         limit,
-        include_dimensions_in_groupby=(node.type == NodeType.METRIC),
-        access_control=access_control
         include_dimensions_in_groupby=include_dimensions_in_groupby,
+        access_control=access_control,
     )
+    
     if access_control: 
         access_control.validate_and_raise()
-        access_control.state=access.AccessControlState.INTERMEDIATE
+        access_control.state=access.AccessControlState.INDIRECT
 
     memoized_queries: Dict[int, ast.Query] = {}
     _logger.info("Calling build_ast on %s", node.name)

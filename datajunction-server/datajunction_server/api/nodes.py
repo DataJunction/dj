@@ -84,7 +84,8 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["nodes"])
-
+from datajunction_server.models import access
+from datajunction_server.models.access import validate_access
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
@@ -167,18 +168,21 @@ def list_nodes(
     prefix: Optional[str] = None,
     *,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(validate_access),
 ) -> List[str]:
     """
     List the available nodes.
     """
-    statement = select(Node.name).where(is_(Node.deactivated_at, None))
+    statement = select(Node).where(is_(Node.deactivated_at, None))
     if prefix:
         statement = statement.where(
             Node.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
         )
     if node_type:
         statement = statement.where(Node.type == node_type)
-    return session.exec(statement).unique().all()
+    nodes  = session.exec(statement).unique().all()
+    return [node.name for node in access.validate_nodes(validate_access, current_user, nodes)]
 
 
 @router.get("/nodes/{name}/", response_model=NodeOutput)

@@ -23,7 +23,7 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
-from datajunction_server.models import History, User
+from datajunction_server.models import User
 from datajunction_server.models import access
 from datajunction_server.models.access import validate_access
 
@@ -49,24 +49,14 @@ def find_nodes_with_dimension(
     node_type: Annotated[Union[List[NodeType], None], Query()] = Query(None),
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(validate_access)
+    validate_access: access.ValidateAccessFn = Depends(validate_access),
 ) -> List[NodeRevisionOutput]:
     """
     List all nodes that have the specified dimension
     """
     dimension_node = get_node_by_name(session, name)
     nodes = get_nodes_with_dimension(session, dimension_node, node_type)
-
-    access_control = access.AccessControl(
-        validate_access = validate_access,
-        user = current_user,
-    )
-    for node in nodes:
-        access_control.add_request_by_node(node)
-
-    validation_results = access_control.validate()
-
-    return [request.resource_object for request in validation_results if request.approved]
+    return access.validate_nodes(validate_access, current_user, nodes)
 
 
 @router.get("/dimensions/common/", response_model=List[NodeRevisionOutput])
@@ -76,7 +66,7 @@ def find_nodes_with_common_dimensions(
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(validate_access)
+    validate_access: access.ValidateAccessFn = Depends(validate_access),
 ) -> List[NodeRevisionOutput]:
     """
     Find all nodes that have the list of common dimensions
@@ -86,14 +76,4 @@ def find_nodes_with_common_dimensions(
         [get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
     )
-    access_control = access.AccessControl(
-        validate_access = validate_access,
-        user = current_user,
-    )
-    for node in nodes:
-        access_control.add_request_by_node(node)
-
-    validation_results = access_control.validate()
-
-    return [request.resource_object for request in validation_results if request.approved]
-
+    return access.validate_nodes(validate_access, current_user, nodes)
