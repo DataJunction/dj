@@ -33,7 +33,8 @@ describe('LoginPage', () => {
 
     await waitFor(() => {
       expect(getByText('DataJunction')).toBeInTheDocument();
-      expect(queryAllByText('Required').length).toEqual(2);
+      expect(getByText('Username is required')).toBeInTheDocument();
+      expect(getByText('Password is required')).toBeInTheDocument();
     });
   });
 

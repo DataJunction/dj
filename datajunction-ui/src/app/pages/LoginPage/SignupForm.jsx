@@ -106,7 +106,7 @@ export default function SignupForm({ setShowSignup }) {
             </p>
           </div>
           <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? <LoadingIcon/> : "Sign Up"}
+            {isSubmitting ? <LoadingIcon /> : 'Sign Up'}
           </button>
           <div>
             <p>Or</p>

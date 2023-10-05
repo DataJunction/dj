@@ -18,7 +18,7 @@ const LoginSchema = Yup.object().shape({
   password: Yup.string().required('Password is required'),
 });
 
-export default function LoginForm({setShowSignup}) {
+export default function LoginForm({ setShowSignup }) {
   const [, setError] = useState('');
 
   // Add the path that the user was trying to access in order to properly redirect after auth
@@ -79,7 +79,7 @@ export default function LoginForm({setShowSignup}) {
             </p>
           </div>
           <button type="submit" disabled={isSubmitting}>
-          {isSubmitting ? <LoadingIcon/> : "Login"}
+            {isSubmitting ? <LoadingIcon /> : 'Login'}
           </button>
           <div>
             <p>Or</p>
