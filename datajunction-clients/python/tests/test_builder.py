@@ -723,10 +723,34 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         us_states.columns = new_columns
         response = us_states.save()
         assert response["columns"] == [
-            {"attributes": [], "dimension": None,"display_name": "State Id", "name": "state_id", "type": "int"},
-            {"attributes": [], "dimension": None,"display_name": "Type", "name": "name", "type": "string"},
-            {"attributes": [], "dimension": None,"display_name": "Abbr", "name": "abbr", "type": "string"},
-            {"attributes": [], "dimension": None,"display_name": "Region", "name": "region", "type": "int"},
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "State Id",
+                "name": "state_id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Type",
+                "name": "name",
+                "type": "string",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Abbr",
+                "name": "abbr",
+                "type": "string",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Region",
+                "name": "region",
+                "type": "int",
+            },
         ]
         assert response["version"] == "v2.0"
 
