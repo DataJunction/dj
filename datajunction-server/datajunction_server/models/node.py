@@ -981,6 +981,7 @@ class ColumnOutput(SQLModel):
     """
 
     name: str
+    display_name: Optional[str]
     type: ColumnType
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[NodeNameOutput]

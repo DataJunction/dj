@@ -70,6 +70,7 @@ describe('<NodePage />', () => {
         {
           name: 'default_DOT_avg_repair_price',
           type: 'double',
+          display_name: 'Default DOT avg repair price',
           attributes: [],
           dimension: null,
         },
@@ -416,6 +417,9 @@ describe('<NodePage />', () => {
       expect(
         screen.getByRole('columnheader', { name: 'ColumnName' }),
       ).toHaveTextContent('default_DOT_avg_repair_price');
+      expect(
+        screen.getByRole('columnheader', { name: 'ColumnDisplayName' }),
+      ).toHaveTextContent('Default DOT avg repair price');
       expect(
         screen.getByRole('columnheader', { name: 'ColumnType' }),
       ).toHaveTextContent('double');

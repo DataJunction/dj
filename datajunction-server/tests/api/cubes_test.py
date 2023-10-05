@@ -1153,6 +1153,7 @@ def assert_updated_repairs_cube(data):
             "type": "metric",
         },
     ]
+
     assert data["materializations"][0]["config"]["dimensions"] == [
         "default_DOT_hard_hat_DOT_city",
     ]
@@ -1219,6 +1220,7 @@ def test_updating_cube(
             {
                 "attributes": [],
                 "dimension": None,
+                "display_name": "Default Dot Discounted Orders Rate",
                 "name": "default_DOT_discounted_orders_rate",
                 "type": "double",
             },
@@ -1227,6 +1229,7 @@ def test_updating_cube(
                     {"attribute_type": {"name": "dimension", "namespace": "system"}},
                 ],
                 "dimension": None,
+                "display_name": "Default Dot Hard Hat Dot City",
                 "name": "default_DOT_hard_hat_DOT_city",
                 "type": "string",
             },

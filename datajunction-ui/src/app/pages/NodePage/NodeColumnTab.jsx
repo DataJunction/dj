@@ -62,6 +62,16 @@ export default function NodeColumnTab({ node, djClient }) {
         </td>
         <td>
           <span
+            className=""
+            role="columnheader"
+            aria-label="ColumnDisplayName"
+            aria-hidden="false"
+          >
+            {col.display_name}
+          </span>
+        </td>
+        <td>
+          <span
             className="node_type__transform badge node_type"
             role="columnheader"
             aria-label="ColumnType"
@@ -111,6 +121,7 @@ export default function NodeColumnTab({ node, djClient }) {
         <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
           <tr>
             <th className="text-start">Column</th>
+            <th>Display Name</th>
             <th>Type</th>
             <th>Linked Dimension</th>
             <th>Attributes</th>
