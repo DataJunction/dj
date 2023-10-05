@@ -38,7 +38,7 @@ describe('LoginPage', () => {
     });
   });
 
-  it('calls fetch with correct data on submit', async () => {
+  it('calls fetch with correct data on login', async () => {
     const username = 'testUser';
     const password = 'testPassword';
 
@@ -54,6 +54,37 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(fetch).toHaveBeenCalledWith(
         `${process.env.REACT_APP_DJ_URL}/basic/login/`,
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.any(FormData),
+          credentials: 'include',
+        }),
+      );
+      expect(window.location.reload).toHaveBeenCalled();
+    });
+  });
+
+  it('calls fetch with correct data on signup', async () => {
+    const email = 'testEmail@testEmail.com';
+    const username = 'testUser';
+    const password = 'testPassword';
+
+    const { getByText, getByPlaceholderText } = render(<LoginPage />);
+    fireEvent.click(getByText('Sign Up'));
+    fireEvent.change(getByPlaceholderText('Email'), {
+      target: { value: email },
+    });
+    fireEvent.change(getByPlaceholderText('Username'), {
+      target: { value: username },
+    });
+    fireEvent.change(getByPlaceholderText('Password'), {
+      target: { value: password },
+    });
+    fireEvent.click(getByText('Sign Up'));
+
+    await waitFor(() => {
+      expect(fetch).toHaveBeenCalledWith(
+        `${process.env.REACT_APP_DJ_URL}/basic/user/`,
         expect.objectContaining({
           method: 'POST',
           body: expect.any(FormData),
