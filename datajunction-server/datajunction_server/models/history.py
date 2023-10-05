@@ -47,7 +47,6 @@ class EntityType(str, Enum):
     NODE = "node"
     QUERY = "query"
     TAG = "tag"
-    DISPLAY_NAME = "display_name"
 
 
 class History(SQLModel, table=True):  # type: ignore
