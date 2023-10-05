@@ -12,8 +12,7 @@ const googleLoginURL = new URL('/google/login/', process.env.REACT_APP_DJ_URL);
 
 const LoginSchema = Yup.object().shape({
   username: Yup.string()
-    .min(2, 'Too Short')
-    .max(20, 'Too Long')
+    .min(2, 'Must be at least 2 characters')
     .required('Username is required'),
   password: Yup.string().required('Password is required'),
 });
