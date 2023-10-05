@@ -75,3 +75,7 @@
 .signup form {
   height: 50rem;
 }
+
+.form-error {
+  color: red;
+}
