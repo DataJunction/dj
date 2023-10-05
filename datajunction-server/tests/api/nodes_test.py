@@ -1140,12 +1140,12 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "status": "invalid",
                 },
                 {
-                    "name": "default.avg_time_to_dispatch",
+                    "name": "default.num_repair_orders",
                     "status": "invalid",
                     "effect": "downstream node is now invalid",
                 },
                 {
-                    "name": "default.regional_repair_efficiency",
+                    "name": "default.avg_time_to_dispatch",
                     "status": "invalid",
                     "effect": "downstream node is now invalid",
                 },
