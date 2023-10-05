@@ -62,9 +62,9 @@ export default function NodeColumnTab({ node, djClient }) {
         </td>
         <td>
           <span
-            className="node_type__transform badge"
+            className=""
             role="columnheader"
-            aria-label="ColumnType"
+            aria-label="ColumnDisplayName"
             aria-hidden="false"
           >
             {col.display_name}

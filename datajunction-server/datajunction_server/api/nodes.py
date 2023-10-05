@@ -939,7 +939,7 @@ def set_column_display_name(
     session.add(column)
     session.add(
         History(
-            entity_type=EntityType.DISPLAY_NAME,
+            entity_type=EntityType.COLUMN_ATTRIBUTE,
             node=node.name,
             activity_type=ActivityType.UPDATE,
             details={
