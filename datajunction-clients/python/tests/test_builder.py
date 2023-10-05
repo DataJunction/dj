@@ -733,7 +733,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             {
                 "attributes": [],
                 "dimension": None,
-                "display_name": "Type",
+                "display_name": "Name",
                 "name": "name",
                 "type": "string",
             },
