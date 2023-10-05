@@ -2,7 +2,7 @@
 Data related APIs.
 """
 from http import HTTPStatus
-from typing import List, Optional, Callable, Set
+from typing import List, Optional
 
 from fastapi import Depends, Query, Request
 from fastapi.responses import JSONResponse
@@ -23,7 +23,8 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.internal.authentication.http import SecureAPIRouter
-from datajunction_server.models import History, User
+from datajunction_server.models import History, User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import (
@@ -43,8 +44,6 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
-from datajunction_server.models import access
-from datajunction_server.models.access import validate_access
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["data"])
@@ -57,17 +56,17 @@ def add_availability_state(
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(validate_access)
+    validate_access: access.ValidateAccessFn = Depends(validate_access),
 ) -> JSONResponse:
     """
     Add an availability state to a node.
     """
     node = get_node_by_name(session, node_name)
     access_control = access.AccessControlStore(
-        validate_access = validate_access,
-        user = current_user,
+        validate_access=validate_access,
+        user=current_user,
     )
-    
+
     # Source nodes require that any availability states set are for one of the defined tables
     node_revision = node.current
     access_control.add_request_by_node(access.ResourceRequestVerb.WRITE, node_revision)
@@ -148,14 +147,14 @@ def get_data(  # pylint: disable=too-many-locals
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(validate_access)
+    validate_access: access.ValidateAccessFn = Depends(validate_access),
 ) -> QueryWithResults:
     """
     Gets data for a node
     """
 
     node = get_node_by_name(session, node_name)
-    
+
     available_engines = node.current.catalog.engines
     engine = (
         get_engine(session, engine_name, engine_version)  # type: ignore
@@ -170,8 +169,8 @@ def get_data(  # pylint: disable=too-many-locals
     validate_orderby(orderby, [node_name], dimensions)
 
     access_control = access.AccessControlStore(
-        validate_access = validate_access,
-        user = current_user,
+        validate_access=validate_access,
+        user=current_user,
     )
 
     query_ast = get_query(

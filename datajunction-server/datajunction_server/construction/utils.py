@@ -2,7 +2,7 @@
 Utilities used around construction
 """
 
-from typing import TYPE_CHECKING, Optional, Set
+from typing import TYPE_CHECKING, Optional, Set, Union
 
 from sqlalchemy.orm.exc import NoResultFound
 from sqlmodel import Session, select
@@ -11,7 +11,7 @@ from datajunction_server.errors import DJError, DJErrorException, ErrorCode
 from datajunction_server.models.node import Node, NodeRevision, NodeType
 
 if TYPE_CHECKING:
-    from datajunction_server.sql.parsing.ast import Name
+    from datajunction_server.sql.parsing.ast import Name, Column
 
 
 def get_dj_node(
@@ -36,6 +36,24 @@ def get_dj_node(
             ),
         ) from no_result_exc
     return match.current if match and current else match
+
+
+def try_get_dj_node(
+    session: Session,
+    name: Union[str, "Column"],
+    kinds: Optional[Set[NodeType]]=None,
+) -> Optional[Node]:
+    "wraps get dj node to return None if no node is found"
+    from datajunction_server.sql.parsing.ast import Column
+    if isinstance(name, Column):
+        if name.name.namespace is not None:
+            name = name.name.namespace.identifier(False)
+        else:
+            return None
+    try:
+        return get_dj_node(session, name, kinds, current=False)
+    except DJErrorException:
+        return None
 
 
 def to_namespaced_name(name: str) -> "Name":

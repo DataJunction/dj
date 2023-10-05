@@ -1,16 +1,20 @@
 """
 Models for authorization
 """
-from enum import Enum
-from typing import Union, List, Set, Callable, Optional, Dict, FrozenSet, Iterable
-from http import HTTPStatus
-from pydantic import BaseModel, Field
-from datajunction_server.models.node import NodeRevision, Node
-from datajunction_server.models.user import User
-from datajunction_server.errors import DJError, DJException, ErrorCode
-from datajunction_server.construction.utils import get_dj_node
-from sqlmodel import Session
 from copy import deepcopy
+from enum import Enum
+from http import HTTPStatus
+from typing import Callable, FrozenSet, Iterable, List, Optional, Set, TYPE_CHECKING, Union
+
+from pydantic import BaseModel, Field
+from sqlmodel import Session
+
+from datajunction_server.construction.utils import try_get_dj_node
+from datajunction_server.errors import DJError, DJException, ErrorCode
+from datajunction_server.models.node import Node, NodeRevision
+from datajunction_server.models.user import User
+if TYPE_CHECKING:
+    from datajunction_server.sql.parsing.ast import Column
 
 
 class ResourceRequestVerb(Enum):
@@ -36,7 +40,10 @@ class ResourceObjectBase(BaseModel):
         return hash((self.name, self.created_by))
 
     @staticmethod
-    def from_node(node: NodeRevision|Node) -> "DJNode":
+    def from_node(node: NodeRevision | Node) -> "DJNode":
+        """
+        Create a resource object from a DJ Node
+        """
         if isinstance(node, Node):
             return DJNode(
                 id=node.id,
@@ -57,6 +64,9 @@ class ResourceObjectBase(BaseModel):
 
     @staticmethod
     def from_namespace(namespace: str) -> "DJNode":
+        """
+        Create a resource object from a namespace
+        """
         return DJNamespace(name=namespace, created_by="")
 
 
@@ -103,7 +113,11 @@ class ResourceRequest(BaseModel):
         return hash((self.verb, self.access_object, self.approved))
 
     def __str__(self) -> str:
-        return f"{self.verb.value}:{self.access_object.__class__.__name__.lower()}/{self.access_object.name}"
+        return (
+            f"{self.verb.value}:"
+            f"{self.access_object.__class__.__name__.lower()}/"
+            f"{self.access_object.name}"
+        )
 
 
 class AccessControlState(Enum):
@@ -139,6 +153,7 @@ class AccessControl(BaseModel):
         for request in self.requests:
             request.deny()
 
+
 class AccessControlStore(BaseModel):
     """
     An access control store tracks all ResourceRequests
@@ -159,24 +174,33 @@ class AccessControlStore(BaseModel):
             self.indirect_requests.add(request)
 
     def add_request_by_node_name(
-        self, session: Session, verb: ResourceRequestVerb, node_name: str
+        self,
+        session: Session,
+        verb: ResourceRequestVerb,
+        node_name: Union[str, "Column"],
     ):
         """
         Add a request using a node's name
         """
-        node = get_dj_node(session, node_name, current=True)
-        self.add_request_by_node(verb, node)
+        node = try_get_dj_node(session, node_name)
+        if node is not None:
+            self.add_request_by_node(verb, node)
 
-    def add_request_by_node(self, verb: ResourceRequestVerb, node: NodeRevision|Node):
+    def add_request_by_node(self, verb: ResourceRequestVerb, node: NodeRevision | Node):
         """
         Add a request using a node
         """
         self.add_request(
-            ResourceRequest(verb=verb, access_object=ResourceObjectBase.from_node(node))
+            ResourceRequest(
+                verb=verb,
+                access_object=ResourceObjectBase.from_node(node),
+            ),
         )
 
     def add_request_by_nodes(
-        self, verb: ResourceRequestVerb, nodes: Iterable[NodeRevision|Node]
+        self,
+        verb: ResourceRequestVerb,
+        nodes: Iterable[NodeRevision | Node],
     ):
         """
         Add a request using a node
@@ -184,8 +208,9 @@ class AccessControlStore(BaseModel):
         for node in nodes:
             self.add_request(
                 ResourceRequest(
-                    verb=verb, access_object=ResourceObjectBase.from_node(node)
-                )
+                    verb=verb,
+                    access_object=ResourceObjectBase.from_node(node),
+                ),
             )
 
     def add_request_by_namespace(self, verb: ResourceRequestVerb, namespace: str):
@@ -194,17 +219,22 @@ class AccessControlStore(BaseModel):
         """
         self.add_request(
             ResourceRequest(
-                verb=verb, access_object=ResourceObjectBase.from_namespace(namespace)
-            )
+                verb=verb,
+                access_object=ResourceObjectBase.from_namespace(namespace),
+            ),
         )
 
     def raise_if_invalid_requests(self, show_denials: bool = True):
         """
         Raises if validate has ever given any invalid requests
         """
-        denied = ", ".join([
-            str(request) for request in self.validation_results if not request.approved
-        ])
+        denied = ", ".join(
+            [
+                str(request)
+                for request in self.validation_results
+                if not request.approved
+            ],
+        )
         if denied:
             message = (
                 f"Authorization of User `{self.user.username}` for this request failed."
@@ -235,7 +265,7 @@ class AccessControlStore(BaseModel):
             indirect_requests=deepcopy(self.indirect_requests),
             validation_request_count=self.validation_request_count,
         )
-        self.validate_access(access_control)
+        self.validate_access(access_control)  # type: ignore
         self.validation_results = access_control.requests
 
         if any((result.approved is None for result in self.validation_results)):
@@ -262,10 +292,10 @@ class AccessControlStore(BaseModel):
 def validate_nodes(
     validate_access: "ValidateAccessFn",
     user: User,
-    nodes: Iterable[Node|NodeRevision],
+    nodes: Iterable[Node | NodeRevision],
     raise_: bool = False,
-) -> List[NodeRevision|Node]:
-    
+) -> List[NodeRevision | Node]:
+
     access_control = AccessControlStore(
         validate_access=validate_access,
         user=user,
@@ -293,7 +323,11 @@ ValidateAccessFn = Callable[[AccessControl], None]
 
 
 # Dummy default if not dependency injected
-def validate_access()->ValidateAccessFn:
+def validate_access() -> ValidateAccessFn:
+    """
+    Validate access returns a ValidateAccessFn
+    """
+
     def _validate_access(access_control: AccessControl):
         """
         Examines all requests in the AccessControl
@@ -314,14 +348,44 @@ def validate_access()->ValidateAccessFn:
 
             request.deny_all()
         """
-        if access_control.state == 'direct':
+        if access_control.state == "direct":
             access_control.approve_all()
             return
 
-        if access_control.user=='dj':
+        if access_control.user == "dj":
             access_control.approve_all()
             return
-            
+
         access_control.deny_all()
+
+    return _validate_access
+
+
+def validate_access() -> ValidateAccessFn:
+    """
+    Validate access returns a ValidateAccessFn
+    """
+
+    def _validate_access(access_control: AccessControl):
+        """
+        Examines all requests in the AccessControl
+        and approves or denies each
+
+        Args:
+            access_control (AccessControl): The access control object
+                containing the access control state and requests.
+
+        Example:
+            if access_control.state == 'direct':
+                access_control.approve_all()
+                return
+
+            if access_control.user=='dj':
+                request.approve_all()
+                return
+
+            request.deny_all()
+        """
+        access_control.approve_all()
 
     return _validate_access

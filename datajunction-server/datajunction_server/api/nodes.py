@@ -41,7 +41,8 @@ from datajunction_server.internal.nodes import (
     set_node_column_attributes,
     update_any_node,
 )
-from datajunction_server.models import User
+from datajunction_server.models import User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column
@@ -84,8 +85,7 @@ from datajunction_server.utils import (
 _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["nodes"])
-from datajunction_server.models import access
-from datajunction_server.models.access import validate_access
+
 
 @router.post("/nodes/validate/", response_model=NodeValidation)
 def validate_node(
@@ -181,8 +181,11 @@ def list_nodes(
         )
     if node_type:
         statement = statement.where(Node.type == node_type)
-    nodes  = session.exec(statement).unique().all()
-    return [node.name for node in access.validate_nodes(validate_access, current_user, nodes)]
+    nodes = session.exec(statement).unique().all()
+    return [
+        node.name
+        for node in access.validate_nodes(validate_access, current_user, nodes)
+    ]
 
 
 @router.get("/nodes/{name}/", response_model=NodeOutput)

@@ -8,8 +8,9 @@ from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, 
 
 from sqlmodel import Session
 
-from datajunction_server.construction.utils import to_namespaced_name
+from datajunction_server.construction.utils import to_namespaced_name, try_get_dj_node
 from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.models import access
 from datajunction_server.models.column import Column
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
@@ -18,8 +19,6 @@ from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.sql.parsing.ast import CompileContext
 from datajunction_server.sql.parsing.backends.antlr4 import ast, parse
 from datajunction_server.sql.parsing.types import ColumnType
-from datajunction_server.utils import amenable_name
-from datajunction_server.models import access
 from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR, amenable_name
 
 _logger = logging.getLogger(__name__)
@@ -393,7 +392,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                     access_control.add_request_by_node_name(
                         session,
                         access.ResourceRequestVerb.READ,
-                        col.name.namespace.identifier(False),
+                        col
                     )
 
     if filters:
@@ -414,7 +413,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                     access_control.add_request_by_node_name(
                         session,
                         access.ResourceRequestVerb.READ,
-                        col.namespace.identifier(False),
+                        col,
                     )
 
         query.select.where = ast.BinaryOp.And(*filter_asts)
@@ -435,7 +434,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                     access_control.add_request_by_node_name(
                         session,
                         access.ResourceRequestVerb.READ,
-                        col.namespace.identifier(False),
+                        col
                     )
 
     # add all used dimension columns to the projection without duplicates
@@ -592,7 +591,7 @@ def build_node(  # pylint: disable=too-many-arguments
                 tbl.dj_node
                 for tbl in built_ast.filter(
                     lambda ast_node: isinstance(ast_node, ast.Table)
-                    and ast_node.dj_node is not None
+                    and ast_node.dj_node is not None,
                 )
             ],
         )

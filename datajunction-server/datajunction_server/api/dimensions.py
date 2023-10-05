@@ -2,7 +2,7 @@
 Dimensions related APIs.
 """
 import logging
-from typing import List, Optional, Union, Set
+from typing import List, Optional, Union
 
 from fastapi import Depends, Query
 from sqlmodel import Session
@@ -11,21 +11,19 @@ from typing_extensions import Annotated
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.models import User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.node import NodeRevisionOutput, NodeType
 from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
     get_nodes_with_dimension,
 )
-from datajunction_server.utils import get_session, get_settings
 from datajunction_server.utils import (
     get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
 )
-from datajunction_server.models import User
-from datajunction_server.models import access
-from datajunction_server.models.access import validate_access
 
 settings = get_settings()
 _logger = logging.getLogger(__name__)

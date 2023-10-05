@@ -28,6 +28,7 @@ from datajunction_server.utils import (
     get_session,
     get_settings,
 )
+from datajunction_server.models.access import validate_access
 
 from .construction.fixtures import build_expectation, construction_session
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SETUP
@@ -183,8 +184,17 @@ def client(  # pylint: disable=too-many-statements
     def get_settings_override() -> Settings:
         return settings
 
+    def validate_access_override():
+        def _validate_access(access_control):
+            access_control.approve_all()
+
+        return _validate_access
+
+
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
+    app.dependency_overrides[validate_access] = validate_access_override
+
     with TestClient(app) as client:
         client.headers.update(
             {

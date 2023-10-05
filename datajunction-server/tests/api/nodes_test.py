@@ -1113,9 +1113,11 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         # Hard deleting a node causes downstream nodes to become invalid
         response = client_with_roads.delete("/nodes/default.repair_orders/hard/")
         assert response.ok
-        assert response.json() == {
+        data = response.json()
+        data['impact']=sorted(data['impact'], key = lambda x: x['name'])
+        assert data == {
             "message": "The node `default.repair_orders` has been completely removed.",
-            "impact": [
+            "impact": sorted([
                 {
                     "name": "default.repair_order",
                     "status": "invalid",
@@ -1141,7 +1143,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "status": "invalid",
                     "effect": "downstream node is now invalid",
                 },
-            ],
+            ], key = lambda x: x['name'])
         }
 
         # Hard deleting a dimension creates broken links

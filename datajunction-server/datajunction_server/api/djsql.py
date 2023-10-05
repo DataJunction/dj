@@ -10,22 +10,16 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
 from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.models import History, User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
-from datajunction_server.utils import (
-    get_query_service_client,
-    get_session,
-    get_settings,
-)
-from datajunction_server.models import access
-from datajunction_server.models.access import validate_access
 from datajunction_server.utils import (
     get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
 )
-from datajunction_server.models import History, User
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["DJSQL"])
@@ -46,9 +40,9 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
     """
     Return data for a DJ SQL query
     """
-    access_control = access.AccessControl(
-        validate_access = validate_access,
-        user = current_user,
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
     )
     translated_sql, engine, catalog = build_sql_for_dj_query(
         session,
@@ -91,8 +85,8 @@ async def get_data_stream_for_djsql(  # pragma: no cover
     Return data for a DJ SQL query using server side events
     """
     access_control = access.AccessControl(
-        validate_access = validate_access,
-        user = current_user,
+        validate_access=validate_access,
+        user=current_user,
     )
     translated_sql, engine, catalog = build_sql_for_dj_query(
         session,

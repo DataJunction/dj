@@ -33,7 +33,14 @@ from datajunction_server.errors import (
     DJNodeNotFound,
     ErrorCode,
 )
-from datajunction_server.models import AttributeType, Catalog, Column, Engine, User
+from datajunction_server.models import (
+    AttributeType,
+    Catalog,
+    Column,
+    Engine,
+    User,
+    access,
+)
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import (
@@ -63,12 +70,12 @@ from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, pars
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
 from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR
-from datajunction_server.models import access
 
 _logger = logging.getLogger(__name__)
 
+
 def list_nodes(
-        session: Session,
+    session: Session,
     node_type: Optional[NodeType] = None,
     prefix: Optional[str] = None,
 ) -> List[str]:
@@ -83,6 +90,7 @@ def list_nodes(
     if node_type:
         statement = statement.where(Node.type == node_type)
     return session.exec(statement).unique()
+
 
 def get_node_namespace(  # pylint: disable=too-many-arguments
     session: Session,
@@ -991,10 +999,10 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
     query_ast, dj_nodes = build_dj_query(session, query)
 
     for node in dj_nodes:
-        access_control.add_request_by_node(node.current)
+        access_control.add_request_by_node(access.ResourceRequestVerb.READ,  node.current)
 
     access_control.validate_and_raise()
-        
+
     leading_metric_node = dj_nodes[0]
     available_engines = leading_metric_node.current.catalog.engines
 
