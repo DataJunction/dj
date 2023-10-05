@@ -267,6 +267,9 @@ def create_node_revision(
         [p.name for p in node_revision.parents],
     )
     node_revision.columns = node_validator.columns or []
+    if node_revision.type == NodeType.METRIC:
+        if node_revision.columns:
+            node_revision.columns[0].display_name = node_revision.display_name
     node_revision.catalog_id = catalog_id
     return node_revision
 
@@ -953,6 +956,8 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         ).all()
         new_revision.parents = list(parent_refs)
         new_revision.columns = node_validator.columns or []
+        if new_revision.type == NodeType.METRIC:
+            new_revision.columns[0].display_name = new_revision.display_name
 
         # Update the primary key if one was set in the input
         if data is not None and data.primary_key:
