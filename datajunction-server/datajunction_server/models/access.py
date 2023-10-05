@@ -304,6 +304,6 @@ def validate_access()->ValidateAccessFn:
                     request.deny()
         """
         for request in access_control.requests:
-            request.approved = "dj" == access_control.user
+            request.approve()
 
     return _validate_access
