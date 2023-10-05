@@ -364,7 +364,7 @@ def _build_select_ast(
 
 # pylint: disable=R0915
 def add_filters_dimensions_orderby_limit_to_query_ast(
-    session: Session, 
+    session: Session,
     query: ast.Query,
     dialect: Optional[str] = None,  # pylint: disable=unused-argument
     filters: Optional[List[str]] = None,
@@ -389,7 +389,10 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 projection_addition[col.identifier(False)] = col
 
-                if access_control: access_control.add_request_by_node_name(session, access.AccessVerb.READ, col.namespace.identifier(False))
+                if access_control:
+                    access_control.add_request_by_node_name(
+                        session, access.AccessVerb.READ, col.namespace.identifier(False)
+                    )
 
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
@@ -405,7 +408,10 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 if not dimensions:
                     projection_addition[col.identifier(False)] = col
-                if access_control: access_control.add_request_by_node_name(session, access.AccessVerb.READ, col.namespace.identifier(False))
+                if access_control:
+                    access_control.add_request_by_node_name(
+                        session, access.AccessVerb.READ, col.namespace.identifier(False)
+                    )
 
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
@@ -421,7 +427,10 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 temp_query.select.organization.order  # type:ignore
             )
             for col in temp_query.find_all(ast.Column):
-                if access_control: access_control.add_request_by_node_name(session, access.AccessVerb.READ, col.namespace.identifier(False))
+                if access_control:
+                    access_control.add_request_by_node_name(
+                        session, access.AccessVerb.READ, col.namespace.identifier(False)
+                    )
 
     # add all used dimension columns to the projection without duplicates
     projection_update = []
@@ -504,7 +513,8 @@ def build_node(  # pylint: disable=too-many-arguments
     """
     Determines the optimal way to build the Node and does so
     """
-    if access_control: access_control.add_request_by_node(session, access.AccessVerb.READ, node)
+    if access_control:
+        access_control.add_request_by_node(access.AccessVerb.READ, node)
 
     if include_dimensions_in_groupby is None:
         include_dimensions_in_groupby = node.type == NodeType.METRIC
@@ -561,17 +571,25 @@ def build_node(  # pylint: disable=too-many-arguments
         include_dimensions_in_groupby=include_dimensions_in_groupby,
         access_control=access_control,
     )
-    
-    if access_control: 
+
+    if access_control:
         access_control.validate_and_raise()
-        access_control.state=access.AccessControlState.INDIRECT
+        access_control.state = access.AccessControlState.INDIRECT
 
     memoized_queries: Dict[int, ast.Query] = {}
     _logger.info("Calling build_ast on %s", node.name)
     built_ast = build_ast(session, query, memoized_queries, build_criteria)
     if access_control:
-        for tbl in build_ast.filter(lambda ast_node: isinstance(ast_node, ast.Table) and ast_node.dj_node is not None):
-            access_control.add_request_by_node(access.AccessVerb.READ, tbl.dj_node)
+        access_control.add_request_by_nodes(
+            access.AccessVerb.READ,
+            [
+                tbl.dj_node
+                for tbl in build_ast.filter(
+                    lambda ast_node: isinstance(ast_node, ast.Table)
+                    and ast_node.dj_node is not None
+                )
+            ],
+        )
         access_control.validate_and_raise()
     _logger.info("Finished build_ast on %s", node.name)
     return built_ast

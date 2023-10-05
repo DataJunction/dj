@@ -257,7 +257,7 @@ def validate_nodes(
     user: User,
     nodes: Iterable[Node|NodeRevision],
     raise_: bool = False,
-) -> List[NodeRevision]:
+) -> List[NodeRevision|Node]:
     
     access_control = AccessControlStore(
         validate_access=validate_access,
