@@ -38,6 +38,41 @@ _logger = logging.getLogger(__name__)
 settings = get_settings()
 router = SecureAPIRouter(tags=["materializations"])
 
+"""
+0. Pre-materialization step:
+User can set columns to be temporal partition columns via their column attributes.
+We have two attribute tags for this purpose: temporal partition day, temporal partition hour.
+This implies that any materialized version of the node should be partitioned by that column
+
+1. Schedule materialization job:
+User tells DJ:
+- node
+- schedule
+- engine
+- optional spark/druid config
+DJ stores materialization config and creates a scheduled workflow and an adhoc workflow 
+(used for backfills and adhoc runs).
+
+Note: If there are no temporal partitions, it will assume the node is meant to be materialized fully 
+at the specified schedule.
+
+If it's a Druid materialization, based on the configured partitions, it will generate the Druid config at runtime:
+- we know that X col will be partition
+- if it's temporal partition day, we know granularity=DAY
+- intervals are generated based on the Druid config
+
+
+2. For a given materialization config, users can set backfills (across time ranges). This will trigger
+the adhoc workflow with the backfills.
+POST /nodes/{node_name}/materializations/{materialization_name}/backfills
+{
+    "range": [
+        "20230901",
+        "20230930"
+    ]
+}
+
+"""
 
 @router.post(
     "/nodes/{node_name}/materialization/",
