@@ -59,7 +59,7 @@ export function Root() {
         ) : (
           <span className="menu-link">
             <span className="menu-title">
-              <button onClick={handleLogout}>Logout</button>
+              <a onClick={handleLogout}>Logout</a>
             </span>
           </span>
         )}
