@@ -144,6 +144,7 @@ class Column(BaseModel):
 
     name: str
     type: str
+    display_name: Optional[str]
     attributes: Optional[List]
 
 

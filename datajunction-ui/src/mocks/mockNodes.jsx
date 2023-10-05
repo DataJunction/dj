@@ -27,6 +27,7 @@ export const mocks = {
       {
         name: 'default_DOT_num_repair_orders',
         type: 'bigint',
+        display_name: 'Default DOT num repair orders',
         attributes: [],
         dimension: null,
       },
@@ -243,6 +244,7 @@ export const mocks = {
     {
       name: 'default_DOT_avg_repair_price',
       type: 'double',
+      display_name: 'Default DOT avg repair price',
       attributes: [],
       dimension: null,
     },
@@ -402,6 +404,7 @@ export const mocks = {
         {
           name: 'default_DOT_avg_repair_price',
           type: 'double',
+          display_name: 'Default DOT avg repair price',
           attributes: [],
           dimension: null,
         },
@@ -442,30 +445,35 @@ export const mocks = {
       {
         name: 'default_DOT_num_repair_orders',
         type: 'bigint',
+        display_name: 'Default DOT num repair orders',
         attributes: [],
         dimension: null,
       },
       {
         name: 'default_DOT_avg_repair_price',
         type: 'double',
+        display_name: 'Default DOT avg repair price',
         attributes: [],
         dimension: null,
       },
       {
         name: 'default_DOT_total_repair_cost',
         type: 'double',
+        display_name: 'Default DOT total repair cost',
         attributes: [],
         dimension: null,
       },
       {
         name: 'default_DOT_total_repair_order_discounts',
         type: 'double',
+        display_name: 'Default DOT total repair order discounts',
         attributes: [],
         dimension: null,
       },
       {
         name: 'company_name',
         type: 'string',
+        display_name: 'Company Name',
         attributes: [
           {
             attribute_type: {
@@ -821,6 +829,7 @@ export const mocks = {
       {
         name: 'default_DOT_avg_repair_price',
         type: 'double',
+        display_name: 'Default DOT avg repair price',
         attributes: [],
         dimension: null,
       },
@@ -1044,6 +1053,7 @@ export const mocks = {
         {
           name: 'repair_order_id',
           type: 'int',
+          display_name: 'Repair Order Id',
           attributes: [],
           dimension: {
             name: 'default.repair_order',
@@ -1052,24 +1062,28 @@ export const mocks = {
         {
           name: 'repair_type_id',
           type: 'int',
+          display_name: 'Repair Type Id',
           attributes: [],
           dimension: null,
         },
         {
           name: 'price',
           type: 'float',
+          display_name: 'Price',
           attributes: [],
           dimension: null,
         },
         {
           name: 'quantity',
           type: 'int',
+          display_name: 'Quantity',
           attributes: [],
           dimension: null,
         },
         {
           name: 'discount',
           type: 'float',
+          display_name: 'Discount',
           attributes: [],
           dimension: null,
         },
@@ -1108,6 +1122,7 @@ export const mocks = {
         {
           name: 'dateint',
           type: 'timestamp',
+          display_name: 'Dateint',
           attributes: [
             {
               attribute_type: {
@@ -1121,18 +1136,21 @@ export const mocks = {
         {
           name: 'month',
           type: 'int',
+          display_name: 'Month',
           attributes: [],
           dimension: null,
         },
         {
           name: 'year',
           type: 'int',
+          display_name: 'Year',
           attributes: [],
           dimension: null,
         },
         {
           name: 'day',
           type: 'int',
+          display_name: 'Day',
           attributes: [],
           dimension: null,
         },
@@ -1175,6 +1193,7 @@ export const mocks = {
         {
           name: 'hard_hat_id',
           type: 'int',
+          display_name: 'Hard Hat Id',
           attributes: [
             {
               attribute_type: {
@@ -1188,89 +1207,94 @@ export const mocks = {
         {
           name: 'last_name',
           type: 'string',
+          display_name: 'Last Name',
           attributes: [],
           dimension: null,
         },
         {
           name: 'first_name',
           type: 'string',
+          display_name: 'First Name',
           attributes: [],
           dimension: null,
         },
         {
           name: 'title',
           type: 'string',
+          display_name: 'Title',
           attributes: [],
           dimension: null,
         },
         {
           name: 'birth_date',
           type: 'date',
+          display_name: 'Birth Date',
           attributes: [],
           dimension: {
             name: 'default.date_dim',
           },
         },
         {
-          name: 'hire_date',
-          type: 'date',
-          attributes: [],
-          dimension: {
-            name: 'default.date_dim',
+          "name": "hire_date",
+          "type": "date",
+          "attributes": [],
+          "dimension": {
+            "name": "default.date_dim"
           },
+          "display_name": "Hire Date"
         },
         {
-          name: 'address',
-          type: 'string',
-          attributes: [],
-          dimension: null,
+          "name": "address",
+          "type": "string",
+          "attributes": [],
+          "dimension": null,
+          "display_name": "Address"
         },
         {
-          name: 'city',
-          type: 'string',
-          attributes: [],
-          dimension: null,
+          "name": "city",
+          "type": "string",
+          "attributes": [],
+          "dimension": null,
+          "display_name": "City"
         },
         {
-          name: 'state',
-          type: 'string',
-          attributes: [],
-          dimension: {
-            name: 'default.us_state',
+          "name": "state",
+          "type": "string",
+          "attributes": [],
+          "dimension": {
+            "name": "default.us_state"
           },
+          "display_name": "State"
         },
         {
-          name: 'postal_code',
-          type: 'string',
-          attributes: [],
-          dimension: null,
+          "name": "postal_code",
+          "type": "string",
+          "attributes": [],
+          "dimension": null,
+          "display_name": "Postal Code"
         },
         {
-          name: 'country',
-          type: 'string',
-          attributes: [],
-          dimension: null,
+          "name": "country",
+          "type": "string",
+          "attributes": [],
+          "dimension": null,
+          "display_name": "Country"
         },
         {
-          name: 'manager',
-          type: 'int',
-          attributes: [],
-          dimension: null,
+          "name": "manager",
+          "type": "int",
+          "attributes": [],
+          "dimension": null,
+          "display_name": "Manager"
         },
         {
-          name: 'contractor_id',
-          type: 'int',
-          attributes: [],
-          dimension: null,
-        },
-      ],
-      updated_at: '2023-08-21T16:48:55.594603+00:00',
-      materializations: [],
-      parents: [
-        {
-          name: 'default.hard_hats',
-        },
-      ],
+          "name": "contractor_id",
+          "type": "int",
+          "attributes": [],
+          "dimension": null,
+          "display_name": "Contractor Id"
+        }
+        ],
       created_at: '2023-08-21T16:48:55.594537+00:00',
       tags: [],
     },
@@ -1302,6 +1326,7 @@ export const mocks = {
         {
           name: 'default_DOT_avg_repair_price',
           type: 'double',
+          display_name: 'Default DOT avg repair price',
           attributes: [],
           dimension: null,
         },
@@ -1345,6 +1370,7 @@ export const mocks = {
       {
         name: 'dispatcher_id',
         type: 'int',
+        display_name: 'Dispatcher Id',
         attributes: [
           {
             attribute_type: {
@@ -1358,12 +1384,14 @@ export const mocks = {
       {
         name: 'company_name',
         type: 'string',
+        display_name: 'Company Name',
         attributes: [],
         dimension: null,
       },
       {
         name: 'phone',
         type: 'string',
+        display_name: 'Phone',
         attributes: [],
         dimension: null,
       },

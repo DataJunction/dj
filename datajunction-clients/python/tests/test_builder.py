@@ -693,6 +693,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         assert {
             "name": "hard_hat_id",
             "type": "int",
+            "display_name": "Hard Hat Id",
             "attributes": [
                 {"attribute_type": {"namespace": "system", "name": "primary_key"}},
             ],
@@ -701,6 +702,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         assert {
             "name": "last_name",
             "type": "string",
+            "display_name": "Last Name",
             "attributes": [
                 {"attribute_type": {"namespace": "system", "name": "primary_key"}},
             ],
@@ -721,10 +723,34 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         us_states.columns = new_columns
         response = us_states.save()
         assert response["columns"] == [
-            {"attributes": [], "dimension": None, "name": "state_id", "type": "int"},
-            {"attributes": [], "dimension": None, "name": "name", "type": "string"},
-            {"attributes": [], "dimension": None, "name": "abbr", "type": "string"},
-            {"attributes": [], "dimension": None, "name": "region", "type": "int"},
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "State Id",
+                "name": "state_id",
+                "type": "int",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Name",
+                "name": "name",
+                "type": "string",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Abbr",
+                "name": "abbr",
+                "type": "string",
+            },
+            {
+                "attributes": [],
+                "dimension": None,
+                "display_name": "Region",
+                "name": "region",
+                "type": "int",
+            },
         ]
         assert response["version"] == "v2.0"
 
@@ -762,6 +788,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                     {"attribute_type": {"name": "dimension", "namespace": "system"}},
                 ],
                 "dimension": None,
+                "display_name": "Contact Title",
                 "name": "contact_title",
                 "type": "string",
             },
