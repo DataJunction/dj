@@ -34,12 +34,22 @@ router = SecureAPIRouter(tags=["dimensions"])
 
 @router.get("/dimensions/", response_model=List[str])
 def list_dimensions(
-    prefix: Optional[str] = None, *, session: Session = Depends(get_session)
+    prefix: Optional[str] = None,
+    *,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(validate_access),
 ) -> List[str]:
     """
     List all available dimensions.
     """
-    return list_nodes(node_type=NodeType.DIMENSION, prefix=prefix, session=session)
+    return list_nodes(
+        node_type=NodeType.DIMENSION,
+        prefix=prefix,
+        session=session,
+        current_user=current_user,
+        validate_access=validate_access,
+    )
 
 
 @router.get("/dimensions/{name}/nodes/", response_model=List[NodeRevisionOutput])

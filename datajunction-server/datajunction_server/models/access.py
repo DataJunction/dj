@@ -258,6 +258,7 @@ def validate_nodes(
     nodes: Iterable[Node|NodeRevision],
     raise_: bool = False,
 ) -> List[NodeRevision]:
+    
     access_control = AccessControlStore(
         validate_access=validate_access,
         user=user,
@@ -285,7 +286,7 @@ ValidateAccessFn = Callable[[AccessControl], None]
 
 
 # Dummy default if not dependency injected
-def validate_access():
+def validate_access()->ValidateAccessFn:
     def _validate_access(access_control: AccessControl):
         """
         Examines all requests in the AccessControl
