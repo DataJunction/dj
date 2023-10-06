@@ -4,6 +4,7 @@ exports[`<RegisterTablePage /> registers a table correctly 1`] = `
 HTMLCollection [
   <div
     class="message success"
+    data-testid="success"
   >
     <svg
       class="bi bi-check-circle-fill"

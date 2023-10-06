@@ -7,7 +7,7 @@ import os
 from http import HTTPStatus
 from typing import List, Optional, Union, cast
 
-from fastapi import Depends, Response
+from fastapi import Depends, Query, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -28,7 +28,7 @@ from datajunction_server.api.helpers import (
     validate_node_data,
 )
 from datajunction_server.api.namespaces import create_node_namespace
-from datajunction_server.api.tags import get_tag_by_name
+from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.internal.materializations import schedule_materialization_jobs
@@ -682,10 +682,15 @@ def delete_dimension_link(  # pylint: disable=too-many-arguments
     )
 
 
-@router.post("/nodes/{name}/tag/", status_code=201, tags=["tags"], name="Tag A Node")
-def tag_node(
+@router.post(
+    "/nodes/{name}/tags/",
+    status_code=200,
+    tags=["tags"],
+    name="Update Tags on Node",
+)
+def tags_node(
     name: str,
-    tag_name: str,
+    tag_names: Optional[List[str]] = Query(default=None),
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
@@ -694,8 +699,10 @@ def tag_node(
     Add a tag to a node
     """
     node = get_node_by_name(session=session, name=name)
-    tag = get_tag_by_name(session, name=tag_name, raise_if_not_exists=True)
-    node.tags.append(tag)
+    if not tag_names:
+        tag_names = []  # pragma: no cover
+    tags = get_tags_by_name(session, names=tag_names)
+    node.tags = tags
 
     session.add(node)
     session.add(
@@ -705,20 +712,22 @@ def tag_node(
             node=node.name,
             activity_type=ActivityType.TAG,
             details={
-                "tag": tag_name,
+                "tags": tag_names,
             },
             user=current_user.username if current_user else None,
         ),
     )
     session.commit()
     session.refresh(node)
-    session.refresh(tag)
+    for tag in tags:
+        session.refresh(tag)
 
     return JSONResponse(
-        status_code=201,
+        status_code=200,
         content={
             "message": (
-                f"Node `{name}` has been successfully tagged with tag `{tag_name}`"
+                f"Node `{name}` has been successfully updated with "
+                f"the following tags: {', '.join(tag_names)}"
             ),
         },
     )

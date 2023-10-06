@@ -606,4 +606,87 @@ describe('DataJunctionAPI', () => {
       },
     );
   });
+
+  it('calls listTags correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify(mocks.tags));
+    const res = await DataJunctionAPI.listTags();
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/tags`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      method: 'GET',
+    });
+    expect(res).toEqual(mocks.tags);
+  });
+
+  it('calls getTag correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify(mocks.tags[0]));
+    const res = await DataJunctionAPI.getTag('report.financials');
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/tags/report.financials`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      method: 'GET',
+    });
+    expect(res).toEqual(mocks.tags[0]);
+  });
+
+  it('calls listNodesForTag correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify(mocks.mockLinkedNodes));
+    const res = await DataJunctionAPI.listNodesForTag('report.financials');
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/tags/report.financials/nodes`,
+      {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'GET',
+      },
+    );
+    expect(res).toEqual(mocks.mockLinkedNodes);
+  });
+
+  it('calls tagsNode correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify(mocks.mockLinkedNodes));
+    await DataJunctionAPI.tagsNode('default.num_repair_orders', [
+      'report.financials',
+      'report.forecasts',
+    ]);
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/default.num_repair_orders/tags?tag_names=report.financials&tag_names=report.forecasts`,
+      {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        method: 'POST',
+      },
+    );
+  });
+
+  it('calls addTag correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify(mocks.mockLinkedNodes));
+    await DataJunctionAPI.addTag(
+      'report.financials',
+      'Financial Reports',
+      'report',
+      'financial reports',
+    );
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/tags`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: 'report.financials',
+        display_name: 'Financial Reports',
+        tag_type: 'report',
+        description: 'financial reports',
+      }),
+      method: 'POST',
+    });
+  });
 });

@@ -451,6 +451,12 @@ tbody th {
   background-color: #dbafff !important;
   color: #580076;
 }
+
+.entity__tag {
+  font-family: 'Jost';
+  background-color: #afd4ff !important;
+  color: #002176;
+}
 .react-flow__node .node_type__cube {
   background-color: #c2180750 !important;
   color: #c2180750;
@@ -992,4 +998,15 @@ pre {
 
 .deleteNode {
   display: inline-block;
+}
+
+.tag_value {
+  color: #5c3b8f;
+  background-color: #5c3b8f25;
+  margin: 0.25rem;
+  font-size: 100%;
+}
+
+.tag_value:hover {
+  background-color: #5c3b8f50;
 }

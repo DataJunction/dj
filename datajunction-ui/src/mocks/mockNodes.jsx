@@ -41,7 +41,7 @@ export const mocks = {
       },
     ],
     created_at: '2023-08-21T16:48:56.841631+00:00',
-    tags: [],
+    tags: [{ name: 'purpose', display_name: 'Purpose' }],
     dimensions: [
       {
         value: 'default.date_dim.dateint',
@@ -1420,6 +1420,22 @@ export const mocks = {
       type: 'source',
       name: 'default.num_repair_orders',
       display_name: 'Default: Num Repair Orders',
+    },
+  ],
+  tags: [
+    {
+      description: 'Financial-related reports',
+      display_name: 'Financial Reports',
+      tag_metadata: {},
+      name: 'report.financials',
+      tag_type: 'reports',
+    },
+    {
+      description: 'Forecasting reports',
+      display_name: 'Forecasting Reports',
+      tag_metadata: {},
+      name: 'reports.forecasts',
+      tag_type: 'reports',
     },
   ],
 };

@@ -497,4 +497,82 @@ export const DataJunctionAPI = {
     });
     return { status: response.status, json: await response.json() };
   },
+  listTags: async function () {
+    const response = await fetch(`${DJ_URL}/tags`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return await response.json();
+  },
+  getTag: async function (tagName) {
+    const response = await fetch(`${DJ_URL}/tags/${tagName}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return await response.json();
+  },
+  listNodesForTag: async function (tagName) {
+    const response = await fetch(`${DJ_URL}/tags/${tagName}/nodes`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return await response.json();
+  },
+  tagsNode: async function (nodeName, tagNames) {
+    const url = tagNames
+      .map(value => `tag_names=${encodeURIComponent(value)}`)
+      .join('&');
+    const response = await fetch(`${DJ_URL}/nodes/${nodeName}/tags?${url}`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+  addTag: async function (name, displayName, tagType, description) {
+    const response = await fetch(`${DJ_URL}/tags`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        name: name,
+        display_name: displayName,
+        tag_type: tagType,
+        description: description,
+      }),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
+  editTag: async function (name, description, displayName) {
+    const updates = {};
+    if (description) {
+      updates.description = description;
+    }
+    if (displayName) {
+      updates.display_name = displayName;
+    }
+
+    const response = await fetch(`${DJ_URL}/tags/${name}`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(updates),
+      credentials: 'include',
+    });
+    return { status: response.status, json: await response.json() };
+  },
 };
