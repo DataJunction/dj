@@ -716,9 +716,11 @@ pre {
 }
 .menu-title a {
   color: #7e8299;
+  cursor: pointer;
 }
 .menu-title a:hover {
   color: #3f4254;
+  cursor: pointer;
 }
 
 .node__header,

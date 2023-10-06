@@ -3,18 +3,24 @@
   border: 2px solid #000000;
   background: linear-gradient(120deg, #ffed7c, #fef7c8);
   width: 40vw;
-  height: 30rem;
+  height: 45rem;
   box-sizing: border-box;
   padding: 2rem;
   display: grid;
   grid-template-columns: 1fr;
-  gap: 1rem;
   margin: auto;
   position: absolute;
   top: 0;
   bottom: 0;
   left: 0;
   right: 0;
+  cursor: pointer;
+  grid-row-gap: 0;
+}
+
+.login form div {
+  display: block;
+  text-align: center;
 }
 
 .login form button {
@@ -49,7 +55,7 @@
 
 .login button[type='submit'] {
   width: 10vw;
-  background-color: #01b268;
+  background-color: #5D2E85;
   border: 2px solid #000000;
   color: white;
   padding: 14px 20px;
@@ -64,4 +70,12 @@
 
 .login .logo-title img {
   padding: 0.5rem;
+}
+
+.signup form {
+  height: 50rem;
+}
+
+.form-error {
+  color: red;
 }
