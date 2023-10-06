@@ -13,7 +13,11 @@ foundation.hljs['padding'] = '2rem';
 export default function NodeInfoTab({ node }) {
   const [compiledSQL, setCompiledSQL] = useState('');
   const [checked, setChecked] = useState(false);
-  const nodeTags = node?.tags.map(tag => <div>{tag}</div>);
+  const nodeTags = node?.tags.map(tag => (
+    <div className={'badge tag_value'}>
+      <a href={`/tags/${tag.name}`}>{tag.display_name}</a>
+    </div>
+  ));
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   useEffect(() => {
     const fetchData = async () => {

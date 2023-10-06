@@ -8,16 +8,33 @@ from fastapi import Depends
 from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.authentication.http import SecureAPIRouter
 from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
-from datajunction_server.models.node import NodeType
+from datajunction_server.models.node import NodeMinimumDetail, NodeType
 from datajunction_server.models.tag import CreateTag, Tag, TagOutput, UpdateTag
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["tags"])
+
+
+def get_tags_by_name(
+    session: Session,
+    names: List[str],
+) -> List[Tag]:
+    """
+    Retrieves a list of tags by name
+    """
+    statement = select(Tag).where(Tag.name.in_(names))  # type: ignore  # pylint: disable=no-member
+    tags = session.exec(statement).all()
+    difference = set(names) - {tag.name for tag in tags}
+    if difference:
+        raise DJDoesNotExistException(
+            message=f"Tags not found: {', '.join(difference)}",
+        )
+    return tags
 
 
 def get_tag_by_name(
@@ -36,7 +53,7 @@ def get_tag_by_name(
         )
     tag = session.exec(statement).one_or_none()
     if not tag and raise_if_not_exists:
-        raise DJException(
+        raise DJException(  # pragma: no cover
             message=(f"A tag with name `{name}` does not exist."),
             http_status_code=404,
         )
@@ -111,6 +128,8 @@ def update_a_tag(
         tag.description = data.description
     if data.tag_metadata:
         tag.tag_metadata = data.tag_metadata
+    if data.display_name:
+        tag.display_name = data.display_name
     session.add(tag)
     session.add(
         History(
@@ -126,13 +145,13 @@ def update_a_tag(
     return tag
 
 
-@router.get("/tags/{name}/nodes/", response_model=List[str])
+@router.get("/tags/{name}/nodes/", response_model=List[NodeMinimumDetail])
 def list_nodes_for_a_tag(
     name: str,
     node_type: Optional[NodeType] = None,
     *,
     session: Session = Depends(get_session),
-) -> List[str]:
+) -> List[NodeMinimumDetail]:
     """
     Find nodes tagged with the tag, filterable by node type.
     """
@@ -144,5 +163,8 @@ def list_nodes_for_a_tag(
             http_status_code=404,
         )
     if not node_type:
-        return sorted([node.name for node in tag.nodes])
-    return sorted([node.name for node in tag.nodes if node.type == node_type])
+        return sorted([node.current for node in tag.nodes], key=lambda x: x.name)
+    return sorted(
+        [node.current for node in tag.nodes if node.type == node_type],
+        key=lambda x: x.name,
+    )

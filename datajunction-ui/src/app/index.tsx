@@ -10,7 +10,9 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { NamespacePage } from './pages/NamespacePage/Loadable';
 import { NodePage } from './pages/NodePage/Loadable';
 import { SQLBuilderPage } from './pages/SQLBuilderPage/Loadable';
+import { TagPage } from './pages/TagPage/Loadable';
 import { AddEditNodePage } from './pages/AddEditNodePage/Loadable';
+import { AddEditTagPage } from './pages/AddEditTagPage/Loadable';
 import { NotFoundPage } from './pages/NotFoundPage/Loadable';
 import { LoginPage } from './pages/LoginPage';
 import { RegisterTablePage } from './pages/RegisterTablePage';
@@ -61,6 +63,11 @@ export function App() {
                         />
                       </Route>
                       <Route
+                        path="create/tag"
+                        key="createtag"
+                        element={<AddEditTagPage />}
+                      ></Route>
+                      <Route
                         path="create/source"
                         key="register"
                         element={<RegisterTablePage />}
@@ -82,6 +89,9 @@ export function App() {
                         key="sql"
                         element={<SQLBuilderPage />}
                       />
+                      <Route path="tags" key="tags">
+                        <Route path=":name" element={<TagPage />} />
+                      </Route>
                     </>
                   }
                 />

@@ -51,6 +51,8 @@ export const initializeMockDJClient = () => {
       createNode: jest.fn(),
       patchNode: jest.fn(),
       node: jest.fn(),
+      tagsNode: jest.fn(),
+      listTags: jest.fn(),
     },
   };
 };

@@ -108,7 +108,9 @@ def get_node_by_name(  # pylint: disable=too-many-arguments
     if node_type:
         statement = statement.where(Node.type == node_type)
     if with_current:
-        statement = statement.options(joinedload(Node.current))
+        statement = statement.options(joinedload(Node.current)).options(
+            joinedload(Node.tags),
+        )
         node = session.exec(statement).unique().one_or_none()
     else:
         node = session.exec(statement).one_or_none()

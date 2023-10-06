@@ -6,6 +6,7 @@ exports[`AddEditNodePage submission failed for creating a node 1`] = `
 HTMLCollection [
   <div
     class="message alert"
+    data-testid="failure"
   >
     <svg
       height="2em"
