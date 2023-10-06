@@ -24,6 +24,7 @@ router = APIRouter(tags=["Basic OAuth2"])
 
 @router.post("/basic/user/")
 async def create_a_user(
+    email: str = Form(),
     username: str = Form(),
     password: str = Form(),
     session: Session = Depends(get_session),
@@ -42,6 +43,7 @@ async def create_a_user(
             ],
         )
     new_user = User(
+        email=email,
         username=username,
         password=get_password_hash(password),
         oauth_provider=OAuthProvider.BASIC,
