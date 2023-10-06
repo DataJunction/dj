@@ -189,10 +189,10 @@ def client(  # pylint: disable=too-many-statements
             access_control.approve_all()
 
         return _validate_access
+
     app.dependency_overrides[validate_access] = validate_access_override
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
-    
 
     with TestClient(app) as client:
         client.headers.update(

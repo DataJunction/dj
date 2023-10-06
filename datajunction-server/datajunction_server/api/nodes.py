@@ -186,7 +186,12 @@ def list_nodes(
     nodes = session.exec(statement).unique().all()
     return [
         node.name
-        for node in access.validate_access_nodes(validate_access, current_user, nodes)
+        for node in access.validate_access_nodes(
+            validate_access,
+            access.ResourceRequestVerb.VIEW,
+            current_user,
+            nodes,
+        )
     ]
 
 

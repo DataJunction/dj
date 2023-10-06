@@ -316,6 +316,7 @@ class AccessControlStore(BaseModel):
 
 def validate_access_nodes(
     validate_access: "ValidateAccessFn",  # pylint: disable=W0621
+    verb: ResourceRequestVerb,
     user: Optional[User],
     nodes: Iterable[Node | NodeRevision],
     raise_: bool = False,
@@ -338,7 +339,7 @@ def validate_access_nodes(
         user=user,
     )
 
-    access_control.add_request_by_nodes(ResourceRequestVerb.VIEW, nodes)
+    access_control.add_request_by_nodes(verb, nodes)
 
     validation_results = access_control.validate()
     if raise_:
@@ -350,6 +351,49 @@ def validate_access_nodes(
         if node.id
         in {
             request.access_object.revision_id
+            for request in validation_results
+            if request.approved
+        }
+    ]
+
+
+def validate_access_namespaces(
+    validate_access: "ValidateAccessFn",  # pylint: disable=W0621
+    verb: ResourceRequestVerb,
+    user: Optional[User],
+    namespaces: Iterable[str],
+    raise_: bool = False,
+) -> List[str]:
+    """
+    Validate the access of the user to a set of namespaces
+    """
+    if user is None:
+        raise DJException(
+            http_status_code=HTTPStatus.FORBIDDEN,
+            errors=[
+                DJError(
+                    code=ErrorCode.INCOMPLETE_AUTHORIZATION,
+                    message="Failed to acquire user to validate access.",
+                ),
+            ],
+        )
+    access_control = AccessControlStore(
+        validate_access=validate_access,
+        user=user,
+    )
+    for namespace in namespaces:
+        access_control.add_request_by_namespace(verb, namespace)
+
+    validation_results = access_control.validate()
+    if raise_:
+        access_control.raise_if_invalid_requests()
+
+    return [
+        namespace
+        for namespace in namespaces
+        if namespace
+        in {
+            request.access_object.name
             for request in validation_results
             if request.approved
         }

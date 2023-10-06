@@ -3,6 +3,8 @@ Tests for the namespaces API.
 """
 from fastapi.testclient import TestClient
 
+from datajunction_server.models import access
+
 
 def test_list_all_namespaces(client_with_examples: TestClient) -> None:
     """
@@ -22,6 +24,39 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
         {"namespace": "dbt.transform", "num_nodes": 1},
         {"namespace": "default", "num_nodes": 54},
         {"namespace": "foo.bar", "num_nodes": 26},
+    ]
+
+
+def test_list_all_namespaces_access_limited(client_with_examples: TestClient) -> None:
+    """
+    Test ``GET /namespaces/``.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            for request in access_control.requests:
+                if (
+                    isinstance(request.access_object, access.DJNamespace)
+                    and "dbt" in request.access_object.name
+                ):
+                    request.approve()
+                else:
+                    request.deny()
+
+        return _validate_access
+
+    client_with_examples.app.dependency_overrides[
+        access.validate_access
+    ] = validate_access_override
+
+    response = client_with_examples.get("/namespaces/")
+    assert response.ok
+    assert response.json() == [
+        {"namespace": "dbt.dimension", "num_nodes": 1},
+        {"namespace": "dbt.source", "num_nodes": 0},
+        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
+        {"namespace": "dbt.source.stripe", "num_nodes": 1},
+        {"namespace": "dbt.transform", "num_nodes": 1},
     ]
 
 

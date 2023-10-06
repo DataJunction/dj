@@ -63,7 +63,12 @@ def find_nodes_with_dimension(
     """
     dimension_node = get_node_by_name(session, name)
     nodes = get_nodes_with_dimension(session, dimension_node, node_type)
-    return access.validate_access_nodes(validate_access, current_user, nodes)
+    return access.validate_access_nodes(
+        validate_access,
+        access.ResourceRequestVerb.VIEW,
+        current_user,
+        nodes,
+    )
 
 
 @router.get("/dimensions/common/", response_model=List[NodeRevisionOutput])
@@ -85,4 +90,9 @@ def find_nodes_with_common_dimensions(
         [get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
     )
-    return access.validate_access_nodes(validate_access, current_user, nodes)
+    return access.validate_access_nodes(
+        validate_access,
+        access.ResourceRequestVerb.VIEW,
+        current_user,
+        nodes,
+    )
