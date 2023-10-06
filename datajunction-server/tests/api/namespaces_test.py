@@ -59,6 +59,24 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
         {"namespace": "dbt.transform", "num_nodes": 1},
     ]
 
+def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
+    """
+    Test ``GET /namespaces/``.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            access_control.deny_all()
+
+        return _validate_access
+
+    client_with_examples.app.dependency_overrides[
+        access.validate_access
+    ] = validate_access_override
+
+    response = client_with_examples.get("/namespaces/")
+    assert response.ok
+    assert response.json() == []
 
 def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
     """

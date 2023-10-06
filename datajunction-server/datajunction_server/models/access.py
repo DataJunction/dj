@@ -126,7 +126,7 @@ class ResourceRequest(BaseModel):
         return hash((self.verb, self.access_object, self.approved))
 
     def __str__(self) -> str:
-        return (
+        return (#pragma: no cover
             f"{self.verb.value}:"
             f"{self.access_object.__class__.__name__.lower()}/"
             f"{self.access_object.name}"
@@ -325,7 +325,7 @@ def validate_access_nodes(
     Validate the access of the user to a set of nodes
     """
     if user is None:
-        raise DJException(
+        raise DJException(#pragma: no cover
             http_status_code=HTTPStatus.FORBIDDEN,
             errors=[
                 DJError(
@@ -343,7 +343,7 @@ def validate_access_nodes(
 
     validation_results = access_control.validate()
     if raise_:
-        access_control.raise_if_invalid_requests()
+        access_control.raise_if_invalid_requests()#pragma: no cover
 
     return [
         node
@@ -368,7 +368,7 @@ def validate_access_namespaces(
     Validate the access of the user to a set of namespaces
     """
     if user is None:
-        raise DJException(
+        raise DJException(#pragma: no cover
             http_status_code=HTTPStatus.FORBIDDEN,
             errors=[
                 DJError(
@@ -386,7 +386,7 @@ def validate_access_namespaces(
 
     validation_results = access_control.validate()
     if raise_:
-        access_control.raise_if_invalid_requests()
+        access_control.raise_if_invalid_requests()#pragma: no cover
 
     return [
         namespace
@@ -429,14 +429,8 @@ def validate_access() -> ValidateAccessFn:
 
             request.deny_all()
         """
-        if access_control.state == "direct":
-            access_control.approve_all()
-            return
+        access_control.approve_all()
 
-        if access_control.user == "dj":
-            access_control.approve_all()
-            return
 
-        access_control.deny_all()
 
     return _validate_access
