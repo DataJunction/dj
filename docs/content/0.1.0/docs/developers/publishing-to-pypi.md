@@ -1,24 +1,14 @@
 ---
 weight: 100
-title: "Publishing to PyPI"
+title: "Releasing New Version"
 ---
 
-The DataJunction project publishes server and client libraries to [PyPI](https://pypi.org/) using [poetry](https://python-poetry.org/).
+The DataJunction project publishes its server and Python client library to [PyPI](https://pypi.org/) and its UI service to [NPM](https://www.npmjs.com/).
 
-{{< alert icon="👉" >}}
-To create an API token, go to [PyPI](https://pypi.org/account/login/), navigate to the account settings page,
-and scroll to the API tokens section.
-{{< /alert >}}
+DataJunction builds weekly Alpha (in the future Beta/RC) releases automatically, but you can run the same workflow for a specific manual release.
 
-Configure poetry to use your PyPI API token.
-```sh
-poetry config pypi-token.pypi $PYPI_API_TOKEN
-```
+{{< alert icon="👉" text="We make an attempt to keep all the component versions in-sync, but if something fails we may need to clean things up." />}}
 
-Build and publish the project.
-```sh
-poetry publish --build
-```
-{{< alert icon="👉" >}}
-To publish the `djclient`, run the above command in the `djclient/` directory.
-{{< /alert >}}
+Relevant links:
+- Weekly Version Bump workflow (TODO: coming in https://github.com/DataJunction/dj/pull/807)
+- On-merge Auto Publish workflow (TODO: coming in https://github.com/DataJunction/dj/pull/807)
