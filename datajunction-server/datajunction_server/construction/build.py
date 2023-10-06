@@ -371,7 +371,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
     orderby: Optional[List[str]] = None,
     limit: Optional[int] = None,
     include_dimensions_in_groupby: bool = True,
-    access_control: Optional[access.AccessControl] = None,
+    access_control: Optional[access.AccessControlStore] = None,
 ):
     """
     Add filters and dimensions to a query ast
@@ -512,7 +512,7 @@ def build_node(  # pylint: disable=too-many-arguments
     orderby: Optional[List[str]] = None,
     limit: Optional[int] = None,
     build_criteria: Optional[BuildCriteria] = None,
-    access_control: Optional[access.AccessControl] = None,
+    access_control: Optional[access.AccessControlStore] = None,
     include_dimensions_in_groupby: bool = None,
 ) -> ast.Query:
     """
@@ -588,7 +588,7 @@ def build_node(  # pylint: disable=too-many-arguments
         access_control.add_request_by_nodes(
             access.ResourceRequestVerb.READ,
             [
-                cast(ast.Table, tbl).dj_node
+                cast(NodeRevision, cast(ast.Table, tbl).dj_node)
                 for tbl in built_ast.filter(
                     lambda ast_node: isinstance(ast_node, ast.Table)
                     and ast_node.dj_node is not None,
@@ -621,6 +621,7 @@ def build_metric_nodes(
     orderby: List[str],
     limit: Optional[int] = None,
     build_criteria: Optional[BuildCriteria] = None,
+    access_control: Optional[access.AccessControlStore] = None,
 ):
     """
     Build a single query for all metrics in the list, including the specified
@@ -695,6 +696,7 @@ def build_metric_nodes(
             filters=filters,
             build_criteria=build_criteria,
             include_dimensions_in_groupby=True,
+            access_control=access_control,
         )
 
         # Select only columns that were one of the chosen dimensions

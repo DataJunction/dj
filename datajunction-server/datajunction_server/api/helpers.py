@@ -74,24 +74,6 @@ from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR
 _logger = logging.getLogger(__name__)
 
 
-def list_nodes(
-    session: Session,
-    node_type: Optional[NodeType] = None,
-    prefix: Optional[str] = None,
-) -> List[str]:
-    """
-    List the available nodes.
-    """
-    statement = select(Node.name).where(is_(Node.deactivated_at, None))
-    if prefix:
-        statement = statement.where(
-            Node.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
-        )
-    if node_type:
-        statement = statement.where(Node.type == node_type)
-    return session.exec(statement).unique()
-
-
 def get_node_namespace(  # pylint: disable=too-many-arguments
     session: Session,
     namespace: str,
@@ -217,7 +199,7 @@ def get_query(  # pylint: disable=too-many-arguments
     orderby: List[str],
     limit: Optional[int] = None,
     engine: Optional[Engine] = None,
-    access_control: Optional[access.AccessControl] = None,
+    access_control: Optional[access.AccessControlStore] = None,
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -820,6 +802,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     limit: Optional[int] = None,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    access_control: Optional[access.AccessControlStore] = None,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
     """
     Build SQL for multiple metrics. Used by both /sql and /data endpoints
@@ -865,11 +848,15 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     validate_orderby(orderby, metrics, dimensions)
 
     if cube and cube.materializations and cube.availability:
+        if access_control:
+            access_control.add_request_by_node(access.ResourceRequestVerb.READ, cube)
+            access_control.state = access.AccessControlState.INDIRECT
+            access_control.raise_if_invalid_requests()
         materialized_cube_catalog = get_catalog_by_name(
             session,
             cube.availability.catalog,
         )
-        query_ast = build_materialized_cube_node(
+        query_ast = build_materialized_cube_node(  # pylint: disable=E1121
             metric_columns,
             dimension_columns,
             cube,
@@ -907,6 +894,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         dimensions=dimensions or [],
         orderby=orderby or [],
         limit=limit,
+        access_control=access_control,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore

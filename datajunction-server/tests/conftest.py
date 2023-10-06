@@ -184,13 +184,6 @@ def client(  # pylint: disable=too-many-statements
     def get_settings_override() -> Settings:
         return settings
 
-    def validate_access_override():
-        def _validate_access(access_control):
-            access_control.approve_all()
-
-        return _validate_access
-
-    app.dependency_overrides[validate_access] = validate_access_override
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
 

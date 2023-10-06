@@ -45,11 +45,13 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
 
         return _validate_access
 
-    client_with_examples.app.dependency_overrides[
+    app=client_with_examples.app
+    app.dependency_overrides[
         access.validate_access
     ] = validate_access_override
 
     response = client_with_examples.get("/namespaces/")
+
     assert response.ok
     assert response.json() == [
         {"namespace": "dbt.dimension", "num_nodes": 1},
@@ -58,6 +60,7 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
         {"namespace": "dbt.source.stripe", "num_nodes": 1},
         {"namespace": "dbt.transform", "num_nodes": 1},
     ]
+
 
 def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
     """
@@ -70,13 +73,16 @@ def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
 
         return _validate_access
 
-    client_with_examples.app.dependency_overrides[
+    app=client_with_examples.app
+    app.dependency_overrides[
         access.validate_access
     ] = validate_access_override
 
     response = client_with_examples.get("/namespaces/")
+
     assert response.ok
     assert response.json() == []
+
 
 def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:
     """

@@ -123,10 +123,13 @@ class ResourceRequest(BaseModel):
         self.approved = False
 
     def __hash__(self) -> int:
-        return hash((self.verb, self.access_object, self.approved))
+        return hash((self.verb, self.access_object))
+    
+    def __eq__(self, other) -> bool:
+        return self.verb==other.verb and self.access_object == other.access_object
 
     def __str__(self) -> str:
-        return (#pragma: no cover
+        return (  # pragma: no cover
             f"{self.verb.value}:"
             f"{self.access_object.__class__.__name__.lower()}/"
             f"{self.access_object.name}"
@@ -290,9 +293,11 @@ class AccessControlStore(BaseModel):
             indirect_requests=deepcopy(self.indirect_requests),
             validation_request_count=self.validation_request_count,
         )
-        self.validate_access(access_control)  # type: ignore
-        self.validation_results = access_control.requests
 
+        self.validate_access(access_control)  # type: ignore
+
+        self.validation_results = access_control.requests
+        
         if any((result.approved is None for result in self.validation_results)):
             raise DJException(
                 http_status_code=HTTPStatus.FORBIDDEN,
@@ -325,7 +330,7 @@ def validate_access_nodes(
     Validate the access of the user to a set of nodes
     """
     if user is None:
-        raise DJException(#pragma: no cover
+        raise DJException(  # pragma: no cover
             http_status_code=HTTPStatus.FORBIDDEN,
             errors=[
                 DJError(
@@ -343,7 +348,7 @@ def validate_access_nodes(
 
     validation_results = access_control.validate()
     if raise_:
-        access_control.raise_if_invalid_requests()#pragma: no cover
+        access_control.raise_if_invalid_requests()  # pragma: no cover
 
     return [
         node
@@ -368,7 +373,7 @@ def validate_access_namespaces(
     Validate the access of the user to a set of namespaces
     """
     if user is None:
-        raise DJException(#pragma: no cover
+        raise DJException(  # pragma: no cover
             http_status_code=HTTPStatus.FORBIDDEN,
             errors=[
                 DJError(
@@ -386,7 +391,7 @@ def validate_access_namespaces(
 
     validation_results = access_control.validate()
     if raise_:
-        access_control.raise_if_invalid_requests()#pragma: no cover
+        access_control.raise_if_invalid_requests()  # pragma: no cover
 
     return [
         namespace
@@ -430,7 +435,5 @@ def validate_access() -> ValidateAccessFn:
             request.deny_all()
         """
         access_control.approve_all()
-
-
 
     return _validate_access

@@ -11,7 +11,7 @@ from datajunction_server.models import Column, Database, Node
 from datajunction_server.models.node import NodeRevision, NodeType
 from datajunction_server.sql.parsing.types import StringType
 from tests.sql.utils import compare_query_strings
-
+from datajunction_server.models import access
 
 def test_sql(
     session: Session,
@@ -770,6 +770,7 @@ def test_get_sql_for_metrics(client_with_roads: TestClient):
     """
     Test getting sql for multiple metrics.
     """
+
     response = client_with_roads.get(
         "/sql/",
         params={
@@ -1153,12 +1154,106 @@ def test_get_sql_for_metrics_filters_validate_dimensions(
     )
 
 
+def test_get_sql_for_metrics_filters_validate_dimensions_no_access(
+    client_with_namespaced_roads: TestClient,
+):
+    """
+    Test that we extract the columns from filters to validate that they are from shared dimensions
+    """
+    from datajunction_server.models import access  # pylint: disable=C
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            for request in access_control.requests:
+                if (
+                    isinstance(request.access_object, access.DJNode)
+                    and "default.hard_hat.city" == request.access_object.name
+                ):
+                    request.deny()
+                else:
+                    request.approve()
+
+        return _validate_access
+
+    app=client_with_namespaced_roads.app
+    app.dependency_overrides[
+        access.validate_access
+    ] = validate_access_override
+
+    response = client_with_namespaced_roads.get(
+        "/sql/",
+        params={
+            "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
+            "dimensions": [
+                "foo.bar.hard_hat.country",
+            ],
+            "filters": ["default.hard_hat.city = 'Las Vegas'"],
+            "limit": 10,
+        },
+    )
+    data = response.json()
+    assert data["message"] == (
+        "The filter `default.hard_hat.city = 'Las Vegas'` references the dimension "
+        "attribute `default.hard_hat.city`, which is not available on every metric and "
+        "thus cannot be included."
+    )
+
+
 def test_get_sql_for_metrics_orderby_not_in_dimensions(
     client_example_loader: Callable[[Optional[List[str]]], TestClient],
 ):
     """
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
+    custom_client = client_example_loader(["ROADS", "NAMESPACED_ROADS"])
+    response = custom_client.get(
+        "/sql/",
+        params={
+            "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
+            "dimensions": [
+                "foo.bar.hard_hat.country",
+            ],
+            "orderby": ["default.hard_hat.city"],
+            "limit": 10,
+        },
+    )
+    data = response.json()
+    assert data["message"] == (
+        "Columns ['default.hard_hat.city'] in order by "
+        "clause must also be specified in the metrics or dimensions"
+    )
+
+
+def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
+    client_example_loader: Callable[[Optional[List[str]]], TestClient],
+):
+    """
+    Test that we extract the columns from filters to validate that they are from shared dimensions
+    """
+    if isinstance(client_example_loader, TestClient):
+        from datajunction_server.models import access  # pylint: disable=C
+
+        def validate_access_override():
+            def _validate_access(access_control: access.AccessControl):
+                for request in access_control.requests:
+                    if isinstance(
+                        request.access_object,
+                        access.DJNode,
+                    ) and request.access_object.name in (
+                        "foo.bar.avg_repair_price",
+                        "default.hard_hat.city",
+                    ):
+                        request.deny()
+                    else:
+                        request.approve()
+
+            return _validate_access
+
+        app=client_example_loader.app
+        app.dependency_overrides[
+            access.validate_access
+        ] = validate_access_override
+
     custom_client = client_example_loader(["ROADS", "NAMESPACED_ROADS"])
     response = custom_client.get(
         "/sql/",
