@@ -14,7 +14,6 @@ on:
           - minor
           - patch
           - alpha
-          - beta
 
 jobs:
   publish:
@@ -44,10 +43,10 @@ jobs:
           git config user.name "GitHub Actions Bot"
           git config user.email "<>"
 
-      - name: Bump versions and make a PR
+      - name: Bump versions
         run: |
           echo "Bump DJ Server version ..."
-          cd datajunction-server
+          pushd ./datajunction-server
           hatch version ${{ github.event.inputs.bump }}
           export NEW_VERSION=v$(hatch version)
 
@@ -58,16 +57,39 @@ jobs:
           cp ./datajunction_server/__about__.py ../datajunction-clients/python/datajunction/
 
           echo "Apply to DJ UI Service ..."
-          cd ../datajunction-ui
+          popd
+          pushd ./datajunction-ui
           yarn version --new-version $NEW_VERSION --no-git-tag-version
 
+      - name: Update docs (for major, minor or patch release)
+        if: ${{github.event.inputs.bump == 'major' || github.event.inputs.bump == 'minor' || github.event.inputs.bump == 'patch'}}
+        run: |
+          echo "Releasing matching docs version ..."
+          pushd ./datajunction-server
+          export NEW_VERSION=v$(hatch version)
+          popd
+          pushd ./docs
+          ./build-docs.sh $NEW_VERSION true
+  
+      - name: Open a PR
+        run: |
+          # Read the new version
+          pushd ./datajunction-server
+          export NEW_VERSION=v$(hatch version)
+          popd
+
           echo "Make a PR ..."
-          git commit -am "Bumping DJ to version $NEW_VERSION ."
+          git add ./datajunction-*/**/__about__.py
+          git add ./datajunction-ui/package.json
+          git add ./docs
+          git commit -m "Bumping DJ to version $NEW_VERSION ."
           git checkout -b releases/version-$NEW_VERSION
           git push --set-upstream origin releases/version-$NEW_VERSION -f
 
           echo "Make a tag ..."
           git tag -a version-$NEW_VERSION -m version-$NEW_VERSION
           git push origin version-$NEW_VERSION
+
+          gh pr create -B main -H "releases/version-$NEW_VERSION" --title "Make DataJunctino version $NEW_VERSION" --body "This is an automated PR triggered by the Weekly Version Bump action. Merging this PR will publish all the component for version $NEW_VERSION ."
         env:
-          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}          
