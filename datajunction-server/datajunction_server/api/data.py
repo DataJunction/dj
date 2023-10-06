@@ -56,7 +56,9 @@ def add_availability_state(
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(validate_access),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> JSONResponse:
     """
     Add an availability state to a node.
@@ -147,7 +149,9 @@ def get_data(  # pylint: disable=too-many-locals
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(validate_access),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> QueryWithResults:
     """
     Gets data for a node

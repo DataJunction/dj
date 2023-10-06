@@ -169,7 +169,9 @@ def list_nodes(
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(validate_access),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> List[str]:
     """
     List the available nodes.
@@ -184,7 +186,7 @@ def list_nodes(
     nodes = session.exec(statement).unique().all()
     return [
         node.name
-        for node in access.validate_nodes(validate_access, current_user, nodes)
+        for node in access.validate_access_nodes(validate_access, current_user, nodes)
     ]
 
 

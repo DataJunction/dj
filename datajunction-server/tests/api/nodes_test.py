@@ -1114,36 +1114,39 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = client_with_roads.delete("/nodes/default.repair_orders/hard/")
         assert response.ok
         data = response.json()
-        data['impact']=sorted(data['impact'], key = lambda x: x['name'])
+        data["impact"] = sorted(data["impact"], key=lambda x: x["name"])
         assert data == {
             "message": "The node `default.repair_orders` has been completely removed.",
-            "impact": sorted([
-                {
-                    "name": "default.repair_order",
-                    "status": "invalid",
-                    "effect": "downstream node is now invalid",
-                },
-                {
-                    "effect": "downstream node is now invalid",
-                    "name": "default.regional_level_agg",
-                    "status": "invalid",
-                },
-                {
-                    "effect": "downstream node is now invalid",
-                    "name": "default.regional_repair_efficiency",
-                    "status": "invalid",
-                },
-                {
-                    "name": "default.num_repair_orders",
-                    "status": "invalid",
-                    "effect": "downstream node is now invalid",
-                },
-                {
-                    "name": "default.avg_time_to_dispatch",
-                    "status": "invalid",
-                    "effect": "downstream node is now invalid",
-                },
-            ], key = lambda x: x['name'])
+            "impact": sorted(
+                [
+                    {
+                        "name": "default.repair_order",
+                        "status": "invalid",
+                        "effect": "downstream node is now invalid",
+                    },
+                    {
+                        "effect": "downstream node is now invalid",
+                        "name": "default.regional_level_agg",
+                        "status": "invalid",
+                    },
+                    {
+                        "effect": "downstream node is now invalid",
+                        "name": "default.regional_repair_efficiency",
+                        "status": "invalid",
+                    },
+                    {
+                        "name": "default.num_repair_orders",
+                        "status": "invalid",
+                        "effect": "downstream node is now invalid",
+                    },
+                    {
+                        "name": "default.avg_time_to_dispatch",
+                        "status": "invalid",
+                        "effect": "downstream node is now invalid",
+                    },
+                ],
+                key=lambda x: x["name"],
+            ),
         }
 
         # Hard deleting a dimension creates broken links

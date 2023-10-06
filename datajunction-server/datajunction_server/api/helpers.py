@@ -999,7 +999,10 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
     query_ast, dj_nodes = build_dj_query(session, query)
 
     for node in dj_nodes:
-        access_control.add_request_by_node(access.ResourceRequestVerb.READ,  node.current)
+        access_control.add_request_by_node(
+            access.ResourceRequestVerb.READ,
+            node.current,
+        )
 
     access_control.validate_and_raise()
 

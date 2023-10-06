@@ -10,7 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
 from datajunction_server.internal.authentication.http import SecureAPIRouter
-from datajunction_server.models import History, User, access
+from datajunction_server.models import User, access
 from datajunction_server.models.access import validate_access
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
@@ -35,7 +35,9 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(validate_access)
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    )
 ) -> QueryWithResults:
     """
     Return data for a DJ SQL query
@@ -79,7 +81,9 @@ async def get_data_stream_for_djsql(  # pragma: no cover
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
-    validate_access: access.ValidateAccessFn = Depends(validate_access)
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    )
 ) -> QueryWithResults:  # pragma: no cover
     """
     Return data for a DJ SQL query using server side events

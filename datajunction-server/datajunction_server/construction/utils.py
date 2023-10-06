@@ -11,7 +11,7 @@ from datajunction_server.errors import DJError, DJErrorException, ErrorCode
 from datajunction_server.models.node import Node, NodeRevision, NodeType
 
 if TYPE_CHECKING:
-    from datajunction_server.sql.parsing.ast import Name, Column
+    from datajunction_server.sql.parsing.ast import Column, Name
 
 
 def get_dj_node(
@@ -41,10 +41,11 @@ def get_dj_node(
 def try_get_dj_node(
     session: Session,
     name: Union[str, "Column"],
-    kinds: Optional[Set[NodeType]]=None,
+    kinds: Optional[Set[NodeType]] = None,
 ) -> Optional[Node]:
     "wraps get dj node to return None if no node is found"
-    from datajunction_server.sql.parsing.ast import Column
+    from datajunction_server.sql.parsing.ast import Column  # pylint: disable=C0415
+
     if isinstance(name, Column):
         if name.name.namespace is not None:
             name = name.name.namespace.identifier(False)

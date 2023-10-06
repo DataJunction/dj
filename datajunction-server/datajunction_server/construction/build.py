@@ -8,7 +8,7 @@ from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, 
 
 from sqlmodel import Session
 
-from datajunction_server.construction.utils import to_namespaced_name, try_get_dj_node
+from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.models import access
 from datajunction_server.models.column import Column
@@ -392,7 +392,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                     access_control.add_request_by_node_name(
                         session,
                         access.ResourceRequestVerb.READ,
-                        col
+                        col,
                     )
 
     if filters:
@@ -434,7 +434,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                     access_control.add_request_by_node_name(
                         session,
                         access.ResourceRequestVerb.READ,
-                        col
+                        col,
                     )
 
     # add all used dimension columns to the projection without duplicates
@@ -588,7 +588,7 @@ def build_node(  # pylint: disable=too-many-arguments
         access_control.add_request_by_nodes(
             access.ResourceRequestVerb.READ,
             [
-                tbl.dj_node
+                cast(ast.Table, tbl).dj_node
                 for tbl in built_ast.filter(
                     lambda ast_node: isinstance(ast_node, ast.Table)
                     and ast_node.dj_node is not None,

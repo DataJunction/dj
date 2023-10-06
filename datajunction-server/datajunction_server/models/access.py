@@ -4,7 +4,16 @@ Models for authorization
 from copy import deepcopy
 from enum import Enum
 from http import HTTPStatus
-from typing import Callable, FrozenSet, Iterable, List, Optional, Set, TYPE_CHECKING, Union
+from typing import (
+    TYPE_CHECKING,
+    Callable,
+    FrozenSet,
+    Iterable,
+    List,
+    Optional,
+    Set,
+    Union,
+)
 
 from pydantic import BaseModel, Field
 from sqlmodel import Session
@@ -13,6 +22,7 @@ from datajunction_server.construction.utils import try_get_dj_node
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.models.node import Node, NodeRevision
 from datajunction_server.models.user import User
+
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Column
 
@@ -101,15 +111,18 @@ class ResourceRequest(BaseModel):
     approved: Optional[bool] = None
 
     def approve(self):
+        """
+        Approve the request
+        """
         self.approved = True
 
     def deny(self):
+        """
+        Deny the request
+        """
         self.approved = False
 
     def __hash__(self) -> int:
-        """
-        hash an ResourceRequestInternal
-        """
         return hash((self.verb, self.access_object, self.approved))
 
     def __str__(self) -> str:
@@ -143,13 +156,22 @@ class AccessControl(BaseModel):
 
     @property
     def requests(self) -> Set[ResourceRequest]:
+        """
+        Get all direct and indirect requests as a single set
+        """
         return self.direct_requests | self.indirect_requests
 
     def approve_all(self):
+        """
+        Approve all requests
+        """
         for request in self.requests:
             request.approve()
 
     def deny_all(self):
+        """
+        Deny all requests
+        """
         for request in self.requests:
             request.deny()
 
@@ -168,6 +190,9 @@ class AccessControlStore(BaseModel):
     validation_results: Set[ResourceRequest] = Field(default_factory=set)
 
     def add_request(self, request: ResourceRequest):
+        """
+        Add a resource request to the store
+        """
         if self.state == AccessControlState.DIRECT:
             self.direct_requests.add(request)
         else:
@@ -289,13 +314,25 @@ class AccessControlStore(BaseModel):
         self.raise_if_invalid_requests()
 
 
-def validate_nodes(
-    validate_access: "ValidateAccessFn",
-    user: User,
+def validate_access_nodes(
+    validate_access: "ValidateAccessFn",  # pylint: disable=W0621
+    user: Optional[User],
     nodes: Iterable[Node | NodeRevision],
     raise_: bool = False,
 ) -> List[NodeRevision | Node]:
-
+    """
+    Validate the access of the user to a set of nodes
+    """
+    if user is None:
+        raise DJException(
+            http_status_code=HTTPStatus.FORBIDDEN,
+            errors=[
+                DJError(
+                    code=ErrorCode.INCOMPLETE_AUTHORIZATION,
+                    message="Failed to acquire user to validate access.",
+                ),
+            ],
+        )
     access_control = AccessControlStore(
         validate_access=validate_access,
         user=user,
@@ -357,35 +394,5 @@ def validate_access() -> ValidateAccessFn:
             return
 
         access_control.deny_all()
-
-    return _validate_access
-
-
-def validate_access() -> ValidateAccessFn:
-    """
-    Validate access returns a ValidateAccessFn
-    """
-
-    def _validate_access(access_control: AccessControl):
-        """
-        Examines all requests in the AccessControl
-        and approves or denies each
-
-        Args:
-            access_control (AccessControl): The access control object
-                containing the access control state and requests.
-
-        Example:
-            if access_control.state == 'direct':
-                access_control.approve_all()
-                return
-
-            if access_control.user=='dj':
-                request.approve_all()
-                return
-
-            request.deny_all()
-        """
-        access_control.approve_all()
 
     return _validate_access
