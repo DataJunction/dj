@@ -7,11 +7,11 @@ import pytest
 from sqlmodel import Session
 from starlette.testclient import TestClient
 
-from datajunction_server.models import Column, Database, Node
+from datajunction_server.models import Column, Database, Node, access
 from datajunction_server.models.node import NodeRevision, NodeType
 from datajunction_server.sql.parsing.types import StringType
 from tests.sql.utils import compare_query_strings
-from datajunction_server.models import access
+
 
 def test_sql(
     session: Session,
@@ -612,6 +612,53 @@ def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
     assert compare_query_strings(data["sql"], sql)
 
 
+def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
+    client_with_namespaced_roads: TestClient,
+):
+    """
+    Test ``GET /sql/{node_name}/`` with various filters and dimensions using a
+    version of the DJ roads database with namespaces.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            access_control.deny_all()
+
+        return _validate_access
+
+    app = client_with_namespaced_roads.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
+
+    node_name = "foo.bar.num_repair_orders"
+    dimensions = [
+        "foo.bar.hard_hat.city",
+        "foo.bar.hard_hat.last_name",
+        "foo.bar.dispatcher.company_name",
+        "foo.bar.municipality_dim.local_region",
+    ]
+    filters = [
+        "foo.bar.repair_orders.dispatcher_id=1",
+        "foo.bar.hard_hat.state != 'AZ'",
+        "foo.bar.dispatcher.phone = '4082021022'",
+        "foo.bar.repair_orders.order_date >= '2020-01-01'",
+    ]
+    orderby = ["foo.bar.hard_hat.last_name"]
+    response = client_with_namespaced_roads.get(
+        f"/sql/{node_name}/",
+        params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
+    )
+    data = response.json()
+    assert sorted(list(data["message"])) == sorted(
+        list(
+            "Authorization of User `dj` for this request failed."
+            "\nThe following requests were denied:\nread:djnode/foo.bar.dispatcher, "
+            "read:djnode/foo.bar.repair_orders, read:djnode/foo.bar.municipality_dim, "
+            "read:djnode/foo.bar.num_repair_orders, read:djnode/foo.bar.hard_hat.",
+        ),
+    )
+    assert data["errors"][0]["code"] == 500
+
+
 def test_cross_join_unnest(
     client_example_loader: Callable[[Optional[List[str]]], TestClient],
 ):
@@ -764,6 +811,52 @@ def test_get_sql_for_metrics_failures(client_with_account_revenue: TestClient):
         "errors": [],
         "warnings": [],
     }
+
+
+def test_get_sql_for_metrics_no_access(client_with_roads: TestClient):
+    """
+    Test getting sql for multiple metrics.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            if access_control.state == "direct":
+                access_control.approve_all()
+            else:
+                access_control.deny_all()
+
+        return _validate_access
+
+    app = client_with_roads.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
+
+    response = client_with_roads.get(
+        "/sql/",
+        params={
+            "metrics": ["default.discounted_orders_rate", "default.num_repair_orders"],
+            "dimensions": [
+                "default.hard_hat.country",
+                "default.hard_hat.postal_code",
+                "default.hard_hat.city",
+                "default.hard_hat.state",
+                "default.dispatcher.company_name",
+                "default.municipality_dim.local_region",
+            ],
+            "filters": ["default.hard_hat.city = 'Las Vegas'"],
+            "orderby": [],
+            "limit": 100,
+        },
+    )
+    data = response.json()
+    assert sorted(list(data["message"])) == sorted(
+        list(
+            "Authorization of User `dj` for this request failed."
+            "\nThe following requests were denied:\nread:djnode/default.dispatcher, "
+            "read:djnode/default.repair_order_details, read:djnode/default.hard_hat, "
+            "read:djnode/default.municipality_dim.",
+        ),
+    )
+    assert data["errors"][0]["code"] == 500
 
 
 def test_get_sql_for_metrics(client_with_roads: TestClient):
@@ -1154,51 +1247,6 @@ def test_get_sql_for_metrics_filters_validate_dimensions(
     )
 
 
-def test_get_sql_for_metrics_filters_validate_dimensions_no_access(
-    client_with_namespaced_roads: TestClient,
-):
-    """
-    Test that we extract the columns from filters to validate that they are from shared dimensions
-    """
-    from datajunction_server.models import access  # pylint: disable=C
-
-    def validate_access_override():
-        def _validate_access(access_control: access.AccessControl):
-            for request in access_control.requests:
-                if (
-                    isinstance(request.access_object, access.DJNode)
-                    and "default.hard_hat.city" == request.access_object.name
-                ):
-                    request.deny()
-                else:
-                    request.approve()
-
-        return _validate_access
-
-    app=client_with_namespaced_roads.app
-    app.dependency_overrides[
-        access.validate_access
-    ] = validate_access_override
-
-    response = client_with_namespaced_roads.get(
-        "/sql/",
-        params={
-            "metrics": ["foo.bar.num_repair_orders", "foo.bar.avg_repair_price"],
-            "dimensions": [
-                "foo.bar.hard_hat.country",
-            ],
-            "filters": ["default.hard_hat.city = 'Las Vegas'"],
-            "limit": 10,
-        },
-    )
-    data = response.json()
-    assert data["message"] == (
-        "The filter `default.hard_hat.city = 'Las Vegas'` references the dimension "
-        "attribute `default.hard_hat.city`, which is not available on every metric and "
-        "thus cannot be included."
-    )
-
-
 def test_get_sql_for_metrics_orderby_not_in_dimensions(
     client_example_loader: Callable[[Optional[List[str]]], TestClient],
 ):
@@ -1231,7 +1279,6 @@ def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
     Test that we extract the columns from filters to validate that they are from shared dimensions
     """
     if isinstance(client_example_loader, TestClient):
-        from datajunction_server.models import access  # pylint: disable=C
 
         def validate_access_override():
             def _validate_access(access_control: access.AccessControl):
@@ -1249,10 +1296,8 @@ def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
 
             return _validate_access
 
-        app=client_example_loader.app
-        app.dependency_overrides[
-            access.validate_access
-        ] = validate_access_override
+        app = client_example_loader.app
+        app.dependency_overrides[access.validate_access] = validate_access_override
 
     custom_client = client_example_loader(["ROADS", "NAMESPACED_ROADS"])
     response = custom_client.get(

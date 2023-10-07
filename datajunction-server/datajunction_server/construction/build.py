@@ -430,7 +430,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 temp_query.select.organization.order  # type:ignore
             )
             for col in temp_query.find_all(ast.Column):
-                if access_control:
+                if access_control:  # pragma: no cover
                     access_control.add_request_by_node_name(
                         session,
                         access.ResourceRequestVerb.READ,

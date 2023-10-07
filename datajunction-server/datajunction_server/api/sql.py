@@ -40,10 +40,19 @@ def get_sql(
     session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> TranslatedSQL:
     """
     Return SQL for a node.
     """
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
+    )
+
     engine = (
         get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
@@ -58,6 +67,7 @@ def get_sql(
         orderby=orderby,
         limit=limit,
         engine=engine,
+        access_control=access_control,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore

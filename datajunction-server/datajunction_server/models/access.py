@@ -124,9 +124,9 @@ class ResourceRequest(BaseModel):
 
     def __hash__(self) -> int:
         return hash((self.verb, self.access_object))
-    
+
     def __eq__(self, other) -> bool:
-        return self.verb==other.verb and self.access_object == other.access_object
+        return self.verb == other.verb and self.access_object == other.access_object
 
     def __str__(self) -> str:
         return (  # pragma: no cover
@@ -297,7 +297,7 @@ class AccessControlStore(BaseModel):
         self.validate_access(access_control)  # type: ignore
 
         self.validation_results = access_control.requests
-        
+
         if any((result.approved is None for result in self.validation_results)):
             raise DJException(
                 http_status_code=HTTPStatus.FORBIDDEN,

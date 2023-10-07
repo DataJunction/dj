@@ -45,10 +45,8 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
 
         return _validate_access
 
-    app=client_with_examples.app
-    app.dependency_overrides[
-        access.validate_access
-    ] = validate_access_override
+    app = client_with_examples.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
 
     response = client_with_examples.get("/namespaces/")
 
@@ -62,6 +60,41 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
     ]
 
 
+def test_list_all_namespaces_access_bad_injection(
+    client_with_examples: TestClient,
+) -> None:
+    """
+    Test ``GET /namespaces/``.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            for i, request in enumerate(access_control.requests):
+                if i != 0:
+                    request.approve()
+
+        return _validate_access
+
+    app = client_with_examples.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
+
+    response = client_with_examples.get("/namespaces/")
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "message": "Injected `validate_access` must approve or deny all requests.",
+        "errors": [
+            {
+                "code": 501,
+                "message": "Injected `validate_access` must approve or deny all requests.",
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
+
+
 def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
     """
     Test ``GET /namespaces/``.
@@ -73,10 +106,8 @@ def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
 
         return _validate_access
 
-    app=client_with_examples.app
-    app.dependency_overrides[
-        access.validate_access
-    ] = validate_access_override
+    app = client_with_examples.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
 
     response = client_with_examples.get("/namespaces/")
 

@@ -38,10 +38,8 @@ def test_list_nodes_with_dimension_access_limited(
 
         return _validate_access
 
-    app=client_with_roads.app
-    app.dependency_overrides[
-        access.validate_access
-    ] = validate_access_override
+    app = client_with_roads.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
 
     response = client_with_roads.get("/dimensions/default.hard_hat/nodes/")
 

@@ -243,10 +243,8 @@ class TestDataForNode:
 
             return _validate_access
 
-        app=custom_client.app
-        app.dependency_overrides[
-            access.validate_access
-        ] = validate_access_override
+        app = custom_client.app
+        app.dependency_overrides[access.validate_access] = validate_access_override
 
         response = custom_client.get("/data/basic.num_comments/")
         app.dependency_overrides.clear()
