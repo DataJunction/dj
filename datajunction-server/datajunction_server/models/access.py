@@ -50,7 +50,7 @@ class ResourceObjectBase(BaseModel):
         return hash((self.name, self.created_by))
 
     @staticmethod
-    def from_node(node: NodeRevision | Node) -> "DJNode":
+    def from_node(node: Union[NodeRevision, Node]) -> "DJNode":
         """
         Create a resource object from a DJ Node
         """
@@ -214,7 +214,11 @@ class AccessControlStore(BaseModel):
         if node is not None:
             self.add_request_by_node(verb, node)
 
-    def add_request_by_node(self, verb: ResourceRequestVerb, node: NodeRevision | Node):
+    def add_request_by_node(
+        self,
+        verb: ResourceRequestVerb,
+        node: Union[NodeRevision, Node],
+    ):
         """
         Add a request using a node
         """
@@ -228,7 +232,7 @@ class AccessControlStore(BaseModel):
     def add_request_by_nodes(
         self,
         verb: ResourceRequestVerb,
-        nodes: Iterable[NodeRevision | Node],
+        nodes: Iterable[Union[NodeRevision, Node]],
     ):
         """
         Add a request using a node
@@ -325,7 +329,7 @@ def validate_access_nodes(
     user: Optional[User],
     nodes: Iterable[Node | NodeRevision],
     raise_: bool = False,
-) -> List[NodeRevision | Node]:
+) -> List[Union[NodeRevision, Node]]:
     """
     Validate the access of the user to a set of nodes
     """
