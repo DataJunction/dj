@@ -269,7 +269,8 @@ class AccessControlStore(BaseModel):
         )
         if denied:
             message = (
-                f"Authorization of User `{self.user.username}` for this request failed."
+                f"Authorization of User `{self.user.username if self.user else 'no user'}` "
+                "for this request failed."
                 f"\nThe following requests were denied:\n{denied}."
                 if show_denials
                 else ""
