@@ -185,7 +185,7 @@ class AccessControlStore(BaseModel):
     """
 
     validate_access: Callable[["AccessControl"], bool]
-    user: User
+    user: Optional[User]
     state: AccessControlState = AccessControlState.DIRECT
     direct_requests: Set[ResourceRequest] = Field(default_factory=set)
     indirect_requests: Set[ResourceRequest] = Field(default_factory=set)
@@ -291,7 +291,7 @@ class AccessControlStore(BaseModel):
         self.validation_request_count += 1
 
         access_control = AccessControl(
-            user=self.user.username,
+            user=self.user.username if self.user is not None else "",
             state=self.state,
             direct_requests=deepcopy(self.direct_requests),
             indirect_requests=deepcopy(self.indirect_requests),
