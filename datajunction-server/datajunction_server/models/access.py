@@ -334,15 +334,7 @@ def validate_access_nodes(
     Validate the access of the user to a set of nodes
     """
     if user is None:
-        raise DJException(  # pragma: no cover
-            http_status_code=HTTPStatus.FORBIDDEN,
-            errors=[
-                DJError(
-                    code=ErrorCode.INCOMPLETE_AUTHORIZATION,
-                    message="Failed to acquire user to validate access.",
-                ),
-            ],
-        )
+        return list(nodes)  # pragma: no cover
     access_control = AccessControlStore(
         validate_access=validate_access,
         user=user,
@@ -377,15 +369,8 @@ def validate_access_namespaces(
     Validate the access of the user to a set of namespaces
     """
     if user is None:
-        raise DJException(  # pragma: no cover
-            http_status_code=HTTPStatus.FORBIDDEN,
-            errors=[
-                DJError(
-                    code=ErrorCode.INCOMPLETE_AUTHORIZATION,
-                    message="Failed to acquire user to validate access.",
-                ),
-            ],
-        )
+        if user is None:  # pragma: no cover
+            return list(namespaces)
     access_control = AccessControlStore(
         validate_access=validate_access,
         user=user,
