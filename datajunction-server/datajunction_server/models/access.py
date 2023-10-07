@@ -327,7 +327,7 @@ def validate_access_nodes(
     validate_access: "ValidateAccessFn",  # pylint: disable=W0621
     verb: ResourceRequestVerb,
     user: Optional[User],
-    nodes: Iterable[Node | NodeRevision],
+    nodes: Iterable[Union[NodeRevision, Node]],
     raise_: bool = False,
 ) -> List[Union[NodeRevision, Node]]:
     """
