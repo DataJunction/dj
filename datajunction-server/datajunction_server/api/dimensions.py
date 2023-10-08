@@ -65,7 +65,7 @@ def find_nodes_with_dimension(
     nodes = get_nodes_with_dimension(session, dimension_node, node_type)
     return access.validate_access_nodes(
         validate_access,
-        access.ResourceRequestVerb.VIEW,
+        access.ResourceRequestVerb.READ,
         current_user,
         nodes,
     )
@@ -92,7 +92,7 @@ def find_nodes_with_common_dimensions(
     )
     return access.validate_access_nodes(
         validate_access,
-        access.ResourceRequestVerb.VIEW,
+        access.ResourceRequestVerb.READ,
         current_user,
         nodes,
     )

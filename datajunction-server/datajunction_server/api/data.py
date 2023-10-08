@@ -64,15 +64,16 @@ def add_availability_state(
     Add an availability state to a node.
     """
     node = get_node_by_name(session, node_name)
-    access_control = access.AccessControlStore(
-        validate_access=validate_access,
-        user=current_user,
-    )
 
     # Source nodes require that any availability states set are for one of the defined tables
     node_revision = node.current
-    access_control.add_request_by_node(access.ResourceRequestVerb.WRITE, node_revision)
-    access_control.validate_and_raise()
+    access.validate_access_nodes(
+        validate_access,
+        access.ResourceRequestVerb.WRITE,
+        current_user,
+        [node_revision],
+        True,
+    )
 
     if node.current.type == NodeType.SOURCE:
         if (
@@ -175,6 +176,7 @@ def get_data(  # pylint: disable=too-many-locals
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
+        base_verb=access.ResourceRequestVerb.EXECUTE,
     )
 
     query_ast = get_query(

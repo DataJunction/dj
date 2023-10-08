@@ -391,7 +391,6 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 if access_control:
                     access_control.add_request_by_node_name(
                         session,
-                        access.ResourceRequestVerb.READ,
                         col,
                     )
 
@@ -412,7 +411,6 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 if access_control:
                     access_control.add_request_by_node_name(
                         session,
-                        access.ResourceRequestVerb.READ,
                         col,
                     )
 
@@ -433,7 +431,6 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 if access_control:  # pragma: no cover
                     access_control.add_request_by_node_name(
                         session,
-                        access.ResourceRequestVerb.READ,
                         col,
                     )
 
@@ -519,7 +516,7 @@ def build_node(  # pylint: disable=too-many-arguments
     Determines the optimal way to build the Node and does so
     """
     if access_control:
-        access_control.add_request_by_node(access.ResourceRequestVerb.READ, node)
+        access_control.add_request_by_node(node)
 
     if include_dimensions_in_groupby is None:
         include_dimensions_in_groupby = node.type == NodeType.METRIC
@@ -586,7 +583,6 @@ def build_node(  # pylint: disable=too-many-arguments
     built_ast = build_ast(session, query, memoized_queries, build_criteria)
     if access_control:
         access_control.add_request_by_nodes(
-            access.ResourceRequestVerb.READ,
             [
                 cast(NodeRevision, cast(ast.Table, tbl).dj_node)
                 for tbl in built_ast.filter(

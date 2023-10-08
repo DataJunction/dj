@@ -51,6 +51,7 @@ def get_sql(
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
+        base_verb=access.ResourceRequestVerb.READ,
     )
 
     engine = (
@@ -103,6 +104,7 @@ def get_sql_for_metrics(
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
+        base_verb=access.ResourceRequestVerb.READ,
     )
 
     translated_sql, _, _ = build_sql_for_multiple_metrics(

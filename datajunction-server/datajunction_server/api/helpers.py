@@ -849,7 +849,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
 
     if cube and cube.materializations and cube.availability:
         if access_control:  # pragma: no cover
-            access_control.add_request_by_node(access.ResourceRequestVerb.READ, cube)
+            access_control.add_request_by_node(cube)
             access_control.state = access.AccessControlState.INDIRECT
             access_control.raise_if_invalid_requests()
         materialized_cube_catalog = get_catalog_by_name(
@@ -988,7 +988,6 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
 
     for node in dj_nodes:
         access_control.add_request_by_node(
-            access.ResourceRequestVerb.READ,
             node.current,
         )
 

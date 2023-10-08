@@ -45,6 +45,7 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
     access_control = access.AccessControlStore(
         validate_access=validate_access,
         user=current_user,
+        base_verb=access.ResourceRequestVerb.EXECUTE,
     )
     translated_sql, engine, catalog = build_sql_for_dj_query(
         session,

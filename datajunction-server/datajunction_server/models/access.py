@@ -32,9 +32,11 @@ class ResourceRequestVerb(Enum):
     Types of actions for a request
     """
 
-    VIEW = "view"
+    BROWSE = "browse"
     READ = "read"
     WRITE = "write"
+    EXECUTE = "execute"
+    DELETE = "delete"
 
 
 class ResourceObjectBase(BaseModel):
@@ -186,6 +188,7 @@ class AccessControlStore(BaseModel):
 
     validate_access: Callable[["AccessControl"], bool]
     user: Optional[User]
+    base_verb: Optional[ResourceRequestVerb] = None
     state: AccessControlState = AccessControlState.DIRECT
     direct_requests: Set[ResourceRequest] = Field(default_factory=set)
     indirect_requests: Set[ResourceRequest] = Field(default_factory=set)
@@ -204,35 +207,35 @@ class AccessControlStore(BaseModel):
     def add_request_by_node_name(
         self,
         session: Session,
-        verb: ResourceRequestVerb,
         node_name: Union[str, "Column"],
+        verb: Optional[ResourceRequestVerb] = None,
     ):
         """
         Add a request using a node's name
         """
         node = try_get_dj_node(session, node_name)
         if node is not None:
-            self.add_request_by_node(verb, node)
+            self.add_request_by_node(node, verb)
 
     def add_request_by_node(
         self,
-        verb: ResourceRequestVerb,
         node: Union[NodeRevision, Node],
+        verb: Optional[ResourceRequestVerb] = None,
     ):
         """
         Add a request using a node
         """
         self.add_request(
             ResourceRequest(
-                verb=verb,
+                verb=verb or self.base_verb,
                 access_object=ResourceObjectBase.from_node(node),
             ),
         )
 
     def add_request_by_nodes(
         self,
-        verb: ResourceRequestVerb,
         nodes: Iterable[Union[NodeRevision, Node]],
+        verb: Optional[ResourceRequestVerb] = None,
     ):
         """
         Add a request using a node
@@ -240,18 +243,22 @@ class AccessControlStore(BaseModel):
         for node in nodes:
             self.add_request(
                 ResourceRequest(
-                    verb=verb,
+                    verb=verb or self.base_verb,
                     access_object=ResourceObjectBase.from_node(node),
                 ),
             )
 
-    def add_request_by_namespace(self, verb: ResourceRequestVerb, namespace: str):
+    def add_request_by_namespace(
+        self,
+        namespace: str,
+        verb: Optional[ResourceRequestVerb] = None,
+    ):
         """
         Add a request using a namespace
         """
         self.add_request(
             ResourceRequest(
-                verb=verb,
+                verb=verb or self.base_verb,
                 access_object=ResourceObjectBase.from_namespace(namespace),
             ),
         )
@@ -341,7 +348,7 @@ def validate_access_nodes(
         user=user,
     )
 
-    access_control.add_request_by_nodes(verb, nodes)
+    access_control.add_request_by_nodes(nodes, verb)
 
     validation_results = access_control.validate()
     if raise_:
@@ -377,7 +384,7 @@ def validate_access_namespaces(
         user=user,
     )
     for namespace in namespaces:
-        access_control.add_request_by_namespace(verb, namespace)
+        access_control.add_request_by_namespace(namespace, verb)
 
     validation_results = access_control.validate()
     if raise_:

@@ -111,7 +111,7 @@ def list_namespaces(
         in set(
             access.validate_access_namespaces(
                 validate_access,
-                access.ResourceRequestVerb.VIEW,
+                access.ResourceRequestVerb.BROWSE,
                 current_user,
                 [nmspc_out.namespace for nmspc_out in namespace_outputs],
             ),

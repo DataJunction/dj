@@ -188,7 +188,7 @@ def list_nodes(
         node.name
         for node in access.validate_access_nodes(
             validate_access,
-            access.ResourceRequestVerb.VIEW,
+            access.ResourceRequestVerb.BROWSE,
             current_user,
             nodes,
         )
