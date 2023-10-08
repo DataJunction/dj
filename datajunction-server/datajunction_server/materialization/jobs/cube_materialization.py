@@ -106,16 +106,12 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 "dataSource": druid_datasource_name,
                 "parser": {
                     "parseSpec": {
-                        "format": "parquet",  # cube_config.druid.parse_spec_format or "parquet",  # type: ignore
+                        "format": "parquet",
                         "dimensionsSpec": {"dimensions": cube_config.dimensions},
                         "timestampSpec": {
-                            "column": (
-                                timestamp_column
-                                # cube_config.druid.timestamp_column  # type: ignore
-                                # or temporal_partitions[0].name  # type: ignore
-                            ),
+                            "column": timestamp_column,
                             "format": (
-                                # cube_config.druid.timestamp_format or  # type: ignore
+                                # TODO, fix this to be based on format
                                 "yyyyMMdd"
                                 if granularity == "DAY"
                                 else "yyyyMMddHH"
@@ -126,7 +122,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 "metricsSpec": metrics_spec,
                 "granularitySpec": {
                     "type": "uniform",
-                    "segmentGranularity": granularity,  # cube_config.druid.granularity,  # type: ignore
+                    "segmentGranularity": granularity,
                     "intervals": [],  # this should be set at runtime
                 },
             },
@@ -160,7 +156,6 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 query=str(final_query),
                 spark_conf=cube_config.spark.__root__,
                 druid_spec=druid_spec,
-                # partitions=cube_config.partitions,
                 upstream_tables=cube_config.upstream_tables or [],
                 # Cube materialization involves creating an intermediate dataset,
                 # which will have measures columns for all metrics in the cube
