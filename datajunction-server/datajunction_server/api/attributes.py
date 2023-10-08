@@ -79,30 +79,6 @@ def default_attribute_types(session: Session = Depends(get_session)):
         ),
         AttributeType(
             namespace=RESERVED_ATTRIBUTE_NAMESPACE,
-            name="temporal_partition_day",
-            description="Points to a temporal partition column with granularity DAY",
-            uniqueness_scope=["node"],
-            allowed_node_types=[
-                NodeType.SOURCE,
-                NodeType.TRANSFORM,
-                NodeType.DIMENSION,
-                NodeType.CUBE,
-            ],
-        ),
-        AttributeType(
-            namespace=RESERVED_ATTRIBUTE_NAMESPACE,
-            name="temporal_partition_hour",
-            description="Points to a temporal partition column with granularity HOUR",
-            uniqueness_scope=["node"],
-            allowed_node_types=[
-                NodeType.SOURCE,
-                NodeType.TRANSFORM,
-                NodeType.DIMENSION,
-                NodeType.CUBE,
-            ],
-        ),
-        AttributeType(
-            namespace=RESERVED_ATTRIBUTE_NAMESPACE,
             name="event_time",
             description="Points to a column which represents the time of the event in a given "
             "fact related node. Used to facilitate proper joins with dimension node "

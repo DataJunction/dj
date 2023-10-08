@@ -11,6 +11,7 @@ from datajunction_server.models.materialization import (
     Materialization,
     MaterializationInfo,
 )
+from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.service_clients import QueryServiceClient
 
 
@@ -23,6 +24,18 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
 
     def __init__(self):
         ...
+
+    def run_backfill(
+        self,
+        materialization: Materialization,
+        backfill: PartitionBackfill,
+        query_service_client: QueryServiceClient,
+    ) -> MaterializationInfo:
+        return query_service_client.run_backfill(
+            materialization.node_revision.name,
+            materialization.name,
+            backfill,
+        )
 
     @abc.abstractmethod
     def schedule(

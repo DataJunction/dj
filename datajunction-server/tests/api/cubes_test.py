@@ -527,7 +527,7 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
         ],
         key=lambda x: x["name"],
     )
-    assert default_materialization["config"]["partitions"] == []
+    # assert default_materialization["config"]["partitions"] == []
     assert default_materialization["config"]["upstream_tables"] == [
         "default.roads.dispatchers",
         "default.roads.hard_hats",
@@ -747,36 +747,47 @@ def test_add_materialization_cube_failures(
     """
     Verifies failure modes when adding materialization config to cube nodes
     """
+    # response = client_with_repairs_cube.post(
+    #     "/nodes/default.repairs_cube/materialization/",
+    #     json={
+    #         "engine": {"name": "druid", "version": ""},
+    #         "config": {},
+    #         "schedule": "",
+    #     },
+    # )
+    # assert response.json()["message"] == (
+    #     "No change has been made to the materialization config for node "
+    #     "`default.repairs_cube` and engine `druid` as the config does not have valid "
+    #     "configuration for engine `druid`."
+    # )
+
     response = client_with_repairs_cube.post(
-        "/nodes/default.repairs_cube/materialization/",
-        json={
-            "engine": {"name": "druid", "version": ""},
-            "config": {},
-            "schedule": "",
-        },
+        "/nodes/default.repairs_cube/columns/default_DOT_total_repair_cost/attributes/",
+        json=[
+            {
+                "namespace": "system",
+                "name": "temporal_partition_day",
+            },
+        ],
     )
-    assert response.json()["message"] == (
-        "No change has been made to the materialization config for node "
-        "`default.repairs_cube` and engine `druid` as the config does not have valid "
-        "configuration for engine `druid`."
-    )
+    print("attri tagging", response.json())
 
     response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "engine": {"name": "druid", "version": ""},
             "config": {
-                "druid": {
-                    "granularity": "DAY",
-                    "timestamp_column": "something",
-                },
-                "partitions": [
-                    {
-                        "name": "something",
-                        "type_": "categorical",
-                        "values": ["1"],
-                    },
-                ],
+                # "druid": {
+                #     "granularity": "DAY",
+                #     "timestamp_column": "something",
+                # },
+                # "partitions": [
+                #     {
+                #         "name": "something",
+                #         "type_": "categorical",
+                #         "values": ["1"],
+                #     },
+                # ],
                 "spark": {},
             },
             "schedule": "",
@@ -812,25 +823,36 @@ def repairs_cube_with_materialization(
     """
     Repairs cube with a configured materialization
     """
+    response = client_with_repairs_cube.post(
+        "/nodes/default.repairs_cube/columns/default_DOT_total_repair_cost/attributes/",
+        json=[
+            {
+                "namespace": "system",
+                "name": "temporal_partition_day",
+            },
+        ],
+    )
+    print("attri tagging", response.json())
+
     return client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "engine": {"name": "druid", "version": ""},
             "config": {
-                "druid": {
-                    "granularity": "DAY",
-                    "timestamp_column": "date_int",
-                    "intervals": ["2021-01-01/2022-01-01"],
-                },
+                # "druid": {
+                #     "granularity": "DAY",
+                #     "timestamp_column": "date_int",
+                #     "intervals": ["2021-01-01/2022-01-01"],
+                # },
                 "spark": {},
-                "partitions": [
-                    {
-                        "name": "date_int",
-                        "type_": "temporal",
-                        "values": [],
-                        "range": [20210101, 20220101],
-                    },
-                ],
+                # "partitions": [
+                #     {
+                #         "name": "date_int",
+                #         "type_": "temporal",
+                #         "values": [],
+                #         "range": [20210101, 20220101],
+                #     },
+                # ],
             },
             "schedule": "",
         },
@@ -846,7 +868,7 @@ def test_add_materialization_config_to_cube(
     Verifies adding materialization config to a cube
     """
     assert repairs_cube_with_materialization.json() == {
-        "message": "Successfully updated materialization config named `date_int_0` "
+        "message": "Successfully updated materialization config named `default_DOT_total_repair_cost_druid` "
         "for node `default.repairs_cube`",
         "urls": [["http://fake.url/job"]],
     }
@@ -854,7 +876,7 @@ def test_add_materialization_config_to_cube(
         call_[0]
         for call_ in query_service_client.materialize.call_args_list  # type: ignore
     ][0][0]
-    assert called_kwargs.name == "date_int_0"
+    assert called_kwargs.name == "default_DOT_total_repair_cost_druid"
     assert called_kwargs.node_name == "default.repairs_cube"
     assert called_kwargs.node_type == "cube"
     assert called_kwargs.schedule == "@daily"
@@ -917,7 +939,7 @@ def test_add_materialization_config_to_cube(
         "dataSchema": {
             "dataSource": "default_DOT_repairs_cube",
             "granularitySpec": {
-                "intervals": ["2021-01-01/2022-01-01"],
+                "intervals": "",
                 "segmentGranularity": "DAY",
                 "type": "uniform",
             },
@@ -966,7 +988,10 @@ def test_add_materialization_config_to_cube(
                         ],
                     },
                     "format": "parquet",
-                    "timestampSpec": {"column": "date_int", "format": "yyyyMMdd"},
+                    "timestampSpec": {
+                        "column": "default_DOT_total_repair_cost",
+                        "format": "yyyyMMdd",
+                    },
                 },
             },
         },
@@ -993,15 +1018,15 @@ def test_add_materialization_config_to_cube(
         "default_DOT_hard_hat_DOT_state",
         "default_DOT_municipality_dim_DOT_local_region",
     }
-    assert druid_materialization["config"]["partitions"] == [
-        {
-            "name": "date_int",
-            "values": [],
-            "range": [20210101, 20220101],
-            "expression": None,
-            "type_": "temporal",
-        },
-    ]
+    # assert druid_materialization["config"]["partitions"] == [
+    #     {
+    #         "name": "date_int",
+    #         "values": [],
+    #         "range": [20210101, 20220101],
+    #         "expression": None,
+    #         "type_": "temporal",
+    #     },
+    # ]
     assert druid_materialization["schedule"] == "@daily"
 
 

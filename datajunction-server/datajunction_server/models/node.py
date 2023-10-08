@@ -34,6 +34,7 @@ from datajunction_server.models.materialization import (
     Materialization,
     MaterializationConfigOutput,
 )
+from datajunction_server.models.partition import PartitionOutput, PartitionType
 from datajunction_server.models.tag import Tag, TagNodeRelationship
 from datajunction_server.sql.parsing.types import ColumnType
 from datajunction_server.typing import UTCDatetime
@@ -874,6 +875,22 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
             if node_revision and node_revision.type != NodeType.METRIC
         ]
 
+    def temporal_partition_columns(self) -> List[Column]:
+        """
+        The node's temporal partition columns, if any
+        """
+        if self.type == NodeType.CUBE:
+            return [
+                col
+                for col in self.cube_elements
+                if col.partition and col.partition.type_ == PartitionType.TEMPORAL
+            ]
+        return [
+            col
+            for col in self.columns
+            if col.partition and col.partition.type_ == PartitionType.TEMPORAL
+        ]
+
     def __deepcopy__(self, memo):
         """
         Note: We should not use copy or deepcopy to copy any SQLAlchemy objects.
@@ -976,7 +993,7 @@ class DimensionAttributeOutput(SQLModel):
         return values
 
 
-class ColumnOutput(SQLModel):
+class ColumnOutput(BaseSQLModel):
     """
     A simplified column schema, without ID or dimensions.
     """
@@ -986,6 +1003,7 @@ class ColumnOutput(SQLModel):
     type: ColumnType
     attributes: Optional[List[AttributeOutput]]
     dimension: Optional[NodeNameOutput]
+    partition: Optional[PartitionOutput]
 
     class Config:  # pylint: disable=too-few-public-methods
         """

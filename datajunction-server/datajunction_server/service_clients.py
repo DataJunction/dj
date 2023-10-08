@@ -13,6 +13,7 @@ from datajunction_server.models.materialization import (
     GenericMaterializationInput,
     MaterializationInfo,
 )
+from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.sql.parsing.types import ColumnType
 
@@ -187,6 +188,22 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
         response = self.requests_session.get(
             f"/materialization/{node_name}/{node_version}/{materialization_name}/",
             timeout=3,
+        )
+        if not response.ok:
+            return MaterializationInfo(output_tables=[], urls=[])
+        return MaterializationInfo(**response.json())
+
+    def run_backfill(
+        self,
+        node_name: str,
+        materialization_name: str,
+        backfill: PartitionBackfill,
+    ) -> MaterializationInfo:
+        """Kicks off a backfill with the given backfill spec"""
+        response = self.requests_session.post(
+            f"/materialization/run/{node_name}/{materialization_name}/",
+            json=backfill.dict(),
+            timeout=20,
         )
         if not response.ok:
             return MaterializationInfo(output_tables=[], urls=[])

@@ -37,6 +37,7 @@ class EntityType(str, Enum):
 
     ATTRIBUTE = "attribute"
     AVAILABILITY = "availability"
+    BACKFILL = "backfill"
     CATALOG = "catalog"
     COLUMN_ATTRIBUTE = "column_attribute"
     DEPENDENCY = "dependency"
@@ -45,6 +46,7 @@ class EntityType(str, Enum):
     MATERIALIZATION = "materialization"
     NAMESPACE = "namespace"
     NODE = "node"
+    PARTITION = "partition"
     QUERY = "query"
     TAG = "tag"
 
