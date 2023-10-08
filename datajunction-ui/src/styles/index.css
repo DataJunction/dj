@@ -369,6 +369,7 @@ tbody th {
   border-top: 1px solid #edf2f9;
   border-bottom: 0;
   padding: 1rem;
+  max-width: 25rem;
 }
 .card-inner-table td,
 .card-inner-table th {
@@ -900,7 +901,33 @@ pre {
   position: absolute;
   min-width: 210px;
   max-width: 100%;
-  z-index: 1;
+  z-index: 100000;
+}
+
+.centerPopover {
+  position: absolute !important;
+  top: 1%;
+  left: 25%;
+
+  padding: 1rem 1rem 0.6rem 1rem !important;
+  margin-top: 1rem;
+  border-radius: 10px;
+  text-align: left;
+  position: absolute;
+  min-width: 210px;
+  max-width: 100%;
+  z-index: 100000;
+  background-color: #fff;
+  background-clip: padding-box;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  -webkit-box-shadow: 0 3px 9px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 3px 9px rgba(0, 0, 0, 0.5);
+  outline: 0;
+}
+
+.centerPopover h2 {
+  margin-top: 0;
+  margin-bottom: 1rem;
 }
 
 .select-name {
@@ -1002,6 +1029,7 @@ pre {
   display: inline-block;
 }
 
+<<<<<<< Updated upstream
 .tag_value {
   color: #5c3b8f;
   background-color: #5c3b8f25;
@@ -1012,3 +1040,37 @@ pre {
 .tag_value:hover {
   background-color: #5c3b8f50;
 }
+=======
+.modal-backdrop.in {
+    filter: alpha(opacity=50);
+    opacity: 0.5;
+}
+.modal-backdrop.fade {
+    filter: alpha(opacity=0);
+    opacity: 0;
+}
+.fade.in {
+    opacity: 1;
+}
+.modal-backdrop {
+    z-index: 1 !important;
+}
+.modal-backdrop {
+    z-index: 1;
+}
+.modal-backdrop {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    z-index: 1;
+    background-color: #00000075;
+}
+.fade {
+    opacity: 0;
+    -webkit-transition: opacity 0.15s linear;
+    -o-transition: opacity 0.15s linear;
+    transition: opacity 0.15s linear;
+}
+>>>>>>> Stashed changes

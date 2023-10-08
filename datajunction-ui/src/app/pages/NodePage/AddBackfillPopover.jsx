@@ -6,7 +6,11 @@ import { FormikSelect } from '../AddEditNodePage/FormikSelect';
 import EditIcon from '../../icons/EditIcon';
 import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
 
-export default function AddMaterializationPopover({ node, onSubmit }) {
+export default function AddBackfillPopover({
+  node,
+  materialization,
+  onSubmit,
+}) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [popoverAnchor, setPopoverAnchor] = useState(false);
   const ref = useRef(null);
@@ -23,17 +27,30 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     };
   }, [setPopoverAnchor]);
 
-  const savePartition = async (
-    { node, engine, engineVersion, schedule, config },
-    { setSubmitting, setStatus },
-  ) => {
+  const partitionColumns = (
+    node.type === 'cube' ? node.cube_elements : node.columns
+  ).filter(col => col.partition !== null);
+
+  const temporalPartitionColumns = partitionColumns.filter(
+    col => col.partition.type_ === 'temporal',
+  );
+
+  const initialValues = {
+    node: node.name,
+    materializationName: materialization.name,
+    partitionColumn: temporalPartitionColumns[0].name,
+    from: '',
+    to: '',
+  };
+
+  const savePartition = async (values, { setSubmitting, setStatus }) => {
     setSubmitting(false);
-    const response = await djClient.materialize(
-      node,
-      engine,
-      engineVersion || '',
-      schedule,
-      config,
+    const response = await djClient.runBackfill(
+      values.node,
+      values.materializationName,
+      values.partitionColumn,
+      values.from,
+      values.to,
     );
     if (response.status === 200 || response.status === 201) {
       setStatus({ success: 'Saved!' });
@@ -43,7 +60,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
       });
     }
     onSubmit();
-    // window.location.reload();
+    window.location.reload();
   };
 
   return (
@@ -56,68 +73,83 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
           setPopoverAnchor(!popoverAnchor);
         }}
       >
-        <span className="add_node">+ Add Materialization</span>
+        <span className="add_node">Run Backfill</span>
       </button>
-      <div className="fade modal-backdrop in" style={{ display: popoverAnchor === false ? 'none' : 'block'}}></div>
       <div
-        className="popover"
+        className="fade modal-backdrop in"
+        style={{ display: popoverAnchor === false ? 'none' : 'block' }}
+      ></div>
+      <div
+        className="centerPopover"
         role="dialog"
         aria-label="client-code"
-        style={{ display: popoverAnchor === false ? 'none' : 'block', border: '1px dashed #c5c5c5', width: '50%' }}
+        style={{
+          display: popoverAnchor === false ? 'none' : 'block',
+          width: '50%',
+        }}
         ref={ref}
       >
         <Formik
-          initialValues={{
-            node: node.name,
-            engineName: '',
-            engineVersion: '',
-            config: '',
-            schedule: '@daily',
-          }}
+          initialValues={initialValues}
           onSubmit={savePartition}
         >
           {function Render({ isSubmitting, status, setFieldValue }) {
             return (
               <Form>
-                {/*<h4>Set Partition</h4>*/}
                 {displayMessageAfterSubmit(status)}
+                <h2>Run Backfill</h2>
                 <span data-testid="edit-partition">
-                  <label htmlFor="engine">Engine</label>
-                  <Field as="select" name="engine" id="engine">
-                    <option value="SPARKSQL">SPARKSQL 3.3</option>
-                    <option value="DRUIDSQL">DRUIDSQL</option>
+                  <label htmlFor="engine" style={{ paddingBottom: '1rem' }}>
+                    Engine
+                  </label>
+                  <Field as="select" name="engine" id="engine" disabled={true}>
+                    <option value={materialization.engine.name}>
+                      {materialization.engine.name}{' '}
+                      {materialization.engine.version}
+                    </option>
                   </Field>
                 </span>
-                <input
-                  hidden={true}
-                  name="node"
-                  value={node.name}
-                  readOnly={true}
-                />
                 <br />
                 <br />
-                <label htmlFor="schedule">Schedule</label>
-                <Field
-                  type="text"
-                  name="schedule"
-                  id="schedule"
-                  placeholder="Cron"
-                  default="@daily"
-                />
+                <label htmlFor="partition" style={{ paddingBottom: '1rem' }}>
+                  Partition Range
+                </label>
+                {(node.type === 'cube' ? node.cube_elements : node.columns)
+                  .filter(col => col.partition !== null)
+                  .map(col => {
+                    return (
+                      <div
+                        className="partition__full"
+                        key={col.name}
+                        style={{ width: '50%' }}
+                      >
+                        <div className="partition__header">
+                          {col.display_name}
+                        </div>
+                        <div className="partition__body">
+                          <span style={{ padding: '0.5rem' }}>From</span>{' '}
+                          <Field
+                            type="text"
+                            name="from"
+                            id={`${col.name}__from`}
+                            placeholder="20230101"
+                            default="20230101"
+                            style={{ width: '7rem', paddingRight: '1rem' }}
+                          />{' '}
+                          <span style={{ padding: '0.5rem' }}>To</span>
+                          <Field
+                            type="text"
+                            name="to"
+                            id={`${col.name}__to`}
+                            placeholder="20230102"
+                            default="20230102"
+                            style={{ width: '7rem' }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
                 <br />
-                <br />
-                <div className="DescriptionInput">
-                  <ErrorMessage name="description" component="span" />
-                  <label htmlFor="Config">Config</label>
-                  <Field
-                    type="textarea"
-                    as="textarea"
-                    name="config"
-                    id="Config"
-                    placeholder="Configuration (i.e., Spark conf etc)"
-                    default={{ spark: {} }}
-                  />
-                </div>
                 <button
                   className="add_node"
                   type="submit"

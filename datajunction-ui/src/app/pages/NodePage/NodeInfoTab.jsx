@@ -80,6 +80,7 @@ export default function NodeInfoTab({ node }) {
           className={`badge node_type__${
             cubeElem.type === 'metric' ? cubeElem.type : 'dimension'
           }`}
+          style={{ fontSize: '100%', textTransform: 'capitalize' }}
         >
           {cubeElem.type === 'metric' ? cubeElem.type : 'dimension'}
         </span>
