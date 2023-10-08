@@ -27,6 +27,7 @@ from datajunction_server.api.helpers import (
     revalidate_node,
     validate_node_data,
 )
+from datajunction_server.api.materializations import router
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.errors import DJException, DJInvalidInputException
@@ -43,9 +44,9 @@ from datajunction_server.internal.nodes import (
     get_column_level_lineage,
     save_node,
     set_node_column_attributes,
-    update_any_node,
+    update_any_node, get_node_column,
 )
-from datajunction_server.models import User, access
+from datajunction_server.models import User, access, Column, History
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column
@@ -73,6 +74,7 @@ from datajunction_server.models.node import (
     NodeValidation,
     UpdateNode,
 )
+from datajunction_server.models.partition import PartitionInput, Partition
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_dimensions, get_nodes_with_dimension
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -979,4 +981,59 @@ def set_column_display_name(
     session.refresh(column)
     session.refresh(node)
     session.refresh(node.current)
+    return column
+
+
+@router.post(
+    "/nodes/{node_name}/columns/{column_name}/partition",
+    status_code=201,
+    name="Set Node Column as Partition",
+)
+def set_column_partition(  # pylint: disable=too-many-locals
+    node_name: str,
+    column_name: str,
+    input_partition: PartitionInput,
+    *,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+) -> Column:
+    """
+    Add or update partition columns for the specified node.
+    """
+    node = get_node_by_name(session, node_name)
+    if node.type == NodeType.CUBE:
+        column = [
+            cube_element
+            for cube_element in node.current.cube_elements
+            if cube_element.name == column_name
+        ][0]
+    else:
+        column = get_node_column(node, column_name)
+    upsert_partition_event = History(
+        entity_type=EntityType.PARTITION,
+        node=node_name,
+        activity_type=ActivityType.CREATE,
+        details={
+            "column": column_name,
+            "partition": input_partition.dict(),
+        },
+        user=current_user.username if current_user else None,
+    )
+    if column.partition:
+        column.partition.type_ = input_partition.type_
+        column.partition.expression = input_partition.expression
+        session.add(column)
+        upsert_partition_event.activity_type = ActivityType.UPDATE
+        session.add(upsert_partition_event)
+    else:
+        partition = Partition(
+            column=column,
+            expression=input_partition.expression,
+            type_=input_partition.type_,
+        )
+        session.add(partition)
+        session.add(upsert_partition_event)
+
+    session.commit()
+    session.refresh(column)
     return column

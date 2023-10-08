@@ -682,6 +682,14 @@ def validate_cube(  # pylint: disable=too-many-locals
                 ),
                 http_status_code=http.client.UNPROCESSABLE_ENTITY,
             )
+        print(
+            "metric_node",
+            metric_node.name,
+            metric_node.current_version,
+            metric_node.current.version,
+            metric_node.current.id,
+            metric_node.current.columns[0].id,
+        )
         catalogs.append(metric_node.current.catalog.name)
         catalog = metric_node.current.catalog
         metrics.append(metric_node.current.columns[0])

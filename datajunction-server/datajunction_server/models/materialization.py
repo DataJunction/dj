@@ -1,5 +1,4 @@
 """Models for materialization"""
-import enum
 import zlib
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
@@ -7,10 +6,11 @@ from pydantic import AnyHttpUrl, BaseModel, validator
 from sqlalchemy import JSON
 from sqlalchemy import Column as SqlaColumn
 from sqlalchemy import DateTime, String
-from sqlmodel import Field, Relationship, SQLModel
+from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.engine import Engine, EngineInfo, EngineRef
+from datajunction_server.models.partition import Backfill, BackfillOutput, PartitionType
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.typing import UTCDatetime
 
@@ -65,6 +65,7 @@ class MaterializationConfigOutput(SQLModel):
     config: Dict
     schedule: str
     job: str
+    backfills: List[BackfillOutput]
 
 
 class MaterializationConfigInfoUnified(
@@ -82,57 +83,13 @@ class SparkConf(BaseSQLModel):
     __root__: Dict[str, str]
 
 
-class PartitionType(str, enum.Enum):
-    """
-    Partition type.
-
-    A partition can be temporal or categorical
-    """
-
-    TEMPORAL = "temporal"
-    CATEGORICAL = "categorical"
-
-
-class Partition(BaseSQLModel):
-    """
-    A partition specification tells the ongoing and backfill materialization jobs how to partition
-    the materialized dataset and which partition values (a list or range of values) to operate on.
-    Partitions may be temporal or categorical and will be handled differently depending on the type.
-
-    For temporal partition types, the ongoing materialization job will continue to operate on the
-    latest partitions and the partition values specified by `values` and `range` are only relevant
-    to the backfill job.
-
-    Examples:
-        This will tell DJ to backfill for all values of the dateint partition:
-          Partition(name=“dateint”, type="temporal", values=[], range=())
-        This will tell DJ to backfill just 20230601 and 20230605:
-          Partition(name=“dateint”, type="temporal", values=[20230601, 20230605], range=())
-        This will tell DJ to backfill 20230601 and between 20220101 and 20230101:
-          Partition(name=“dateint”, type="temporal", values=[20230601], range=(20220101, 20230101))
-
-        For categorical partition types, the ongoing materialization job will *only* operate on the
-        specified partition values in `values` and `range`:
-            Partition(name=“group_id”, type="categorical", values=["a", "b", "c"], range=())
-    """
-
-    name: str
-    values: Optional[List]
-    range: Optional[List]
-
-    # This expression evaluates to the temporal partition value for scheduled runs
-    expression: Optional[str]
-
-    type_: PartitionType
-
-
 class GenericMaterializationConfigInput(BaseModel):
     """
     User-input portions of the materialization config
     """
 
     # List of partitions that materialization jobs (ongoing and backfill) will operate on.
-    partitions: Optional[List[Partition]]
+    # partitions: Optional[List[Partition]]
     # Spark config
     spark: Optional[SparkConf]
 
@@ -171,9 +128,9 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
 class DruidConf(BaseSQLModel):
     """Druid configuration"""
 
-    granularity: str
+    granularity: Optional[str]
     intervals: Optional[List[str]]
-    timestamp_column: str
+    timestamp_column: Optional[str]
     timestamp_format: Optional[str]
     parse_spec_format: Optional[str]
 
@@ -231,7 +188,7 @@ class DruidCubeConfigInput(GenericCubeConfigInput):
 
     prefix: Optional[str] = ""
     suffix: Optional[str] = ""
-    druid: DruidConf
+    druid: Optional[DruidConf]
 
 
 class DruidCubeConfig(DruidCubeConfigInput, GenericCubeConfig):
@@ -245,6 +202,17 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
     """
     Materialization configured for a node.
     """
+
+    __table_args__ = (
+        UniqueConstraint(
+            "name",
+            "node_revision_id",
+            "engine_id",
+            name="node_revision_engine_uniq",
+        ),
+    )
+
+    id: Optional[int] = Field(default=None, primary_key=True)
 
     node_revision_id: int = Field(foreign_key="noderevision.id", primary_key=True)
     node_revision: "NodeRevision" = Relationship(
@@ -275,6 +243,13 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
         nullable=True,
         sa_column=SqlaColumn(DateTime(timezone=True)),
         default=None,
+    )
+
+    backfills: List[Backfill] = Relationship(
+        back_populates="materialization",
+        sa_relationship_kwargs={
+            "primaryjoin": "Materialization.id==Backfill.materialization_id",
+        },
     )
 
     @validator("config")

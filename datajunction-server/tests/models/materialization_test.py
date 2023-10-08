@@ -1,8 +1,6 @@
 """Tests materialization-related models."""
-from datajunction_server.models.materialization import (
-    GenericMaterializationConfig,
-    Partition,
-)
+from datajunction_server.models.materialization import GenericMaterializationConfig
+from datajunction_server.models.partition import Partition
 
 
 def test_generic_materialization_config():

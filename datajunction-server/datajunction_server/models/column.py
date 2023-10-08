@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from datajunction_server.models.attribute import ColumnAttribute
     from datajunction_server.models.measure import Measure
     from datajunction_server.models.node import Node, NodeRevision
+    from datajunction_server.models.partition import Partition
 
 
 class ColumnYAML(TypedDict, total=False):
@@ -93,6 +94,15 @@ class Column(BaseSQLModel, table=True):  # type: ignore
     )
     measure_id: Optional[int] = Field(default=None, foreign_key="measures.id")
     measure: "Measure" = Relationship(back_populates="columns")
+
+    partition_id: Optional[int] = Field(default=None, foreign_key="partition.id")
+    partition: "Partition" = Relationship(
+        sa_relationship_kwargs={
+            "lazy": "joined",
+            "primaryjoin": "Column.id==Partition.column_id",
+            "uselist": False,
+        },
+    )
 
     @root_validator(pre=True)
     def default_display_name(cls, values):  # pylint: disable=no-self-argument

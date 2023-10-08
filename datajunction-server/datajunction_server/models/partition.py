@@ -1,12 +1,18 @@
-# Column.update_forward_refs(Partition=Partition)
+"""Partition-related models."""
 import enum
-from typing import Optional, List
+from typing import TYPE_CHECKING, List, Optional
 
-from sqlalchemy import Column as SqlaColumn, JSON
+from pydantic.class_validators import validator
+from pydantic.main import BaseModel
+from sqlalchemy import JSON
+from sqlalchemy import Column as SqlaColumn
 from sqlmodel import Field, Relationship, SQLModel
 
-from datajunction_server.models.column import Column
 from datajunction_server.models.base import BaseSQLModel
+from datajunction_server.models.column import Column
+
+if TYPE_CHECKING:
+    from datajunction_server.models.materialization import Materialization
 
 
 class PartitionType(str, enum.Enum):
@@ -22,26 +28,18 @@ class PartitionType(str, enum.Enum):
 
 class Partition(BaseSQLModel, table=True):
     """
-    A partition specification tells the ongoing and backfill materialization jobs how to partition
-    the materialized dataset and which partition values (a list or range of values) have been backfilled.
-    Partitions may be temporal or categorical and will be handled differently depending on the type.
+    A partition specification consists of a reference to a partition column and a partition type
+    (either temporal or categorical). Both partition types indicate how to partition the
+    materialized dataset, which the configured materializations will use when building
+    materialization jobs. The temporal partition additionally tells us how to incrementally
+    materialize the node, with the ongoing materialization job operating on the latest partitions.
 
-    For temporal partition types, the ongoing materialization job will continue to operate on the
-    latest partitions and the partition values specified by `values` and `range` are only relevant
-    to the backfill job.
-
-    Examples:
-        This will tell DJ to backfill for all values of the dateint partition:
-          Partition(name=“dateint”, type="temporal", values=[], range=())
-        This will tell DJ to backfill just 20230601 and 20230605:
-          Partition(name=“dateint”, type="temporal", values=[20230601, 20230605], range=())
-        This will tell DJ to backfill 20230601 and between 20220101 and 20230101:
-          Partition(name=“dateint”, type="temporal", values=[20230601], range=(20220101, 20230101))
-
-        For categorical partition types, the ongoing materialization job will *only* operate on the
-        specified partition values in `values` and `range`:
-            Partition(name=“group_id”, type="categorical", values=["a", "b", "c"], range=())
+    An expression can be optionally provided for temporal partitions, which evaluates to the
+    temporal partition for scheduled runs. This is typically used to configure a specific timestamp
+    format for the partition column, i.e., CAST(FORMAT(DJ_LOGICAL_TIMESTAMP(), "yyyyMMdd") AS INT)
+    would yield a date integer from the current processing partition.
     """
+
     id: Optional[int] = Field(default=None, primary_key=True)
 
     # The column reference that this partition is defined on
@@ -54,19 +52,8 @@ class Partition(BaseSQLModel, table=True):
     )
 
     # This expression evaluates to the temporal partition value for scheduled runs
-    # defaults to CAST(FORMAT(NOW(), "yyyyMMdd") AS INT)
+    # defaults to CAST(FORMAT(DJ_LOGICAL_TIMESTAMP(), "yyyyMMdd") AS INT)
     expression: Optional[str]
-
-    # Backfilled values and range
-    values: Optional[List[str]] = Field(
-        default=[],
-        sa_column=SqlaColumn(JSON),
-    )
-    range: Optional[List[str]] = Field(
-        default=[],
-        sa_column=SqlaColumn(JSON),
-    )
-
     type_: PartitionType
 
 
@@ -74,17 +61,22 @@ class PartitionInput(BaseSQLModel):
     """
     Used for setting partition columns on a node
     """
+
     expression: Optional[str]
     type_: PartitionType
 
 
-class PartitionBackfill(BaseSQLModel):
+class PartitionBackfill(BaseModel):
     """
     Used for setting backfilled values
     """
+
     column_name: str
 
-    # Backfilled values and range
+    # Backfilled values and range. Most temporal partitions will just use `range`, but some may
+    # optionally use `values` to specify specific values
+    # Ex: values: [20230901]
+    #     range: [20230901, 20231001]
     values: Optional[List]
     range: Optional[List]
 
@@ -93,5 +85,48 @@ class PartitionOutput(SQLModel):
     """
     Output for partition
     """
+
     type_: PartitionType
     expression: Optional[str]
+
+
+class Backfill(BaseSQLModel, table=True):
+    """
+    A backfill run is linked to a materialization config, where users provide the range
+    (of a temporal partition) to backfill for the node.
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    # The column reference that this partition is defined on
+    materialization_id: int = Field(foreign_key="materialization.id")
+    materialization: "Materialization" = Relationship(
+        back_populates="backfills",
+        sa_relationship_kwargs={
+            "primaryjoin": "Materialization.id==Backfill.materialization_id",
+        },
+    )
+
+    # Backfilled values and range
+    spec: Optional[PartitionBackfill] = Field(
+        default={},
+        sa_column=SqlaColumn(JSON),
+    )
+
+    urls: Optional[List[str]] = Field(
+        default=[],
+        sa_column=SqlaColumn(JSON),
+    )
+
+    @validator("spec")
+    def val_spec(cls, val):
+        return val.dict()
+
+
+class BackfillOutput(BaseModel):
+    """
+    Output model for backfills
+    """
+
+    spec: Optional[PartitionBackfill]
+    urls: Optional[List[str]]

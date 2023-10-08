@@ -363,7 +363,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         combined_ast,
     )
     new_materialization = Materialization(
-        name=cube_custom_config.identifier(),
+        name="default",
         node_revision=node_revision,
         engine=engine,
         config=cube_custom_config,

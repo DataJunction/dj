@@ -26,11 +26,10 @@ from datajunction_server.models.materialization import (
     MaterializationInfo,
     Measure,
     MetricMeasures,
-    Partition,
-    PartitionType,
     UpsertMaterialization,
 )
 from datajunction_server.models.node import NodeType
+from datajunction_server.models.partition import Partition, PartitionType
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
@@ -259,8 +258,8 @@ def create_new_materialization(
                 dimensions=default_job_config.dimensions,
                 measures=default_job_config.measures,
                 spark=upsert.config.spark,
-                druid=DruidConf.parse_obj(upsert.config.druid),
-                partitions=upsert.config.partitions,
+                # druid=DruidConf.parse_obj(upsert.config.druid),
+                # partitions=upsert.config.partitions,
                 upstream_tables=default_job_config.upstream_tables,
                 columns=default_job_config.columns,
             )
@@ -273,7 +272,12 @@ def create_new_materialization(
                     f"engine `{engine.name}`."
                 ),
             ) from exc
-    materialization_name = generic_config.identifier()  # type: ignore
+    temporal_partition = current_revision.temporal_partition_columns()
+    materialization_name = (
+        f"{temporal_partition[0].name}_{engine.name}"
+        if temporal_partition
+        else engine.name
+    )
     return Materialization(
         name=materialization_name,
         node_revision=current_revision,

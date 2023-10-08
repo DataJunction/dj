@@ -3,19 +3,23 @@ Cube materialization jobs
 """
 from typing import Dict
 
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,
 )
+from datajunction_server.models import NodeRevision
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
+    DruidConf,
     DruidCubeConfig,
     DruidMaterializationInput,
     Materialization,
     MaterializationInfo,
-    PartitionType,
 )
+from datajunction_server.models.partition import PartitionType
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.sql.parsing import ast
+from datajunction_server.sql.parsing.backends.antlr4 import parse
 
 DRUID_AGG_MAPPING = {
     ("bigint", "sum"): "longSum",
@@ -59,13 +63,15 @@ class DruidCubeMaterializationJob(MaterializationJob):
 
     dialect = Dialect.DRUID
 
-    def build_druid_spec(self, cube_config: DruidCubeConfig, node_name: str) -> Dict:
+    def build_druid_spec(
+        self,
+        cube_config: DruidCubeConfig,
+        node_revision: NodeRevision,
+    ) -> Dict:
         """
         Builds the Druid ingestion spec from a materialization config.
         """
-        if not cube_config.druid:  # pragma: no cover
-            raise DJException("Druid ingestion requires a druid spec")
-
+        node_name = node_revision.name
         druid_datasource_name = (
             cube_config.prefix  # type: ignore
             + node_name.replace(".", "_DOT_")  # type: ignore
@@ -82,18 +88,17 @@ class DruidCubeMaterializationJob(MaterializationJob):
         }
 
         metrics_spec = list(_metrics_spec.values())
-        temporal_partitions = (
-            [
-                partition
-                for partition in cube_config.partitions
-                if partition.type_ == PartitionType.TEMPORAL
-            ]
-            if cube_config.partitions
-            else []
-        )
-        if not temporal_partitions:
-            raise DJException(
-                "Druid ingestion requires a temporal partition to be specified",
+        granularity, timestamp_column = None, None
+        for col in node_revision.columns:
+            if col.partition and col.partition.type_ == PartitionType.TEMPORAL:
+                granularity = "DAY"
+                timestamp_column = col.name
+
+        if not granularity or not timestamp_column:
+            raise DJInvalidInputException(
+                "The cube materialization cannot be configured if there is no "
+                "temporal partition specified on the cube. Please set at least one cube"
+                "element with a temporal partition.",
             )
 
         druid_spec = {
@@ -101,16 +106,19 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 "dataSource": druid_datasource_name,
                 "parser": {
                     "parseSpec": {
-                        "format": cube_config.druid.parse_spec_format or "parquet",  # type: ignore
+                        "format": "parquet",  # cube_config.druid.parse_spec_format or "parquet",  # type: ignore
                         "dimensionsSpec": {"dimensions": cube_config.dimensions},
                         "timestampSpec": {
                             "column": (
-                                cube_config.druid.timestamp_column  # type: ignore
-                                or temporal_partitions[0].name  # type: ignore
+                                timestamp_column
+                                # cube_config.druid.timestamp_column  # type: ignore
+                                # or temporal_partitions[0].name  # type: ignore
                             ),
                             "format": (
-                                cube_config.druid.timestamp_format  # type: ignore
-                                or "yyyyMMdd"
+                                # cube_config.druid.timestamp_format or  # type: ignore
+                                "yyyyMMdd"
+                                if granularity == "DAY"
+                                else "yyyyMMddHH"
                             ),
                         },
                     },
@@ -118,10 +126,8 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 "metricsSpec": metrics_spec,
                 "granularitySpec": {
                     "type": "uniform",
-                    "segmentGranularity": cube_config.druid.granularity,  # type: ignore
-                    "intervals": (
-                        cube_config.druid.intervals or temporal_partitions[0].range  # type: ignore
-                    ),
+                    "segmentGranularity": granularity,  # cube_config.druid.granularity,  # type: ignore
+                    "intervals": [],  # this should be set at runtime
                 },
             },
         }
@@ -138,7 +144,11 @@ class DruidCubeMaterializationJob(MaterializationJob):
         cube_config = DruidCubeConfig.parse_obj(materialization.config)
         druid_spec = self.build_druid_spec(
             cube_config,
-            materialization.node_revision.name,
+            materialization.node_revision,
+        )
+        final_query = build_materialization_query(
+            cube_config.query,
+            materialization.node_revision,
         )
         return query_service_client.materialize(
             DruidMaterializationInput(
@@ -147,13 +157,61 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 node_version=materialization.node_revision.version,
                 node_type=materialization.node_revision.type,
                 schedule=materialization.schedule,
-                query=cube_config.query,
+                query=str(final_query),
                 spark_conf=cube_config.spark.__root__,
                 druid_spec=druid_spec,
-                partitions=cube_config.partitions,
+                # partitions=cube_config.partitions,
                 upstream_tables=cube_config.upstream_tables or [],
                 # Cube materialization involves creating an intermediate dataset,
                 # which will have measures columns for all metrics in the cube
                 columns=cube_config.columns,
             ),
         )
+
+
+def build_materialization_query(
+    base_cube_query: str,
+    node_revision: NodeRevision,
+) -> ast.Query:
+    """
+    Build materialization query (based on configured temporal partitions).
+    """
+    cube_materialization_query_ast = parse(base_cube_query)
+    temporal_partitions = node_revision.temporal_partition_columns()
+    temporal_partition_col = [
+        col
+        for col in cube_materialization_query_ast.select.projection
+        if col.alias_or_name.name.endswith(temporal_partitions[0].name)
+    ]
+
+    final_query = ast.Query(
+        select=ast.Select(
+            projection=[
+                ast.Column(name=ast.Name(col.alias_or_name.name))
+                for col in cube_materialization_query_ast.select.projection
+            ],
+            where=ast.BinaryOp(
+                left=ast.Column(
+                    name=ast.Name(temporal_partition_col[0].alias_or_name.name),
+                ),
+                right=ast.Function(
+                    ast.Name("DJ_LOGICAL_TIMESTAMP"),
+                    args=[],
+                ),
+                op=ast.BinaryOpKind.Eq,
+            ),
+        ),
+        ctes=cube_materialization_query_ast.ctes,
+    )
+    combiner_cte = ast.Query(select=cube_materialization_query_ast.select).set_alias(
+        ast.Name("combiner_query"),
+    )
+    combiner_cte.parenthesized = True
+    combiner_cte.as_ = True
+    combiner_cte.parent = final_query
+    combiner_cte.parent_key = "ctes"
+    final_query.ctes += [combiner_cte]
+    final_query.select.from_ = ast.From(
+        relations=[ast.Relation(primary=ast.Table(name=ast.Name("combiner_query")))],
+    )
+    return final_query
