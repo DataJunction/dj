@@ -258,8 +258,6 @@ def create_new_materialization(
                 dimensions=default_job_config.dimensions,
                 measures=default_job_config.measures,
                 spark=upsert.config.spark,
-                # druid=DruidConf.parse_obj(upsert.config.druid),
-                # partitions=upsert.config.partitions,
                 upstream_tables=default_job_config.upstream_tables,
                 columns=default_job_config.columns,
             )

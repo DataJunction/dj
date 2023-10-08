@@ -88,8 +88,6 @@ class GenericMaterializationConfigInput(BaseModel):
     User-input portions of the materialization config
     """
 
-    # List of partitions that materialization jobs (ongoing and backfill) will operate on.
-    # partitions: Optional[List[Partition]]
     # Spark config
     spark: Optional[SparkConf]
 
@@ -103,26 +101,6 @@ class GenericMaterializationConfig(GenericMaterializationConfigInput):
     query: Optional[str]
     columns: Optional[List[ColumnMetadata]]
     upstream_tables: Optional[List[str]]
-
-    def identifier(self) -> str:
-        """
-        Generates an identifier for this materialization config that is used by default
-        for the materialization config's name if one is not set. Note that this name is
-        based on partition names (both temporal and categorical) and partition values
-        (only categorical).
-        """
-        entities = ["default"] if not self.partitions else []
-        partitions_values = ""
-        if self.partitions:
-            for partition in self.partitions:
-                if partition.type_ != PartitionType.TEMPORAL:
-                    if partition.values:
-                        partitions_values += str(partition.values)
-                    if partition.range is not None:  # pragma: no cover
-                        partitions_values += str(partition.range)
-                entities.append(partition.name)
-            entities.append(str(zlib.crc32(partitions_values.encode("utf-8"))))
-        return "_".join(entities)
 
 
 class DruidConf(BaseSQLModel):
