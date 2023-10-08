@@ -497,7 +497,6 @@ export const DataJunctionAPI = {
     });
     return { status: response.status, json: await response.json() };
   },
-<<<<<<< Updated upstream
   listTags: async function () {
     const response = await fetch(`${DJ_URL}/tags`, {
       method: 'GET',
@@ -574,7 +573,7 @@ export const DataJunctionAPI = {
       body: JSON.stringify(updates),
       credentials: 'include',
     });
-=======
+  },
   setPartition: async function (
     nodeName,
     columnName,
@@ -645,7 +644,6 @@ export const DataJunctionAPI = {
         credentials: 'include',
       },
     );
->>>>>>> Stashed changes
     return { status: response.status, json: await response.json() };
   },
 };
