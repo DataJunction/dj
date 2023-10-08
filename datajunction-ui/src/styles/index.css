@@ -1029,7 +1029,6 @@ pre {
   display: inline-block;
 }
 
-<<<<<<< Updated upstream
 .tag_value {
   color: #5c3b8f;
   background-color: #5c3b8f25;
@@ -1040,7 +1039,7 @@ pre {
 .tag_value:hover {
   background-color: #5c3b8f50;
 }
-=======
+
 .modal-backdrop.in {
     filter: alpha(opacity=50);
     opacity: 0.5;
@@ -1073,4 +1072,3 @@ pre {
     -o-transition: opacity 0.15s linear;
     transition: opacity 0.15s linear;
 }
->>>>>>> Stashed changes
