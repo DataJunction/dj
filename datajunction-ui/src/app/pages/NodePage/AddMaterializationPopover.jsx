@@ -56,13 +56,21 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
           setPopoverAnchor(!popoverAnchor);
         }}
       >
-        <EditIcon />
+        <span className="add_node">+ Add Materialization</span>
       </button>
       <div
-        className="popover"
+        className="fade modal-backdrop in"
+        style={{ display: popoverAnchor === false ? 'none' : 'block' }}
+      ></div>
+      <div
+        className="centerPopover"
         role="dialog"
         aria-label="client-code"
-        style={{ display: popoverAnchor === false ? 'none' : 'block', border: '1px dashed #c5c5c5', width: '50%' }}
+        style={{
+          display: popoverAnchor === false ? 'none' : 'block',
+          // border: '1px dashed #c5c5c5',
+          width: '50%',
+        }}
         ref={ref}
       >
         <Formik
@@ -78,7 +86,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
           {function Render({ isSubmitting, status, setFieldValue }) {
             return (
               <Form>
-                {/*<h4>Set Partition</h4>*/}
+                <h2>Configure Materialization</h2>
                 {displayMessageAfterSubmit(status)}
                 <span data-testid="edit-partition">
                   <label htmlFor="engine">Engine</label>
@@ -113,8 +121,8 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                     as="textarea"
                     name="config"
                     id="Config"
-                    placeholder="Configuration (i.e., Spark conf etc)"
-                    default={{ spark: {} }}
+                    placeholder="Optional engine-specific configuration (i.e., Spark conf etc)"
+                    default={JSON.stringify({ spark: {} })}
                   />
                 </div>
                 <button

@@ -4,6 +4,7 @@ import * as React from 'react';
 import EditColumnPopover from './EditColumnPopover';
 import LinkDimensionPopover from './LinkDimensionPopover';
 import { labelize } from '../../../utils/form';
+import PartitionColumnPopover from './PartitionColumnPopover';
 
 export default function NodeColumnTab({ node, djClient }) {
   const [attributes, setAttributes] = useState([]);
@@ -11,7 +12,11 @@ export default function NodeColumnTab({ node, djClient }) {
   const [columns, setColumns] = useState([]);
   useEffect(() => {
     const fetchData = async () => {
-      setColumns(await djClient.columns(node));
+      if (node.type !== 'cube') {
+        setColumns(await djClient.columns(node));
+      } else {
+        setColumns(node.cube_elements);
+      }
     };
     fetchData().catch(console.error);
   }, [djClient, node]);
@@ -49,6 +54,22 @@ export default function NodeColumnTab({ node, djClient }) {
     ));
   };
 
+  const showColumnPartition = col => {
+    if (col.partition) {
+      return (
+        <span
+          className="node_type__dimension badge node_type"
+          key={`col-attr-${col.partition.type_}`}
+        >
+          <b>Type:</b> {col.partition.type_}
+          <br />
+          <b>Expr:</b> <code>{col.partition.expression}</code>
+        </span>
+      );
+    }
+    return '';
+  };
+
   const columnList = columns => {
     return columns.map(col => (
       <tr key={col.name}>
@@ -72,7 +93,9 @@ export default function NodeColumnTab({ node, djClient }) {
         </td>
         <td>
           <span
-            className="node_type__transform badge node_type"
+            className={`node_type__${
+              node.type === 'cube' ? col.type : 'transform'
+            } badge node_type`}
             role="columnheader"
             aria-label="ColumnType"
             aria-hidden="false"
@@ -80,31 +103,52 @@ export default function NodeColumnTab({ node, djClient }) {
             {col.type}
           </span>
         </td>
+        {node.type !== 'cube' ? (
+          <td>
+            {col.dimension !== undefined && col.dimension !== null ? (
+              <>
+                <a href={`/nodes/${col.dimension.name}`}>
+                  {col.dimension.name}
+                </a>
+                <ClientCodePopover code={col.clientCode} />
+              </>
+            ) : (
+              ''
+            )}{' '}
+            <LinkDimensionPopover
+              column={col}
+              node={node}
+              options={dimensions}
+              onSubmit={async () => {
+                const res = await djClient.node(node.name);
+                setColumns(res.columns);
+              }}
+            />
+          </td>
+        ) : (
+          ''
+        )}
+        {node.type !== 'cube' ? (
+          <td>
+            {showColumnAttributes(col)}
+            <EditColumnPopover
+              column={col}
+              node={node}
+              options={attributes}
+              onSubmit={async () => {
+                const res = await djClient.node(node.name);
+                setColumns(res.columns);
+              }}
+            />
+          </td>
+        ) : (
+          ''
+        )}
         <td>
-          {col.dimension !== undefined && col.dimension !== null ? (
-            <>
-              <a href={`/nodes/${col.dimension.name}`}>{col.dimension.name}</a>
-              <ClientCodePopover code={col.clientCode} />
-            </>
-          ) : (
-            ''
-          )}{' '}
-          <LinkDimensionPopover
+          {showColumnPartition(col)}
+          <PartitionColumnPopover
             column={col}
             node={node}
-            options={dimensions}
-            onSubmit={async () => {
-              const res = await djClient.node(node.name);
-              setColumns(res.columns);
-            }}
-          />
-        </td>
-        <td>
-          {showColumnAttributes(col)}
-          <EditColumnPopover
-            column={col}
-            node={node}
-            options={attributes}
             onSubmit={async () => {
               const res = await djClient.node(node.name);
               setColumns(res.columns);
@@ -123,8 +167,15 @@ export default function NodeColumnTab({ node, djClient }) {
             <th className="text-start">Column</th>
             <th>Display Name</th>
             <th>Type</th>
-            <th>Linked Dimension</th>
-            <th>Attributes</th>
+            {node.type !== 'cube' ? (
+              <>
+                <th>Linked Dimension</th>
+                <th>Attributes</th>
+              </>
+            ) : (
+              ''
+            )}
+            <th>Partition</th>
           </tr>
         </thead>
         <tbody>{columnList(columns)}</tbody>

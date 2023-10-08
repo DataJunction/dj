@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
 import ClientCodePopover from './ClientCodePopover';
 import TableIcon from '../../icons/TableIcon';
+import AddMaterializationPopover from './AddMaterializationPopover';
+import * as React from 'react';
+import AddBackfillPopover from './AddBackfillPopover';
 
 const cronstrue = require('cronstrue');
 
@@ -38,11 +41,11 @@ export default function NodeMaterializationTab({ node, djClient }) {
   const materializationRows = materializations => {
     return materializations.map(materialization => (
       <tr key={materialization.name}>
+        {/*<td className="text-start node_name">*/}
+          {/*<a href={materialization.urls[0]}>{materialization.name}</a>*/}
+          {/*<ClientCodePopover code={materialization.clientCode} />*/}
+        {/*</td>*/}
         <td className="text-start node_name">
-          <a href={materialization.urls[0]}>{materialization.name}</a>
-          <ClientCodePopover code={materialization.clientCode} />
-        </td>
-        <td>
           <span className={`badge cron`}>{materialization.schedule}</span>
           <div className={`cron-description`}>{cron(materialization)} </div>
         </td>
@@ -50,8 +53,29 @@ export default function NodeMaterializationTab({ node, djClient }) {
           {materialization.engine.name}
           <br />
           {materialization.engine.version}
+          <ClientCodePopover code={materialization.clientCode} />
         </td>
         <td>
+          {(node.type === 'cube' ? node.cube_elements : node.columns)
+            .filter(col => col.partition !== null)
+            .map(column => {
+              return (
+                <div className="partition__full" key={column.name}>
+                  <div className="partition__header">
+                    {column.display_name}
+                  </div>
+                  <div className="partition__body">
+                    {/*<span*/}
+                    {/*  className={`badge partition_value_highlight`}*/}
+                    {/*  style={{ fontSize: '100%' }}*/}
+                    {/*>*/}
+                    <code>{column.name}</code>
+                    <span className="badge partition_value">{column.partition.type_}</span>
+                    {/*</span>*/}
+                  </div>
+                </div>
+              );
+            })}
           {materialization.config.partitions ? (
             materialization.config.partitions.map(partition =>
               partition.type_ === 'categorical' ? (
@@ -110,27 +134,28 @@ export default function NodeMaterializationTab({ node, djClient }) {
         </td>
 
         <td>
-          {materialization.config.partitions ? (
-            materialization.config.partitions.map(partition =>
-              partition.type_ === 'temporal' ? (
-                <div className="partition__full" key={partition.name}>
-                  <div className="partition__header">{partition.name}</div>
-                  <div className="partition__body">
-                    {partition.values !== null && partition.values.length > 0
-                      ? partition.values.map(val => (
-                          <span className="badge partition_value">{val}</span>
-                        ))
-                      : null}
-                    {partition.range !== null && partition.range.length > 0
-                      ? rangePartition(partition)
-                      : null}
-                  </div>
-                </div>
-              ) : null,
-            )
-          ) : (
-            <br />
-          )}
+          {/*{materialization.config.partitions ? (*/}
+          {/*  materialization.config.partitions.map(partition =>*/}
+          {/*    partition.type_ === 'temporal' ? (*/}
+          {/*      <div className="partition__full" key={partition.name}>*/}
+          {/*        <div className="partition__header">{partition.name}</div>*/}
+          {/*        <div className="partition__body">*/}
+          {/*          {partition.values !== null && partition.values.length > 0*/}
+          {/*            ? partition.values.map(val => (*/}
+          {/*                <span className="badge partition_value">{val}</span>*/}
+          {/*              ))*/}
+          {/*            : null}*/}
+          {/*          {partition.range !== null && partition.range.length > 0*/}
+          {/*            ? rangePartition(partition)*/}
+          {/*            : null}*/}
+          {/*        </div>*/}
+          {/*      </div>*/}
+          {/*    ) : null,*/}
+          {/*  )*/}
+          {/*) : (*/}
+          {/*  <br />*/}
+          {/*)}*/}
+          <AddBackfillPopover node={node} materialization={materialization} />
         </td>
         <td>
           {materialization.urls.map((url, idx) => (
@@ -146,7 +171,8 @@ export default function NodeMaterializationTab({ node, djClient }) {
     <>
       <div className="table-vertical">
         <div>
-          <h2>Workflows</h2>
+          <h2>Materializations</h2>
+          <AddMaterializationPopover node={node} />
           {materializations.length > 0 ? (
             <table
               className="card-inner-table table"
@@ -155,8 +181,8 @@ export default function NodeMaterializationTab({ node, djClient }) {
             >
               <thead className="fs-7 fw-bold text-gray-400 border-bottom-0">
                 <tr>
-                  <th className="text-start">Name</th>
-                  <th>Schedule</th>
+                  {/*<th className="text-start">Name</th>*/}
+                  <th className="text-start">Schedule</th>
                   <th>Engine</th>
                   <th>Partitions</th>
                   <th>Output Tables</th>

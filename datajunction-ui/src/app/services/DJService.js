@@ -497,6 +497,7 @@ export const DataJunctionAPI = {
     });
     return { status: response.status, json: await response.json() };
   },
+<<<<<<< Updated upstream
   listTags: async function () {
     const response = await fetch(`${DJ_URL}/tags`, {
       method: 'GET',
@@ -573,6 +574,78 @@ export const DataJunctionAPI = {
       body: JSON.stringify(updates),
       credentials: 'include',
     });
+=======
+  setPartition: async function (
+    nodeName,
+    columnName,
+    partitionType,
+    partitionExpression,
+  ) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/partition`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type_: partitionType,
+          expression: partitionExpression,
+        }),
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
+  materialize: async function (
+    nodeName,
+    engineName,
+    engineVersion,
+    schedule,
+    config,
+  ) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/materialization`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          engine: {
+            name: engineName,
+            version: engineVersion,
+          },
+          schedule: schedule,
+          config: JSON.parse(config),
+        }),
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
+  runBackfill: async function (
+    nodeName,
+    materializationName,
+    partitionColumn,
+    from,
+    to,
+  ) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/materializations/${materializationName}/backfill`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          column_name: partitionColumn,
+          range: [from, to],
+        }),
+        credentials: 'include',
+      },
+    );
+>>>>>>> Stashed changes
     return { status: response.status, json: await response.json() };
   },
 };
