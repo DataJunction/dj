@@ -12,11 +12,7 @@ export default function NodeColumnTab({ node, djClient }) {
   const [columns, setColumns] = useState([]);
   useEffect(() => {
     const fetchData = async () => {
-      // if (node.type !== 'cube') {
       setColumns(await djClient.columns(node));
-      // } else {
-      //   setColumns(node.cube_elements);
-      // }
     };
     fetchData().catch(console.error);
   }, [djClient, node]);
@@ -167,7 +163,7 @@ export default function NodeColumnTab({ node, djClient }) {
             <th className="text-start">Column</th>
             <th>Display Name</th>
             <th>Type</th>
-            {node.type !== 'cube' ? (
+            {node?.type !== 'cube' ? (
               <>
                 <th>Linked Dimension</th>
                 <th>Attributes</th>

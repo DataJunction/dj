@@ -41,10 +41,8 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
-    console.log('VALUES', values);
     const engineVersion = values.engine.split('__').slice(-1).join('');
     const engineName = values.engine.split('__').slice(0, -1).join('');
-    console.log('engine', engineVersion, engineName, values.engine);
     const response = await djClient.materialize(
       values.node,
       engineName,
@@ -85,14 +83,13 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
         aria-label="client-code"
         style={{
           display: popoverAnchor === false ? 'none' : 'block',
-          // border: '1px dashed #c5c5c5',
           width: '50%',
         }}
         ref={ref}
       >
         <Formik
           initialValues={{
-            node: node.name,
+            node: node?.name,
             engine: defaultEngine,
             config: '{"spark": {"spark.executor.memory": "6g"}}',
             schedule: '@daily',
@@ -120,7 +117,7 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                 <input
                   hidden={true}
                   name="node"
-                  value={node.name}
+                  value={node?.name}
                   readOnly={true}
                 />
                 <br />

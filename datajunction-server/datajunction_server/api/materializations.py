@@ -74,11 +74,6 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     # Check to see if a materialization for this engine already exists with the exact same config
     existing_materialization = old_materializations.get(new_materialization.name)
     deactivated_before = False
-    # if (
-    #     "spark" in new_materialization.config
-    #     and not new_materialization.config["spark"]
-    # ):
-    #     new_materialization.config["spark"] = {}
     if (
         existing_materialization
         and existing_materialization.config == new_materialization.config

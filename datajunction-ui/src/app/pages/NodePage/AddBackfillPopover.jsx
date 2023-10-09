@@ -36,7 +36,10 @@ export default function AddBackfillPopover({
   const initialValues = {
     node: node.name,
     materializationName: materialization.name,
-    partitionColumn: temporalPartitionColumns[0].name,
+    partitionColumn:
+      temporalPartitionColumns.length > 0
+        ? temporalPartitionColumns[0].name
+        : '',
     from: '',
     to: '',
   };
@@ -65,7 +68,7 @@ export default function AddBackfillPopover({
     <>
       <button
         className="edit_button"
-        aria-label="PartitionColumn"
+        aria-label="AddBackfill"
         tabIndex="0"
         onClick={() => {
           setPopoverAnchor(!popoverAnchor);
@@ -98,9 +101,9 @@ export default function AddBackfillPopover({
                     Engine
                   </label>
                   <Field as="select" name="engine" id="engine" disabled={true}>
-                    <option value={materialization.engine.name}>
-                      {materialization.engine.name}{' '}
-                      {materialization.engine.version}
+                    <option value={materialization?.engine?.name}>
+                      {materialization?.engine?.name}{' '}
+                      {materialization?.engine?.version}
                     </option>
                   </Field>
                 </span>

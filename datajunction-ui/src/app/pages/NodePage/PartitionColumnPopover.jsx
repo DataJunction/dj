@@ -28,7 +28,6 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
-    console.log(partition_type, partition_expression);
     const response = await djClient.setPartition(
       node,
       column,
