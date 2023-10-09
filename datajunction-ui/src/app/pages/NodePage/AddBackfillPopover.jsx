@@ -27,9 +27,7 @@ export default function AddBackfillPopover({
     };
   }, [setPopoverAnchor]);
 
-  const partitionColumns = (
-    node.type === 'cube' ? node.cube_elements : node.columns
-  ).filter(col => col.partition !== null);
+  const partitionColumns = node.columns.filter(col => col.partition !== null);
 
   const temporalPartitionColumns = partitionColumns.filter(
     col => col.partition.type_ === 'temporal',
@@ -73,7 +71,7 @@ export default function AddBackfillPopover({
           setPopoverAnchor(!popoverAnchor);
         }}
       >
-        <span className="add_node">Run Backfill</span>
+        <span className="add_node">+ Add Backfill</span>
       </button>
       <div
         className="fade modal-backdrop in"
@@ -89,10 +87,7 @@ export default function AddBackfillPopover({
         }}
         ref={ref}
       >
-        <Formik
-          initialValues={initialValues}
-          onSubmit={savePartition}
-        >
+        <Formik initialValues={initialValues} onSubmit={savePartition}>
           {function Render({ isSubmitting, status, setFieldValue }) {
             return (
               <Form>
@@ -114,7 +109,7 @@ export default function AddBackfillPopover({
                 <label htmlFor="partition" style={{ paddingBottom: '1rem' }}>
                   Partition Range
                 </label>
-                {(node.type === 'cube' ? node.cube_elements : node.columns)
+                {node.columns
                   .filter(col => col.partition !== null)
                   .map(col => {
                     return (
