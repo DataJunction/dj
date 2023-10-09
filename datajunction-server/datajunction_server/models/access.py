@@ -35,6 +35,7 @@ class ResourceRequestVerb(Enum):
     BROWSE = "browse"
     READ = "read"
     WRITE = "write"
+    USE = "use"
     EXECUTE = "execute"
     DELETE = "delete"
 
