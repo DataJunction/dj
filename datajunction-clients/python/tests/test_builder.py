@@ -428,7 +428,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             ),
         )
         assert result == {
-            "message": "Successfully updated materialization config named `default` for "
+            "message": "Successfully updated materialization config named `spark` for "
             "node `default.large_revenue_payments_only`",
             "urls": [["http://fake.url/job"]],
         }
@@ -698,6 +698,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                 {"attribute_type": {"namespace": "system", "name": "primary_key"}},
             ],
             "dimension": None,
+            "partition": None,
         } in response["columns"]
         assert {
             "name": "last_name",
@@ -707,6 +708,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                 {"attribute_type": {"namespace": "system", "name": "primary_key"}},
             ],
             "dimension": None,
+            "partition": None,
         } in response["columns"]
 
     def test_update_source_node(self, client):
@@ -729,6 +731,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                 "display_name": "State Id",
                 "name": "state_id",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -736,6 +739,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                 "display_name": "Name",
                 "name": "name",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -743,6 +747,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                 "display_name": "Abbr",
                 "name": "abbr",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -750,6 +755,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                 "display_name": "Region",
                 "name": "region",
                 "type": "int",
+                "partition": None,
             },
         ]
         assert response["version"] == "v2.0"
@@ -791,5 +797,6 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
                 "display_name": "Contact Title",
                 "name": "contact_title",
                 "type": "string",
+                "partition": None,
             },
         ]

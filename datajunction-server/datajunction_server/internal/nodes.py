@@ -681,7 +681,6 @@ def update_cube_node(  # pylint: disable=too-many-locals
                 new_cube_revision.materializations,
                 query_service_client,
             )
-    # print("new_rev COLS", [(col.name, col.partition) for col in new_cube_revision.columns])
     session.add(new_cube_revision)
     session.add(new_cube_revision.node)
     session.commit()

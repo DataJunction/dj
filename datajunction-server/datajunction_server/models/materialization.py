@@ -232,6 +232,7 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
         back_populates="materialization",
         sa_relationship_kwargs={
             "primaryjoin": "Materialization.id==Backfill.materialization_id",
+            "cascade": "all, delete",
         },
     )
 
