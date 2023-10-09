@@ -172,9 +172,6 @@ def build_materialization_query(
     """
     cube_materialization_query_ast = parse(base_cube_query)
     temporal_partitions = node_revision.temporal_partition_columns()
-    # print("temporaL-partitions", [col.name for col in temporal_partitions])
-    # print("temporaL-partitions", [col.alias_or_name.name
-    #                               for col in cube_materialization_query_ast.select.projection])
     temporal_partition_col = [
         col
         for col in cube_materialization_query_ast.select.projection
