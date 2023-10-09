@@ -1510,7 +1510,6 @@ def test_updating_cube_with_existing_materialization(
         },
     )
     result = response.json()
-    print("result", result)
     assert result["version"] == "v2.0"
 
     # Check that the cube was updated
@@ -1575,6 +1574,21 @@ def test_updating_cube_with_existing_materialization(
     assert [
         event for event in response.json() if event["activity_type"] == "update"
     ] == [
+        {
+            "activity_type": "update",
+            "created_at": mock.ANY,
+            "details": {
+                "materialization": "default_DOT_hard_hat_DOT_hire_date_druid",
+                "node": "default.repairs_cube",
+            },
+            "entity_name": "default_DOT_hard_hat_DOT_hire_date_druid",
+            "entity_type": "materialization",
+            "id": mock.ANY,
+            "node": "default.repairs_cube",
+            "post": {},
+            "pre": {},
+            "user": "dj",
+        },
         {
             "activity_type": "update",
             "created_at": mock.ANY,

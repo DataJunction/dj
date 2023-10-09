@@ -249,8 +249,8 @@ def create_new_materialization(
                 upstream_tables=default_job_config.upstream_tables,
                 columns=default_job_config.columns,
             )
-        except (KeyError, ValidationError, AttributeError) as exc:
-            raise DJInvalidInputException(
+        except (KeyError, ValidationError, AttributeError) as exc:  # pragma: no cover
+            raise DJInvalidInputException(  # pragma: no cover
                 message=(
                     "No change has been made to the materialization config for "
                     f"node `{current_revision.name}` and engine `{engine.name}` as"

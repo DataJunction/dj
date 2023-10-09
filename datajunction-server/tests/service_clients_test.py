@@ -452,7 +452,7 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         }
 
         mocker.patch(
-            "datajunction_server.service_clients.RequestsSessionWithEndpoint.get",
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
             return_value=mock_response,
         )
 

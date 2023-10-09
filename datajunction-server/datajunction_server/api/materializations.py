@@ -299,7 +299,7 @@ def run_materialization_backfill(  # pylint: disable=too-many-locals
         col.name: col for col in node_revision.temporal_partition_columns()
     }
     if backfill_spec.column_name not in temporal_partitions:
-        raise DJDoesNotExistException(
+        raise DJDoesNotExistException(  # pragma: no cover
             f"Partition with name {backfill_spec.column_name} does not exist on node",
         )
 

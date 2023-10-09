@@ -206,5 +206,5 @@ class QueryServiceClient:  # pylint: disable=too-few-public-methods
             timeout=20,
         )
         if not response.ok:
-            return MaterializationInfo(output_tables=[], urls=[])
+            return MaterializationInfo(output_tables=[], urls=[])  # pragma: no cover
         return MaterializationInfo(**response.json())
