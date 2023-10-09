@@ -431,7 +431,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "url": "http://some.catalog.com/default.accounting.pmts",
                 },
                 "pre": {},
-                "user": None,
+                "user": "dj",
             },
         ]
 
@@ -566,7 +566,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "url": None,
                 },
                 "pre": {},
-                "user": None,
+                "user": "dj",
             },
             {
                 "activity_type": "create",
@@ -600,7 +600,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "valid_through_ts": 20230125,
                     "url": None,
                 },
-                "user": None,
+                "user": "dj",
             },
             {
                 "activity_type": "create",
@@ -634,7 +634,7 @@ class TestAvailabilityState:  # pylint: disable=too-many-public-methods
                     "valid_through_ts": 20230125,
                     "url": None,
                 },
-                "user": None,
+                "user": "dj",
             },
         ]
 

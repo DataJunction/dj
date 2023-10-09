@@ -33,6 +33,7 @@ from datajunction_server.models.partition import Partition, PartitionType
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
+from datajunction_server.utils import SEPARATOR
 
 MAX_COLUMN_NAME_LENGTH = 128
 
@@ -215,23 +216,12 @@ def create_new_materialization(
         materialization_ast = build_node(
             session=session,
             node=current_revision,
-            filters=(
-                filters_from_partitions(
-                    [
-                        Partition.parse_obj(partition)
-                        for partition in upsert.config.partitions
-                    ],
-                )
-                if upsert.config.partitions
-                else []
-            ),
             dimensions=[],
             orderby=[],
         )
         generic_config = GenericMaterializationConfig(
             query=str(materialization_ast),
             spark=upsert.config.spark if upsert.config.spark else {},
-            partitions=upsert.config.partitions if upsert.config.partitions else [],
             upstream_tables=[
                 f"{current_revision.catalog.name}.{tbl.identifier()}"
                 for tbl in materialization_ast.find_all(ast.Table)

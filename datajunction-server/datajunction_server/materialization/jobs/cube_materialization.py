@@ -93,7 +93,6 @@ class DruidCubeMaterializationJob(MaterializationJob):
             if col.partition and col.partition.type_ == PartitionType.TEMPORAL:
                 granularity = "DAY"
                 timestamp_column = col.name
-        print("druidSPEC", granularity, timestamp_column)
 
         if not granularity or not timestamp_column:
             raise DJInvalidInputException(

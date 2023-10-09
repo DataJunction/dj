@@ -121,20 +121,4 @@ def test_list_attributes(
             "name": "dimension",
             "description": "Points to a dimension attribute column",
         },
-        "temporal_partition_day": {
-            "allowed_node_types": ["source", "transform", "dimension"],
-            "description": "Points to a temporal partition "
-            "column with granularity DAY",
-            "name": "temporal_partition_day",
-            "namespace": "system",
-            "uniqueness_scope": ["node"],
-        },
-        "temporal_partition_hour": {
-            "allowed_node_types": ["source", "transform", "dimension"],
-            "description": "Points to a temporal partition "
-            "column with granularity HOUR",
-            "name": "temporal_partition_hour",
-            "namespace": "system",
-            "uniqueness_scope": ["node"],
-        },
     }
