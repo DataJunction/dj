@@ -9,9 +9,22 @@ import { displayMessageAfterSubmit, labelize } from '../../../utils/form';
 export default function AddMaterializationPopover({ node, onSubmit }) {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
   const [popoverAnchor, setPopoverAnchor] = useState(false);
+  const [engines, setEngines] = useState([]);
+  const [defaultEngine, setDefaultEngine] = useState('');
+
   const ref = useRef(null);
 
   useEffect(() => {
+    const fetchData = async () => {
+      const engines = await djClient.engines();
+      setEngines(engines);
+      setDefaultEngine(
+        engines && engines.length > 0
+          ? engines[0].name + '__' + engines[0].version
+          : '',
+      );
+    };
+    fetchData().catch(console.error);
     const handleClickOutside = event => {
       if (ref.current && !ref.current.contains(event.target)) {
         setPopoverAnchor(false);
@@ -21,19 +34,23 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
     return () => {
       document.removeEventListener('click', handleClickOutside, true);
     };
-  }, [setPopoverAnchor]);
+  }, [djClient, setPopoverAnchor]);
 
-  const savePartition = async (
-    { node, engine, engineVersion, schedule, config },
+  const configureMaterialization = async (
+    values,
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
+    console.log('VALUES', values);
+    const engineVersion = values.engine.split('__').slice(-1).join('');
+    const engineName = values.engine.split('__').slice(0, -1).join('');
+    console.log('engine', engineVersion, engineName, values.engine);
     const response = await djClient.materialize(
-      node,
-      engine,
-      engineVersion || '',
-      schedule,
-      config,
+      values.node,
+      engineName,
+      engineVersion,
+      values.schedule,
+      values.config,
     );
     if (response.status === 200 || response.status === 201) {
       setStatus({ success: 'Saved!' });
@@ -76,12 +93,11 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
         <Formik
           initialValues={{
             node: node.name,
-            engineName: '',
-            engineVersion: '',
-            config: '',
+            engine: defaultEngine,
+            config: '{"spark": {"spark.executor.memory": "6g"}}',
             schedule: '@daily',
           }}
-          onSubmit={savePartition}
+          onSubmit={configureMaterialization}
         >
           {function Render({ isSubmitting, status, setFieldValue }) {
             return (
@@ -90,9 +106,15 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                 {displayMessageAfterSubmit(status)}
                 <span data-testid="edit-partition">
                   <label htmlFor="engine">Engine</label>
-                  <Field as="select" name="engine" id="engine">
-                    <option value="SPARKSQL">SPARKSQL 3.3</option>
-                    <option value="DRUIDSQL">DRUIDSQL</option>
+                  <Field as="select" name="engine">
+                    <>
+                      {engines?.map(engine => (
+                        <option value={engine.name + '__' + engine.version}>
+                          {engine.name} {engine.version}
+                        </option>
+                      ))}
+                      <option value=""></option>
+                    </>
                   </Field>
                 </span>
                 <input
@@ -122,7 +144,6 @@ export default function AddMaterializationPopover({ node, onSubmit }) {
                     name="config"
                     id="Config"
                     placeholder="Optional engine-specific configuration (i.e., Spark conf etc)"
-                    default={JSON.stringify({ spark: {} })}
                   />
                 </div>
                 <button

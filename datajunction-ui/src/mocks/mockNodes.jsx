@@ -1235,66 +1235,66 @@ export const mocks = {
           },
         },
         {
-          "name": "hire_date",
-          "type": "date",
-          "attributes": [],
-          "dimension": {
-            "name": "default.date_dim"
+          name: 'hire_date',
+          type: 'date',
+          attributes: [],
+          dimension: {
+            name: 'default.date_dim',
           },
-          "display_name": "Hire Date"
+          display_name: 'Hire Date',
         },
         {
-          "name": "address",
-          "type": "string",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Address"
+          name: 'address',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+          display_name: 'Address',
         },
         {
-          "name": "city",
-          "type": "string",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "City"
+          name: 'city',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+          display_name: 'City',
         },
         {
-          "name": "state",
-          "type": "string",
-          "attributes": [],
-          "dimension": {
-            "name": "default.us_state"
+          name: 'state',
+          type: 'string',
+          attributes: [],
+          dimension: {
+            name: 'default.us_state',
           },
-          "display_name": "State"
+          display_name: 'State',
         },
         {
-          "name": "postal_code",
-          "type": "string",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Postal Code"
+          name: 'postal_code',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+          display_name: 'Postal Code',
         },
         {
-          "name": "country",
-          "type": "string",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Country"
+          name: 'country',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+          display_name: 'Country',
         },
         {
-          "name": "manager",
-          "type": "int",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Manager"
+          name: 'manager',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+          display_name: 'Manager',
         },
         {
-          "name": "contractor_id",
-          "type": "int",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Contractor Id"
-        }
-        ],
+          name: 'contractor_id',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+          display_name: 'Contractor Id',
+        },
+      ],
       created_at: '2023-08-21T16:48:55.594537+00:00',
       tags: [],
     },

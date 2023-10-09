@@ -97,6 +97,10 @@
     rgba(0, 0, 0, 0.06) 0px 2px 4px -1px;
 }
 
+.partition__full:hover {
+  border: solid #195039 0.025em;
+}
+
 .partition__header,
 .partition__body,
 .partition__full,

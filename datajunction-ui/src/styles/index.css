@@ -1041,34 +1041,38 @@ pre {
 }
 
 .modal-backdrop.in {
-    filter: alpha(opacity=50);
-    opacity: 0.5;
+  filter: alpha(opacity=50);
+  opacity: 0.5;
 }
 .modal-backdrop.fade {
-    filter: alpha(opacity=0);
-    opacity: 0;
+  filter: alpha(opacity=0);
+  opacity: 0;
 }
 .fade.in {
-    opacity: 1;
+  opacity: 1;
 }
 .modal-backdrop {
-    z-index: 1 !important;
+  z-index: 1 !important;
 }
 .modal-backdrop {
-    z-index: 1;
+  z-index: 1;
 }
 .modal-backdrop {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    left: 0;
-    z-index: 1;
-    background-color: #00000075;
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 1;
+  background-color: #00000075;
 }
 .fade {
-    opacity: 0;
-    -webkit-transition: opacity 0.15s linear;
-    -o-transition: opacity 0.15s linear;
-    transition: opacity 0.15s linear;
+  opacity: 0;
+  -webkit-transition: opacity 0.15s linear;
+  -o-transition: opacity 0.15s linear;
+  transition: opacity 0.15s linear;
+}
+
+.partitionLink:hover {
+  text-decoration: none;
 }

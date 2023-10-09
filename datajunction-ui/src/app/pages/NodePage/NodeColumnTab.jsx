@@ -12,11 +12,11 @@ export default function NodeColumnTab({ node, djClient }) {
   const [columns, setColumns] = useState([]);
   useEffect(() => {
     const fetchData = async () => {
-      if (node.type !== 'cube') {
-        setColumns(await djClient.columns(node));
-      } else {
-        setColumns(node.cube_elements);
-      }
+      // if (node.type !== 'cube') {
+      setColumns(await djClient.columns(node));
+      // } else {
+      //   setColumns(node.cube_elements);
+      // }
     };
     fetchData().catch(console.error);
   }, [djClient, node]);

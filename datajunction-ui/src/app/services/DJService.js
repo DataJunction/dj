@@ -26,6 +26,14 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  engines: async function () {
+    return await (
+      await fetch(`${DJ_URL}/engines`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   node: async function (name) {
     const data = await (
       await fetch(`${DJ_URL}/nodes/${name}/`, {
@@ -573,6 +581,7 @@ export const DataJunctionAPI = {
       body: JSON.stringify(updates),
       credentials: 'include',
     });
+    return { status: response.status, json: await response.json() };
   },
   setPartition: async function (
     nodeName,
