@@ -47,10 +47,10 @@ class ResourceObjectBase(BaseModel):
     """
 
     name: str  # name of the node
-    created_by: str
+    owner: str
 
     def __hash__(self) -> int:
-        return hash((self.name, self.created_by))
+        return hash((self.name, self.owner))
 
     @staticmethod
     def from_node(node: Union[NodeRevision, Node]) -> "DJNode":
@@ -63,7 +63,7 @@ class ResourceObjectBase(BaseModel):
                 revision_id=node.current.id,
                 name=node.name,
                 namespace=node.namespace,
-                created_by="",
+                owner="",
                 tags=frozenset({tag.name for tag in node.tags}),
             )
         return DJNode(
@@ -71,7 +71,7 @@ class ResourceObjectBase(BaseModel):
             revision_id=node.id,
             name=node.name,
             namespace=node.node.namespace,
-            created_by="",
+            owner="",
             tags=frozenset({tag.name for tag in node.node.tags}),
         )
 
@@ -80,7 +80,7 @@ class ResourceObjectBase(BaseModel):
         """
         Create a resource object from a namespace
         """
-        return DJNamespace(name=namespace, created_by="")
+        return DJNamespace(name=namespace, owner="")
 
 
 class DJNode(ResourceObjectBase):
@@ -94,7 +94,7 @@ class DJNode(ResourceObjectBase):
     tags: FrozenSet[str]
 
     def __hash__(self) -> int:
-        return hash((self.name, self.created_by, self.namespace, self.tags))
+        return hash((self.name, self.owner, self.namespace, self.tags))
 
 
 class DJNamespace(ResourceObjectBase):
