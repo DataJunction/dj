@@ -190,17 +190,23 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
         ),
     )
 
-    id: Optional[int] = Field(default=None, primary_key=True)
+    id: Optional[int] = Field(
+        default=None,
+        primary_key=True,
+        sa_column_kwargs={
+            "autoincrement": True,
+        },
+    )
 
-    node_revision_id: int = Field(foreign_key="noderevision.id", primary_key=True)
+    node_revision_id: int = Field(foreign_key="noderevision.id")
     node_revision: "NodeRevision" = Relationship(
         back_populates="materializations",
     )
 
-    engine_id: int = Field(foreign_key="engine.id", primary_key=True)
+    engine_id: int = Field(foreign_key="engine.id")
     engine: Engine = Relationship()
 
-    name: Optional[str] = Field(primary_key=True)
+    name: Optional[str]
 
     # A cron schedule to materialize this node by
     schedule: str

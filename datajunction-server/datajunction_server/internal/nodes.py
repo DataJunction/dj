@@ -311,6 +311,17 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     node_columns = []
     status = NodeStatus.VALID
     type_inference_failed_columns = []
+    display_name_mapping = {}
+    for col in metric_columns + dimension_columns:
+        referenced_node = col.node_revision()
+        if referenced_node.type == NodeType.METRIC:
+            display_name_mapping[col.name] = col.display_name
+        else:
+            col_name = f"{referenced_node.name}.{col.name}"
+            col_name = col_name.replace(SEPARATOR, f"_{LOOKUP_CHARS.get(SEPARATOR)}_")
+            display_name_mapping[col_name] = col.display_name
+        print("COLLL", col.name, col.display_name, col.node_revision().name)
+
     for col in combined_ast.select.projection:
         try:
             column_type = col.type  # type: ignore
@@ -319,9 +330,11 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
                 if col.alias_or_name.name in dimensions_set
                 else []
             )
+            print("ALIS", col, col.alias_or_name.name)
             node_columns.append(
                 Column(
                     name=col.alias_or_name.name,
+                    display_name=display_name_mapping.get(col.alias_or_name.name),
                     type=column_type,
                     attributes=column_attributes,
                 ),

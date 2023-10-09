@@ -93,6 +93,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
             if col.partition and col.partition.type_ == PartitionType.TEMPORAL:
                 granularity = "DAY"
                 timestamp_column = col.name
+        print("druidSPEC", granularity, timestamp_column)
 
         if not granularity or not timestamp_column:
             raise DJInvalidInputException(
@@ -173,6 +174,9 @@ def build_materialization_query(
     """
     cube_materialization_query_ast = parse(base_cube_query)
     temporal_partitions = node_revision.temporal_partition_columns()
+    # print("temporaL-partitions", [col.name for col in temporal_partitions])
+    # print("temporaL-partitions", [col.alias_or_name.name
+    #                               for col in cube_materialization_query_ast.select.projection])
     temporal_partition_col = [
         col
         for col in cube_materialization_query_ast.select.projection

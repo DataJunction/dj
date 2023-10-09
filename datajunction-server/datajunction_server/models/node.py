@@ -879,12 +879,6 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         """
         The node's temporal partition columns, if any
         """
-        if self.type == NodeType.CUBE:
-            return [
-                col
-                for col in self.cube_elements
-                if col.partition and col.partition.type_ == PartitionType.TEMPORAL
-            ]
         return [
             col
             for col in self.columns
