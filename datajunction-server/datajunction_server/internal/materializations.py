@@ -177,25 +177,6 @@ def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
     return engine_to_job_mapping[engine.dialect]  # type: ignore
 
 
-#
-# def filters_from_partitions(partitions: List[Partition]):
-#     """
-#     Derive filters needed from partitions spec.
-#     """
-#     filters = []
-#     for partition in partitions:
-#         if partition.type_ != PartitionType.TEMPORAL:  # pragma: no cover
-#             if partition.values:  # pragma: no cover
-#                 quoted_values = [f"'{value}'" for value in partition.values]
-#                 filters.append(f"{partition.name} IN ({','.join(quoted_values)})")
-#             if partition.range and len(partition.range) == 2:
-#                 filters.append(  # pragma: no cover
-#                     f"{partition.name} BETWEEN {partition.range[0]} "
-#                     f"AND {partition.range[1]}",
-#                 )
-#     return filters
-
-
 def create_new_materialization(
     session: Session,
     current_revision: NodeRevision,

@@ -104,9 +104,6 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
       <th
         class="text-start"
       >
-        Name
-      </th>
-      <th>
         Schedule
       </th>
       <th>
@@ -131,11 +128,22 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
       <td
         class="text-start node_name"
       >
-        <a
-          href="http://fake.url/job"
+        <span
+          class="badge cron"
         >
-          country_birth_date_contractor_id_379232101
-        </a>
+          0 * * * *
+        </span>
+        <div
+          class="cron-description"
+        >
+          Every hour
+           
+        </div>
+      </td>
+      <td>
+        spark
+        <br />
+        2.4.4
         <button
           aria-label="code-button"
           class="code-button"
@@ -222,79 +230,7 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
           </pre>
         </div>
       </td>
-      <td>
-        <span
-          class="badge cron"
-        >
-          0 * * * *
-        </span>
-        <div
-          class="cron-description"
-        >
-          Every hour
-           
-        </div>
-      </td>
-      <td>
-        spark
-        <br />
-        2.4.4
-      </td>
-      <td>
-        <div
-          class="partition__full"
-        >
-          <div
-            class="partition__header"
-          >
-            country
-          </div>
-          <div
-            class="partition__body"
-          >
-            <span
-              class="badge partition_value"
-            >
-              DE
-            </span>
-            <span
-              class="badge partition_value"
-            >
-              MY
-            </span>
-          </div>
-        </div>
-        <div
-          class="partition__full"
-        >
-          <div
-            class="partition__header"
-          >
-            contractor_id
-          </div>
-          <div
-            class="partition__body"
-          >
-            <div>
-              <span
-                class="badge partition_value"
-              >
-                <span
-                  class="badge partition_value"
-                >
-                  1
-                </span>
-                to
-                <span
-                  class="badge partition_value"
-                >
-                  10
-                </span>
-              </span>
-            </div>
-          </div>
-        </div>
-      </td>
+      <td />
       <td>
         <div
           class="table__full"
@@ -356,35 +292,100 @@ exports[`<NodePage /> renders the NodeMaterialization tab with materializations 
         </div>
       </td>
       <td>
-        <div
-          class="partition__full"
+        <a
+          class="partitionLink"
         >
           <div
-            class="partition__header"
+            class="partition__full"
           >
-            birth_date
-          </div>
-          <div
-            class="partition__body"
-          >
-            <div>
+            <div
+              class="partition__header"
+            />
+            <div
+              class="partition__body"
+            >
               <span
                 class="badge partition_value"
               >
-                <span
-                  class="badge partition_value"
-                >
-                  20010101
-                </span>
-                to
-                <span
-                  class="badge partition_value"
-                >
-                  20020101
-                </span>
+                20230101
+              </span>
+              to
+              <span
+                class="badge partition_value"
+              >
+                20230102
               </span>
             </div>
           </div>
+        </a>
+        <button
+          aria-label="AddBackfill"
+          class="edit_button"
+          tabindex="0"
+        >
+          <span
+            class="add_node"
+          >
+            + Add Backfill
+          </span>
+        </button>
+        <div
+          class="fade modal-backdrop in"
+          style="display: none;"
+        />
+        <div
+          aria-label="client-code"
+          class="centerPopover"
+          role="dialog"
+          style="display: none; width: 50%;"
+        >
+          <form
+            action="#"
+          >
+            <h2>
+              Run Backfill
+            </h2>
+            <span
+              data-testid="edit-partition"
+            >
+              <label
+                for="engine"
+                style="padding-bottom: 1rem;"
+              >
+                Engine
+              </label>
+              <select
+                disabled=""
+                id="engine"
+                name="engine"
+              >
+                <option
+                  value="spark"
+                >
+                  spark
+                   
+                  2.4.4
+                </option>
+              </select>
+            </span>
+            <br />
+            <br />
+            <label
+              for="partition"
+              style="padding-bottom: 1rem;"
+            >
+              Partition Range
+            </label>
+            <br />
+            <button
+              aria-hidden="false"
+              aria-label="SaveEditColumn"
+              class="add_node"
+              type="submit"
+            >
+              Save
+            </button>
+          </form>
         </div>
       </td>
       <td>

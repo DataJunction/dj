@@ -18,24 +18,25 @@ export default function NodeMaterializationTab({ node, djClient }) {
     };
     fetchData().catch(console.error);
   }, [djClient, node]);
+  //
+  // const rangePartition = partition => {
+  //   return (
+  //     <div>
+  //       <span className="badge partition_value">
+  //         <span className="badge partition_value">{partition.range[0]}</span>to
+  //         <span className="badge partition_value">{partition.range[1]}</span>
+  //       </span>
+  //     </div>
+  //   );
+  // };
 
-  const rangePartition = partition => {
-    return (
-      <div>
-        <span className="badge partition_value">
-          <span className="badge partition_value">{partition.range[0]}</span>to
-          <span className="badge partition_value">{partition.range[1]}</span>
-        </span>
-      </div>
-    );
-  };
-
-  const partitionColumnsMap = Object.fromEntries(
-    node.columns
-      .filter(col => col.partition !== null)
-      .map(col => [col.name, col.display_name]),
-  );
-  console.log('partitionColumnsMap', partitionColumnsMap);
+  const partitionColumnsMap = node
+    ? Object.fromEntries(
+        node?.columns
+          .filter(col => col.partition !== null)
+          .map(col => [col.name, col.display_name]),
+      )
+    : {};
   const cron = materialization => {
     var parsedCron = '';
     try {
