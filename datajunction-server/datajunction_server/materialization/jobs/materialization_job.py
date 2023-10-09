@@ -95,10 +95,9 @@ class SparkSqlMaterializationJob(  # pylint: disable=too-few-public-methods # pr
                 schedule=materialization.schedule,
                 query=generic_config.query,
                 upstream_tables=generic_config.upstream_tables,
-                spark_conf=generic_config.spark.__root__,
-                partitions=[
-                    partition.dict() for partition in generic_config.partitions
-                ],
+                spark_conf=generic_config.spark.__root__
+                if generic_config.spark
+                else {},
                 columns=generic_config.columns,
             ),
         )

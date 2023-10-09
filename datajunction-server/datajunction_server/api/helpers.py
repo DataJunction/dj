@@ -31,7 +31,7 @@ from datajunction_server.errors import (
     DJException,
     DJInvalidInputException,
     DJNodeNotFound,
-    ErrorCode, DJDoesNotExistException,
+    ErrorCode,
 )
 from datajunction_server.models import (
     AttributeType,
@@ -246,8 +246,9 @@ def get_engine(session: Session, name: str, version: str) -> Engine:
     try:
         engine = session.exec(statement).one()
     except NoResultFound as exc:
-        raise DJDoesNotExistException(
-            message=f"Engine not found: `{name}` version `{version}`",
+        raise HTTPException(
+            status_code=HTTPStatus.NOT_FOUND,
+            detail=f"Engine not found: `{name}` version `{version}`",
         ) from exc
     return engine
 

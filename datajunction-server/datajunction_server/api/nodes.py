@@ -27,7 +27,6 @@ from datajunction_server.api.helpers import (
     revalidate_node,
     validate_node_data,
 )
-from datajunction_server.api.materializations import router
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.errors import DJException, DJInvalidInputException
@@ -76,6 +75,7 @@ from datajunction_server.models.node import (
     UpdateNode,
 )
 from datajunction_server.models.partition import Partition, PartitionInput
+from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_dimensions, get_nodes_with_dimension
 from datajunction_server.sql.parsing.backends.antlr4 import parse

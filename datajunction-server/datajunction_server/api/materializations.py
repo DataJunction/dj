@@ -59,7 +59,6 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     Add or update a materialization of the specified node. If a node_name is specified
     for the materialization config, it will always update that named config.
     """
-    print("Adding materialization for", node_name)
     node = get_node_by_name(session, node_name, with_current=True)
     if node.type == NodeType.SOURCE:
         raise DJException(
@@ -75,8 +74,11 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     # Check to see if a materialization for this engine already exists with the exact same config
     existing_materialization = old_materializations.get(new_materialization.name)
     deactivated_before = False
-    if "spark" in new_materialization.config and not new_materialization.config["spark"]:
-        new_materialization.config["spark"] = None
+    if (
+        "spark" in new_materialization.config
+        and not new_materialization.config["spark"]
+    ):
+        new_materialization.config["spark"] = {}
     if (
         existing_materialization
         and existing_materialization.config == new_materialization.config
@@ -117,26 +119,21 @@ def upsert_materialization(  # pylint: disable=too-many-locals
                 "info": existing_materialization_info.dict(),
             },
         )
-    # If changes are detected, save the new materialization
-    existing_materialization_names = {
-        mat.name for mat in current_revision.materializations
-    }
-    unchanged_existing_materializations = [
-        config
-        for config in current_revision.materializations
-        if config.name != new_materialization.name
-    ]
-    current_revision.materializations = unchanged_existing_materializations + [  # type: ignore
-        new_materialization,
-    ]
-    print(
-        "current_revision.materializations",
-        len(current_revision.materializations),
-        [
-            (mat.name, mat.node_revision_id, mat.engine.name)
-            for mat in current_revision.materializations
-        ],
-    )
+    # If changes are detected, update the existing or save the new materialization
+    if existing_materialization:
+        existing_materialization.config = new_materialization.config
+        existing_materialization.schedule = new_materialization.schedule
+        new_materialization.node_revision = None
+        new_materialization = existing_materialization
+    else:
+        unchanged_existing_materializations = [
+            config
+            for config in current_revision.materializations
+            if config.name != new_materialization.name
+        ]
+        current_revision.materializations = unchanged_existing_materializations + [  # type: ignore
+            new_materialization,
+        ]
 
     # This will add the materialization config, the new node rev, and update the node's version.
     session.add(current_revision)
@@ -149,7 +146,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
             entity_name=new_materialization.name,
             activity_type=(
                 ActivityType.CREATE
-                if new_materialization.name in existing_materialization_names
+                if not existing_materialization
                 else ActivityType.UPDATE
             ),
             details={
