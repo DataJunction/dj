@@ -1,5 +1,4 @@
 """Models for materialization"""
-import zlib
 from typing import TYPE_CHECKING, Dict, List, Optional, Union
 
 from pydantic import AnyHttpUrl, BaseModel, validator
@@ -10,7 +9,7 @@ from sqlmodel import Field, Relationship, SQLModel, UniqueConstraint
 
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.engine import Engine, EngineInfo, EngineRef
-from datajunction_server.models.partition import Backfill, BackfillOutput, PartitionType
+from datajunction_server.models.partition import Backfill, BackfillOutput
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.typing import UTCDatetime
 
@@ -80,7 +79,7 @@ class MaterializationConfigInfoUnified(
 class SparkConf(BaseSQLModel):
     """Spark configuration"""
 
-    __root__: Dict[str, str]
+    __root__: Dict[str, str] = {}
 
 
 class GenericMaterializationConfigInput(BaseModel):
@@ -206,7 +205,7 @@ class Materialization(BaseSQLModel, table=True):  # type: ignore
     engine_id: int = Field(foreign_key="engine.id")
     engine: Engine = Relationship()
 
-    name: Optional[str]
+    name: str
 
     # A cron schedule to materialize this node by
     schedule: str

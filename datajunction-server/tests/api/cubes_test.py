@@ -14,8 +14,11 @@ from datajunction_server.service_clients import QueryServiceClient
 from tests.sql.utils import compare_query_strings
 
 
-def set_temporal_partition_cube(client_with_repairs_cube: TestClient):
-    return client_with_repairs_cube.post(
+def set_temporal_partition_cube(client: TestClient):
+    """
+    Sets the temporal partition column for a cube
+    """
+    return client.post(
         "/nodes/default.repairs_cube/columns/default_DOT_hard_hat_DOT_hire_date/partition",
         json={
             "type_": "temporal",
@@ -772,7 +775,21 @@ def test_cube_materialization_sql_and_measures(
         COALESCE(default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city, default_DOT_repair_orders.default_DOT_hard_hat_DOT_city) default_DOT_hard_hat_DOT_city,
         COALESCE(default_DOT_repair_order_details.default_DOT_hard_hat_DOT_hire_date, default_DOT_repair_orders.default_DOT_hard_hat_DOT_hire_date) default_DOT_hard_hat_DOT_hire_date,
         COALESCE(default_DOT_repair_order_details.default_DOT_hard_hat_DOT_state, default_DOT_repair_orders.default_DOT_hard_hat_DOT_state) default_DOT_hard_hat_DOT_state
-    FROM default_DOT_repair_order_details FULL OUTER JOIN default_DOT_repair_orders ON default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name = default_DOT_repair_orders.default_DOT_dispatcher_DOT_company_name AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city = default_DOT_repair_orders.default_DOT_hard_hat_DOT_city AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_country = default_DOT_repair_orders.default_DOT_hard_hat_DOT_country AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_hire_date = default_DOT_repair_orders.default_DOT_hard_hat_DOT_hire_date AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_postal_code = default_DOT_repair_orders.default_DOT_hard_hat_DOT_postal_code AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_state = default_DOT_repair_orders.default_DOT_hard_hat_DOT_state AND default_DOT_repair_order_details.default_DOT_municipality_dim_DOT_local_region = default_DOT_repair_orders.default_DOT_municipality_dim_DOT_local_region"""
+    FROM default_DOT_repair_order_details FULL OUTER JOIN default_DOT_repair_orders
+        ON default_DOT_repair_order_details.default_DOT_dispatcher_DOT_company_name =
+            default_DOT_repair_orders.default_DOT_dispatcher_DOT_company_name
+        AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_city =
+            default_DOT_repair_orders.default_DOT_hard_hat_DOT_city
+        AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_country
+            = default_DOT_repair_orders.default_DOT_hard_hat_DOT_country
+        AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_hire_date
+            = default_DOT_repair_orders.default_DOT_hard_hat_DOT_hire_date
+        AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_postal_code
+            = default_DOT_repair_orders.default_DOT_hard_hat_DOT_postal_code
+        AND default_DOT_repair_order_details.default_DOT_hard_hat_DOT_state
+            = default_DOT_repair_orders.default_DOT_hard_hat_DOT_state
+        AND default_DOT_repair_order_details.default_DOT_municipality_dim_DOT_local_region
+            = default_DOT_repair_orders.default_DOT_municipality_dim_DOT_local_region"""
     assert compare_query_strings(
         data["materializations"][0]["config"]["query"],
         expected_materialization_query,
@@ -816,7 +833,8 @@ def test_add_materialization_cube_failures(
     )
     assert (
         response.json()["message"]
-        == "Successfully updated materialization config named `default_DOT_hard_hat_DOT_hire_date_druid` "
+        == "Successfully updated materialization config named "
+        "`default_DOT_hard_hat_DOT_hire_date_druid` "
         "for node `default.repairs_cube`"
     )
 
@@ -867,7 +885,8 @@ def test_add_materialization_config_to_cube(
     Verifies adding materialization config to a cube
     """
     assert repairs_cube_with_materialization.json() == {
-        "message": "Successfully updated materialization config named `default_DOT_hard_hat_DOT_hire_date_druid` "
+        "message": "Successfully updated materialization config named "
+        "`default_DOT_hard_hat_DOT_hire_date_druid` "
         "for node `default.repairs_cube`",
         "urls": [["http://fake.url/job"]],
     }
@@ -1172,7 +1191,9 @@ FROM repairs_cube
 WHERE
   default_DOT_hard_hat_DOT_country = 'NZ'
 GROUP BY
-  default_DOT_hard_hat_DOT_country, default_DOT_hard_hat_DOT_postal_code, default_DOT_hard_hat_DOT_hire_date
+  default_DOT_hard_hat_DOT_country,
+  default_DOT_hard_hat_DOT_postal_code,
+  default_DOT_hard_hat_DOT_hire_date
 ORDER BY default_DOT_hard_hat_DOT_country ASC
 LIMIT 100""",
     )
@@ -1214,7 +1235,9 @@ LIMIT 100""",
   default_DOT_hard_hat_DOT_hire_date
 FROM repairs_cube
 GROUP BY
-  default_DOT_hard_hat_DOT_country, default_DOT_hard_hat_DOT_postal_code, default_DOT_hard_hat_DOT_hire_date""",
+  default_DOT_hard_hat_DOT_country,
+  default_DOT_hard_hat_DOT_postal_code,
+  default_DOT_hard_hat_DOT_hire_date""",
     )
 
 
@@ -1366,7 +1389,7 @@ def test_updating_cube(
         "/nodes/default.repairs_cube",
         json={
             "metrics": ["default.discounted_orders_rate"],
-            "dimensions": ["default.hard_hat.city"],
+            "dimensions": ["default.hard_hat.city", "default.hard_hat.hire_date"],
         },
     )
     result = response.json()
@@ -1390,6 +1413,16 @@ def test_updating_cube(
                 "name": "default_DOT_hard_hat_DOT_city",
                 "type": "string",
                 "partition": None,
+            },
+            {
+                "attributes": [
+                    {"attribute_type": {"name": "dimension", "namespace": "system"}},
+                ],
+                "dimension": None,
+                "display_name": "Hire Date",
+                "name": "default_DOT_hard_hat_DOT_hire_date",
+                "partition": None,
+                "type": "timestamp",
             },
         ],
         key=lambda x: x["name"],  # type: ignore
@@ -1444,6 +1477,30 @@ def test_updating_cube_with_existing_materialization(
     data = response.json()
     assert len(data["materializations"]) == 2
 
+    # Update the existing materialization config
+    response = client_with_repairs_cube.post(
+        "/nodes/default.repairs_cube/materialization",
+        json={
+            "engine": {"name": "druid", "version": ""},
+            "config": {"spark": {"spark.executor.memory": "6g"}},
+            "schedule": "@daily",
+        },
+    )
+    data = response.json()
+    assert data == {
+        "message": "Successfully updated materialization config named "
+        "`default_DOT_hard_hat_DOT_hire_date_druid` for node "
+        "`default.repairs_cube`",
+        "urls": [["http://fake.url/job"]],
+    }
+
+    # Check that the configured materialization was updated
+    response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
+    data = response.json()
+    assert data["materializations"][1]["config"]["spark"] == {
+        "spark.executor.memory": "6g",
+    }
+
     # Update the cube, but keep the temporal partition column. This should succeed
     response = client_with_repairs_cube.patch(
         "/nodes/default.repairs_cube",
@@ -1463,8 +1520,10 @@ def test_updating_cube_with_existing_materialization(
 
     # Check that the existing materialization was updated
     assert data["materializations"][1] == {
+        "backfills": [],
         "config": {
             "columns": [
+                {"name": mock.ANY, "type": mock.ANY},
                 {"name": mock.ANY, "type": mock.ANY},
                 {"name": mock.ANY, "type": mock.ANY},
                 {"name": mock.ANY, "type": mock.ANY},
@@ -1498,7 +1557,7 @@ def test_updating_cube_with_existing_materialization(
             },
             "prefix": "",
             "query": mock.ANY,
-            "spark": {},
+            "spark": {"spark.executor.memory": "6g"},
             "suffix": "",
             "upstream_tables": [
                 "default.roads.hard_hats",
@@ -1532,7 +1591,7 @@ def test_updating_cube_with_existing_materialization(
             "activity_type": "update",
             "created_at": mock.ANY,
             "details": {},
-            "entity_name": "date_int_0",
+            "entity_name": "default_DOT_hard_hat_DOT_hire_date_druid",
             "entity_type": "materialization",
             "id": mock.ANY,
             "node": "default.repairs_cube",

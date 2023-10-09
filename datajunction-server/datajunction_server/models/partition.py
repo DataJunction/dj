@@ -26,7 +26,7 @@ class PartitionType(str, enum.Enum):
     CATEGORICAL = "categorical"
 
 
-class Partition(BaseSQLModel, table=True):
+class Partition(BaseSQLModel, table=True):  # type: ignore
     """
     A partition specification consists of a reference to a partition column and a partition type
     (either temporal or categorical). Both partition types indicate how to partition the
@@ -90,7 +90,7 @@ class PartitionOutput(SQLModel):
     expression: Optional[str]
 
 
-class Backfill(BaseSQLModel, table=True):
+class Backfill(BaseSQLModel, table=True):  # type: ignore
     """
     A backfill run is linked to a materialization config, where users provide the range
     (of a temporal partition) to backfill for the node.
@@ -119,7 +119,10 @@ class Backfill(BaseSQLModel, table=True):
     )
 
     @validator("spec")
-    def val_spec(cls, val):
+    def val_spec(
+        cls,
+        val,
+    ):  # pylint: disable=missing-function-docstring,no-self-argument
         return val.dict()
 
 

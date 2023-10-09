@@ -3,14 +3,13 @@ Cube materialization jobs
 """
 from typing import Dict
 
-from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,
 )
 from datajunction_server.models import NodeRevision
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
-    DruidConf,
     DruidCubeConfig,
     DruidMaterializationInput,
     Materialization,
@@ -154,7 +153,7 @@ class DruidCubeMaterializationJob(MaterializationJob):
                 node_type=materialization.node_revision.type,
                 schedule=materialization.schedule,
                 query=str(final_query),
-                spark_conf=cube_config.spark.__root__,
+                spark_conf=cube_config.spark.__root__ if cube_config.spark else {},
                 druid_spec=druid_spec,
                 upstream_tables=cube_config.upstream_tables or [],
                 # Cube materialization involves creating an intermediate dataset,
@@ -179,18 +178,18 @@ def build_materialization_query(
     temporal_partition_col = [
         col
         for col in cube_materialization_query_ast.select.projection
-        if col.alias_or_name.name.endswith(temporal_partitions[0].name)
+        if col.alias_or_name.name.endswith(temporal_partitions[0].name)  # type: ignore
     ]
 
     final_query = ast.Query(
         select=ast.Select(
             projection=[
-                ast.Column(name=ast.Name(col.alias_or_name.name))
+                ast.Column(name=ast.Name(col.alias_or_name.name))  # type: ignore
                 for col in cube_materialization_query_ast.select.projection
             ],
             where=ast.BinaryOp(
                 left=ast.Column(
-                    name=ast.Name(temporal_partition_col[0].alias_or_name.name),
+                    name=ast.Name(temporal_partition_col[0].alias_or_name.name),  # type: ignore
                 ),
                 right=ast.Function(
                     ast.Name("DJ_LOGICAL_TIMESTAMP"),

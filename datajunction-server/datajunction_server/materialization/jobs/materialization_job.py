@@ -31,9 +31,12 @@ class MaterializationJob(abc.ABC):  # pylint: disable=too-few-public-methods
         backfill: PartitionBackfill,
         query_service_client: QueryServiceClient,
     ) -> MaterializationInfo:
+        """
+        Kicks off a backfill based on the spec using the query service
+        """
         return query_service_client.run_backfill(
             materialization.node_revision.name,
-            materialization.name,
+            materialization.name,  # type: ignore
             backfill,
         )
 

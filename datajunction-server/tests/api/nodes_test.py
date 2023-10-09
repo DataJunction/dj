@@ -1279,6 +1279,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Id",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "user_id",
@@ -1286,6 +1287,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "User Id",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "timestamp",
@@ -1293,6 +1295,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Timestamp",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "text",
@@ -1300,6 +1303,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Text",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
         ]
         assert response.status_code == 201
@@ -2594,7 +2598,8 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         assert old_node_data["materializations"] == []
 
         client_with_query_service.post(
-            "/nodes/basic.transform.country_agg/columns/basic_DOT_transform_DOT_country_agg_DOT_country/partition",
+            "/nodes/basic.transform.country_agg/columns/"
+            "basic_DOT_transform_DOT_country_agg_DOT_country/partition",
             json={
                 "type_": "categorical",
                 "expression": "",
@@ -2970,7 +2975,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                 "range": ["20230101", "20230201"],
             },
         )
-        assert query_service_client.run_backfill.call_args_list == [
+        assert query_service_client.run_backfill.call_args_list == [  # type: ignore
             call(
                 "default.hard_hat",
                 "birth_date_spark",
@@ -3002,6 +3007,32 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             "type": "int",
             "partition": None,
         }
+
+    def test_backfill_failures(self, client_with_query_service):
+        """Run backfill failure modes"""
+
+        # Kick off backfill for non-existent materalization
+        response = client_with_query_service.post(
+            "/nodes/default.hard_hat/materializations/non_existent/backfill",
+            json={
+                "column_name": "birth_date",
+                "range": ["20230101", "20230201"],
+            },
+        )
+        assert (
+            response.json()["message"]
+            == "Materialization with name non_existent not found"
+        )
+
+        # Kick off backfill for non-existent partition column
+        response = client_with_query_service.post(
+            "/nodes/default.hard_hat/materializations/birth_date_spark/backfill",
+            json={
+                "column_name": "abcde",
+                "range": ["20230101", "20230201"],
+            },
+        )
+        assert response.json() == {}
 
 
 class TestNodeColumnsAttributes:
