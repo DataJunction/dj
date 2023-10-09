@@ -987,6 +987,7 @@ def set_column_display_name(
 
 @router.post(
     "/nodes/{node_name}/columns/{column_name}/partition",
+    response_model=ColumnOutput,
     status_code=201,
     name="Set Node Column as Partition",
 )
@@ -997,7 +998,7 @@ def set_column_partition(  # pylint: disable=too-many-locals
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
-) -> Column:
+) -> ColumnOutput:
     """
     Add or update partition columns for the specified node.
     """

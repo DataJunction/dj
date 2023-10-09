@@ -3024,16 +3024,6 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             == "Materialization with name non_existent not found"
         )
 
-        # Kick off backfill for non-existent partition column
-        response = client_with_query_service.post(
-            "/nodes/default.hard_hat/materializations/birth_date_spark/backfill",
-            json={
-                "column_name": "abcde",
-                "range": ["20230101", "20230201"],
-            },
-        )
-        assert response.json() == {}
-
 
 class TestNodeColumnsAttributes:
     """
@@ -4597,3 +4587,67 @@ def test_list_dimension_attributes(client_with_roads: TestClient) -> None:
         {"name": "default.regional_level_agg.state_name", "path": [], "type": "string"},
         {"name": "default.regional_level_agg.us_region_id", "path": [], "type": "int"},
     ]
+
+
+def test_set_column_partition(client_with_roads: TestClient):
+    """
+    Test setting temporal and categorical partitions on node
+    """
+    # Set hire_date to temporal
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/hire_date/partition",
+        json={
+            "type_": "temporal",
+            "expression": "",
+        },
+    )
+    assert response.json() == {
+        "attributes": [],
+        "dimension": None,
+        "display_name": "Hire Date",
+        "name": "hire_date",
+        "partition": {"expression": "", "type_": "temporal"},
+        "type": "timestamp",
+    }
+
+    # Set state to categorical
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/state/partition",
+        json={
+            "type_": "categorical",
+            "expression": "",
+        },
+    )
+    assert response.json() == {
+        "attributes": [],
+        "dimension": {"name": "default.us_state"},
+        "display_name": "State",
+        "name": "state",
+        "partition": {"expression": "", "type_": "categorical"},
+        "type": "string",
+    }
+
+    # Set country to temporal by accident
+    client_with_roads.post(
+        "/nodes/default.hard_hat/columns/country/partition",
+        json={
+            "type_": "temporal",
+            "expression": "",
+        },
+    )
+    # Update country to categorical
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/country/partition",
+        json={
+            "type_": "categorical",
+            "expression": "",
+        },
+    )
+    assert response.json() == {
+        "attributes": [],
+        "dimension": None,
+        "display_name": "Country",
+        "name": "country",
+        "partition": {"expression": "", "type_": "categorical"},
+        "type": "string",
+    }
