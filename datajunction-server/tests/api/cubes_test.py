@@ -243,6 +243,7 @@ def client_with_repairs_cube(
                 "default.hard_hat.country",
                 "default.hard_hat.postal_code",
                 "default.hard_hat.city",
+                "default.hard_hat.hire_date",
                 "default.hard_hat.state",
                 "default.dispatcher.company_name",
                 "default.municipality_dim.local_region",
@@ -497,6 +498,7 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
             {"name": "default_DOT_dispatcher_DOT_company_name", "type": "string"},
             {"name": "default_DOT_hard_hat_DOT_city", "type": "string"},
             {"name": "default_DOT_hard_hat_DOT_country", "type": "string"},
+            {"name": "default_DOT_hard_hat_DOT_hire_date", "type": "timestamp"},
             {"name": "default_DOT_hard_hat_DOT_postal_code", "type": "string"},
             {"name": "default_DOT_hard_hat_DOT_state", "type": "string"},
             {"name": "default_DOT_municipality_dim_DOT_local_region", "type": "string"},
@@ -527,7 +529,6 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
         ],
         key=lambda x: x["name"],
     )
-    # assert default_materialization["config"]["partitions"] == []
     assert default_materialization["config"]["upstream_tables"] == [
         "default.roads.dispatchers",
         "default.roads.hard_hats",
@@ -541,6 +542,7 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
         "default_DOT_dispatcher_DOT_company_name",
         "default_DOT_hard_hat_DOT_city",
         "default_DOT_hard_hat_DOT_country",
+        "default_DOT_hard_hat_DOT_hire_date",
         "default_DOT_hard_hat_DOT_postal_code",
         "default_DOT_hard_hat_DOT_state",
         "default_DOT_municipality_dim_DOT_local_region",
@@ -747,47 +749,32 @@ def test_add_materialization_cube_failures(
     """
     Verifies failure modes when adding materialization config to cube nodes
     """
-    # response = client_with_repairs_cube.post(
-    #     "/nodes/default.repairs_cube/materialization/",
-    #     json={
-    #         "engine": {"name": "druid", "version": ""},
-    #         "config": {},
-    #         "schedule": "",
-    #     },
-    # )
-    # assert response.json()["message"] == (
-    #     "No change has been made to the materialization config for node "
-    #     "`default.repairs_cube` and engine `druid` as the config does not have valid "
-    #     "configuration for engine `druid`."
-    # )
+    response = client_with_repairs_cube.post(
+        "/nodes/default.repairs_cube/materialization/",
+        json={
+            "engine": {"name": "druid", "version": ""},
+            "config": {},
+            "schedule": "@daily",
+        },
+    )
+    assert response.json()["message"] == (
+        "The cube materialization cannot be configured if there is no temporal partition specified"
+        " on the cube. Please set at least one cubeelement with a temporal partition."
+    )
 
     response = client_with_repairs_cube.post(
-        "/nodes/default.repairs_cube/columns/default_DOT_total_repair_cost/attributes/",
-        json=[
-            {
-                "namespace": "system",
-                "name": "temporal_partition_day",
-            },
-        ],
+        "/nodes/default.repairs_cube/columns/default_DOT_hard_hat_DOT_hire_date/partition",
+        json={
+            "type_": "temporal",
+            "expression": "",
+        },
     )
-    print("attri tagging", response.json())
 
     response = client_with_repairs_cube.post(
         "/nodes/default.repairs_cube/materialization/",
         json={
             "engine": {"name": "druid", "version": ""},
             "config": {
-                # "druid": {
-                #     "granularity": "DAY",
-                #     "timestamp_column": "something",
-                # },
-                # "partitions": [
-                #     {
-                #         "name": "something",
-                #         "type_": "categorical",
-                #         "values": ["1"],
-                #     },
-                # ],
                 "spark": {},
             },
             "schedule": "",
@@ -795,7 +782,8 @@ def test_add_materialization_cube_failures(
     )
     assert (
         response.json()["message"]
-        == "Druid ingestion requires a temporal partition to be specified"
+        == "Successfully updated materialization config named `default_DOT_hard_hat_DOT_hire_date_druid` "
+        "for node `default.repairs_cube`"
     )
 
     response = client_with_repairs_cube.post(
@@ -810,9 +798,9 @@ def test_add_materialization_cube_failures(
         },
     )
     assert response.json()["message"] == (
-        "No change has been made to the materialization config for node "
-        "`default.repairs_cube` and engine `druid` as the config does not have "
-        "valid configuration for engine `druid`."
+        "The same materialization config with name "
+        "`default_DOT_hard_hat_DOT_hire_date_druid` already exists for node "
+        "`default.repairs_cube` so no update was performed."
     )
 
 
@@ -824,13 +812,11 @@ def repairs_cube_with_materialization(
     Repairs cube with a configured materialization
     """
     response = client_with_repairs_cube.post(
-        "/nodes/default.repairs_cube/columns/default_DOT_total_repair_cost/attributes/",
-        json=[
-            {
-                "namespace": "system",
-                "name": "temporal_partition_day",
-            },
-        ],
+        "/nodes/default.repairs_cube/columns/default_DOT_hard_hat_DOT_hire_date/partition",
+        json={
+            "type_": "temporal",
+            "expression": "",
+        },
     )
     print("attri tagging", response.json())
 
@@ -839,20 +825,7 @@ def repairs_cube_with_materialization(
         json={
             "engine": {"name": "druid", "version": ""},
             "config": {
-                # "druid": {
-                #     "granularity": "DAY",
-                #     "timestamp_column": "date_int",
-                #     "intervals": ["2021-01-01/2022-01-01"],
-                # },
                 "spark": {},
-                # "partitions": [
-                #     {
-                #         "name": "date_int",
-                #         "type_": "temporal",
-                #         "values": [],
-                #         "range": [20210101, 20220101],
-                #     },
-                # ],
             },
             "schedule": "",
         },
@@ -868,7 +841,7 @@ def test_add_materialization_config_to_cube(
     Verifies adding materialization config to a cube
     """
     assert repairs_cube_with_materialization.json() == {
-        "message": "Successfully updated materialization config named `default_DOT_total_repair_cost_druid` "
+        "message": "Successfully updated materialization config named `default_DOT_hard_hat_DOT_hire_date_druid` "
         "for node `default.repairs_cube`",
         "urls": [["http://fake.url/job"]],
     }
@@ -876,7 +849,7 @@ def test_add_materialization_config_to_cube(
         call_[0]
         for call_ in query_service_client.materialize.call_args_list  # type: ignore
     ][0][0]
-    assert called_kwargs.name == "default_DOT_total_repair_cost_druid"
+    assert called_kwargs.name == "default_DOT_hard_hat_DOT_hire_date_druid"
     assert called_kwargs.node_name == "default.repairs_cube"
     assert called_kwargs.node_type == "cube"
     assert called_kwargs.schedule == "@daily"
@@ -902,6 +875,7 @@ def test_add_materialization_config_to_cube(
             ),
             ColumnMetadata(name="default_DOT_hard_hat_DOT_city", type="string"),
             ColumnMetadata(name="default_DOT_hard_hat_DOT_country", type="string"),
+            ColumnMetadata(name="default_DOT_hard_hat_DOT_hire_date", type="timestamp"),
             ColumnMetadata(name="default_DOT_hard_hat_DOT_postal_code", type="string"),
             ColumnMetadata(name="default_DOT_hard_hat_DOT_state", type="string"),
             ColumnMetadata(
@@ -939,7 +913,7 @@ def test_add_materialization_config_to_cube(
         "dataSchema": {
             "dataSource": "default_DOT_repairs_cube",
             "granularitySpec": {
-                "intervals": "",
+                "intervals": [],
                 "segmentGranularity": "DAY",
                 "type": "uniform",
             },
@@ -982,6 +956,7 @@ def test_add_materialization_config_to_cube(
                             "default_DOT_dispatcher_DOT_company_name",
                             "default_DOT_hard_hat_DOT_city",
                             "default_DOT_hard_hat_DOT_country",
+                            "default_DOT_hard_hat_DOT_hire_date",
                             "default_DOT_hard_hat_DOT_postal_code",
                             "default_DOT_hard_hat_DOT_state",
                             "default_DOT_municipality_dim_DOT_local_region",
@@ -989,7 +964,7 @@ def test_add_materialization_config_to_cube(
                     },
                     "format": "parquet",
                     "timestampSpec": {
-                        "column": "default_DOT_total_repair_cost",
+                        "column": "default_DOT_hard_hat_DOT_hire_date",
                         "format": "yyyyMMdd",
                     },
                 },
@@ -1014,19 +989,103 @@ def test_add_materialization_config_to_cube(
         "default_DOT_dispatcher_DOT_company_name",
         "default_DOT_hard_hat_DOT_city",
         "default_DOT_hard_hat_DOT_country",
+        "default_DOT_hard_hat_DOT_hire_date",
         "default_DOT_hard_hat_DOT_postal_code",
         "default_DOT_hard_hat_DOT_state",
         "default_DOT_municipality_dim_DOT_local_region",
     }
-    # assert druid_materialization["config"]["partitions"] == [
-    #     {
-    #         "name": "date_int",
-    #         "values": [],
-    #         "range": [20210101, 20220101],
-    #         "expression": None,
-    #         "type_": "temporal",
-    #     },
-    # ]
+    assert druid_materialization["config"]["measures"] == {
+        "default_DOT_avg_repair_price": {
+            "combiner": "sum(price3402113753_sum) / " "count(price3402113753_count)",
+            "measures": [
+                {
+                    "agg": "count",
+                    "field_name": "default_DOT_repair_order_details_price3402113753_count",
+                    "name": "price3402113753_count",
+                    "type": "bigint",
+                },
+                {
+                    "agg": "sum",
+                    "field_name": "default_DOT_repair_order_details_price3402113753_sum",
+                    "name": "price3402113753_sum",
+                    "type": "double",
+                },
+            ],
+            "metric": "default_DOT_avg_repair_price",
+        },
+        "default_DOT_discounted_orders_rate": {
+            "combiner": "sum(discount3789599758_sum) " "/ " "count(placeholder_count)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "default_DOT_repair_order_details_discount3789599758_sum",
+                    "name": "discount3789599758_sum",
+                    "type": "bigint",
+                },
+                {
+                    "agg": "count",
+                    "field_name": "default_DOT_repair_order_details_placeholder_count",
+                    "name": "placeholder_count",
+                    "type": "bigint",
+                },
+            ],
+            "metric": "default_DOT_discounted_orders_rate",
+        },
+        "default_DOT_double_total_repair_cost": {
+            "combiner": "sum(price3402113753_sum) " "+ " "sum(price3402113753_sum)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "default_DOT_repair_order_details_price3402113753_sum",
+                    "name": "price3402113753_sum",
+                    "type": "double",
+                },
+                {
+                    "agg": "sum",
+                    "field_name": "default_DOT_repair_order_details_price3402113753_sum",
+                    "name": "price3402113753_sum",
+                    "type": "double",
+                },
+            ],
+            "metric": "default_DOT_double_total_repair_cost",
+        },
+        "default_DOT_num_repair_orders": {
+            "combiner": "count(repair_order_id3825669267_count)",
+            "measures": [
+                {
+                    "agg": "count",
+                    "field_name": "default_DOT_repair_orders_repair_order_id3825669267_count",
+                    "name": "repair_order_id3825669267_count",
+                    "type": "bigint",
+                },
+            ],
+            "metric": "default_DOT_num_repair_orders",
+        },
+        "default_DOT_total_repair_cost": {
+            "combiner": "sum(price3402113753_sum)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "default_DOT_repair_order_details_price3402113753_sum",
+                    "name": "price3402113753_sum",
+                    "type": "double",
+                },
+            ],
+            "metric": "default_DOT_total_repair_cost",
+        },
+        "default_DOT_total_repair_order_discounts": {
+            "combiner": "sum(price_discount2203488025_sum)",
+            "measures": [
+                {
+                    "agg": "sum",
+                    "field_name": "default_DOT_repair_order_details_price_discount2203488025_sum",
+                    "name": "price_discount2203488025_sum",
+                    "type": "double",
+                },
+            ],
+            "metric": "default_DOT_total_repair_order_discounts",
+        },
+    }
     assert druid_materialization["schedule"] == "@daily"
 
 
@@ -1058,6 +1117,7 @@ def test_cube_sql_generation_with_availability(
             "dimensions": [
                 "default.hard_hat.country",
                 "default.hard_hat.postal_code",
+                "default.hard_hat.hire_date",
             ],
             "filters": ["default.hard_hat.country='NZ'"],
             "orderby": ["default.hard_hat.country ASC"],

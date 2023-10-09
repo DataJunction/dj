@@ -101,6 +101,7 @@ class Column(BaseSQLModel, table=True):  # type: ignore
             "lazy": "joined",
             "primaryjoin": "Column.id==Partition.column_id",
             "uselist": False,
+            "cascade": "all,delete",
         },
     )
 

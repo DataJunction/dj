@@ -26,10 +26,7 @@ from datajunction_server.models.materialization import (
     UpsertMaterialization,
 )
 from datajunction_server.models.node import NodeType
-from datajunction_server.models.partition import (
-    Backfill,
-    PartitionBackfill,
-)
+from datajunction_server.models.partition import Backfill, PartitionBackfill
 from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.typing import UTCDatetime
@@ -62,6 +59,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     Add or update a materialization of the specified node. If a node_name is specified
     for the materialization config, it will always update that named config.
     """
+    print("Adding materialization for", node_name)
     node = get_node_by_name(session, node_name, with_current=True)
     if node.type == NodeType.SOURCE:
         raise DJException(
@@ -77,6 +75,8 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     # Check to see if a materialization for this engine already exists with the exact same config
     existing_materialization = old_materializations.get(new_materialization.name)
     deactivated_before = False
+    if "spark" in new_materialization.config and not new_materialization.config["spark"]:
+        new_materialization.config["spark"] = None
     if (
         existing_materialization
         and existing_materialization.config == new_materialization.config
@@ -129,6 +129,14 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     current_revision.materializations = unchanged_existing_materializations + [  # type: ignore
         new_materialization,
     ]
+    print(
+        "current_revision.materializations",
+        len(current_revision.materializations),
+        [
+            (mat.name, mat.node_revision_id, mat.engine.name)
+            for mat in current_revision.materializations
+        ],
+    )
 
     # This will add the materialization config, the new node rev, and update the node's version.
     session.add(current_revision)

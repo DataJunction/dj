@@ -42,9 +42,10 @@ from datajunction_server.internal.nodes import (
     create_cube_node_revision,
     create_node_revision,
     get_column_level_lineage,
+    get_node_column,
     save_node,
     set_node_column_attributes,
-    update_any_node, get_node_column,
+    update_any_node,
 )
 from datajunction_server.models import User, access, Column, History
 from datajunction_server.models.attribute import AttributeTypeIdentifier
@@ -74,7 +75,7 @@ from datajunction_server.models.node import (
     NodeValidation,
     UpdateNode,
 )
-from datajunction_server.models.partition import PartitionInput, Partition
+from datajunction_server.models.partition import Partition, PartitionInput
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_dimensions, get_nodes_with_dimension
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -1001,14 +1002,7 @@ def set_column_partition(  # pylint: disable=too-many-locals
     Add or update partition columns for the specified node.
     """
     node = get_node_by_name(session, node_name)
-    if node.type == NodeType.CUBE:
-        column = [
-            cube_element
-            for cube_element in node.current.cube_elements
-            if cube_element.name == column_name
-        ][0]
-    else:
-        column = get_node_column(node, column_name)
+    column = get_node_column(node, column_name)
     upsert_partition_event = History(
         entity_type=EntityType.PARTITION,
         node=node_name,
