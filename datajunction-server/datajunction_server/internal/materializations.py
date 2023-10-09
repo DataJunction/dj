@@ -18,7 +18,6 @@ from datajunction_server.materialization.jobs import (
 from datajunction_server.models import Engine, NodeRevision
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
-    DruidConf,
     DruidCubeConfig,
     GenericCubeConfig,
     GenericMaterializationConfig,
@@ -29,11 +28,9 @@ from datajunction_server.models.materialization import (
     UpsertMaterialization,
 )
 from datajunction_server.models.node import NodeType
-from datajunction_server.models.partition import Partition, PartitionType
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
-from datajunction_server.utils import SEPARATOR
 
 MAX_COLUMN_NAME_LENGTH = 128
 
@@ -180,22 +177,23 @@ def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
     return engine_to_job_mapping[engine.dialect]  # type: ignore
 
 
-def filters_from_partitions(partitions: List[Partition]):
-    """
-    Derive filters needed from partitions spec.
-    """
-    filters = []
-    for partition in partitions:
-        if partition.type_ != PartitionType.TEMPORAL:  # pragma: no cover
-            if partition.values:  # pragma: no cover
-                quoted_values = [f"'{value}'" for value in partition.values]
-                filters.append(f"{partition.name} IN ({','.join(quoted_values)})")
-            if partition.range and len(partition.range) == 2:
-                filters.append(  # pragma: no cover
-                    f"{partition.name} BETWEEN {partition.range[0]} "
-                    f"AND {partition.range[1]}",
-                )
-    return filters
+#
+# def filters_from_partitions(partitions: List[Partition]):
+#     """
+#     Derive filters needed from partitions spec.
+#     """
+#     filters = []
+#     for partition in partitions:
+#         if partition.type_ != PartitionType.TEMPORAL:  # pragma: no cover
+#             if partition.values:  # pragma: no cover
+#                 quoted_values = [f"'{value}'" for value in partition.values]
+#                 filters.append(f"{partition.name} IN ({','.join(quoted_values)})")
+#             if partition.range and len(partition.range) == 2:
+#                 filters.append(  # pragma: no cover
+#                     f"{partition.name} BETWEEN {partition.range[0]} "
+#                     f"AND {partition.range[1]}",
+#                 )
+#     return filters
 
 
 def create_new_materialization(

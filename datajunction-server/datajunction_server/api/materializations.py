@@ -74,11 +74,11 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     # Check to see if a materialization for this engine already exists with the exact same config
     existing_materialization = old_materializations.get(new_materialization.name)
     deactivated_before = False
-    if (
-        "spark" in new_materialization.config
-        and not new_materialization.config["spark"]
-    ):
-        new_materialization.config["spark"] = {}
+    # if (
+    #     "spark" in new_materialization.config
+    #     and not new_materialization.config["spark"]
+    # ):
+    #     new_materialization.config["spark"] = {}
     if (
         existing_materialization
         and existing_materialization.config == new_materialization.config
@@ -123,7 +123,7 @@ def upsert_materialization(  # pylint: disable=too-many-locals
     if existing_materialization:
         existing_materialization.config = new_materialization.config
         existing_materialization.schedule = new_materialization.schedule
-        new_materialization.node_revision = None
+        new_materialization.node_revision = None  # type: ignore
         new_materialization = existing_materialization
     else:
         unchanged_existing_materializations = [
@@ -308,8 +308,8 @@ def run_materialization_backfill(  # pylint: disable=too-many-locals
     }
     clazz = materialization_jobs.get(materialization.job)
     if not clazz:
-        raise DJDoesNotExistException(
-            f"materialization job {materialization.job} does not exist",
+        raise DJDoesNotExistException(  # pragma: no cover
+            f"Materialization job {materialization.job} does not exist",
         )
 
     materialization_output = clazz().run_backfill(  # type: ignore

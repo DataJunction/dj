@@ -294,8 +294,6 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         data.dimensions,
     )
 
-    print("dimension_columns", dimension_columns)
-
     combined_ast = build_metric_nodes(
         session,
         metric_nodes,
@@ -317,10 +315,10 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     display_name_mapping = {}
     for col in metric_columns + dimension_columns:
         referenced_node = col.node_revision()
-        if referenced_node.type == NodeType.METRIC:
+        if referenced_node.type == NodeType.METRIC:  # type: ignore
             display_name_mapping[col.name] = col.display_name
         else:
-            col_name = f"{referenced_node.name}.{col.name}"
+            col_name = f"{referenced_node.name}.{col.name}"  # type: ignore
             col_name = col_name.replace(SEPARATOR, f"_{LOOKUP_CHARS.get(SEPARATOR)}_")
             display_name_mapping[col_name] = col.display_name
 
@@ -598,7 +596,7 @@ def node_update_history_event(new_revision: NodeRevision, current_user: Optional
     )
 
 
-def update_cube_node(
+def update_cube_node(  # pylint: disable=too-many-locals
     session: Session,
     node_revision: NodeRevision,
     data: UpdateNode,
@@ -614,7 +612,6 @@ def update_cube_node(
     major_changes = (data.metrics and data.metrics != old_metrics) or (
         data.dimensions and data.dimensions != old_dimensions
     )
-    # print("DIMENSSS", data.dimensions, "OLD", old_dimensions)
     create_cube = CreateCubeNode(
         name=node_revision.name,
         display_name=data.display_name or node_revision.display_name,
@@ -626,16 +623,10 @@ def update_cube_node(
         orderby=data.orderby or None,
         limit=data.limit or None,
     )
-    print("Changes:", major_changes, minor_changes)
     if not major_changes and not minor_changes:
         return None
 
-    print("Changes2:", major_changes, minor_changes)
     new_cube_revision = create_cube_node_revision(session, create_cube)
-    print(
-        "!!!new_rev COLS",
-        [(col.name, col.partition) for col in new_cube_revision.columns],
-    )
 
     old_version = Version.parse(node_revision.version)
     if major_changes:
@@ -647,18 +638,16 @@ def update_cube_node(
 
     session.add(node_update_history_event(new_cube_revision, current_user))
 
+    # Bring over existing partition columns, if any
     new_columns_mapping = {col.name: col for col in new_cube_revision.columns}
     for col in node_revision.columns:
         new_col = new_columns_mapping.get(col.name)
-        print("Existing col", col.name, col.partition)
         if col.partition and new_col:
             new_col.partition = Partition(
                 column=new_col,
                 type_=col.partition.type_,
                 expression=col.partition.expression,
             )
-
-    # print("new_rev COLS", [(col.name, col.partition) for col in new_cube_revision.columns])
 
     # Update existing materializations
     active_materializations = [
