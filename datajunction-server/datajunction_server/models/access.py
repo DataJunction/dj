@@ -145,7 +145,7 @@ class AccessControlState(Enum):
     """
 
     DIRECT = "direct"
-    INDIRECT = "INDIRECT"
+    INDIRECT = "indirect"
 
 
 class AccessControl(BaseModel):
