@@ -354,16 +354,23 @@ def validate_access_nodes(
     validation_results = access_control.validate()
     if raise_:
         access_control.raise_if_invalid_requests()  # pragma: no cover
-
+    approved_node_ids = {
+        request.access_object.id for request in validation_results if request.approved
+    }
+    approved_node_revision_ids = {
+        request.access_object.revision_id
+        for request in validation_results
+        if request.approved
+    }
     return [
         node
         for node in nodes
-        if node.id
-        in {
-            request.access_object.revision_id
-            for request in validation_results
-            if request.approved
-        }
+        if (
+            (isinstance(node, Node) and node.id in approved_node_ids)
+            or (
+                isinstance(node, NodeRevision) and node.id in approved_node_revision_ids
+            )
+        )
     ]
 
 
