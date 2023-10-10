@@ -2,6 +2,7 @@
 Configuration for the query service
 """
 
+import json
 from datetime import timedelta
 from typing import Optional
 
@@ -70,9 +71,11 @@ def load_djqs_config(settings: Settings, session: Session) -> None:  # pragma: n
 
         data = (
             yaml.safe_load(filestream)
-            if any([config_file.endswith("yml"), config_file.endswith("yaml")])
+            if any([config_file.endswith(".yml"), config_file.endswith(".yaml")])
             else toml.load(filestream)
-            if config_file.endswith("toml")
+            if config_file.endswith(".toml")
+            else json.load(filestream)
+            if config_file.endswith(".json")
             else unknown_filetype()
         )
 
