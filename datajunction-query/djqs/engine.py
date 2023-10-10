@@ -90,7 +90,7 @@ def run_query(
             if engine.uri == "duckdb:///:memory:"
             else duckdb.connect(
                 database=engine.extra_params["location"],
-                read_only=False,
+                read_only=True,
             )
         )
         return run_duckdb_query(query, conn)
