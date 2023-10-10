@@ -4,17 +4,16 @@ Query related functions.
 
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
 import duckdb
 import sqlparse
-from pyspark.sql import SparkSession  # pylint: disable=import-error
 from sqlalchemy import create_engine, text
 from sqlmodel import Session, select
 
 from djqs.config import Settings
 from djqs.models.catalog import Catalog
-from djqs.models.engine import Engine
+from djqs.models.engine import Engine, EngineType
 from djqs.models.query import (
     ColumnMetadata,
     Query,
@@ -85,11 +84,15 @@ def run_query(
         .where(Engine.name == query.engine_name)
         .where(Engine.version == query.engine_version),
     ).one()
-    if engine.uri == "spark://local[*]":
-        spark = get_spark_session()
-        return run_spark_query(query, spark)
-    if engine.uri == "duckdb://local[*]":
-        conn = duckdb.connect(database="/code/docker/default.duckdb", read_only=False)
+    if engine.type == EngineType.DUCKDB:
+        conn = (
+            duckdb.connect()
+            if engine.uri == "duckdb:///:memory:"
+            else duckdb.connect(
+                database=engine.extra_params["location"],
+                read_only=False,
+            )
+        )
         return run_duckdb_query(query, conn)
     sqla_engine = create_engine(engine.uri, **catalog.extra_params)
     connection = sqla_engine.connect()
@@ -109,49 +112,6 @@ def run_query(
         output.append((sql, columns, stream))
 
     return output
-
-
-def get_spark_session():
-    """
-    Get a spark session
-    """
-    SparkSession._instantiatedContext = None  # pylint: disable=protected-access
-    spark = (
-        SparkSession.builder.master("local[*]")
-        .appName("djqs")
-        .enableHiveSupport()
-        .getOrCreate()
-    )
-    return spark
-
-
-def run_spark_query(
-    query: Query,
-    spark: SparkSession,
-) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
-    """
-    Run a spark SQL query against the local warehouse
-    """
-    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
-    results_df = spark.sql(query.submitted_query)
-    rows = results_df.rdd.map(tuple).collect()
-    columns: List[ColumnMetadata] = []
-    output.append((query.submitted_query, columns, rows))
-    return output
-
-
-def describe_table_via_spark(
-    spark: SparkSession,
-    schema: Optional[str],
-    table: str,
-):
-    """
-    Gets the column schemas.
-    """
-    schema_ = f"{schema}." if schema else ""
-    schema_df = spark.sql(f"DESCRIBE TABLE {schema_}{table};")
-    rows = schema_df.rdd.map(tuple).collect()
-    return [{"name": row[0], "type": row[1]} for row in rows]
 
 
 def run_duckdb_query(

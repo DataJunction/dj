@@ -15,13 +15,19 @@ def test_engine_adding_a_new_engine(
         "/engines/",
         json={
             "name": "foo",
+            "type": "duckdb",
             "version": "1.0",
             "uri": "bar",
         },
     )
     data = response.json()
     assert response.status_code == 201
-    assert data == {"name": "foo", "version": "1.0"}
+    assert data == {
+        "name": "foo",
+        "version": "1.0",
+        "type": "duckdb",
+        "extra_params": {},
+    }
 
 
 def test_engine_list(
@@ -32,7 +38,7 @@ def test_engine_list(
     """
     response = client.post(
         "/engines/",
-        json={"name": "foo", "version": "1.0", "uri": "bar"},
+        json={"name": "foo", "type": "duckdb", "version": "1.0", "uri": "bar"},
     )
     assert response.status_code == 201
 
@@ -40,6 +46,7 @@ def test_engine_list(
         "/engines/",
         json={
             "name": "foo",
+            "type": "duckdb",
             "version": "1.1",
             "uri": "baz",
         },
@@ -50,6 +57,7 @@ def test_engine_list(
         "/engines/",
         json={
             "name": "foo",
+            "type": "duckdb",
             "version": "1.2",
             "uri": "qux",
         },
@@ -62,18 +70,24 @@ def test_engine_list(
     assert data == [
         {
             "name": "foo",
-            "uri": "bar",
             "version": "1.0",
+            "type": "duckdb",
+            "extra_params": {},
+            "uri": "bar",
         },
         {
             "name": "foo",
-            "uri": "baz",
             "version": "1.1",
+            "type": "duckdb",
+            "extra_params": {},
+            "uri": "baz",
         },
         {
             "name": "foo",
-            "uri": "qux",
             "version": "1.2",
+            "type": "duckdb",
+            "extra_params": {},
+            "uri": "qux",
         },
     ]
 
@@ -88,6 +102,7 @@ def test_engine_get_engine(
         "/engines/",
         json={
             "name": "foo",
+            "type": "duckdb",
             "version": "1.0",
             "uri": "bar",
         },
@@ -99,7 +114,12 @@ def test_engine_get_engine(
     )
     assert response.status_code == 200
     data = response.json()
-    assert data == {"name": "foo", "version": "1.0"}
+    assert data == {
+        "name": "foo",
+        "version": "1.0",
+        "type": "duckdb",
+        "extra_params": {},
+    }
 
 
 def test_engine_raise_on_engine_already_exists(
@@ -112,6 +132,7 @@ def test_engine_raise_on_engine_already_exists(
         "/engines/",
         json={
             "name": "foo",
+            "type": "duckdb",
             "version": "1.0",
             "uri": "bar",
         },
@@ -122,6 +143,7 @@ def test_engine_raise_on_engine_already_exists(
         "/engines/",
         json={
             "name": "foo",
+            "type": "duckdb",
             "version": "1.0",
             "uri": "bar",
         },

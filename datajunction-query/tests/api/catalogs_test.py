@@ -34,6 +34,7 @@ def test_catalog_list(
             "name": "foo",
             "version": "1.0",
             "uri": "bar",
+            "type": "duckdb",
         },
     )
     assert response.status_code == 201
@@ -47,6 +48,7 @@ def test_catalog_list(
                     "name": "foo",
                     "version": "1.0",
                     "uri": "bar",
+                    "type": "duckdb",
                 },
             ],
         },
@@ -74,7 +76,9 @@ def test_catalog_list(
     assert response.json() == [
         {
             "name": "dev",
-            "engines": [{"name": "foo", "version": "1.0"}],
+            "engines": [
+                {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
+            ],
         },
         {"name": "test", "engines": []},
         {"name": "prod", "engines": []},
@@ -93,6 +97,7 @@ def test_catalog_get_catalog(
             "name": "foo",
             "version": "1.0",
             "uri": "bar",
+            "type": "duckdb",
         },
     )
     assert response.status_code == 201
@@ -106,6 +111,7 @@ def test_catalog_get_catalog(
                     "name": "foo",
                     "version": "1.0",
                     "uri": "bar",
+                    "type": "duckdb",
                 },
             ],
         },
@@ -119,7 +125,9 @@ def test_catalog_get_catalog(
     data = response.json()
     assert data == {
         "name": "dev",
-        "engines": [{"name": "foo", "version": "1.0"}],
+        "engines": [
+            {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
+        ],
     }
 
 
@@ -135,6 +143,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
             "name": "foo",
             "uri": "bar",
             "version": "1.0",
+            "type": "duckdb",
         },
     )
     data = response.json()
@@ -149,6 +158,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
                     "name": "foo",
                     "version": "1.0",
                     "uri": "bar",
+                    "type": "duckdb",
                 },
             ],
         },
@@ -158,10 +168,7 @@ def test_catalog_adding_a_new_catalog_with_engines(
     assert data == {
         "name": "dev",
         "engines": [
-            {
-                "name": "foo",
-                "version": "1.0",
-            },
+            {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
         ],
     }
 
@@ -178,6 +185,7 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
             "name": "foo",
             "uri": "bar",
             "version": "1.0",
+            "type": "duckdb",
         },
     )
     data = response.json()
@@ -191,25 +199,24 @@ def test_catalog_adding_a_new_catalog_then_attaching_engines(
     )
     assert response.status_code == 201
 
-    client.post(
+    response = client.post(
         "/catalogs/dev/engines/",
         json=[
             {
                 "name": "foo",
                 "version": "1.0",
+                "type": "duckdb",
             },
         ],
     )
+    assert response.status_code == 201
 
     response = client.get("/catalogs/dev/")
     data = response.json()
     assert data == {
         "name": "dev",
         "engines": [
-            {
-                "name": "foo",
-                "version": "1.0",
-            },
+            {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
         ],
     }
 
@@ -224,6 +231,7 @@ def test_catalog_adding_without_duplicating(
         "/engines/",
         json={
             "name": "foo",
+            "type": "duckdb",
             "uri": "bar",
             "version": "2.4.4",
         },
@@ -235,6 +243,7 @@ def test_catalog_adding_without_duplicating(
         "/engines/",
         json={
             "name": "foo",
+            "type": "duckdb",
             "version": "3.3.0",
             "uri": "bar",
         },
@@ -246,6 +255,7 @@ def test_catalog_adding_without_duplicating(
         "/engines/",
         json={
             "name": "foo",
+            "type": "duckdb",
             "version": "1.0",
             "uri": "bar",
         },
@@ -267,14 +277,17 @@ def test_catalog_adding_without_duplicating(
             {
                 "name": "foo",
                 "version": "2.4.4",
+                "type": "duckdb",
             },
             {
                 "name": "foo",
                 "version": "3.3.0",
+                "type": "duckdb",
             },
             {
                 "name": "foo",
                 "version": "1.0",
+                "type": "duckdb",
             },
         ],
     )
@@ -286,14 +299,17 @@ def test_catalog_adding_without_duplicating(
             {
                 "name": "foo",
                 "version": "2.4.4",
+                "type": "duckdb",
             },
             {
                 "name": "foo",
                 "version": "3.3.0",
+                "type": "duckdb",
             },
             {
                 "name": "foo",
                 "version": "1.0",
+                "type": "duckdb",
             },
         ],
     )
@@ -302,18 +318,9 @@ def test_catalog_adding_without_duplicating(
     assert data == {
         "name": "dev",
         "engines": [
-            {
-                "name": "foo",
-                "version": "2.4.4",
-            },
-            {
-                "name": "foo",
-                "version": "3.3.0",
-            },
-            {
-                "name": "foo",
-                "version": "1.0",
-            },
+            {"name": "foo", "version": "2.4.4", "type": "duckdb", "extra_params": {}},
+            {"name": "foo", "version": "3.3.0", "type": "duckdb", "extra_params": {}},
+            {"name": "foo", "version": "1.0", "type": "duckdb", "extra_params": {}},
         ],
     }
 
@@ -332,6 +339,7 @@ def test_catalog_raise_on_adding_a_new_catalog_with_nonexistent_engines(
                 {
                     "name": "foo",
                     "version": "2.0",
+                    "type": "duckdb",
                 },
             ],
         },

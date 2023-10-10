@@ -9,7 +9,6 @@ from sqlalchemy import inspect
 from sqlalchemy.exc import NoResultFound, NoSuchTableError, OperationalError
 from sqlmodel import Session, create_engine, select
 
-from djqs.engine import describe_table_via_spark, get_spark_session
 from djqs.exceptions import DJException
 from djqs.models.catalog import Catalog
 from djqs.models.engine import Engine
@@ -58,14 +57,6 @@ def get_columns(
     """
     if not uri:
         raise DJException("Cannot retrieve columns without a uri")
-
-    if uri.startswith("spark://"):
-        spark = get_spark_session()
-        return describe_table_via_spark(
-            spark,
-            schema,
-            table,
-        )
 
     engine = create_engine(uri, **extra_params)
     try:
