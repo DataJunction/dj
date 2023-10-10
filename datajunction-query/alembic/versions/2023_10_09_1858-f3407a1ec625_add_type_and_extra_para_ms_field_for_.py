@@ -1,5 +1,4 @@
-"""Add type and extra_para
-ms field for engines
+"""Add type and extra_params field for engines
 
 Revision ID: f3407a1ec625
 Revises: a7e11a2438b4
