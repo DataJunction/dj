@@ -10,7 +10,7 @@ from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJAlreadyExistsException, DJDoesNotExistException
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models import Column
 from datajunction_server.models.measure import (
     CreateMeasure,

@@ -4,7 +4,7 @@ Test JWT helper functions
 import asyncio
 from datetime import timedelta
 
-from datajunction_server.internal.authentication import tokens
+from datajunction_server.internal.access.authentication import tokens
 
 
 def test_create_and_get_token():

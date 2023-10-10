@@ -9,7 +9,7 @@ from sqlalchemy.orm import joinedload
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJDoesNotExistException, DJException
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models import History, User
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.node import NodeMinimumDetail, NodeType

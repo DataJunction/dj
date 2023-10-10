@@ -14,8 +14,8 @@ from starlette.requests import Request
 
 from datajunction_server.constants import AUTH_COOKIE
 from datajunction_server.errors import DJError, DJException, ErrorCode
-from datajunction_server.internal.authentication.basic import get_user
-from datajunction_server.internal.authentication.tokens import decode_token
+from datajunction_server.internal.access.authentication.basic import get_user
+from datajunction_server.internal.access.authentication.tokens import decode_token
 from datajunction_server.utils import get_session, get_settings
 
 

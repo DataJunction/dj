@@ -18,8 +18,8 @@ from sqlmodel.pool import StaticPool
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
 from datajunction_server.errors import DJQueryServiceClientException
+from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import Column, Engine
-from datajunction_server.models.access import validate_access
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.models.user import OAuthProvider, User
@@ -461,7 +461,7 @@ def mock_user_dj() -> Iterator[None]:
     Mock a DJ user for tests
     """
     with patch(
-        "datajunction_server.internal.authentication.http.get_user",
+        "datajunction_server.internal.access.authentication.http.get_user",
         return_value=User(id=1, username="dj", oauth_provider=OAuthProvider.BASIC),
     ):
         yield
