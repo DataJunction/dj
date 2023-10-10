@@ -10,6 +10,7 @@ from sqlmodel import Session
 
 from datajunction_server.construction.utils import to_namespaced_name
 from datajunction_server.errors import DJException, DJInvalidInputException
+from datajunction_server.models import access
 from datajunction_server.models.column import Column
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import GenericCubeConfig
@@ -362,6 +363,7 @@ def _build_select_ast(
 
 # pylint: disable=R0915
 def add_filters_dimensions_orderby_limit_to_query_ast(
+    session: Session,
     query: ast.Query,
     dialect: Optional[str] = None,  # pylint: disable=unused-argument
     filters: Optional[List[str]] = None,
@@ -369,6 +371,7 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
     orderby: Optional[List[str]] = None,
     limit: Optional[int] = None,
     include_dimensions_in_groupby: bool = True,
+    access_control: Optional[access.AccessControlStore] = None,
 ):
     """
     Add filters and dimensions to a query ast
@@ -385,6 +388,12 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 projection_addition[col.identifier(False)] = col
 
+                if access_control:
+                    access_control.add_request_by_node_name(
+                        session,
+                        col,
+                    )
+
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
             query.select.where and [query.select.where] or []
@@ -399,6 +408,11 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             for col in temp_select.find_all(ast.Column):
                 if not dimensions:
                     projection_addition[col.identifier(False)] = col
+                if access_control:
+                    access_control.add_request_by_node_name(
+                        session,
+                        col,
+                    )
 
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
@@ -413,6 +427,12 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
             query.select.organization.order += (  # type:ignore
                 temp_query.select.organization.order  # type:ignore
             )
+            for col in temp_query.find_all(ast.Column):
+                if access_control:  # pragma: no cover
+                    access_control.add_request_by_node_name(
+                        session,
+                        col,
+                    )
 
     # add all used dimension columns to the projection without duplicates
     projection_update = []
@@ -489,11 +509,15 @@ def build_node(  # pylint: disable=too-many-arguments
     orderby: Optional[List[str]] = None,
     limit: Optional[int] = None,
     build_criteria: Optional[BuildCriteria] = None,
+    access_control: Optional[access.AccessControlStore] = None,
     include_dimensions_in_groupby: bool = None,
 ) -> ast.Query:
     """
     Determines the optimal way to build the Node and does so
     """
+    if access_control:
+        access_control.add_request_by_node(node)
+
     if include_dimensions_in_groupby is None:
         include_dimensions_in_groupby = node.type == NodeType.METRIC
 
@@ -539,6 +563,7 @@ def build_node(  # pylint: disable=too-many-arguments
         query = build_source_node_query(node)
 
     add_filters_dimensions_orderby_limit_to_query_ast(
+        session,
         query,
         build_criteria.dialect,
         filters,
@@ -546,10 +571,27 @@ def build_node(  # pylint: disable=too-many-arguments
         orderby,
         limit,
         include_dimensions_in_groupby=include_dimensions_in_groupby,
+        access_control=access_control,
     )
+
+    if access_control:
+        access_control.validate_and_raise()
+        access_control.state = access.AccessControlState.INDIRECT
+
     memoized_queries: Dict[int, ast.Query] = {}
     _logger.info("Calling build_ast on %s", node.name)
     built_ast = build_ast(session, query, memoized_queries, build_criteria)
+    if access_control:
+        access_control.add_request_by_nodes(
+            [
+                cast(NodeRevision, cast(ast.Table, tbl).dj_node)
+                for tbl in built_ast.filter(
+                    lambda ast_node: isinstance(ast_node, ast.Table)
+                    and ast_node.dj_node is not None,
+                )
+            ],
+        )
+        access_control.validate_and_raise()
     _logger.info("Finished build_ast on %s", node.name)
     return built_ast
 
@@ -575,6 +617,7 @@ def build_metric_nodes(
     orderby: List[str],
     limit: Optional[int] = None,
     build_criteria: Optional[BuildCriteria] = None,
+    access_control: Optional[access.AccessControlStore] = None,
 ):
     """
     Build a single query for all metrics in the list, including the specified
@@ -649,6 +692,7 @@ def build_metric_nodes(
             filters=filters,
             build_criteria=build_criteria,
             include_dimensions_in_groupby=True,
+            access_control=access_control,
         )
 
         # Select only columns that were one of the chosen dimensions

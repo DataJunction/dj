@@ -41,7 +41,8 @@ from datajunction_server.internal.nodes import (
     set_node_column_attributes,
     update_any_node,
 )
-from datajunction_server.models import User
+from datajunction_server.models import User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column
@@ -167,18 +168,31 @@ def list_nodes(
     prefix: Optional[str] = None,
     *,
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> List[str]:
     """
     List the available nodes.
     """
-    statement = select(Node.name).where(is_(Node.deactivated_at, None))
+    statement = select(Node).where(is_(Node.deactivated_at, None))
     if prefix:
         statement = statement.where(
             Node.name.like(f"{prefix}%"),  # type: ignore  # pylint: disable=no-member
         )
     if node_type:
         statement = statement.where(Node.type == node_type)
-    return session.exec(statement).unique().all()
+    nodes = session.exec(statement).unique().all()
+    return [
+        node.name
+        for node in access.validate_access_nodes(
+            validate_access,
+            access.ResourceRequestVerb.BROWSE,
+            current_user,
+            nodes,
+        )
+    ]
 
 
 @router.get("/nodes/{name}/", response_model=NodeOutput)

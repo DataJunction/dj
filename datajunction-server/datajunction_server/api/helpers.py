@@ -33,7 +33,14 @@ from datajunction_server.errors import (
     DJNodeNotFound,
     ErrorCode,
 )
-from datajunction_server.models import AttributeType, Catalog, Column, Engine, User
+from datajunction_server.models import (
+    AttributeType,
+    Catalog,
+    Column,
+    Engine,
+    User,
+    access,
+)
 from datajunction_server.models.attribute import RESERVED_ATTRIBUTE_NAMESPACE
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.history import (
@@ -194,6 +201,7 @@ def get_query(  # pylint: disable=too-many-arguments
     orderby: List[str],
     limit: Optional[int] = None,
     engine: Optional[Engine] = None,
+    access_control: Optional[access.AccessControlStore] = None,
 ) -> ast.Query:
     """
     Get a query for a metric, dimensions, and filters
@@ -220,6 +228,7 @@ def get_query(  # pylint: disable=too-many-arguments
         orderby=orderby,
         limit=limit,
         build_criteria=build_criteria,
+        access_control=access_control,
     )
 
     return query_ast
@@ -795,6 +804,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     limit: Optional[int] = None,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    access_control: Optional[access.AccessControlStore] = None,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
     """
     Build SQL for multiple metrics. Used by both /sql and /data endpoints
@@ -840,11 +850,15 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
     validate_orderby(orderby, metrics, dimensions)
 
     if cube and cube.materializations and cube.availability:
+        if access_control:  # pragma: no cover
+            access_control.add_request_by_node(cube)
+            access_control.state = access.AccessControlState.INDIRECT
+            access_control.raise_if_invalid_requests()
         materialized_cube_catalog = get_catalog_by_name(
             session,
             cube.availability.catalog,
         )
-        query_ast = build_materialized_cube_node(
+        query_ast = build_materialized_cube_node(  # pylint: disable=E1121
             metric_columns,
             dimension_columns,
             cube,
@@ -882,6 +896,7 @@ def build_sql_for_multiple_metrics(  # pylint: disable=too-many-arguments,too-ma
         dimensions=dimensions or [],
         orderby=orderby or [],
         limit=limit,
+        access_control=access_control,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
@@ -963,6 +978,7 @@ async def query_event_stream(  # pylint: disable=too-many-arguments
 def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-locals
     session: Session,
     query: str,
+    access_control: access.AccessControl,
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
 ) -> Tuple[TranslatedSQL, Engine, Catalog]:
@@ -970,9 +986,16 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
     Build SQL for multiple metrics. Used by /djsql endpoints
     """
 
-    query_ast, metrics = build_dj_query(session, query)
+    query_ast, dj_nodes = build_dj_query(session, query)
 
-    leading_metric_node = metrics[0]
+    for node in dj_nodes:
+        access_control.add_request_by_node(
+            node.current,
+        )
+
+    access_control.validate_and_raise()
+
+    leading_metric_node = dj_nodes[0]
     available_engines = leading_metric_node.current.catalog.engines
 
     # Check if selected engine is available
@@ -992,6 +1015,7 @@ def build_sql_for_dj_query(  # pylint: disable=too-many-arguments,too-many-local
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
         for col in query_ast.select.projection
     ]
+
     return (
         TranslatedSQL(
             sql=str(query_ast),

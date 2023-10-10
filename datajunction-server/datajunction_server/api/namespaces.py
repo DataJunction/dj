@@ -25,7 +25,8 @@ from datajunction_server.internal.namespaces import (
     mark_namespace_restored,
     validate_namespace,
 )
-from datajunction_server.models import User
+from datajunction_server.models import User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.node import (
     NamespaceOutput,
     Node,
@@ -86,11 +87,15 @@ def create_node_namespace(
 )
 def list_namespaces(
     session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> List[NamespaceOutput]:
     """
     List namespaces with the number of nodes contained in them
     """
-    return session.exec(
+    namespace_outputs = session.exec(
         select(NodeNamespace.namespace, func.count(Node.id).label("num_nodes"))
         .join(Node, onclause=NodeNamespace.namespace == Node.namespace, isouter=True)
         .where(
@@ -98,6 +103,20 @@ def list_namespaces(
         )
         .group_by(NodeNamespace.namespace),
     ).all()
+
+    return [
+        nmspc_out
+        for nmspc_out in namespace_outputs
+        if nmspc_out.namespace
+        in set(
+            access.validate_access_namespaces(
+                validate_access,
+                access.ResourceRequestVerb.BROWSE,
+                current_user,
+                [nmspc_out.namespace for nmspc_out in namespace_outputs],
+            ),
+        )
+    ]
 
 
 @router.get(

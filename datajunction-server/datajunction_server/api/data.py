@@ -23,7 +23,8 @@ from datajunction_server.errors import (
     DJQueryServiceClientException,
 )
 from datajunction_server.internal.authentication.http import SecureAPIRouter
-from datajunction_server.models import History, User
+from datajunction_server.models import History, User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import (
@@ -55,6 +56,9 @@ def add_availability_state(
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> JSONResponse:
     """
     Add an availability state to a node.
@@ -63,6 +67,14 @@ def add_availability_state(
 
     # Source nodes require that any availability states set are for one of the defined tables
     node_revision = node.current
+    access.validate_access_nodes(
+        validate_access,
+        access.ResourceRequestVerb.WRITE,
+        current_user,
+        [node_revision],
+        True,
+    )
+
     if node.current.type == NodeType.SOURCE:
         if (
             data.catalog != node_revision.catalog.name
@@ -137,10 +149,15 @@ def get_data(  # pylint: disable=too-many-locals
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> QueryWithResults:
     """
     Gets data for a node
     """
+
     node = get_node_by_name(session, node_name)
 
     available_engines = node.current.catalog.engines
@@ -155,6 +172,13 @@ def get_data(  # pylint: disable=too-many-locals
             f"Available engines include: {', '.join(engine.name for engine in available_engines)}",
         )
     validate_orderby(orderby, [node_name], dimensions)
+
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
+        base_verb=access.ResourceRequestVerb.EXECUTE,
+    )
+
     query_ast = get_query(
         session=session,
         node_name=node_name,
@@ -163,11 +187,14 @@ def get_data(  # pylint: disable=too-many-locals
         orderby=orderby,
         limit=limit,
         engine=engine,
+        access_control=access_control,
     )
+
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
         for col in query_ast.select.projection
     ]
+
     query = TranslatedSQL(
         sql=str(query_ast),
         columns=columns,

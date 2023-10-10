@@ -14,10 +14,12 @@ from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.errors import DJError, DJException, ErrorCode
 from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.models import User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.metric import Metric
 from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
 from datajunction_server.sql.dag import get_shared_dimensions
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_current_user, get_session, get_settings
 
 settings = get_settings()
 router = SecureAPIRouter(tags=["metrics"])
@@ -38,12 +40,24 @@ def get_metric(session: Session, name: str) -> Node:
 
 @router.get("/metrics/", response_model=List[str])
 def list_metrics(
-    prefix: Optional[str] = None, *, session: Session = Depends(get_session)
+    prefix: Optional[str] = None,
+    *,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> List[str]:
     """
     List all available metrics.
     """
-    return list_nodes(node_type=NodeType.METRIC, prefix=prefix, session=session)
+    return list_nodes(
+        node_type=NodeType.METRIC,
+        prefix=prefix,
+        session=session,
+        current_user=current_user,
+        validate_access=validate_access,
+    )
 
 
 @router.get("/metrics/{name}/", response_model=Metric)
