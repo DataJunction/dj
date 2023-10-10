@@ -14,9 +14,11 @@ from datajunction_server.api.helpers import (
     validate_orderby,
 )
 from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.models import User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
-from datajunction_server.utils import get_session, get_settings
+from datajunction_server.utils import get_current_user, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
 settings = get_settings()
@@ -38,10 +40,20 @@ def get_sql(
     session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> TranslatedSQL:
     """
     Return SQL for a node.
     """
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
+        base_verb=access.ResourceRequestVerb.READ,
+    )
+
     engine = (
         get_engine(session, engine_name, engine_version)  # type: ignore
         if engine_name
@@ -56,6 +68,7 @@ def get_sql(
         orderby=orderby,
         limit=limit,
         engine=engine,
+        access_control=access_control,
     )
     columns = [
         ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
@@ -79,10 +92,21 @@ def get_sql_for_metrics(
     session: Session = Depends(get_session),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
 ) -> TranslatedSQL:
     """
     Return SQL for a set of metrics with dimensions and filters
     """
+
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
+        base_verb=access.ResourceRequestVerb.READ,
+    )
+
     translated_sql, _, _ = build_sql_for_multiple_metrics(
         session,
         metrics,
@@ -92,5 +116,6 @@ def get_sql_for_metrics(
         limit,
         engine_name,
         engine_version,
+        access_control,
     )
     return translated_sql

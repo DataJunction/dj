@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from datajunction_server.models import access
 from datajunction_server.models.node import Node
 
 
@@ -226,6 +227,33 @@ class TestDataForNode:
             "errors": [],
             "links": None,
         }
+
+    def test_get_metric_data_unauthorized(
+        self,
+        client_with_query_service_example_loader: TestClient,
+    ) -> None:
+        """
+        Test retrieving data for a metric
+        """
+        custom_client = client_with_query_service_example_loader(["BASIC"])
+
+        def validate_access_override():
+            def _validate_access(access_control: access.AccessControl):
+                access_control.deny_all()
+
+            return _validate_access
+
+        app = custom_client.app
+        app.dependency_overrides[access.validate_access] = validate_access_override
+
+        response = custom_client.get("/data/basic.num_comments/")
+        app.dependency_overrides.clear()
+        data = response.json()
+        assert data["message"] == (
+            "Authorization of User `dj` for this request failed."
+            "\nThe following requests were denied:\nexecute:djnode/basic.num_comments."
+        )
+        assert response.status_code == 403
 
     def test_get_multiple_metrics_and_dimensions_data(
         self,

@@ -10,9 +10,12 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
 from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.models import User, access
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
+    get_current_user,
     get_query_service_client,
     get_session,
     get_settings,
@@ -31,13 +34,23 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    )
 ) -> QueryWithResults:
     """
     Return data for a DJ SQL query
     """
+    access_control = access.AccessControlStore(
+        validate_access=validate_access,
+        user=current_user,
+        base_verb=access.ResourceRequestVerb.EXECUTE,
+    )
     translated_sql, engine, catalog = build_sql_for_dj_query(
         session,
         query,
+        access_control,
         engine_name,
         engine_version,
     )
@@ -68,13 +81,22 @@ async def get_data_stream_for_djsql(  # pragma: no cover
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     engine_name: Optional[str] = None,
     engine_version: Optional[str] = None,
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    )
 ) -> QueryWithResults:  # pragma: no cover
     """
     Return data for a DJ SQL query using server side events
     """
+    access_control = access.AccessControl(
+        validate_access=validate_access,
+        user=current_user,
+    )
     translated_sql, engine, catalog = build_sql_for_dj_query(
         session,
         query,
+        access_control,
         engine_name,
         engine_version,
     )
@@ -86,6 +108,7 @@ async def get_data_stream_for_djsql(  # pragma: no cover
         submitted_query=translated_sql.sql,
         async_=True,
     )
+
     # Submits the query, equivalent to calling POST /data/ directly
     initial_query_info = query_service_client.submit_query(query_create)
     return EventSourceResponse(

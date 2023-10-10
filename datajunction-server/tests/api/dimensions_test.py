@@ -17,6 +17,46 @@ def test_list_dimension(client_with_roads: TestClient) -> None:
     assert len(data) > 5
 
 
+def test_list_nodes_with_dimension_access_limited(
+    client_with_roads: TestClient,
+) -> None:
+    """
+    Test ``GET /dimensions/{name}/nodes/``.
+    """
+    from datajunction_server.models import access  # pylint: disable=C
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            for request in access_control.requests:
+                if (
+                    isinstance(request.access_object, access.DJNode)
+                    and "repair" in request.access_object.name
+                ):
+                    request.approve()
+                else:
+                    request.deny()
+
+        return _validate_access
+
+    app = client_with_roads.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
+
+    response = client_with_roads.get("/dimensions/default.hard_hat/nodes/")
+
+    data = response.json()
+    roads_repair_nodes = {
+        "default.repair_orders",
+        "default.repair_order_details",
+        "default.regional_repair_efficiency",
+        "default.num_repair_orders",
+        "default.avg_repair_price",
+        "default.total_repair_cost",
+        "default.total_repair_order_discounts",
+        "default.avg_repair_order_discounts",
+    }
+    assert {node["name"] for node in data} == roads_repair_nodes
+
+
 def test_list_nodes_with_dimension(client_with_roads: TestClient) -> None:
     """
     Test ``GET /dimensions/{name}/nodes/``.

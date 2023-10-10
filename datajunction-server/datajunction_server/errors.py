@@ -37,11 +37,15 @@ class ErrorCode(int, Enum):
     MISSING_PARENT = 301
     TYPE_INFERENCE = 302
 
-    # Auth
+    # Authentication
     AUTHENTICATION_ERROR = 400
     OAUTH_ERROR = 401
     INVALID_LOGIN_CREDENTIALS = 402
     USER_NOT_FOUND = 403
+
+    # Authorization
+    UNAUTHORIZED_ACCESS = 500
+    INCOMPLETE_AUTHORIZATION = 501
 
 
 class DebugType(TypedDict, total=False):

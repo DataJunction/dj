@@ -3,6 +3,8 @@ Tests for the namespaces API.
 """
 from fastapi.testclient import TestClient
 
+from datajunction_server.models import access
+
 
 def test_list_all_namespaces(client_with_examples: TestClient) -> None:
     """
@@ -23,6 +25,94 @@ def test_list_all_namespaces(client_with_examples: TestClient) -> None:
         {"namespace": "default", "num_nodes": 54},
         {"namespace": "foo.bar", "num_nodes": 26},
     ]
+
+
+def test_list_all_namespaces_access_limited(client_with_examples: TestClient) -> None:
+    """
+    Test ``GET /namespaces/``.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            for request in access_control.requests:
+                if (
+                    isinstance(request.access_object, access.DJNamespace)
+                    and "dbt" in request.access_object.name
+                ):
+                    request.approve()
+                else:
+                    request.deny()
+
+        return _validate_access
+
+    app = client_with_examples.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
+
+    response = client_with_examples.get("/namespaces/")
+
+    assert response.ok
+    assert response.json() == [
+        {"namespace": "dbt.dimension", "num_nodes": 1},
+        {"namespace": "dbt.source", "num_nodes": 0},
+        {"namespace": "dbt.source.jaffle_shop", "num_nodes": 2},
+        {"namespace": "dbt.source.stripe", "num_nodes": 1},
+        {"namespace": "dbt.transform", "num_nodes": 1},
+    ]
+
+
+def test_list_all_namespaces_access_bad_injection(
+    client_with_examples: TestClient,
+) -> None:
+    """
+    Test ``GET /namespaces/``.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            for i, request in enumerate(access_control.requests):
+                if i != 0:
+                    request.approve()
+
+        return _validate_access
+
+    app = client_with_examples.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
+
+    response = client_with_examples.get("/namespaces/")
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "message": "Injected `validate_access` must approve or deny all requests.",
+        "errors": [
+            {
+                "code": 501,
+                "message": "Injected `validate_access` must approve or deny all requests.",
+                "debug": None,
+                "context": "",
+            },
+        ],
+        "warnings": [],
+    }
+
+
+def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
+    """
+    Test ``GET /namespaces/``.
+    """
+
+    def validate_access_override():
+        def _validate_access(access_control: access.AccessControl):
+            access_control.deny_all()
+
+        return _validate_access
+
+    app = client_with_examples.app
+    app.dependency_overrides[access.validate_access] = validate_access_override
+
+    response = client_with_examples.get("/namespaces/")
+
+    assert response.ok
+    assert response.json() == []
 
 
 def test_list_nodes_by_namespace(client_with_basic: TestClient) -> None:

@@ -19,6 +19,7 @@ from datajunction_server.api.main import app
 from datajunction_server.config import Settings
 from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.models import Column, Engine
+from datajunction_server.models.access import validate_access
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.models.user import OAuthProvider, User
@@ -185,6 +186,7 @@ def client(  # pylint: disable=too-many-statements
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override
+
     with TestClient(app) as client:
         client.headers.update(
             {
