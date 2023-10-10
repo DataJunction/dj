@@ -5,12 +5,14 @@ Configuration for the query service
 from datetime import timedelta
 from typing import Optional
 
+import toml
 import yaml
 from cachelib.base import BaseCache
 from cachelib.file import FileSystemCache
 from pydantic import BaseSettings
 from sqlmodel import Session, delete, select
 
+from djqs.exceptions import DJException
 from djqs.models.catalog import Catalog, CatalogEngines
 from djqs.models.engine import Engine
 
@@ -62,7 +64,17 @@ def load_djqs_config(settings: Settings, session: Session) -> None:  # pragma: n
     session.commit()
 
     with open(config_file, mode="r", encoding="utf-8") as filestream:
-        data = yaml.safe_load(filestream)
+
+        def unknown_filetype():
+            raise DJException(message=f"Unknown config file type: {config_file}")
+
+        data = (
+            yaml.safe_load(filestream)
+            if any([config_file.endswith("yml"), config_file.endswith("yaml")])
+            else toml.load(filestream)
+            if config_file.endswith("toml")
+            else unknown_filetype()
+        )
 
     for engine in data["engines"]:
         session.add(Engine.parse_obj(engine))
