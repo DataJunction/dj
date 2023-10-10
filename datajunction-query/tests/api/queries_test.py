@@ -142,11 +142,12 @@ def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
 
 def test_submit_query_errors(
     session: Session,
-    client: TestClient,
+    client_no_config_file: TestClient,
 ) -> None:
     """
     Test ``POST /queries/`` with missing/invalid content type.
     """
+    client = client_no_config_file
     engine = Engine(
         name="test_engine",
         type=EngineType.DUCKDB,

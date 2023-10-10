@@ -38,6 +38,24 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
     yield settings
 
 
+@pytest.fixture
+def settings_no_config_file(mocker: MockerFixture) -> Iterator[Settings]:
+    """
+    Custom settings for unit tests.
+    """
+    settings = Settings(
+        index="sqlite://",
+        results_backend=SimpleCache(default_timeout=0),
+    )
+
+    mocker.patch(
+        "djqs.utils.get_settings",
+        return_value=settings,
+    )
+
+    yield settings
+
+
 @pytest.fixture()
 def session() -> Iterator[Session]:
     """
@@ -65,6 +83,30 @@ def client(session: Session, settings: Settings) -> Iterator[TestClient]:
 
     def get_settings_override() -> Settings:
         return settings
+
+    app.dependency_overrides[get_session] = get_session_override
+    app.dependency_overrides[get_settings] = get_settings_override
+
+    with TestClient(app) as client:
+        yield client
+
+    app.dependency_overrides.clear()
+
+
+@pytest.fixture()
+def client_no_config_file(
+    session: Session,
+    settings_no_config_file: Settings,
+) -> Iterator[TestClient]:
+    """
+    Create a client for testing APIs.
+    """
+
+    def get_session_override() -> Session:
+        return session
+
+    def get_settings_override() -> Settings:
+        return settings_no_config_file
 
     app.dependency_overrides[get_session] = get_session_override
     app.dependency_overrides[get_settings] = get_settings_override

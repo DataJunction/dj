@@ -48,10 +48,14 @@ class Settings(BaseSettings):  # pylint: disable=too-few-public-methods
     enable_dynamic_config: bool = True
 
 
-def load_djqs_config(config_file: str, session: Session) -> None:  # pragma: no cover
+def load_djqs_config(settings: Settings, session: Session) -> None:  # pragma: no cover
     """
     Load the DJQS config file into the server metadata database
     """
+    config_file = settings.configuration_file if settings.configuration_file else None
+    if not config_file:
+        return
+
     session.exec(delete(Catalog))
     session.exec(delete(Engine))
     session.exec(delete(CatalogEngines))
