@@ -1,7 +1,17 @@
-from typing import Optional, Iterable, Union, List
+"""
+Authorization related functionality
+"""
+from typing import Iterable, List, Optional, Union
 
+from datajunction_server.models.access import (
+    AccessControl,
+    AccessControlStore,
+    Node,
+    NodeRevision,
+    ResourceRequestVerb,
+    ValidateAccessFn,
+)
 from datajunction_server.models.user import User
-from datajunction_server.models.access import ValidateAccessFn, ResourceRequestVerb, NodeRevision, Node, AccessControlStore, AccessControl
 
 
 def validate_access_nodes(
@@ -80,8 +90,6 @@ def validate_access_namespaces(
             if request.approved
         }
     ]
-
-
 
 
 # Dummy default if not dependency injected
