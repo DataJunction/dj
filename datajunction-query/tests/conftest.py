@@ -3,14 +3,12 @@ Fixtures for testing.
 """
 # pylint: disable=redefined-outer-name, invalid-name
 
-from pathlib import Path
 from typing import Iterator
 
 import duckdb
 import pytest
 from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
-from pyspark.sql import SparkSession
 from pytest_mock import MockerFixture
 from sqlmodel import Session, SQLModel, create_engine
 from sqlmodel.pool import StaticPool
@@ -28,6 +26,8 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
     settings = Settings(
         index="sqlite://",
         results_backend=SimpleCache(default_timeout=0),
+        configuration_file="./config.djqs.yml",
+        enable_dynamic_config=True,
     )
 
     mocker.patch(
@@ -73,26 +73,6 @@ def client(session: Session, settings: Settings) -> Iterator[TestClient]:
         yield client
 
     app.dependency_overrides.clear()
-
-
-@pytest.fixture(scope="session")
-def spark():
-    """
-    A spark session fixture preloaded with the roads example database
-    """
-    spark = (
-        SparkSession.builder.master("local[*]")
-        .appName("djqs-tests")
-        .enableHiveSupport()
-        .getOrCreate()
-    )
-    for filepath in Path("tests/resources").glob("*"):
-        spark.read.parquet(
-            str(filepath),
-            header=True,
-            inferSchema=True,
-        ).createOrReplaceTempView(Path(filepath).stem)
-    yield spark
 
 
 @pytest.fixture(scope="session")

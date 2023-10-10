@@ -21,7 +21,7 @@ from djqs.utils import get_session, get_settings
 _logger = logging.getLogger(__name__)
 
 settings = get_settings()
-if settings.configuration_file:  # pragma: no cover
+if settings.configuration_file:
     session = next(get_session())
     load_djqs_config(config_file=settings.configuration_file, session=session)
 
@@ -38,7 +38,7 @@ app.include_router(catalogs.get_router)
 app.include_router(engines.get_router)
 app.include_router(queries.router)
 app.include_router(tables.router)
-if settings.enable_dynamic_config:  # pragma: no cover
+if settings.enable_dynamic_config:
     app.include_router(catalogs.post_router)
     app.include_router(engines.post_router)
 
