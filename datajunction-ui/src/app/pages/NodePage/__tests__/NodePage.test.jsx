@@ -37,6 +37,7 @@ describe('<NodePage />', () => {
         attributes: jest.fn(),
         dimensions: jest.fn(),
         setPartition: jest.fn(),
+        engines: jest.fn(),
       },
     };
   };
@@ -397,6 +398,7 @@ describe('<NodePage />', () => {
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.attributes.mockReturnValue(mocks.attributes);
     djClient.DataJunctionAPI.dimensions.mockReturnValue(mocks.dimensions);
+    djClient.DataJunctionAPI.engines.mockReturnValue([]);
     djClient.DataJunctionAPI.setPartition.mockReturnValue({
       status: 200,
       json: { message: '' },
