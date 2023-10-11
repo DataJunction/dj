@@ -2783,19 +2783,20 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         )
 
         # Set both temporal and categorical partitions on node
-        client_with_query_service.post(
+        response = client_with_query_service.post(
             "/nodes/default.hard_hat/columns/birth_date/partition",
             json={
                 "type_": "temporal",
-                "expression": "",
+                "granularity": "day",
+                "format": "yyyyMMdd",
             },
         )
+        # assert response.json() == {}
 
         client_with_query_service.post(
             "/nodes/default.hard_hat/columns/contractor_id/partition",
             json={
                 "type_": "categorical",
-                "expression": "",
             },
         )
 
@@ -2803,11 +2804,11 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             "/nodes/default.hard_hat/columns/country/partition",
             json={
                 "type_": "categorical",
-                "expression": "",
             },
         )
 
-        # Setting the materialization config with a temporal partition should succeed
+        # Setting the materialization config should succeed and it should reschedule
+        # the materialization with the temporal partition
         response = client_with_query_service.post(
             "/nodes/default.hard_hat/materialization/",
             json={
@@ -2824,6 +2825,42 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             data["message"]
             == "Successfully updated materialization config named `birth_date_spark` for node "
             "`default.hard_hat`"
+        )
+        expected_query = """SELECT  address,
+    birth_date,
+    city,
+    contractor_id,
+    country,
+    first_name,
+    hard_hat_id,
+    hire_date,
+    last_name,
+    manager,
+    postal_code,
+    state,
+    title
+ FROM (SELECT  default_DOT_hard_hats.address,
+    default_DOT_hard_hats.birth_date,
+    default_DOT_hard_hats.city,
+    default_DOT_hard_hats.contractor_id,
+    default_DOT_hard_hats.country,
+    default_DOT_hard_hats.first_name,
+    default_DOT_hard_hats.hard_hat_id,
+    default_DOT_hard_hats.hire_date,
+    default_DOT_hard_hats.last_name,
+    default_DOT_hard_hats.manager,
+    default_DOT_hard_hats.postal_code,
+    default_DOT_hard_hats.state,
+    default_DOT_hard_hats.title
+ FROM roads.hard_hats AS default_DOT_hard_hats
+
+) AS default_DOT_hard_hat
+WHERE  birth_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd')
+AS TIMESTAMP)"""
+        args, _ = query_service_client.materialize.call_args_list[1]  # type: ignore
+        assert (
+            re.compile(r"\s+").sub(" ", args[0].query).strip()
+            == re.compile(r"\s+").sub(" ", expected_query).strip()
         )
 
         # Check that the temporal partition is appended onto the list of partitions in the
@@ -4598,7 +4635,8 @@ def test_set_column_partition(client_with_roads: TestClient):
         "/nodes/default.hard_hat/columns/hire_date/partition",
         json={
             "type_": "temporal",
-            "expression": "",
+            "granularity": "hour",
+            "format": "yyyyMMddHH",
         },
     )
     assert response.json() == {
@@ -4606,7 +4644,12 @@ def test_set_column_partition(client_with_roads: TestClient):
         "dimension": None,
         "display_name": "Hire Date",
         "name": "hire_date",
-        "partition": {"expression": "", "type_": "temporal"},
+        "partition": {
+            "expression": None,
+            "format": "yyyyMMddHH",
+            "type_": "temporal",
+            "granularity": "hour",
+        },
         "type": "timestamp",
     }
 
@@ -4615,7 +4658,6 @@ def test_set_column_partition(client_with_roads: TestClient):
         "/nodes/default.hard_hat/columns/state/partition",
         json={
             "type_": "categorical",
-            "expression": "",
         },
     )
     assert response.json() == {
@@ -4623,18 +4665,52 @@ def test_set_column_partition(client_with_roads: TestClient):
         "dimension": {"name": "default.us_state"},
         "display_name": "State",
         "name": "state",
-        "partition": {"expression": "", "type_": "categorical"},
+        "partition": {
+            "expression": None,
+            "type_": "categorical",
+            "format": None,
+            "granularity": None,
+        },
         "type": "string",
     }
 
-    # Set country to temporal by accident
+    # Attempt to set country to temporal (missing granularity)
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/country/partition",
+        json={
+            "type_": "temporal",
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "The granularity must be provided for temporal partitions. One of: "
+        "['SECOND', 'MINUTE', 'HOUR', 'DAY', 'WEEK', 'MONTH', 'QUARTER', "
+        "'YEAR']"
+    )
+
+    # Attempt to set country to temporal (missing format)
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/country/partition",
+        json={
+            "type_": "temporal",
+            "granularity": "day",
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "The temporal partition column's datetime format must be provided."
+    )
+
+    # Set country to temporal
     client_with_roads.post(
         "/nodes/default.hard_hat/columns/country/partition",
         json={
             "type_": "temporal",
-            "expression": "",
+            "granularity": "day",
+            "format": "yyyyMMdd",
         },
     )
+
     # Update country to categorical
     response = client_with_roads.post(
         "/nodes/default.hard_hat/columns/country/partition",
@@ -4648,6 +4724,11 @@ def test_set_column_partition(client_with_roads: TestClient):
         "dimension": None,
         "display_name": "Country",
         "name": "country",
-        "partition": {"expression": "", "type_": "categorical"},
+        "partition": {
+            "expression": None,
+            "type_": "categorical",
+            "format": None,
+            "granularity": None,
+        },
         "type": "string",
     }

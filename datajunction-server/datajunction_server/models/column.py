@@ -21,7 +21,7 @@ if TYPE_CHECKING:
     from datajunction_server.models.attribute import ColumnAttribute
     from datajunction_server.models.measure import Measure
     from datajunction_server.models.node import Node, NodeRevision
-    from datajunction_server.models.partition import Partition
+    from datajunction_server.models.partition import Partition, PartitionType
 
 
 class ColumnYAML(TypedDict, total=False):

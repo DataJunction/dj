@@ -10,6 +10,7 @@ from sqlmodel import Field, Relationship, SQLModel
 
 from datajunction_server.models.base import BaseSQLModel
 from datajunction_server.models.column import Column
+from datajunction_server.sql.parsing.types import TimestampType
 
 if TYPE_CHECKING:
     from datajunction_server.models.materialization import Materialization
@@ -26,7 +27,38 @@ class PartitionType(str, enum.Enum):
     CATEGORICAL = "categorical"
 
 
-class Partition(BaseSQLModel, table=True):  # type: ignore
+class Granularity(str, enum.Enum):
+    """
+    Time dimension granularity.
+    """
+
+    SECOND = "second"
+    MINUTE = "minute"
+    HOUR = "hour"
+    DAY = "day"
+    WEEK = "week"
+    MONTH = "month"
+    QUARTER = "quarter"
+    YEAR = "year"
+
+
+class PartitionInput(BaseSQLModel):
+    """
+    Expected settings for specifying a partition column
+    """
+
+    type_: PartitionType
+
+    #
+    # Temporal partitions will additionally have the following properties:
+    #
+    # Timestamp granularity
+    granularity: Optional[Granularity]
+    # Timestamp format
+    format: Optional[str]
+
+
+class Partition(PartitionInput, table=True):  # type: ignore
     """
     A partition specification consists of a reference to a partition column and a partition type
     (either temporal or categorical). Both partition types indicate how to partition the
@@ -51,19 +83,33 @@ class Partition(BaseSQLModel, table=True):  # type: ignore
         },
     )
 
-    # This expression evaluates to the temporal partition value for scheduled runs
-    # defaults to CAST(FORMAT(DJ_LOGICAL_TIMESTAMP(), "yyyyMMdd") AS INT)
-    expression: Optional[str]
-    type_: PartitionType
+    def temporal_expression(self):
+        """
+        This expression evaluates to the temporal partition value for scheduled runs. Defaults to
+        CAST(FORMAT(DJ_LOGICAL_TIMESTAMP(), 'yyyyMMdd') AS <column type>)
+        """
+        from datajunction_server.sql.parsing import (  # pylint: disable=import-outside-toplevel
+            ast,
+        )
 
-
-class PartitionInput(BaseSQLModel):
-    """
-    Used for setting partition columns on a node
-    """
-
-    expression: Optional[str]
-    type_: PartitionType
+        if self.type_ == PartitionType.TEMPORAL:
+            return ast.Cast(
+                expression=ast.Function(
+                    ast.Name("DATE_FORMAT"),
+                    args=[
+                        ast.Cast(
+                            expression=ast.Function(
+                                ast.Name("DJ_LOGICAL_TIMESTAMP"),
+                                args=[],
+                            ),
+                            data_type=TimestampType(),
+                        ),
+                        ast.String(f"'{self.format}'"),
+                    ],
+                ),
+                data_type=self.column.type,  # pylint: disable=no-member
+            )
+        return None  # pragma: no cover
 
 
 class PartitionBackfill(BaseModel):
@@ -87,6 +133,8 @@ class PartitionOutput(SQLModel):
     """
 
     type_: PartitionType
+    format: Optional[str]
+    granularity: Optional[str]
     expression: Optional[str]
 
 
