@@ -12,10 +12,11 @@ from djqs.api.helpers import get_engine
 from djqs.models.engine import BaseEngineInfo, Engine, EngineInfo
 from djqs.utils import get_session
 
-router = APIRouter(tags=["Catalogs & Engines"])
+get_router = APIRouter(tags=["Catalogs & Engines"])
+post_router = APIRouter(tags=["Catalogs & Engines - Dynamic Configuration"])
 
 
-@router.get("/engines/", response_model=List[EngineInfo])
+@get_router.get("/engines/", response_model=List[EngineInfo])
 def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]:
     """
     List all available engines
@@ -23,7 +24,7 @@ def list_engines(*, session: Session = Depends(get_session)) -> List[EngineInfo]
     return list(session.exec(select(Engine)))
 
 
-@router.get("/engines/{name}/{version}/", response_model=BaseEngineInfo)
+@get_router.get("/engines/{name}/{version}/", response_model=BaseEngineInfo)
 def list_engine(
     name: str, version: str, *, session: Session = Depends(get_session)
 ) -> BaseEngineInfo:
@@ -33,7 +34,7 @@ def list_engine(
     return get_engine(session, name, version)
 
 
-@router.post("/engines/", response_model=BaseEngineInfo, status_code=201)
+@post_router.post("/engines/", response_model=BaseEngineInfo, status_code=201)
 def add_engine(
     data: EngineInfo,
     *,

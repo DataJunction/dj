@@ -28,6 +28,7 @@ dependencies = [
     "sqlmodel<1.0.0,>=0.0.8",
     "sqlparse<1.0.0,>=0.4.3",
     "pyspark==3.3.2",
+    "toml>=0.10.2",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.rst"

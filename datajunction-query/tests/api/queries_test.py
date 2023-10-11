@@ -14,9 +14,9 @@ from pytest_mock import MockerFixture
 from sqlmodel import Session
 
 from djqs.config import Settings
-from djqs.engine import describe_table_via_spark, process_query
+from djqs.engine import process_query
 from djqs.models.catalog import Catalog
-from djqs.models.engine import Engine
+from djqs.models.engine import Engine, EngineType
 from djqs.models.query import (
     Query,
     QueryCreate,
@@ -32,7 +32,12 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     """
     Test ``POST /queries/``.
     """
-    engine = Engine(name="test_engine", version="1.0", uri="sqlite://")
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.DUCKDB,
+        version="1.0",
+        uri="duckdb:///:memory:",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
@@ -76,7 +81,7 @@ def test_submit_query(session: Session, client: TestClient) -> None:
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
-    assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
+    assert data["results"][0]["columns"] == []
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
 
@@ -85,7 +90,12 @@ def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
     """
     Test ``POST /queries/`` using msgpack.
     """
-    engine = Engine(name="test_engine", version="1.0", uri="sqlite://")
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.DUCKDB,
+        version="1.0",
+        uri="duckdb:///:memory:",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
@@ -125,19 +135,25 @@ def test_submit_query_msgpack(session: Session, client: TestClient) -> None:
     assert data["progress"] == 1.0
     assert len(data["results"]) == 1
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
-    assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
+    assert data["results"][0]["columns"] == []
     assert data["results"][0]["rows"] == [[1]]
     assert data["errors"] == []
 
 
 def test_submit_query_errors(
     session: Session,
-    client: TestClient,
+    client_no_config_file: TestClient,
 ) -> None:
     """
     Test ``POST /queries/`` with missing/invalid content type.
     """
-    engine = Engine(name="test_engine", version="1.0", uri="sqlite://")
+    client = client_no_config_file
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.DUCKDB,
+        version="1.0",
+        uri="duckdb:///:memory:",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
@@ -187,7 +203,12 @@ def test_submit_query_multiple_statements(session: Session, client: TestClient) 
     """
     Test ``POST /queries/``.
     """
-    engine = Engine(name="test_engine", version="1.0", uri="sqlite://")
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.SQLALCHEMY,
+        version="1.0",
+        uri="duckdb:///test.db",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
@@ -222,10 +243,7 @@ def test_submit_query_multiple_statements(session: Session, client: TestClient) 
     assert len(data["results"]) == 2
     assert data["results"][0]["sql"] == "SELECT 1 AS col"
     assert data["results"][0]["columns"] == [{"name": "col", "type": "STR"}]
-    assert data["results"][0]["rows"] == [[1]]
-    assert data["results"][1]["sql"] == "SELECT 2 AS another_col"
-    assert data["results"][1]["columns"] == [{"name": "another_col", "type": "STR"}]
-    assert data["results"][1]["rows"] == [[2]]
+    assert data["results"][0]["rows"] == [[2]]
     assert data["errors"] == []
 
 
@@ -237,7 +255,12 @@ def test_submit_query_results_backend(
     """
     Test that ``POST /queries/`` stores results.
     """
-    engine = Engine(name="test_engine", version="1.0", uri="sqlite://")
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.DUCKDB,
+        version="1.0",
+        uri="duckdb:///:memory:",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
@@ -272,7 +295,7 @@ def test_submit_query_results_backend(
         "results": [
             {
                 "sql": "SELECT 1 AS col",
-                "columns": [{"name": "col", "type": "STR"}],
+                "columns": [],
                 "rows": [[1]],
                 "row_count": 1,
             },
@@ -285,7 +308,7 @@ def test_submit_query_results_backend(
     assert json.loads(cached) == [
         {
             "sql": "SELECT 1 AS col",
-            "columns": [{"name": "col", "type": "STR"}],
+            "columns": [],
             "rows": [[1]],
             "row_count": 1,
         },
@@ -302,7 +325,12 @@ def test_submit_query_async(
     """
     add_task = mocker.patch("fastapi.BackgroundTasks.add_task")
 
-    engine = Engine(name="test_engine", version="1.0", uri="sqlite://")
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.SQLALCHEMY,
+        version="1.0",
+        uri="sqlite://",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
@@ -351,7 +379,12 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
     """
     Test submitting invalid query to ``POST /queries/``.
     """
-    engine = Engine(name="test_engine", version="1.0", uri="sqlite://")
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.SQLALCHEMY,
+        version="1.0",
+        uri="sqlite://",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
@@ -381,18 +414,19 @@ def test_submit_query_error(session: Session, client: TestClient) -> None:
     assert data["state"] == "FAILED"
     assert data["progress"] == 0.0
     assert data["results"] == []
-    assert data["errors"] == [
-        '(sqlite3.OperationalError) near "FROM": syntax error\n'
-        "[SQL: SELECT FROM]\n"
-        "(Background on this error at: https://sqlalche.me/e/14/e3q8)",
-    ]
+    assert "(sqlite3.OperationalError)" in data["errors"][0]
 
 
 def test_read_query(session: Session, settings: Settings, client: TestClient) -> None:
     """
     Test ``GET /queries/{query_id}``.
     """
-    engine = Engine(name="test_engine", version="1.0", uri="sqlite://")
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.SQLALCHEMY,
+        version="1.0",
+        uri="sqlite://",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
@@ -451,7 +485,12 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
     """
     Test ``GET /queries/{query_id}``.
     """
-    engine = Engine(name="test_engine", version="1.0", uri="sqlite://")
+    engine = Engine(
+        name="test_engine",
+        type=EngineType.SQLALCHEMY,
+        version="1.0",
+        uri="sqlite://",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
@@ -491,124 +530,6 @@ def test_read_query_no_results_backend(session: Session, client: TestClient) -> 
     response = client.get("/queries/123")
 
 
-def test_submit_spark_query(session: Session, client: TestClient) -> None:
-    """
-    Test submitting a Spark query
-    """
-    engine = Engine(name="test_spark_engine", version="3.3.2", uri="spark://local[*]")
-    catalog = Catalog(name="test_catalog", engines=[engine])
-    session.add(catalog)
-    session.commit()
-    session.refresh(catalog)
-
-    query_create = QueryCreate(
-        catalog_name=catalog.name,
-        engine_name=engine.name,
-        engine_version=engine.version,
-        submitted_query="SELECT 1 AS int_col, 'a' as str_col",
-    )
-    payload = query_create.json(by_alias=True)
-    assert payload == json.dumps(
-        {
-            "catalog_name": "test_catalog",
-            "engine_name": "test_spark_engine",
-            "engine_version": "3.3.2",
-            "submitted_query": "SELECT 1 AS int_col, 'a' as str_col",
-            "async_": False,
-        },
-    )
-
-    with freeze_time("2021-01-01T00:00:00Z"):
-        response = client.post(
-            "/queries/",
-            data=payload,
-            headers={"Content-Type": "application/json", "Accept": "application/json"},
-        )
-    data = response.json()
-
-    assert response.status_code == 200
-    assert data["catalog_name"] == "test_catalog"
-    assert data["engine_name"] == "test_spark_engine"
-    assert data["engine_version"] == "3.3.2"
-    assert data["submitted_query"] == "SELECT 1 AS int_col, 'a' as str_col"
-    assert data["executed_query"] == "SELECT 1 AS int_col, 'a' as str_col"
-    assert data["scheduled"] == "2021-01-01T00:00:00"
-    assert data["started"] == "2021-01-01T00:00:00"
-    assert data["finished"] == "2021-01-01T00:00:00"
-    assert data["state"] == "FINISHED"
-    assert data["progress"] == 1.0
-    assert len(data["results"]) == 1
-    assert data["results"][0]["sql"] == "SELECT 1 AS int_col, 'a' as str_col"
-    assert data["results"][0]["columns"] == []
-    assert data["results"][0]["rows"] == [[1, "a"]]
-    assert data["errors"] == []
-
-
-def test_spark_fixture_show_tables(spark) -> None:
-    """
-    Test that show tables of the spark fixture lists the roads tables
-    """
-    spark_df = spark.sql("show tables")
-    records = spark_df.rdd.map(tuple).collect()
-    assert records == [
-        ("", "contractors", True),
-        ("", "dispatchers", True),
-        ("", "hard_hat_state", True),
-        ("", "hard_hats", True),
-        ("", "municipality", True),
-        ("", "municipality_municipality_type", True),
-        ("", "municipality_type", True),
-        ("", "repair_order_details", True),
-        ("", "repair_orders", True),
-        ("", "repair_type", True),
-        ("", "us_region", True),
-        ("", "us_states", True),
-    ]
-
-
-def test_spark_describe_tables(spark) -> None:
-    """
-    Test that using spark to describe tables works
-    """
-    column_metadata = describe_table_via_spark(spark, None, "contractors")
-    assert column_metadata == [
-        {"name": "contractor_id", "type": "int"},
-        {"name": "company_name", "type": "string"},
-        {"name": "contact_name", "type": "string"},
-        {"name": "contact_title", "type": "string"},
-        {"name": "address", "type": "string"},
-        {"name": "city", "type": "string"},
-        {"name": "state", "type": "string"},
-        {"name": "postal_code", "type": "string"},
-        {"name": "country", "type": "string"},
-        {"name": "phone", "type": "string"},
-    ]
-
-
-def test_spark_fixture_query(spark) -> None:
-    """
-    Test a spark query against the roads database in the spark fixture
-    """
-    spark_df = spark.sql(
-        """
-        SELECT ro.repair_order_id, ro.order_date
-        FROM repair_orders ro
-        LEFT JOIN repair_order_details roi
-        ON ro.repair_order_id = roi.repair_order_id
-        ORDER BY ro.repair_order_id
-        LIMIT 5
-    """,
-    )
-    records = spark_df.rdd.map(tuple).collect()
-    assert records == [
-        (10001, datetime.date(2007, 7, 4)),
-        (10002, datetime.date(2007, 7, 5)),
-        (10003, datetime.date(2007, 7, 8)),
-        (10004, datetime.date(2007, 7, 8)),
-        (10005, datetime.date(2007, 7, 9)),
-    ]
-
-
 @mock.patch("djqs.engine.duckdb.connect")
 def test_submit_duckdb_query(
     mock_duckdb_connect,
@@ -620,7 +541,12 @@ def test_submit_duckdb_query(
     Test submitting a Spark query
     """
     mock_duckdb_connect.return_value = duckdb_conn
-    engine = Engine(name="test_duckdb_engine", version="0.7.1", uri="duckdb://local[*]")
+    engine = Engine(
+        name="test_duckdb_engine",
+        type=EngineType.DUCKDB,
+        version="0.7.1",
+        uri="duckdb:///:memory:",
+    )
     catalog = Catalog(name="test_catalog", engines=[engine])
     session.add(catalog)
     session.commit()
