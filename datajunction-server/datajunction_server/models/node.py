@@ -881,7 +881,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         """
         return [
             col
-            for col in self.columns  # type: ignore
+            for col in self.columns  # pylint: disable=not-an-iterable
             if col.partition and col.partition.type_ == PartitionType.TEMPORAL
         ]
 
