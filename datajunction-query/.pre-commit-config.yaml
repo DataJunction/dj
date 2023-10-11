@@ -72,6 +72,7 @@ repos:
     - types-pkg_resources
     - types-PyYAML
     - types-tabulate
+    - types-toml
 - repo: https://github.com/asottile/add-trailing-comma
   rev: v2.2.1
   hooks:

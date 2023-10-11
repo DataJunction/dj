@@ -1,10 +1,20 @@
 """
 Models for columns.
 """
+from enum import Enum
+from typing import Dict, Optional
 
-from typing import Optional
+from sqlalchemy.sql.schema import Column as SqlaColumn
+from sqlmodel import JSON, Field, SQLModel
 
-from sqlmodel import Field, SQLModel
+
+class EngineType(Enum):
+    """
+    Supported engine types
+    """
+
+    DUCKDB = "duckdb"
+    SQLALCHEMY = "sqlalchemy"
 
 
 class Engine(SQLModel, table=True):  # type: ignore
@@ -14,8 +24,10 @@ class Engine(SQLModel, table=True):  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
+    type: EngineType
     version: str
     uri: Optional[str]
+    extra_params: Dict = Field(default={}, sa_column=SqlaColumn(JSON))
 
 
 class BaseEngineInfo(SQLModel):
@@ -25,6 +37,8 @@ class BaseEngineInfo(SQLModel):
 
     name: str
     version: str
+    type: EngineType
+    extra_params: Dict = {}
 
 
 class EngineInfo(BaseEngineInfo):

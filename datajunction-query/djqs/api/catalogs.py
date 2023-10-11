@@ -17,10 +17,11 @@ from djqs.models.engine import BaseEngineInfo
 from djqs.utils import get_session
 
 _logger = logging.getLogger(__name__)
-router = APIRouter(tags=["Catalogs & Engines"])
+get_router = APIRouter(tags=["Catalogs & Engines"])
+post_router = APIRouter(tags=["Catalogs & Engines - Dynamic Configuration"])
 
 
-@router.get("/catalogs/", response_model=List[CatalogInfo])
+@get_router.get("/catalogs/", response_model=List[CatalogInfo])
 def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInfo]:
     """
     List all available catalogs
@@ -28,7 +29,7 @@ def list_catalogs(*, session: Session = Depends(get_session)) -> List[CatalogInf
     return list(session.exec(select(Catalog)))
 
 
-@router.get("/catalogs/{name}/", response_model=CatalogInfo)
+@get_router.get("/catalogs/{name}/", response_model=CatalogInfo)
 def read_catalog(name: str, *, session: Session = Depends(get_session)) -> CatalogInfo:
     """
     Return a catalog by name
@@ -36,7 +37,7 @@ def read_catalog(name: str, *, session: Session = Depends(get_session)) -> Catal
     return get_catalog(session, name)
 
 
-@router.post("/catalogs/", response_model=CatalogInfo, status_code=201)
+@post_router.post("/catalogs/", response_model=CatalogInfo, status_code=201)
 def add_catalog(
     data: CatalogInfo,
     *,
@@ -70,7 +71,11 @@ def add_catalog(
     return catalog
 
 
-@router.post("/catalogs/{name}/engines/", response_model=CatalogInfo, status_code=201)
+@post_router.post(
+    "/catalogs/{name}/engines/",
+    response_model=CatalogInfo,
+    status_code=201,
+)
 def add_engines_to_catalog(
     name: str,
     data: List[BaseEngineInfo],

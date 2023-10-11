@@ -1,0 +1,11 @@
+engines:
+  - name: duckdb
+    version: 0.7.1
+    type: duckdb
+    uri: duckdb:////code/docker/default.duckdb
+    extra_params:
+      location: /code/docker/default.duckdb
+catalogs:
+  - name: warehouse
+    engines:
+      - duckdb

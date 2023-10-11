@@ -1,0 +1,83 @@
+{
+    "$schema": "http://json-schema.org/draft-06/schema#",
+    "$ref": "#/definitions/DJQSConfig",
+    "definitions": {
+        "DJQSConfig": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "engines": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Engine"
+                    }
+                },
+                "catalogs": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Catalog"
+                    }
+                }
+            },
+            "required": [
+                "catalogs",
+                "engines"
+            ],
+            "title": "DJQSConfig"
+        },
+        "Catalog": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "engines": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            },
+            "required": [
+                "engines",
+                "name"
+            ],
+            "title": "Catalog"
+        },
+        "Engine": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "version": {
+                    "type": "string"
+                },
+                "type": {
+                    "type": "string"
+                },
+                "uri": {
+                    "type": "string"
+                },
+                "extra_params": {
+                    "$ref": "#/definitions/ExtraParams"
+                }
+            },
+            "required": [
+                "extra_params",
+                "name",
+                "type",
+                "uri",
+                "version"
+            ],
+            "title": "Engine"
+        },
+        "ExtraParams": {
+            "type": "object",
+            "additionalProperties": true,
+            "title": "ExtraParams"
+        }
+    }
+}

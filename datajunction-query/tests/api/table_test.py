@@ -10,7 +10,12 @@ def test_table_columns(client: TestClient, mocker):
     """
     response = client.post(
         "/engines/",
-        json={"name": "default", "version": "", "uri": "sqlite://"},
+        json={
+            "name": "default",
+            "type": "duckdb",
+            "version": "",
+            "uri": "duckdb:///:memory:",
+        },
     )
     assert response.status_code == 201
     columns = [
