@@ -66,6 +66,28 @@ export default function NodeInfoTab({ node }) {
     <></>
   );
 
+  const displayCubeElement = cubeElem => {
+    return (
+      <div
+        className="button-3 cube-element"
+        key={cubeElem.name}
+        role="cell"
+        aria-label="CubeElement"
+        aria-hidden="false"
+      >
+        <a href={`/nodes/${cubeElem.node_name}`}>{cubeElem.display_name}</a>
+        <span
+          className={`badge node_type__${
+            cubeElem.type === 'metric' ? cubeElem.type : 'dimension'
+          }`}
+          style={{ fontSize: '100%', textTransform: 'capitalize' }}
+        >
+          {cubeElem.type === 'metric' ? cubeElem.type : 'dimension'}
+        </span>
+      </div>
+    );
+  };
+
   const cubeElementsDiv = node?.cube_elements ? (
     <div className="list-group-item d-flex">
       <div className="d-flex gap-2 w-100 justify-content-between py-3">
@@ -76,28 +98,12 @@ export default function NodeInfoTab({ node }) {
         >
           <h6 className="mb-0 w-100">Cube Elements</h6>
           <div className={`list-group-item`}>
-            {node.cube_elements.map(cubeElem => (
-              <div
-                className="button-3 cube-element"
-                key={cubeElem.name}
-                role="cell"
-                aria-label="CubeElement"
-                aria-hidden="false"
-              >
-                <a href={`/nodes/${cubeElem.node_name}`}>
-                  {cubeElem.type === 'metric'
-                    ? cubeElem.node_name
-                    : cubeElem.name}
-                </a>
-                <span
-                  className={`badge node_type__${
-                    cubeElem.type === 'metric' ? cubeElem.type : 'dimension'
-                  }`}
-                >
-                  {cubeElem.type === 'metric' ? cubeElem.type : 'dimension'}
-                </span>
-              </div>
-            ))}
+            {node.cube_elements.map(cubeElem =>
+              cubeElem.type === 'metric' ? displayCubeElement(cubeElem) : '',
+            )}
+            {node.cube_elements.map(cubeElem =>
+              cubeElem.type !== 'metric' ? displayCubeElement(cubeElem) : '',
+            )}
           </div>
         </div>
       </div>

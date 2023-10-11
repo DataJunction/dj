@@ -607,6 +607,18 @@ describe('DataJunctionAPI', () => {
     );
   });
 
+  it('calls addNamespace correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.addNamespace('test');
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/namespaces/test`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      method: 'POST',
+    });
+  });
+
   it('calls listTags correctly', async () => {
     fetch.mockResponseOnce(JSON.stringify(mocks.tags));
     const res = await DataJunctionAPI.listTags();
@@ -688,5 +700,105 @@ describe('DataJunctionAPI', () => {
       }),
       method: 'POST',
     });
+  });
+
+  it('calls editTag correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.editTag(
+      'report.financials',
+      'Financial reports',
+      'Financial Reports',
+    );
+    expect(fetch).toHaveBeenCalledWith(`${DJ_URL}/tags/report.financials`, {
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        description: 'Financial reports',
+        display_name: 'Financial Reports',
+      }),
+      method: 'PATCH',
+    });
+  });
+
+  it('calls setPartition correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.setPartition(
+      'default.hard_hat',
+      'hire_date',
+      'temporal',
+      'yyyyMMdd',
+      'day',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/default.hard_hat/columns/hire_date/partition`,
+      {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          type_: 'temporal',
+          format: 'yyyyMMdd',
+          granularity: 'day',
+        }),
+        method: 'POST',
+      },
+    );
+  });
+
+  it('calls materialize correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.materialize(
+      'default.hard_hat',
+      'spark',
+      '3.3',
+      '@daily',
+      '{}',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/default.hard_hat/materialization`,
+      {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          engine: {
+            name: 'spark',
+            version: '3.3',
+          },
+          schedule: '@daily',
+          config: {},
+        }),
+        method: 'POST',
+      },
+    );
+  });
+
+  it('calls runBackfill correctly', async () => {
+    fetch.mockResponseOnce(JSON.stringify({}));
+    await DataJunctionAPI.runBackfill(
+      'default.hard_hat',
+      'spark',
+      'hire_date',
+      '20230101',
+      '20230202',
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `${DJ_URL}/nodes/default.hard_hat/materializations/spark/backfill`,
+      {
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          column_name: 'hire_date',
+          range: ['20230101', '20230202'],
+        }),
+        method: 'POST',
+      },
+    );
   });
 });

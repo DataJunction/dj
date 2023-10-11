@@ -11,6 +11,7 @@ from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.models import Engine
 from datajunction_server.models.materialization import GenericMaterializationInput
 from datajunction_server.models.node import NodeType
+from datajunction_server.models.partition import PartitionBackfill
 from datajunction_server.models.query import QueryCreate
 from datajunction_server.service_clients import (
     QueryServiceClient,
@@ -436,5 +437,35 @@ class TestQueryServiceClient:  # pylint: disable=too-few-public-methods
         )
         assert response == {
             "urls": [],
+            "output_tables": [],
+        }
+
+    def test_run_backfill(self, mocker: MockerFixture) -> None:
+        """
+        Test get materialization info with errors
+        """
+        mock_response = MagicMock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "urls": ["http://fake.url/job"],
+            "output_tables": [],
+        }
+
+        mocker.patch(
+            "datajunction_server.service_clients.RequestsSessionWithEndpoint.post",
+            return_value=mock_response,
+        )
+
+        query_service_client = QueryServiceClient(uri=self.endpoint)
+        response = query_service_client.run_backfill(
+            node_name="default.hard_hat",
+            backfill=PartitionBackfill(
+                column_name="hire_date",
+                range=["20230101", "20230201"],
+            ),
+            materialization_name="default",
+        )
+        assert response == {
+            "urls": ["http://fake.url/job"],
             "output_tables": [],
         }

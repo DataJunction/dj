@@ -63,13 +63,21 @@ export default function LoginForm({ setShowSignup }) {
             <Field type="text" name="username" placeholder="Username" />
           </div>
           <div>
-            <ErrorMessage className="form-error" name="username" component="span" />
+            <ErrorMessage
+              className="form-error"
+              name="username"
+              component="span"
+            />
           </div>
           <div>
             <Field type="password" name="password" placeholder="Password" />
           </div>
           <div>
-            <ErrorMessage className="form-error" name="password" component="span" />
+            <ErrorMessage
+              className="form-error"
+              name="password"
+              component="span"
+            />
           </div>
           <div>
             <p>

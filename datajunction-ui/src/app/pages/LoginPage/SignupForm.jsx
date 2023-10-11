@@ -81,13 +81,21 @@ export default function SignupForm({ setShowSignup }) {
             <Field type="text" name="email" placeholder="Email" />
           </div>
           <div>
-            <ErrorMessage className="form-error" name="email" component="span" />
+            <ErrorMessage
+              className="form-error"
+              name="email"
+              component="span"
+            />
           </div>
           <div>
             <Field type="text" name="signupUsername" placeholder="Username" />
           </div>
           <div>
-            <ErrorMessage className="form-error" name="signupUsername" component="span" />
+            <ErrorMessage
+              className="form-error"
+              name="signupUsername"
+              component="span"
+            />
           </div>
           <div>
             <Field
@@ -97,7 +105,11 @@ export default function SignupForm({ setShowSignup }) {
             />
           </div>
           <div>
-            <ErrorMessage className="form-error" name="signupPassword" component="span" />
+            <ErrorMessage
+              className="form-error"
+              name="signupPassword"
+              component="span"
+            />
           </div>
           <div>
             <p>

@@ -66,6 +66,7 @@ from datajunction_server.models.node import (
     NodeType,
     UpdateNode,
 )
+from datajunction_server.models.partition import Partition
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.ast import CompileContext
@@ -267,6 +268,9 @@ def create_node_revision(
         [p.name for p in node_revision.parents],
     )
     node_revision.columns = node_validator.columns or []
+    if node_revision.type == NodeType.METRIC:
+        if node_revision.columns:
+            node_revision.columns[0].display_name = node_revision.display_name
     node_revision.catalog_id = catalog_id
     return node_revision
 
@@ -308,6 +312,16 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
     node_columns = []
     status = NodeStatus.VALID
     type_inference_failed_columns = []
+    display_name_mapping = {}
+    for col in metric_columns + dimension_columns:
+        referenced_node = col.node_revision()
+        if referenced_node.type == NodeType.METRIC:  # type: ignore
+            display_name_mapping[col.name] = col.display_name
+        else:
+            col_name = f"{referenced_node.name}.{col.name}"  # type: ignore
+            col_name = col_name.replace(SEPARATOR, f"_{LOOKUP_CHARS.get(SEPARATOR)}_")
+            display_name_mapping[col_name] = col.display_name
+
     for col in combined_ast.select.projection:
         try:
             column_type = col.type  # type: ignore
@@ -319,6 +333,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
             node_columns.append(
                 Column(
                     name=col.alias_or_name.name,
+                    display_name=display_name_mapping.get(col.alias_or_name.name),
                     type=column_type,
                     attributes=column_attributes,
                 ),
@@ -360,7 +375,7 @@ def create_cube_node_revision(  # pylint: disable=too-many-locals
         combined_ast,
     )
     new_materialization = Materialization(
-        name=cube_custom_config.identifier(),
+        name="default",
         node_revision=node_revision,
         engine=engine,
         config=cube_custom_config,
@@ -581,7 +596,7 @@ def node_update_history_event(new_revision: NodeRevision, current_user: Optional
     )
 
 
-def update_cube_node(
+def update_cube_node(  # pylint: disable=too-many-locals
     session: Session,
     node_revision: NodeRevision,
     data: UpdateNode,
@@ -622,6 +637,18 @@ def update_cube_node(
     new_cube_revision.node.current_version = new_cube_revision.version  # type: ignore
 
     session.add(node_update_history_event(new_cube_revision, current_user))
+
+    # Bring over existing partition columns, if any
+    new_columns_mapping = {col.name: col for col in new_cube_revision.columns}
+    for col in node_revision.columns:
+        new_col = new_columns_mapping.get(col.name)
+        if col.partition and new_col:
+            new_col.partition = Partition(
+                column=new_col,
+                type_=col.partition.type_,
+                format=col.partition.format,
+                granularity=col.partition.granularity,
+            )
 
     # Update existing materializations
     active_materializations = [
@@ -953,6 +980,8 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         ).all()
         new_revision.parents = list(parent_refs)
         new_revision.columns = node_validator.columns or []
+        if new_revision.type == NodeType.METRIC:
+            new_revision.columns[0].display_name = new_revision.display_name
 
         # Update the primary key if one was set in the input
         if data is not None and data.primary_key:

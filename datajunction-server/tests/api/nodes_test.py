@@ -5,6 +5,7 @@ Tests for the nodes API.
 import re
 from typing import Any, Dict
 from unittest import mock
+from unittest.mock import call
 
 import pytest
 from fastapi.testclient import TestClient
@@ -21,6 +22,8 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
+from datajunction_server.models.partition import PartitionBackfill
+from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.types import IntegerType, StringType, TimestampType
 from tests.sql.utils import compare_query_strings
@@ -263,6 +266,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Title Code",
                 "name": "title_code",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [
@@ -272,6 +276,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Title",
                 "name": "title",
                 "type": "string",
+                "partition": None,
             },
         ]
 
@@ -288,6 +293,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             "display_name": "Title",
             "name": "title",
             "type": "string",
+            "partition": None,
         } in response.json()["columns"]
 
     def test_deleting_node(
@@ -1273,6 +1279,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Id",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "user_id",
@@ -1280,6 +1287,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "User Id",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "timestamp",
@@ -1287,6 +1295,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Timestamp",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "text",
@@ -1294,6 +1303,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Text",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
         ]
         assert response.status_code == 201
@@ -1320,6 +1330,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Repair Order Id",
                 "name": "repair_order_id",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1327,6 +1338,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Municipality Id",
                 "name": "municipality_id",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1334,6 +1346,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Hard Hat Id",
                 "name": "hard_hat_id",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1341,6 +1354,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Order Date",
                 "name": "order_date",
                 "type": "timestamp",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1348,6 +1362,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Required Date",
                 "name": "required_date",
                 "type": "timestamp",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1355,6 +1370,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Dispatched Date",
                 "name": "dispatched_date",
                 "type": "timestamp",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1362,6 +1378,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Dispatcher Id",
                 "name": "dispatcher_id",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1369,6 +1386,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Rating",
                 "name": "rating",
                 "type": "int",
+                "partition": None,
             },
         ]
 
@@ -1479,6 +1497,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Id",
                 "name": "id",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1486,6 +1505,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "User Id",
                 "name": "user_id",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1493,6 +1513,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Timestamp",
                 "name": "timestamp",
                 "type": "timestamp",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1500,6 +1521,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Text V2",
                 "name": "text_v2",
                 "type": "string",
+                "partition": None,
             },
         ]
 
@@ -1674,6 +1696,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Country",
                 "name": "country",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1681,6 +1704,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Num Users",
                 "name": "num_users",
                 "type": "bigint",
+                "partition": None,
             },
         ]
 
@@ -1740,6 +1764,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Country",
                 "name": "country",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1747,6 +1772,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Num Users",
                 "name": "num_users",
                 "type": "bigint",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1754,6 +1780,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Num Entries",
                 "name": "num_entries",
                 "type": "bigint",
+                "partition": None,
             },
         ]
 
@@ -1782,6 +1809,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "display_name": "Country",
                     "name": "country",
                     "type": "string",
+                    "partition": None,
                 },
                 {
                     "attributes": [],
@@ -1789,6 +1817,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "display_name": "Num Users",
                     "name": "num_users",
                     "type": "bigint",
+                    "partition": None,
                 },
             ],
             "v1.1": [
@@ -1798,6 +1827,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "display_name": "Country",
                     "name": "country",
                     "type": "string",
+                    "partition": None,
                 },
                 {
                     "attributes": [],
@@ -1805,6 +1835,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "display_name": "Num Users",
                     "name": "num_users",
                     "type": "bigint",
+                    "partition": None,
                 },
             ],
             "v2.0": [
@@ -1814,6 +1845,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "display_name": "Country",
                     "name": "country",
                     "type": "string",
+                    "partition": None,
                 },
                 {
                     "attributes": [],
@@ -1821,6 +1853,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "display_name": "Num Users",
                     "name": "num_users",
                     "type": "bigint",
+                    "partition": None,
                 },
                 {
                     "attributes": [],
@@ -1828,6 +1861,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                     "display_name": "Num Entries",
                     "name": "num_entries",
                     "type": "bigint",
+                    "partition": None,
                 },
             ],
         }
@@ -1939,6 +1973,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Country",
                 "name": "country",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -1946,6 +1981,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "User Cnt",
                 "name": "user_cnt",
                 "type": "bigint",
+                "partition": None,
             },
         ]
 
@@ -1968,6 +2004,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Country",
                 "name": "country",
                 "type": "string",
+                "partition": None,
             },
         ]
 
@@ -1990,6 +2027,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Country",
                 "name": "country",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [
@@ -1999,6 +2037,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Sum Age",
                 "name": "sum_age",
                 "type": "bigint",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -2006,6 +2045,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Num Users",
                 "name": "num_users",
                 "type": "bigint",
+                "partition": None,
             },
         ]
 
@@ -2023,6 +2063,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Sum Age",
                 "name": "sum_age",
                 "type": "bigint",
+                "partition": None,
             },
             {
                 "attributes": [
@@ -2032,6 +2073,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Country",
                 "name": "country",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -2039,6 +2081,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Num Users",
                 "name": "num_users",
                 "type": "bigint",
+                "partition": None,
             },
         ]
 
@@ -2100,6 +2143,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "Country",
                 "name": "country",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -2107,6 +2151,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "display_name": "User Cnt",
                 "name": "user_cnt",
                 "type": "bigint",
+                "partition": None,
             },
         ]
 
@@ -2238,6 +2283,7 @@ GROUP BY
             "avg_dispatch_delay: double, unique_contractors: "
             "bigint>",
             "display_name": "Measures",
+            "partition": None,
         } in response.json()["columns"]
 
         client_with_roads.post(
@@ -2419,7 +2465,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         data = response.json()
         assert (
             data["message"] == "Successfully updated materialization config named "
-            "`default` for node `default.repair_orders_partitioned`"
+            "`spark` for node `default.repair_orders_partitioned`"
         )
 
         response = custom_client.get(
@@ -2472,13 +2518,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "version": "2.4.4",
                 },
                 "config": {
-                    "partitions": [
-                        {
-                            "name": "country",
-                            "values": ["DE", "MY"],
-                            "type_": "categorical",
-                        },
-                    ],
+                    "spark": {},
                 },
                 "schedule": "0 * * * *",
             },
@@ -2499,20 +2539,12 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         node_output = response.json()
         assert node_output["materializations"] == [
             {
+                "backfills": [],
                 "config": {
                     "columns": [
                         {"name": "country", "type": "string"},
                         {"name": "num_users", "type": "bigint"},
                         {"name": "languages", "type": "bigint"},
-                    ],
-                    "partitions": [
-                        {
-                            "expression": None,
-                            "name": "country",
-                            "range": None,
-                            "type_": "categorical",
-                            "values": ["DE", "MY"],
-                        },
                     ],
                     "query": "SELECT  basic_DOT_transform_DOT_country_agg.country,\n"
                     "\tbasic_DOT_transform_DOT_country_agg.languages,\n"
@@ -2525,9 +2557,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "num_users \n"
                     " FROM basic.dim_users AS basic_DOT_source_DOT_users \n"
                     " GROUP BY  1)\n"
-                    " AS basic_DOT_transform_DOT_country_agg \n"
-                    " WHERE  basic_DOT_transform_DOT_country_agg.country IN "
-                    "('DE', 'MY')\n"
+                    " AS basic_DOT_transform_DOT_country_agg\n"
                     "\n",
                     "spark": {},
                     "upstream_tables": ["public.basic.dim_users"],
@@ -2539,12 +2569,16 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "version": "2.4.4",
                 },
                 "job": "SparkSqlMaterializationJob",
-                "name": "country_3491792861",
+                "name": "spark",
                 "schedule": "0 * * * *",
             },
         ]
 
-    def test_add_materialization_success(self, client_with_query_service: TestClient):
+    def test_add_materialization_success(
+        self,
+        client_with_query_service: TestClient,
+        query_service_client: QueryServiceClient,
+    ):
         """
         Verifies success cases of adding materialization config.
         """
@@ -2563,6 +2597,15 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
         assert old_node_data["version"] == "v1.0"
         assert old_node_data["materializations"] == []
 
+        client_with_query_service.post(
+            "/nodes/basic.transform.country_agg/columns/"
+            "basic_DOT_transform_DOT_country_agg_DOT_country/partition",
+            json={
+                "type_": "categorical",
+                "expression": "",
+            },
+        )
+
         # Setting the materialization config should succeed
         response = client_with_query_service.post(
             "/nodes/basic.transform.country_agg/materialization/",
@@ -2571,22 +2614,14 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "name": "spark",
                     "version": "2.4.4",
                 },
-                "config": {
-                    "partitions": [
-                        {
-                            "name": "country",
-                            "values": ["DE", "MY"],
-                            "type_": "categorical",
-                        },
-                    ],
-                },
+                "config": {},
                 "schedule": "0 * * * *",
             },
         )
         data = response.json()
         assert (
             data["message"] == "Successfully updated materialization config named "
-            "`country_3491792861` for node `basic.transform.country_agg`"
+            "`spark` for node `basic.transform.country_agg`"
         )
 
         # Check history of the node with materialization
@@ -2606,15 +2641,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "name": "spark",
                     "version": "2.4.4",
                 },
-                "config": {
-                    "partitions": [
-                        {
-                            "name": "country",
-                            "values": ["DE", "MY"],
-                            "type_": "categorical",
-                        },
-                    ],
-                },
+                "config": {},
                 "schedule": "0 * * * *",
             },
         )
@@ -2624,16 +2651,16 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                 "urls": ["http://fake.url/job"],
             },
             "message": "The same materialization config with name "
-            "`country_3491792861` already exists for node "
+            "`spark` already exists for node "
             "`basic.transform.country_agg` so no update was performed.",
         }
 
         response = client_with_query_service.delete(
             "/nodes/basic.transform.country_agg/materializations/"
-            "?materialization_name=country_3491792861",
+            "?materialization_name=spark",
         )
         assert response.json() == {
-            "message": "The materialization named `country_3491792861` on node "
+            "message": "The materialization named `spark` on node "
             "`basic.transform.country_agg` has been successfully deactivated",
         }
 
@@ -2645,20 +2672,12 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "name": "spark",
                     "version": "2.4.4",
                 },
-                "config": {
-                    "partitions": [
-                        {
-                            "name": "country",
-                            "values": ["DE", "MY"],
-                            "type_": "categorical",
-                        },
-                    ],
-                },
+                "config": {},
                 "schedule": "0 * * * *",
             },
         )
         assert response.json()["message"] == (
-            "The same materialization config with name `country_3491792861` already "
+            "The same materialization config with name `spark` already "
             "exists for node `basic.transform.country_agg` but was deactivated. It has "
             "now been restored."
         )
@@ -2674,9 +2693,9 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             for activity in response.json()
         ] == [
             ("create", "node", "basic.transform.country_agg"),
-            ("create", "materialization", "country_3491792861"),
-            ("delete", "materialization", "country_3491792861"),
-            ("restore", "materialization", "country_3491792861"),
+            ("create", "materialization", "spark"),
+            ("delete", "materialization", "spark"),
+            ("restore", "materialization", "spark"),
         ]
 
         # Setting the materialization config without partitions should succeed
@@ -2687,16 +2706,15 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "name": "spark",
                     "version": "2.4.4",
                 },
-                "config": {
-                    "partitions": [],
-                },
+                "config": {},
                 "schedule": "0 * * * *",
             },
         )
         data = response.json()
         assert (
-            data["message"] == "Successfully updated materialization config named "
-            "`default` for node `basic.transform.country_agg`"
+            data["message"]
+            == "The same materialization config with name `spark` already "
+            "exists for node `basic.transform.country_agg` so no update was performed."
         )
 
         # Reading the node should yield the materialization config
@@ -2707,7 +2725,8 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             data["materializations"],
             [
                 {
-                    "name": "country_3491792861",
+                    "backfills": [],
+                    "name": "spark",
                     "engine": {
                         "name": "spark",
                         "version": "2.4.4",
@@ -2725,17 +2744,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
     COUNT( DISTINCT basic_DOT_source_DOT_users.id) AS num_users
  FROM basic.dim_users AS basic_DOT_source_DOT_users
  GROUP BY  1)
- AS basic_DOT_transform_DOT_country_agg
- WHERE  basic_DOT_transform_DOT_country_agg.country IN ('DE', 'MY')""",
-                        "partitions": [
-                            {
-                                "name": "country",
-                                "values": ["DE", "MY"],
-                                "range": None,
-                                "type_": "categorical",
-                                "expression": None,
-                            },
-                        ],
+ AS basic_DOT_transform_DOT_country_agg""",
                         "spark": {},
                         "upstream_tables": ["public.basic.dim_users"],
                     },
@@ -2743,6 +2752,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "job": "SparkSqlMaterializationJob",
                 },
                 {
+                    "backfills": [],
                     "config": {
                         "columns": [
                             {"name": "country", "type": "string"},
@@ -2772,7 +2782,33 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             ],
         )
 
-        # Setting the materialization config with a temporal partition should succeed
+        # Set both temporal and categorical partitions on node
+        response = client_with_query_service.post(
+            "/nodes/default.hard_hat/columns/birth_date/partition",
+            json={
+                "type_": "temporal",
+                "granularity": "day",
+                "format": "yyyyMMdd",
+            },
+        )
+        # assert response.json() == {}
+
+        client_with_query_service.post(
+            "/nodes/default.hard_hat/columns/contractor_id/partition",
+            json={
+                "type_": "categorical",
+            },
+        )
+
+        client_with_query_service.post(
+            "/nodes/default.hard_hat/columns/country/partition",
+            json={
+                "type_": "categorical",
+            },
+        )
+
+        # Setting the materialization config should succeed and it should reschedule
+        # the materialization with the temporal partition
         response = client_with_query_service.post(
             "/nodes/default.hard_hat/materialization/",
             json={
@@ -2780,32 +2816,51 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "name": "spark",
                     "version": "2.4.4",
                 },
-                "config": {
-                    "partitions": [
-                        {
-                            "name": "country",
-                            "values": ["DE", "MY"],
-                            "type_": "categorical",
-                        },
-                        {
-                            "name": "birth_date",
-                            "range": (20010101, 20020101),
-                            "type_": "temporal",
-                        },
-                        {
-                            "name": "contractor_id",
-                            "range": (1, 10),
-                            "type_": "categorical",
-                        },
-                    ],
-                },
+                "config": {},
                 "schedule": "0 * * * *",
             },
         )
         data = response.json()
         assert (
-            data["message"] == "Successfully updated materialization config named "
-            "`country_birth_date_contractor_id_379232101` for node `default.hard_hat`"
+            data["message"]
+            == "Successfully updated materialization config named `birth_date_spark` for node "
+            "`default.hard_hat`"
+        )
+        expected_query = """SELECT  address,
+    birth_date,
+    city,
+    contractor_id,
+    country,
+    first_name,
+    hard_hat_id,
+    hire_date,
+    last_name,
+    manager,
+    postal_code,
+    state,
+    title
+ FROM (SELECT  default_DOT_hard_hats.address,
+    default_DOT_hard_hats.birth_date,
+    default_DOT_hard_hats.city,
+    default_DOT_hard_hats.contractor_id,
+    default_DOT_hard_hats.country,
+    default_DOT_hard_hats.first_name,
+    default_DOT_hard_hats.hard_hat_id,
+    default_DOT_hard_hats.hire_date,
+    default_DOT_hard_hats.last_name,
+    default_DOT_hard_hats.manager,
+    default_DOT_hard_hats.postal_code,
+    default_DOT_hard_hats.state,
+    default_DOT_hard_hats.title
+ FROM roads.hard_hats AS default_DOT_hard_hats
+
+) AS default_DOT_hard_hat
+WHERE  birth_date = CAST(DATE_FORMAT(CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd')
+AS TIMESTAMP)"""
+        args, _ = query_service_client.materialize.call_args_list[1]  # type: ignore
+        assert (
+            re.compile(r"\s+").sub(" ", args[0].query).strip()
+            == re.compile(r"\s+").sub(" ", expected_query).strip()
         )
 
         # Check that the temporal partition is appended onto the list of partitions in the
@@ -2817,7 +2872,8 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             data["materializations"],
             [
                 {
-                    "name": "country_birth_date_contractor_id_379232101",
+                    "backfills": [],
+                    "name": "birth_date_spark",
                     "engine": {
                         "name": "spark",
                         "version": "2.4.4",
@@ -2867,32 +2923,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
     default_DOT_hard_hats.state,
     default_DOT_hard_hats.title
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat
- WHERE  default_DOT_hard_hat.country IN ('DE', 'MY')
-     AND default_DOT_hard_hat.contractor_id BETWEEN 1 AND 10""",
-                        "partitions": [
-                            {
-                                "name": "country",
-                                "values": ["DE", "MY"],
-                                "range": None,
-                                "type_": "categorical",
-                                "expression": None,
-                            },
-                            {
-                                "name": "birth_date",
-                                "values": None,
-                                "range": [20010101, 20020101],
-                                "type_": "temporal",
-                                "expression": None,
-                            },
-                            {
-                                "name": "contractor_id",
-                                "values": None,
-                                "range": [1, 10],
-                                "type_": "categorical",
-                                "expression": None,
-                            },
-                        ],
+ AS default_DOT_hard_hat""",
                         "spark": {},
                         "upstream_tables": ["default.roads.hard_hats"],
                     },
@@ -2910,6 +2941,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             response.json(),
             [
                 {
+                    "backfills": [],
                     "config": {
                         "columns": [
                             {"name": "hard_hat_id", "type": "int"},
@@ -2925,29 +2957,6 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                             {"name": "country", "type": "string"},
                             {"name": "manager", "type": "int"},
                             {"name": "contractor_id", "type": "int"},
-                        ],
-                        "partitions": [
-                            {
-                                "expression": None,
-                                "name": "country",
-                                "range": None,
-                                "type_": "categorical",
-                                "values": ["DE", "MY"],
-                            },
-                            {
-                                "expression": None,
-                                "name": "birth_date",
-                                "range": [20010101, 20020101],
-                                "type_": "temporal",
-                                "values": None,
-                            },
-                            {
-                                "expression": None,
-                                "name": "contractor_id",
-                                "range": [1, 10],
-                                "type_": "categorical",
-                                "values": None,
-                            },
                         ],
                         "query": """SELECT  default_DOT_hard_hat.address,
     default_DOT_hard_hat.birth_date,
@@ -2976,9 +2985,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
     default_DOT_hard_hats.state,
     default_DOT_hard_hats.title
  FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat
- WHERE  default_DOT_hard_hat.country IN ('DE', 'MY')
-     AND default_DOT_hard_hat.contractor_id BETWEEN 1 AND 10""",
+ AS default_DOT_hard_hat""",
                         "spark": {},
                         "upstream_tables": ["default.roads.hard_hats"],
                     },
@@ -2989,13 +2996,34 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                         "version": "2.4.4",
                     },
                     "job": "SparkSqlMaterializationJob",
-                    "name": "country_birth_date_contractor_id_379232101",
+                    "name": "birth_date_spark",
                     "output_tables": ["common.a", "common.b"],
                     "schedule": "0 * * * *",
                     "urls": ["http://fake.url/job"],
                 },
             ],
         )
+
+        # Kick off backfill for this materialization
+        response = client_with_query_service.post(
+            "/nodes/default.hard_hat/materializations/birth_date_spark/backfill",
+            json={
+                "column_name": "birth_date",
+                "range": ["20230101", "20230201"],
+            },
+        )
+        assert query_service_client.run_backfill.call_args_list == [  # type: ignore
+            call(
+                "default.hard_hat",
+                "birth_date_spark",
+                PartitionBackfill(
+                    column_name="birth_date",
+                    values=None,
+                    range=["20230101", "20230201"],
+                ),
+            ),
+        ]
+        assert response.json() == {"output_tables": [], "urls": ["http://fake.url/job"]}
 
     def test_update_column_display_name(self, client_with_roads: TestClient):
         """
@@ -3014,7 +3042,24 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
             "display_name": "test",
             "name": "hard_hat_id",
             "type": "int",
+            "partition": None,
         }
+
+    def test_backfill_failures(self, client_with_query_service):
+        """Run backfill failure modes"""
+
+        # Kick off backfill for non-existent materalization
+        response = client_with_query_service.post(
+            "/nodes/default.hard_hat/materializations/non_existent/backfill",
+            json={
+                "column_name": "birth_date",
+                "range": ["20230101", "20230201"],
+            },
+        )
+        assert (
+            response.json()["message"]
+            == "Materialization with name non_existent not found"
+        )
 
 
 class TestNodeColumnsAttributes:
@@ -3119,6 +3164,7 @@ class TestNodeColumnsAttributes:
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
                 "dimension": None,
+                "partition": None,
             },
         ]
 
@@ -3155,6 +3201,7 @@ class TestNodeColumnsAttributes:
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
                 "dimension": None,
+                "partition": None,
             },
         ]
 
@@ -3182,6 +3229,7 @@ class TestNodeColumnsAttributes:
                     },
                 ],
                 "dimension": None,
+                "partition": None,
             },
         ]
 
@@ -3198,6 +3246,7 @@ class TestNodeColumnsAttributes:
                 "display_name": "Id",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
         ]
 
@@ -3276,6 +3325,7 @@ class TestNodeColumnsAttributes:
                     {"attribute_type": {"name": "primary_key", "namespace": "system"}},
                 ],
                 "dimension": {"name": "basic.dimension.users"},
+                "partition": None,
             },
         ]
 
@@ -3319,6 +3369,7 @@ class TestNodeColumnsAttributes:
                 "display_name": "Id",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "user_id",
@@ -3328,6 +3379,7 @@ class TestNodeColumnsAttributes:
                     {"attribute_type": {"namespace": "system", "name": "primary_key"}},
                 ],
                 "dimension": {"name": "basic.dimension.users"},
+                "partition": None,
             },
             {
                 "name": "timestamp",
@@ -3335,6 +3387,7 @@ class TestNodeColumnsAttributes:
                 "display_name": "Timestamp",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "text",
@@ -3342,6 +3395,7 @@ class TestNodeColumnsAttributes:
                 "display_name": "Text",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "event_timestamp",
@@ -3349,6 +3403,7 @@ class TestNodeColumnsAttributes:
                 "display_name": "Event Timestamp",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "created_at",
@@ -3356,6 +3411,7 @@ class TestNodeColumnsAttributes:
                 "display_name": "Created At",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
             {
                 "name": "post_processing_timestamp",
@@ -3363,6 +3419,7 @@ class TestNodeColumnsAttributes:
                 "display_name": "Post Processing Timestamp",
                 "attributes": [],
                 "dimension": None,
+                "partition": None,
             },
         ]
 
@@ -3401,6 +3458,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "type": "int",
                 "display_name": "Payment Id",
                 "measure_id": None,
+                "partition_id": None,
             },
         ]
         assert data["status"] == "valid"
@@ -3505,6 +3563,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                     "display_name": "Col0",
                     "dimension_column": None,
                     "measure_id": None,
+                    "partition_id": None,
                 },
             ],
             "errors": [
@@ -3546,6 +3605,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Col0",
                 "dimension_column": None,
                 "measure_id": None,
+                "partition_id": None,
             },
         ]
         assert data["missing_parents"] == ["node_that_does_not_exist"]
@@ -3731,6 +3791,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Hard Hat Id",
                 "name": "hard_hat_id",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -3738,6 +3799,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Title",
                 "name": "title",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -3745,6 +3807,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "State",
                 "name": "state",
                 "type": "string",
+                "partition": None,
             },
         ]
 
@@ -3977,6 +4040,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Us Region Id",
                 "name": "us_region_id",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [
@@ -3986,6 +4050,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "State Name",
                 "name": "state_name",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -3993,6 +4058,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Location Hierarchy",
                 "name": "location_hierarchy",
                 "type": "string",
+                "partition": None,
             },
             {
                 "attributes": [
@@ -4002,6 +4068,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Order Year",
                 "name": "order_year",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [
@@ -4011,6 +4078,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Order Month",
                 "name": "order_month",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [
@@ -4020,6 +4088,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Order Day",
                 "name": "order_day",
                 "type": "int",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -4027,6 +4096,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Completed Repairs",
                 "name": "completed_repairs",
                 "type": "bigint",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -4034,6 +4104,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Total Repairs Dispatched",
                 "name": "total_repairs_dispatched",
                 "type": "bigint",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -4041,6 +4112,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Total Amount In Region",
                 "name": "total_amount_in_region",
                 "type": "double",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -4048,6 +4120,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Avg Repair Amount In Region",
                 "name": "avg_repair_amount_in_region",
                 "type": "double",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -4055,6 +4128,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Avg Dispatch Delay",
                 "name": "avg_dispatch_delay",
                 "type": "double",
+                "partition": None,
             },
             {
                 "attributes": [],
@@ -4062,6 +4136,7 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "display_name": "Unique Contractors",
                 "name": "unique_contractors",
                 "type": "bigint",
+                "partition": None,
             },
         ]
 
@@ -4072,9 +4147,10 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             {
                 "attributes": [],
                 "dimension": None,
-                "display_name": "Default Dot Regional Repair Efficiency",
+                "display_name": "Default: Regional Repair Efficiency",
                 "name": "default_DOT_regional_repair_efficiency",
                 "type": "double",
+                "partition": None,
             },
         ]
         response = client_with_roads.get(
@@ -4548,3 +4624,111 @@ def test_list_dimension_attributes(client_with_roads: TestClient) -> None:
         {"name": "default.regional_level_agg.state_name", "path": [], "type": "string"},
         {"name": "default.regional_level_agg.us_region_id", "path": [], "type": "int"},
     ]
+
+
+def test_set_column_partition(client_with_roads: TestClient):
+    """
+    Test setting temporal and categorical partitions on node
+    """
+    # Set hire_date to temporal
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/hire_date/partition",
+        json={
+            "type_": "temporal",
+            "granularity": "hour",
+            "format": "yyyyMMddHH",
+        },
+    )
+    assert response.json() == {
+        "attributes": [],
+        "dimension": None,
+        "display_name": "Hire Date",
+        "name": "hire_date",
+        "partition": {
+            "expression": None,
+            "format": "yyyyMMddHH",
+            "type_": "temporal",
+            "granularity": "hour",
+        },
+        "type": "timestamp",
+    }
+
+    # Set state to categorical
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/state/partition",
+        json={
+            "type_": "categorical",
+        },
+    )
+    assert response.json() == {
+        "attributes": [],
+        "dimension": {"name": "default.us_state"},
+        "display_name": "State",
+        "name": "state",
+        "partition": {
+            "expression": None,
+            "type_": "categorical",
+            "format": None,
+            "granularity": None,
+        },
+        "type": "string",
+    }
+
+    # Attempt to set country to temporal (missing granularity)
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/country/partition",
+        json={
+            "type_": "temporal",
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "The granularity must be provided for temporal partitions. One of: "
+        "['SECOND', 'MINUTE', 'HOUR', 'DAY', 'WEEK', 'MONTH', 'QUARTER', "
+        "'YEAR']"
+    )
+
+    # Attempt to set country to temporal (missing format)
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/country/partition",
+        json={
+            "type_": "temporal",
+            "granularity": "day",
+        },
+    )
+    assert (
+        response.json()["message"]
+        == "The temporal partition column's datetime format must be provided."
+    )
+
+    # Set country to temporal
+    client_with_roads.post(
+        "/nodes/default.hard_hat/columns/country/partition",
+        json={
+            "type_": "temporal",
+            "granularity": "day",
+            "format": "yyyyMMdd",
+        },
+    )
+
+    # Update country to categorical
+    response = client_with_roads.post(
+        "/nodes/default.hard_hat/columns/country/partition",
+        json={
+            "type_": "categorical",
+            "expression": "",
+        },
+    )
+    assert response.json() == {
+        "attributes": [],
+        "dimension": None,
+        "display_name": "Country",
+        "name": "country",
+        "partition": {
+            "expression": None,
+            "type_": "categorical",
+            "format": None,
+            "granularity": None,
+        },
+        "type": "string",
+    }

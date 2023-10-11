@@ -9,6 +9,7 @@ from sqlmodel import SQLModel
 
 from datajunction_server.models.materialization import MaterializationConfigOutput
 from datajunction_server.models.node import AvailabilityState, ColumnOutput, NodeType
+from datajunction_server.models.partition import PartitionOutput
 from datajunction_server.typing import UTCDatetime
 
 
@@ -18,8 +19,10 @@ class CubeElementMetadata(SQLModel):
     """
 
     name: str
+    display_name: str
     node_name: str
     type: str
+    partition: Optional[PartitionOutput]
 
     @root_validator(pre=True)
     def type_string(cls, values):  # pylint: disable=no-self-argument
@@ -28,7 +31,11 @@ class CubeElementMetadata(SQLModel):
         """
         values = dict(values)
         values["node_name"] = values["node_revisions"][0].name
-        values["type"] = values["node_revisions"][0].type
+        values["type"] = (
+            values["node_revisions"][0].type
+            if values["node_revisions"][0].type == NodeType.METRIC
+            else NodeType.DIMENSION
+        )
         return values
 
 

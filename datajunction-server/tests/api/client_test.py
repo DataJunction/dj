@@ -141,19 +141,13 @@ def test_generated_python_client_code_adding_materialization(
                 "version": "2.4.4",
             },
             "config": {
-                "partitions": [
-                    {
-                        "name": "country",
-                        "values": ["DE", "MY"],
-                        "type_": "categorical",
-                    },
-                ],
+                "spark": {},
             },
             "schedule": "0 * * * *",
         },
     )
     response = custom_client.get(
-        "/datajunction-clients/python/add_materialization/basic.transform.country_agg/country_3491792861",  # pylint: disable=line-too-long
+        "/datajunction-clients/python/add_materialization/basic.transform.country_agg/spark",
     )
     assert (
         response.json()
@@ -169,18 +163,6 @@ materialization = MaterializationConfig(
     ),
     schedule="0 * * * *",
     config={
-        "partitions": [
-            {
-                "name": "country",
-                "values": [
-                    "DE",
-                    "MY"
-                ],
-                "range": null,
-                "expression": null,
-                "type_": "categorical"
-            }
-        ],
         "spark": {}
     },
 )

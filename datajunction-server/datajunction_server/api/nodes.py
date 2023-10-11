@@ -41,11 +41,12 @@ from datajunction_server.internal.nodes import (
     create_cube_node_revision,
     create_node_revision,
     get_column_level_lineage,
+    get_node_column,
     save_node,
     set_node_column_attributes,
     update_any_node,
 )
-from datajunction_server.models import User, access
+from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column
@@ -73,6 +74,13 @@ from datajunction_server.models.node import (
     NodeValidation,
     UpdateNode,
 )
+from datajunction_server.models.partition import (
+    Granularity,
+    Partition,
+    PartitionInput,
+    PartitionType,
+)
+from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_dimensions, get_nodes_with_dimension
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -979,4 +987,67 @@ def set_column_display_name(
     session.refresh(column)
     session.refresh(node)
     session.refresh(node.current)
+    return column
+
+
+@router.post(
+    "/nodes/{node_name}/columns/{column_name}/partition",
+    response_model=ColumnOutput,
+    status_code=201,
+    name="Set Node Column as Partition",
+)
+def set_column_partition(  # pylint: disable=too-many-locals
+    node_name: str,
+    column_name: str,
+    input_partition: PartitionInput,
+    *,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+) -> ColumnOutput:
+    """
+    Add or update partition columns for the specified node.
+    """
+    node = get_node_by_name(session, node_name)
+    column = get_node_column(node, column_name)
+    upsert_partition_event = History(
+        entity_type=EntityType.PARTITION,
+        node=node_name,
+        activity_type=ActivityType.CREATE,
+        details={
+            "column": column_name,
+            "partition": input_partition.dict(),
+        },
+        user=current_user.username if current_user else None,
+    )
+
+    if input_partition.type_ == PartitionType.TEMPORAL:
+        if input_partition.granularity is None:
+            raise DJInvalidInputException(
+                message=f"The granularity must be provided for temporal partitions. "
+                f"One of: {[val.name for val in Granularity]}",
+            )
+        if input_partition.format is None:
+            raise DJInvalidInputException(
+                message="The temporal partition column's datetime format must be provided.",
+            )
+
+    if column.partition:
+        column.partition.type_ = input_partition.type_
+        column.partition.granularity = input_partition.granularity
+        column.partition.format = input_partition.format
+        session.add(column)
+        upsert_partition_event.activity_type = ActivityType.UPDATE
+        session.add(upsert_partition_event)
+    else:
+        partition = Partition(
+            column=column,
+            type_=input_partition.type_,
+            granularity=input_partition.granularity,
+            format=input_partition.format,
+        )
+        session.add(partition)
+        session.add(upsert_partition_event)
+
+    session.commit()
+    session.refresh(column)
     return column
