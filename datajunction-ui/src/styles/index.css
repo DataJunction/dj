@@ -453,6 +453,11 @@ tbody th {
   color: #580076;
 }
 
+.node_type__blank {
+  font-family: 'Jost';
+  background-color: #ffffff !important;
+  color: #a96621;
+}
 .entity__tag {
   font-family: 'Jost';
   background-color: #afd4ff !important;

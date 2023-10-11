@@ -587,8 +587,18 @@ export const DataJunctionAPI = {
     nodeName,
     columnName,
     partitionType,
-    partitionExpression,
+    format,
+    granularity,
   ) {
+    const body = {
+      type_: partitionType,
+    };
+    if (format) {
+      body.format = format;
+    }
+    if (granularity) {
+      body.granularity = granularity;
+    }
     const response = await fetch(
       `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/partition`,
       {
@@ -596,10 +606,7 @@ export const DataJunctionAPI = {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          type_: partitionType,
-          expression: partitionExpression,
-        }),
+        body: JSON.stringify(body),
         credentials: 'include',
       },
     );

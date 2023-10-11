@@ -728,7 +728,8 @@ describe('DataJunctionAPI', () => {
       'default.hard_hat',
       'hire_date',
       'temporal',
-      '',
+      'yyyyMMdd',
+      'day',
     );
     expect(fetch).toHaveBeenCalledWith(
       `${DJ_URL}/nodes/default.hard_hat/columns/hire_date/partition`,
@@ -739,7 +740,8 @@ describe('DataJunctionAPI', () => {
         },
         body: JSON.stringify({
           type_: 'temporal',
-          expression: '',
+          format: 'yyyyMMdd',
+          granularity: 'day',
         }),
         method: 'POST',
       },
