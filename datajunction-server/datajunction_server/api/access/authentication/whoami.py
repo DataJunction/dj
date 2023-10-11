@@ -7,8 +7,8 @@ from http import HTTPStatus
 from fastapi import Depends, Request
 from fastapi.responses import JSONResponse
 
-from datajunction_server.internal.authentication.http import SecureAPIRouter
-from datajunction_server.internal.authentication.tokens import create_token
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.models.user import User, UserOutput
 from datajunction_server.utils import get_current_user, get_settings
 

@@ -1,7 +1,7 @@
 """
 Tests for GitHub OAuth helper functions
 """
-from datajunction_server.internal.authentication import github
+from datajunction_server.internal.access.authentication import github
 
 
 def test_get_authorize_url():

@@ -11,8 +11,8 @@ from fastapi.responses import JSONResponse, RedirectResponse
 
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJError, DJException, ErrorCode
-from datajunction_server.internal.authentication import github
-from datajunction_server.internal.authentication.tokens import create_token
+from datajunction_server.internal.access.authentication import github
+from datajunction_server.internal.access.authentication.tokens import create_token
 from datajunction_server.utils import get_settings
 
 _logger = logging.getLogger(__name__)

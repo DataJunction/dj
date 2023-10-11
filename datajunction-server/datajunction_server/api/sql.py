@@ -13,9 +13,9 @@ from datajunction_server.api.helpers import (
     get_query,
     validate_orderby,
 )
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import User, access
-from datajunction_server.models.access import validate_access
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.utils import get_current_user, get_session, get_settings

@@ -7,7 +7,7 @@ from sqlmodel import Session
 
 from datajunction_server.constants import AUTH_COOKIE
 from datajunction_server.errors import DJException
-from datajunction_server.internal.authentication import basic
+from datajunction_server.internal.access.authentication import basic
 
 
 def test_login_with_username_and_password(client: TestClient):

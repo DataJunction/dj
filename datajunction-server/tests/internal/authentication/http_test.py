@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from datajunction_server.errors import DJException
-from datajunction_server.internal.authentication.http import DJHTTPBearer
+from datajunction_server.internal.access.authentication.http import DJHTTPBearer
 from datajunction_server.models.user import OAuthProvider, User
 
 EXAMPLE_TOKEN = (

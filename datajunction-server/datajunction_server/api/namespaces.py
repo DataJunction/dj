@@ -16,7 +16,11 @@ from datajunction_server.api.helpers import (
     get_node_namespace,
 )
 from datajunction_server.errors import DJAlreadyExistsException
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    validate_access,
+    validate_access_namespaces,
+)
 from datajunction_server.internal.namespaces import (
     create_namespace,
     get_nodes_in_namespace,
@@ -26,7 +30,6 @@ from datajunction_server.internal.namespaces import (
     validate_namespace,
 )
 from datajunction_server.models import User, access
-from datajunction_server.models.access import validate_access
 from datajunction_server.models.node import (
     NamespaceOutput,
     Node,
@@ -109,7 +112,7 @@ def list_namespaces(
         for nmspc_out in namespace_outputs
         if nmspc_out.namespace
         in set(
-            access.validate_access_namespaces(
+            validate_access_namespaces(
                 validate_access,
                 access.ResourceRequestVerb.BROWSE,
                 current_user,

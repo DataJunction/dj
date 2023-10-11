@@ -40,8 +40,8 @@ from datajunction_server.api import (
     sql,
     tags,
 )
+from datajunction_server.api.access.authentication import whoami
 from datajunction_server.api.attributes import default_attribute_types
-from datajunction_server.api.authentication import whoami
 from datajunction_server.api.graphql.main import graphql_app
 from datajunction_server.constants import AUTH_COOKIE, LOGGED_IN_FLAG_COOKIE
 from datajunction_server.errors import DJException
@@ -128,7 +128,7 @@ async def dj_exception_handler(  # pylint: disable=unused-argument
 
 # Only mount basic auth router if a server secret is configured
 if settings.secret:  # pragma: no cover
-    from datajunction_server.api.authentication import basic
+    from datajunction_server.api.access.authentication import basic
 
     app.include_router(basic.router)
 
@@ -140,7 +140,7 @@ if all(
         settings.github_oauth_client_secret,
     ],
 ):  # pragma: no cover
-    from datajunction_server.api.authentication import github
+    from datajunction_server.api.access.authentication import github
 
     app.include_router(github.router)
 
@@ -153,6 +153,6 @@ if all(
         settings.google_oauth_client_secret_file,
     ],
 ):  # pragma: no cover
-    from datajunction_server.api.authentication import google
+    from datajunction_server.api.access.authentication import google
 
     app.include_router(google.router)

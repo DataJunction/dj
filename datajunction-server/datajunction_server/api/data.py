@@ -22,9 +22,12 @@ from datajunction_server.errors import (
     DJInvalidInputException,
     DJQueryServiceClientException,
 )
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    validate_access,
+    validate_access_nodes,
+)
 from datajunction_server.models import History, User, access
-from datajunction_server.models.access import validate_access
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.node import (
@@ -67,7 +70,7 @@ def add_availability_state(
 
     # Source nodes require that any availability states set are for one of the defined tables
     node_revision = node.current
-    access.validate_access_nodes(
+    validate_access_nodes(
         validate_access,
         access.ResourceRequestVerb.WRITE,
         current_user,

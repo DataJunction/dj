@@ -13,7 +13,7 @@ from sqlmodel import Session
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.errors import DJException
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.materializations import (
     create_new_materialization,
     schedule_materialization_jobs,

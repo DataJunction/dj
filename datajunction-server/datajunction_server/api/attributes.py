@@ -9,7 +9,7 @@ from fastapi import Depends
 from sqlmodel import Session, select
 
 from datajunction_server.errors import DJAlreadyExistsException, DJException
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.attribute import (
     RESERVED_ATTRIBUTE_NAMESPACE,
     AttributeType,

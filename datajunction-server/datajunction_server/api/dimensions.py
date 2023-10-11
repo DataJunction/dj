@@ -10,9 +10,12 @@ from typing_extensions import Annotated
 
 from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    validate_access,
+    validate_access_nodes,
+)
 from datajunction_server.models import User, access
-from datajunction_server.models.access import validate_access
 from datajunction_server.models.node import NodeRevisionOutput, NodeType
 from datajunction_server.sql.dag import (
     get_nodes_with_common_dimensions,
@@ -63,7 +66,7 @@ def find_nodes_with_dimension(
     """
     dimension_node = get_node_by_name(session, name)
     nodes = get_nodes_with_dimension(session, dimension_node, node_type)
-    return access.validate_access_nodes(
+    return validate_access_nodes(
         validate_access,
         access.ResourceRequestVerb.READ,
         current_user,
@@ -90,7 +93,7 @@ def find_nodes_with_common_dimensions(
         [get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
     )
-    return access.validate_access_nodes(
+    return validate_access_nodes(
         validate_access,
         access.ResourceRequestVerb.READ,
         current_user,

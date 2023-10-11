@@ -30,7 +30,11 @@ from datajunction_server.api.helpers import (
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
 from datajunction_server.errors import DJException, DJInvalidInputException
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import (
+    validate_access,
+    validate_access_nodes,
+)
 from datajunction_server.internal.materializations import schedule_materialization_jobs
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
@@ -42,7 +46,6 @@ from datajunction_server.internal.nodes import (
     update_any_node,
 )
 from datajunction_server.models import User, access
-from datajunction_server.models.access import validate_access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column
@@ -186,7 +189,7 @@ def list_nodes(
     nodes = session.exec(statement).unique().all()
     return [
         node.name
-        for node in access.validate_access_nodes(
+        for node in validate_access_nodes(
             validate_access,
             access.ResourceRequestVerb.BROWSE,
             current_user,

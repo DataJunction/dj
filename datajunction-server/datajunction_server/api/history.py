@@ -9,7 +9,7 @@ from fastapi import Depends, Query
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import get_history
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.models.history import EntityType, History
 from datajunction_server.utils import get_session, get_settings
 
