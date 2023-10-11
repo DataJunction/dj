@@ -74,7 +74,12 @@ from datajunction_server.models.node import (
     NodeValidation,
     UpdateNode,
 )
-from datajunction_server.models.partition import Partition, PartitionInput
+from datajunction_server.models.partition import (
+    Granularity,
+    Partition,
+    PartitionInput,
+    PartitionType,
+)
 from datajunction_server.models.user import User
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_dimensions, get_nodes_with_dimension
@@ -1014,17 +1019,31 @@ def set_column_partition(  # pylint: disable=too-many-locals
         },
         user=current_user.username if current_user else None,
     )
+
+    if input_partition.type_ == PartitionType.TEMPORAL:
+        if input_partition.granularity is None:
+            raise DJInvalidInputException(
+                message=f"The granularity must be provided for temporal partitions. "
+                f"One of: {[val.name for val in Granularity]}",
+            )
+        if input_partition.format is None:
+            raise DJInvalidInputException(
+                message="The temporal partition column's datetime format must be provided.",
+            )
+
     if column.partition:
         column.partition.type_ = input_partition.type_
-        column.partition.expression = input_partition.expression
+        column.partition.granularity = input_partition.granularity
+        column.partition.format = input_partition.format
         session.add(column)
         upsert_partition_event.activity_type = ActivityType.UPDATE
         session.add(upsert_partition_event)
     else:
         partition = Partition(
             column=column,
-            expression=input_partition.expression,
             type_=input_partition.type_,
+            granularity=input_partition.granularity,
+            format=input_partition.format,
         )
         session.add(partition)
         session.add(upsert_partition_event)

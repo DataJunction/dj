@@ -22,7 +22,8 @@ def set_temporal_partition_cube(client: TestClient):
         "/nodes/default.repairs_cube/columns/default_DOT_hard_hat_DOT_hire_date/partition",
         json={
             "type_": "temporal",
-            "expression": "",
+            "granularity": "day",
+            "format": "yyyyMMdd",
         },
     )
 
@@ -802,6 +803,7 @@ def test_cube_materialization_sql_and_measures(
 
 def test_add_materialization_cube_failures(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+    query_service_client: QueryServiceClient,
 ):
     """
     Verifies failure modes when adding materialization config to cube nodes
@@ -836,6 +838,12 @@ def test_add_materialization_cube_failures(
         == "Successfully updated materialization config named "
         "`default_DOT_hard_hat_DOT_hire_date_druid` "
         "for node `default.repairs_cube`"
+    )
+    args, _ = query_service_client.materialize.call_args_list[0]  # type: ignore
+    assert (
+        "WHERE  default_DOT_hard_hat_DOT_hire_date = CAST(DATE_FORMAT("
+        "CAST(${dj_logical_timestamp} AS TIMESTAMP), 'yyyyMMdd') AS TIMESTAMP)"
+        in args[0].query
     )
 
     response = client_with_repairs_cube.post(
@@ -959,7 +967,7 @@ def test_add_materialization_config_to_cube(
             "dataSource": "default_DOT_repairs_cube",
             "granularitySpec": {
                 "intervals": [],
-                "segmentGranularity": "DAY",
+                "segmentGranularity": "day",
                 "type": "uniform",
             },
             "metricsSpec": [

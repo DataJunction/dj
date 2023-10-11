@@ -15,7 +15,6 @@ from datajunction_server.models.materialization import (
     Materialization,
     MaterializationInfo,
 )
-from datajunction_server.models.partition import PartitionType
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import parse
@@ -87,20 +86,17 @@ class DruidCubeMaterializationJob(MaterializationJob):
         }
 
         metrics_spec = list(_metrics_spec.values())
-        granularity, timestamp_column = None, None
-        for col in node_revision.columns:
-            if col.partition and col.partition.type_ == PartitionType.TEMPORAL:
-                granularity = "DAY"
-                timestamp_column = col.name
+        temporal_partition_cols = node_revision.temporal_partition_columns()
 
-        if not granularity or not timestamp_column:
+        if not temporal_partition_cols:
             raise DJInvalidInputException(
                 "The cube materialization cannot be configured if there is no "
                 "temporal partition specified on the cube. Please set at least one cube"
                 "element with a temporal partition.",
             )
+        temporal_partition_column = temporal_partition_cols[0]
 
-        druid_spec = {
+        druid_spec: Dict = {
             "dataSchema": {
                 "dataSource": druid_datasource_name,
                 "parser": {
@@ -108,20 +104,15 @@ class DruidCubeMaterializationJob(MaterializationJob):
                         "format": "parquet",
                         "dimensionsSpec": {"dimensions": cube_config.dimensions},
                         "timestampSpec": {
-                            "column": timestamp_column,
-                            "format": (
-                                # TODO, fix this to be based on format
-                                "yyyyMMdd"
-                                if granularity == "DAY"
-                                else "yyyyMMddHH"
-                            ),
+                            "column": temporal_partition_column.name,
+                            "format": temporal_partition_column.partition.format,
                         },
                     },
                 },
                 "metricsSpec": metrics_spec,
                 "granularitySpec": {
                     "type": "uniform",
-                    "segmentGranularity": granularity,
+                    "segmentGranularity": temporal_partition_column.partition.granularity,
                     "intervals": [],  # this should be set at runtime
                 },
             },
@@ -188,10 +179,7 @@ def build_materialization_query(
                 left=ast.Column(
                     name=ast.Name(temporal_partition_col[0].alias_or_name.name),  # type: ignore
                 ),
-                right=ast.Function(
-                    ast.Name("DJ_LOGICAL_TIMESTAMP"),
-                    args=[],
-                ),
+                right=temporal_partitions[0].partition.temporal_expression(),
                 op=ast.BinaryOpKind.Eq,
             ),
         ),

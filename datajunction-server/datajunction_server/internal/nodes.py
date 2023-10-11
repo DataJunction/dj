@@ -646,7 +646,8 @@ def update_cube_node(  # pylint: disable=too-many-locals
             new_col.partition = Partition(
                 column=new_col,
                 type_=col.partition.type_,
-                expression=col.partition.expression,
+                format=col.partition.format,
+                granularity=col.partition.granularity,
             )
 
     # Update existing materializations
