@@ -5,7 +5,7 @@ import asyncio
 
 from fastapi.testclient import TestClient
 
-from datajunction_server.internal.authentication.tokens import decode_token
+from datajunction_server.internal.access.authentication.tokens import decode_token
 
 
 def test_whoami(client: TestClient):

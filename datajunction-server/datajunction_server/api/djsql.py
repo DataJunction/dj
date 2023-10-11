@@ -9,9 +9,9 @@ from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
-from datajunction_server.internal.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import User, access
-from datajunction_server.models.access import validate_access
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (

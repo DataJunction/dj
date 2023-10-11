@@ -10,7 +10,7 @@ import requests
 from sqlalchemy.exc import NoResultFound
 from sqlmodel import select
 
-from datajunction_server.internal.authentication.basic import get_password_hash
+from datajunction_server.internal.access.authentication.basic import get_password_hash
 from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.utils import get_session, get_settings
 

@@ -23,7 +23,11 @@ def test_list_nodes_with_dimension_access_limited(
     """
     Test ``GET /dimensions/{name}/nodes/``.
     """
-    from datajunction_server.models import access  # pylint: disable=C
+    # pylint: disable=import-outside-toplevel
+    from datajunction_server.internal.access.authorization import validate_access
+    from datajunction_server.models import access
+
+    # pylint: enable=import-outside-toplevel
 
     def validate_access_override():
         def _validate_access(access_control: access.AccessControl):
@@ -39,7 +43,7 @@ def test_list_nodes_with_dimension_access_limited(
         return _validate_access
 
     app = client_with_roads.app
-    app.dependency_overrides[access.validate_access] = validate_access_override
+    app.dependency_overrides[validate_access] = validate_access_override
 
     response = client_with_roads.get("/dimensions/default.hard_hat/nodes/")
 
