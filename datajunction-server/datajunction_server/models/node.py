@@ -881,7 +881,7 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         """
         return [
             col
-            for col in self.columns
+            for col in self.columns  # type: ignore
             if col.partition and col.partition.type_ == PartitionType.TEMPORAL
         ]
 

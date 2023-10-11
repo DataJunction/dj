@@ -46,7 +46,7 @@ from datajunction_server.internal.nodes import (
     set_node_column_attributes,
     update_any_node,
 )
-from datajunction_server.models import User, access, Column, History
+from datajunction_server.models import access
 from datajunction_server.models.attribute import AttributeTypeIdentifier
 from datajunction_server.models.base import generate_display_name
 from datajunction_server.models.column import Column

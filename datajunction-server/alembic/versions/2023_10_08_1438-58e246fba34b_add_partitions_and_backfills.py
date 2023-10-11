@@ -25,8 +25,9 @@ def upgrade():
         "partition",
         sa.Column("id", sa.Integer(), nullable=False),
         sa.Column("column_id", sa.Integer(), nullable=False),
-        sa.Column("expression", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.Column("type_", sqlmodel.sql.sqltypes.AutoString(), nullable=False),
+        sa.Column("granularity", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column("format", sqlmodel.sql.sqltypes.AutoString(), nullable=True),
         sa.ForeignKeyConstraint(
             ["column_id"],
             ["column.id"],
