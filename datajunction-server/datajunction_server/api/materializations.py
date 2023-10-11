@@ -12,7 +12,7 @@ from fastapi.responses import JSONResponse
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import get_node_by_name
-from datajunction_server.errors import DJException
+from datajunction_server.errors import DJDoesNotExistException, DJException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.materializations import (
     create_new_materialization,
