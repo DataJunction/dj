@@ -24,7 +24,7 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
   }, [setPopoverAnchor]);
 
   const savePartition = async (
-    { node, column, partition_type, partition_expression },
+    { node, column, partition_type, format, granularity },
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
@@ -32,7 +32,8 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
       node,
       column,
       partition_type,
-      partition_expression,
+      format,
+      granularity,
     );
     if (response.status === 200 || response.status === 201) {
       setStatus({ success: 'Saved!' });
@@ -68,19 +69,25 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
           initialValues={{
             column: column.name,
             node: node.name,
-            partition_type: 'temporal',
-            partition_expression: '',
+            partition_type: '',
+            format: 'yyyyMMdd',
+            granularity: 'day',
           }}
           onSubmit={savePartition}
         >
-          {function Render({ isSubmitting, status, setFieldValue }) {
+          {function Render({ values, isSubmitting, status, setFieldValue }) {
             return (
               <Form>
-                {/*<h4>Set Partition</h4>*/}
                 {displayMessageAfterSubmit(status)}
                 <span data-testid="edit-partition">
                   <label htmlFor="react-select-3-input">Partition Type</label>
-                  <Field as="select" name="partition_type" id="partitionType">
+                  <Field
+                    as="select"
+                    name="partition_type"
+                    id="partitionType"
+                    placeholder="Partition Type"
+                  >
+                    <option value=""></option>
                     <option value="temporal">Temporal</option>
                     <option value="categorical">Categorical</option>
                   </Field>
@@ -99,17 +106,35 @@ export default function PartitionColumnPopover({ column, node, onSubmit }) {
                 />
                 <br />
                 <br />
-                <label htmlFor="react-select-3-input">
-                  Partition Expression
-                </label>
-                <Field
-                  type="text"
-                  name="partition_expression"
-                  id="partitionExpression"
-                  placeholder="Optional SQL expression"
-                />
-                <br />
-                <br />
+                {values.partition_type === 'temporal' ? (
+                  <>
+                    <label htmlFor="react-select-3-input">
+                      Partition Format
+                    </label>
+                    <Field
+                      type="text"
+                      name="format"
+                      id="partitionFormat"
+                      placeholder="Optional temporal partition format (ex: yyyyMMdd)"
+                    />
+                    <br />
+                    <br />
+                    <label htmlFor="react-select-3-input">
+                      Partition Granularity
+                    </label>
+                    <Field
+                      as="select"
+                      name="granularity"
+                      id="partitionGranularity"
+                      placeholder="Granularity"
+                    >
+                      <option value="day">Day</option>
+                      <option value="hour">Hour</option>
+                    </Field>
+                  </>
+                ) : (
+                  ''
+                )}
                 <button
                   className="add_node"
                   type="submit"
