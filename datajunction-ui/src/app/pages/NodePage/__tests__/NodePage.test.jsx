@@ -36,6 +36,8 @@ describe('<NodePage />', () => {
         nodesWithDimension: jest.fn(),
         attributes: jest.fn(),
         dimensions: jest.fn(),
+        setPartition: jest.fn(),
+        engines: jest.fn(),
       },
     };
   };
@@ -396,6 +398,12 @@ describe('<NodePage />', () => {
     djClient.DataJunctionAPI.columns.mockReturnValue(mocks.metricNodeColumns);
     djClient.DataJunctionAPI.attributes.mockReturnValue(mocks.attributes);
     djClient.DataJunctionAPI.dimensions.mockReturnValue(mocks.dimensions);
+    djClient.DataJunctionAPI.engines.mockReturnValue([]);
+    djClient.DataJunctionAPI.setPartition.mockReturnValue({
+      status: 200,
+      json: { message: '' },
+    });
+
     const element = (
       <DJClientContext.Provider value={djClient}>
         <NodePage />
@@ -442,6 +450,19 @@ describe('<NodePage />', () => {
       expect(
         screen.getByRole('button', { name: 'SaveLinkDimension' }),
       ).toBeInTheDocument();
+
+      // check that the set column partition popover can be clicked
+      const partitionColumnPopover = screen.getByRole('button', {
+        name: 'PartitionColumn',
+      });
+      expect(partitionColumnPopover).toBeInTheDocument();
+      fireEvent.click(partitionColumnPopover);
+      const savePartition = screen.getByRole('button', {
+        name: 'SaveEditColumn',
+      });
+      expect(savePartition).toBeInTheDocument();
+      fireEvent.click(savePartition);
+      expect(screen.getByText('Saved!'));
     });
   });
   // check compiled SQL on nodeInfo page
@@ -576,7 +597,10 @@ describe('<NodePage />', () => {
       expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
         mocks.mockMetricNode.name,
       );
-      screen.getByText('No materializations available for this node');
+      screen.getByText(
+        'No materialization workflows configured for this node.',
+      );
+      screen.getByText('No materialized datasets available for this node.');
     });
   });
 
@@ -601,20 +625,25 @@ describe('<NodePage />', () => {
         </Routes>
       </MemoryRouter>,
     );
-    await waitFor(() => {
-      fireEvent.click(screen.getByRole('button', { name: 'Materializations' }));
-      expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
-        mocks.mockMetricNode.name,
-      );
-      expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
-        mocks.mockMetricNode.name,
-      );
+    await waitFor(
+      () => {
+        fireEvent.click(
+          screen.getByRole('button', { name: 'Materializations' }),
+        );
+        expect(djClient.DataJunctionAPI.node).toHaveBeenCalledWith(
+          mocks.mockMetricNode.name,
+        );
+        expect(djClient.DataJunctionAPI.materializations).toHaveBeenCalledWith(
+          mocks.mockMetricNode.name,
+        );
 
-      expect(
-        screen.getByRole('table', { name: 'Materializations' }),
-      ).toMatchSnapshot();
-    });
-  });
+        expect(
+          screen.getByRole('table', { name: 'Materializations' }),
+        ).toMatchSnapshot();
+      },
+      { timeout: 3000 },
+    );
+  }, 60000);
 
   it('renders the NodeSQL tab', async () => {
     const djClient = mockDJClient();

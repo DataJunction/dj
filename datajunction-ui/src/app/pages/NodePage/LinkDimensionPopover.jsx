@@ -35,7 +35,6 @@ export default function LinkDimensionPopover({
     { setSubmitting, setStatus },
   ) => {
     setSubmitting(false);
-    console.log('dimension', dimension, 'columnDimension', columnDimension);
     if (columnDimension?.name && dimension === 'Remove') {
       await unlinkDimension(node, column, columnDimension?.name, setStatus);
     } else {

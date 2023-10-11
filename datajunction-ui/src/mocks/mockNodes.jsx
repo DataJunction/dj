@@ -30,6 +30,7 @@ export const mocks = {
         display_name: 'Default DOT num repair orders',
         attributes: [],
         dimension: null,
+        partition: null,
       },
     ],
     primary_key: ['repair_order_id', 'country'],
@@ -247,6 +248,7 @@ export const mocks = {
       display_name: 'Default DOT avg repair price',
       attributes: [],
       dimension: null,
+      partition: null,
     },
   ],
   metricNodeHistory: [
@@ -338,32 +340,19 @@ export const mocks = {
   ],
   nodeMaterializations: [
     {
+      backfills: [
+        {
+          spec: {
+            column_name: 'default_DOT_hard_hat_DOT_hire_date',
+            values: null,
+            range: ['20230101', '20230102'],
+          },
+          urls: [],
+        },
+      ],
       name: 'country_birth_date_contractor_id_379232101',
       engine: { name: 'spark', version: '2.4.4', uri: null, dialect: 'spark' },
       config: {
-        partitions: [
-          {
-            name: 'country',
-            values: ['DE', 'MY'],
-            range: null,
-            expression: null,
-            type_: 'categorical',
-          },
-          {
-            name: 'birth_date',
-            values: null,
-            range: [20010101, 20020101],
-            expression: null,
-            type_: 'temporal',
-          },
-          {
-            name: 'contractor_id',
-            values: null,
-            range: [1, 10],
-            expression: null,
-            type_: 'categorical',
-          },
-        ],
         spark: {},
         query:
           "SELECT  default_DOT_hard_hats.address,\n\tdefault_DOT_hard_hats.birth_date,\n\tdefault_DOT_hard_hats.city,\n\tdefault_DOT_hard_hats.contractor_id,\n\tdefault_DOT_hard_hats.country,\n\tdefault_DOT_hard_hats.first_name,\n\tdefault_DOT_hard_hats.hard_hat_id,\n\tdefault_DOT_hard_hats.hire_date,\n\tdefault_DOT_hard_hats.last_name,\n\tdefault_DOT_hard_hats.manager,\n\tdefault_DOT_hard_hats.postal_code,\n\tdefault_DOT_hard_hats.state,\n\tdefault_DOT_hard_hats.title \n FROM roads.hard_hats AS default_DOT_hard_hats \n WHERE  default_DOT_hard_hats.country IN ('DE', 'MY') AND default_DOT_hard_hats.contractor_id BETWEEN 1 AND 10\n\n",
@@ -1235,66 +1224,66 @@ export const mocks = {
           },
         },
         {
-          "name": "hire_date",
-          "type": "date",
-          "attributes": [],
-          "dimension": {
-            "name": "default.date_dim"
+          name: 'hire_date',
+          type: 'date',
+          attributes: [],
+          dimension: {
+            name: 'default.date_dim',
           },
-          "display_name": "Hire Date"
+          display_name: 'Hire Date',
         },
         {
-          "name": "address",
-          "type": "string",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Address"
+          name: 'address',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+          display_name: 'Address',
         },
         {
-          "name": "city",
-          "type": "string",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "City"
+          name: 'city',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+          display_name: 'City',
         },
         {
-          "name": "state",
-          "type": "string",
-          "attributes": [],
-          "dimension": {
-            "name": "default.us_state"
+          name: 'state',
+          type: 'string',
+          attributes: [],
+          dimension: {
+            name: 'default.us_state',
           },
-          "display_name": "State"
+          display_name: 'State',
         },
         {
-          "name": "postal_code",
-          "type": "string",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Postal Code"
+          name: 'postal_code',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+          display_name: 'Postal Code',
         },
         {
-          "name": "country",
-          "type": "string",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Country"
+          name: 'country',
+          type: 'string',
+          attributes: [],
+          dimension: null,
+          display_name: 'Country',
         },
         {
-          "name": "manager",
-          "type": "int",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Manager"
+          name: 'manager',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+          display_name: 'Manager',
         },
         {
-          "name": "contractor_id",
-          "type": "int",
-          "attributes": [],
-          "dimension": null,
-          "display_name": "Contractor Id"
-        }
-        ],
+          name: 'contractor_id',
+          type: 'int',
+          attributes: [],
+          dimension: null,
+          display_name: 'Contractor Id',
+        },
+      ],
       created_at: '2023-08-21T16:48:55.594537+00:00',
       tags: [],
     },

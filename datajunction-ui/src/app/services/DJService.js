@@ -26,6 +26,14 @@ export const DataJunctionAPI = {
     ).json();
   },
 
+  engines: async function () {
+    return await (
+      await fetch(`${DJ_URL}/engines`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
   node: async function (name) {
     const data = await (
       await fetch(`${DJ_URL}/nodes/${name}/`, {
@@ -573,6 +581,85 @@ export const DataJunctionAPI = {
       body: JSON.stringify(updates),
       credentials: 'include',
     });
+    return { status: response.status, json: await response.json() };
+  },
+  setPartition: async function (
+    nodeName,
+    columnName,
+    partitionType,
+    format,
+    granularity,
+  ) {
+    const body = {
+      type_: partitionType,
+    };
+    if (format) {
+      body.format = format;
+    }
+    if (granularity) {
+      body.granularity = granularity;
+    }
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/columns/${columnName}/partition`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
+  materialize: async function (
+    nodeName,
+    engineName,
+    engineVersion,
+    schedule,
+    config,
+  ) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/materialization`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          engine: {
+            name: engineName,
+            version: engineVersion,
+          },
+          schedule: schedule,
+          config: JSON.parse(config),
+        }),
+        credentials: 'include',
+      },
+    );
+    return { status: response.status, json: await response.json() };
+  },
+  runBackfill: async function (
+    nodeName,
+    materializationName,
+    partitionColumn,
+    from,
+    to,
+  ) {
+    const response = await fetch(
+      `${DJ_URL}/nodes/${nodeName}/materializations/${materializationName}/backfill`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          column_name: partitionColumn,
+          range: [from, to],
+        }),
+        credentials: 'include',
+      },
+    );
     return { status: response.status, json: await response.json() };
   },
 };

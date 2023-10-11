@@ -166,6 +166,17 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
         "get_materialization_info",
         mock_get_materialization_info,
     )
+
+    mock_run_backfill = MagicMock()
+    mock_run_backfill.return_value = MaterializationInfo(
+        urls=["http://fake.url/job"],
+        output_tables=[],
+    )
+    mocker.patch.object(
+        qs_client,
+        "run_backfill",
+        mock_run_backfill,
+    )
     yield qs_client
 
 

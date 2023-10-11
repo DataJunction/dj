@@ -18,7 +18,6 @@ from datajunction_server.materialization.jobs import (
 from datajunction_server.models import Engine, NodeRevision
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.materialization import (
-    DruidConf,
     DruidCubeConfig,
     GenericCubeConfig,
     GenericMaterializationConfig,
@@ -26,8 +25,6 @@ from datajunction_server.models.materialization import (
     MaterializationInfo,
     Measure,
     MetricMeasures,
-    Partition,
-    PartitionType,
     UpsertMaterialization,
 )
 from datajunction_server.models.node import NodeType
@@ -180,24 +177,6 @@ def materialization_job_from_engine(engine: Engine) -> MaterializationJob:
     return engine_to_job_mapping[engine.dialect]  # type: ignore
 
 
-def filters_from_partitions(partitions: List[Partition]):
-    """
-    Derive filters needed from partitions spec.
-    """
-    filters = []
-    for partition in partitions:
-        if partition.type_ != PartitionType.TEMPORAL:  # pragma: no cover
-            if partition.values:  # pragma: no cover
-                quoted_values = [f"'{value}'" for value in partition.values]
-                filters.append(f"{partition.name} IN ({','.join(quoted_values)})")
-            if partition.range and len(partition.range) == 2:
-                filters.append(  # pragma: no cover
-                    f"{partition.name} BETWEEN {partition.range[0]} "
-                    f"AND {partition.range[1]}",
-                )
-    return filters
-
-
 def create_new_materialization(
     session: Session,
     current_revision: NodeRevision,
@@ -216,23 +195,12 @@ def create_new_materialization(
         materialization_ast = build_node(
             session=session,
             node=current_revision,
-            filters=(
-                filters_from_partitions(
-                    [
-                        Partition.parse_obj(partition)
-                        for partition in upsert.config.partitions
-                    ],
-                )
-                if upsert.config.partitions
-                else []
-            ),
             dimensions=[],
             orderby=[],
         )
         generic_config = GenericMaterializationConfig(
             query=str(materialization_ast),
             spark=upsert.config.spark if upsert.config.spark else {},
-            partitions=upsert.config.partitions if upsert.config.partitions else [],
             upstream_tables=[
                 f"{current_revision.catalog.name}.{tbl.identifier()}"
                 for tbl in materialization_ast.find_all(ast.Table)
@@ -259,13 +227,11 @@ def create_new_materialization(
                 dimensions=default_job_config.dimensions,
                 measures=default_job_config.measures,
                 spark=upsert.config.spark,
-                druid=DruidConf.parse_obj(upsert.config.druid),
-                partitions=upsert.config.partitions,
                 upstream_tables=default_job_config.upstream_tables,
                 columns=default_job_config.columns,
             )
-        except (KeyError, ValidationError, AttributeError) as exc:
-            raise DJInvalidInputException(
+        except (KeyError, ValidationError, AttributeError) as exc:  # pragma: no cover
+            raise DJInvalidInputException(  # pragma: no cover
                 message=(
                     "No change has been made to the materialization config for "
                     f"node `{current_revision.name}` and engine `{engine.name}` as"
@@ -273,7 +239,12 @@ def create_new_materialization(
                     f"engine `{engine.name}`."
                 ),
             ) from exc
-    materialization_name = generic_config.identifier()  # type: ignore
+    temporal_partition = current_revision.temporal_partition_columns()
+    materialization_name = (
+        f"{temporal_partition[0].name}_{engine.name}"
+        if temporal_partition
+        else engine.name
+    )
     return Materialization(
         name=materialization_name,
         node_revision=current_revision,
