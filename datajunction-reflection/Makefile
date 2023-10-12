@@ -30,3 +30,8 @@ check:
 
 lint:
 	make check
+
+dev-release:
+	hatch version dev
+	hatch build
+	hatch publish

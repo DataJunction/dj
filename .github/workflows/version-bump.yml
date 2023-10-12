@@ -1,18 +1,17 @@
-name: Bump versions of all DJ Services and Clients.
+name: Bump version of all DJ Services and Clients.
 on:
-  schedule:
-    - cron: "0 0 * * MON"
   workflow_dispatch:
     inputs:
       bump:
         type: choice
-        description: "Hatch version option (default: alpha)"
+        description: "Select version cycle"
         required: true
         default: alpha
         options:
-          - major
-          - minor
-          - patch
+          # Uncomment when read to use:
+          # - major
+          # - minor
+          # - patch
           - alpha
 
 jobs:
@@ -25,6 +24,7 @@ jobs:
     defaults:
       run:
         working-directory: .
+
     steps:
       - uses: actions/checkout@v2
 
@@ -43,45 +43,57 @@ jobs:
           git config user.name "GitHub Actions Bot"
           git config user.email "<>"
 
-      - name: Bump versions
+      #
+      # Python / hatch
+      #
+      - name: Bump version for DJ Server 
+        working-directory: ./datajunction-server
         run: |
-          echo "Bump DJ Server version ..."
-          pushd ./datajunction-server
           hatch version ${{ github.event.inputs.bump }}
-          export NEW_VERSION=v$(hatch version)
+          echo "NEW_VERSION=`hatch version`" >> $GITHUB_ENV
 
-          echo "Copy version to DJ Query Service ..."
-          cp ./datajunction_server/__about__.py ../datajunction-query/djqs/
+      - name: Bump version for DJ Query service 
+        working-directory: ./datajunction-query
+        run: |
+          hatch version ${{ github.event.inputs.bump }}
 
-          echo "Apply to DJ Python Client ..."
-          cp ./datajunction_server/__about__.py ../datajunction-clients/python/datajunction/
-
-          echo "Apply to DJ UI Service ..."
-          popd
-          pushd ./datajunction-ui
+      - name: Bump version for DJ Python client 
+        working-directory: ./datajunction-clients/python
+        run: |
+          hatch version ${{ github.event.inputs.bump }}
+  
+      #
+      # Javascript / npm
+      #
+      - name: Bump version for DJ UI
+        working-directory: ./datajunction-ui
+        run: |
           yarn version --new-version $NEW_VERSION --no-git-tag-version
 
+      - name: Bump version for DJ Javascript client
+        working-directory: ./datajunction-clients/javascript
+        run: |
+          yarn version --new-version $NEW_VERSION --no-git-tag-version
+  
+      #
+      # Docs (after alpha)
+      # 
       - name: Update docs (for major, minor or patch release)
+        working-directory: ./docs
         if: ${{github.event.inputs.bump == 'major' || github.event.inputs.bump == 'minor' || github.event.inputs.bump == 'patch'}}
         run: |
-          echo "Releasing matching docs version ..."
-          pushd ./datajunction-server
-          export NEW_VERSION=v$(hatch version)
-          popd
-          pushd ./docs
           ./build-docs.sh $NEW_VERSION true
   
+      #
+      # Pull request
+      # 
       - name: Open a PR
         run: |
-          # Read the new version
-          pushd ./datajunction-server
-          export NEW_VERSION=v$(hatch version)
-          popd
-
-          echo "Make a PR ..."
+          echo "Make a commit ..."
           git add ./datajunction-*/**/__about__.py
+          git add ./datajunction-clients/javascript/package.json
           git add ./datajunction-ui/package.json
-          git add ./docs
+          git add ./docs          
           git commit -m "Bumping DJ to version $NEW_VERSION ."
           git checkout -b releases/version-$NEW_VERSION
           git push --set-upstream origin releases/version-$NEW_VERSION -f
@@ -90,6 +102,7 @@ jobs:
           git tag -a version-$NEW_VERSION -m version-$NEW_VERSION
           git push origin version-$NEW_VERSION
 
+          echo "Create a PR ..."
           gh pr create -B main -H "releases/version-$NEW_VERSION" --title "Make DataJunctino version $NEW_VERSION" --body "This is an automated PR triggered by the Weekly Version Bump action. Merging this PR will publish all the component for version $NEW_VERSION ."
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}          
