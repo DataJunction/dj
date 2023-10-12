@@ -1,0 +1,85 @@
+name: Matching Versions
+
+on:
+  pull_request:
+    branches: [ main ]
+    # paths:
+    #   # python
+    #   - datajunction-clients/python/__about__.py
+    #   - datajunction-server/datajunction_server/__about__.py
+    #   - datajunction-query/djqs/__about__.py
+    #   # javascript
+    #   - datajunction-clients/javascript/package.json
+    #   - datajunction-ui/package.json
+    #   # java: TODO
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Install Hatch
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatch
+        
+      #
+      # Collect from Python / hatch
+      #
+      - name: Find the version of DJ Server
+        working-directory: ./datajunction-server
+        run: 
+          echo "DJ_SERVER_VERSION=`hatch version`" >> $GITHUB_ENV
+
+      - name: Find the version of DJ Query (service)
+        working-directory: ./datajunction-query
+        run: 
+          echo "DJ_QUERY_VERSION=`hatch version`" >> $GITHUB_ENV
+    
+      - name: Find the version of DJ Python client
+        working-directory: ./datajunction-clients/python
+        run: 
+          echo "DJ_CLIENT_PY_VERSION=`hatch version`" >> $GITHUB_ENV
+
+      #
+      # Collect from JavaScript / yarn
+      #
+      - name: Find the version of DJ UI
+        working-directory: ./datajunction-ui
+        run: 
+          echo "DJ_UI_VERSION=`cat package.json | jq -r '.version'`" >> $GITHUB_ENV
+
+      - name: Find the version of DJ Javascript client
+        working-directory: ./datajunction-clients/javascript
+        run: 
+          echo "DJ_CLIENT_JS_VERSION=`cat package.json | jq -r '.version'`" >> $GITHUB_ENV
+  
+      #
+      # Collect from Java / gradle (TODO)
+      #
+
+      #
+      # Evaluate
+      #
+      - name: Compare and report
+        run: |
+          if [[ 
+            $DJ_SERVER_VERSION == $DJ_QUERY_VERSION &&
+            $DJ_SERVER_VERSION == $DJ_PYTHON_CLIENT_VERSION &&
+            $DJ_SERVER_VERSION == $DJ_UI_VERSION &&
+            $DJ_SERVER_VERSION == $DJ_CLIENT_JS_VERSION
+          ]]; then
+            echo "All versions match: ${DJ_SERVER_VERSION}"
+          else
+            echo "Mismatched component versions found"
+            echo " - DJ Server: ${DJ_SERVER_VERSION}"
+            echo " - DJ Query: ${DJ_QUERY_VERSION}"
+            echo " - DJ UI: ${DJ_UI_VERSION}"
+            echo " - DJ Client for Python: ${DJ_CLIENT_PY_VERSION}"
+            echo " - DJ Client for Javascript: ${DJ_CLIENT_JS_VERSION}"
+            exit 1
+          fi
