@@ -3,21 +3,14 @@ name: Matching Versions
 on:
   pull_request:
     branches: [ main ]
-    # paths:
-    #   # python
-    #   - datajunction-clients/python/__about__.py
-    #   - datajunction-server/datajunction_server/__about__.py
-    #   - datajunction-query/djqs/__about__.py
-    #   # javascript
-    #   - datajunction-clients/javascript/package.json
-    #   - datajunction-ui/package.json
-    #   # java: TODO
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
+    env:
+      ALL_VERSIONS_MATCH: false
 
     steps:
       - uses: actions/checkout@v2
@@ -35,11 +28,16 @@ jobs:
         run: 
           echo "DJ_SERVER_VERSION=`hatch version`" >> $GITHUB_ENV
 
-      - name: Find the version of DJ Query (service)
+      - name: Find the version of DJ Query service
         working-directory: ./datajunction-query
         run: 
           echo "DJ_QUERY_VERSION=`hatch version`" >> $GITHUB_ENV
-    
+
+      - name: Find the version of DJ Reflection service
+        working-directory: ./datajunction-reflection
+        run: 
+          echo "DJ_REFLECTION_VERSION=`hatch version`" >> $GITHUB_ENV
+            
       - name: Find the version of DJ Python client
         working-directory: ./datajunction-clients/python
         run: 
@@ -65,21 +63,20 @@ jobs:
       #
       # Evaluate
       #
-      - name: Compare and report
+      - name: All versions match!
+        if: ${{ env.DJ_SERVER_VERSION == env.DJ_QUERY_VERSION && env.DJ_SERVER_VERSION == env.DJ_REFLECTION_VERSION && env.DJ_SERVER_VERSION == env.DJ_UI_VERSION && env.DJ_SERVER_VERSION == env.DJ_CLIENT_PY_VERSION && env.DJ_SERVER_VERSION == env.DJ_CLIENT_JS_VERSION }}
         run: |
-          if [[ 
-            $DJ_SERVER_VERSION == $DJ_QUERY_VERSION &&
-            $DJ_SERVER_VERSION == $DJ_PYTHON_CLIENT_VERSION &&
-            $DJ_SERVER_VERSION == $DJ_UI_VERSION &&
-            $DJ_SERVER_VERSION == $DJ_CLIENT_JS_VERSION
-          ]]; then
-            echo "All versions match: ${DJ_SERVER_VERSION}"
-          else
-            echo "Mismatched component versions found"
-            echo " - DJ Server: ${DJ_SERVER_VERSION}"
-            echo " - DJ Query: ${DJ_QUERY_VERSION}"
-            echo " - DJ UI: ${DJ_UI_VERSION}"
-            echo " - DJ Client for Python: ${DJ_CLIENT_PY_VERSION}"
-            echo " - DJ Client for Javascript: ${DJ_CLIENT_JS_VERSION}"
-            exit 1
-          fi
+          echo "All versions match: ${DJ_SERVER_VERSION}"
+          echo "ALL_VERSIONS_MATCH=true" >> $GITHUB_ENV
+
+      - name: Fail on mismatch
+        if: ${{ env.ALL_VERSIONS_MATCH == 'false' }}
+        run: |
+          echo "Mismatched component versions found"
+          echo " - DJ Server: ${DJ_SERVER_VERSION}"
+          echo " - DJ Query: ${DJ_QUERY_VERSION}"
+          echo " - DJ Reflection: ${DJ_REFLECTION_VERSION}"
+          echo " - DJ UI: ${DJ_UI_VERSION}"
+          echo " - DJ Client for Python: ${DJ_CLIENT_PY_VERSION}"
+          echo " - DJ Client for Javascript: ${DJ_CLIENT_JS_VERSION}"
+          exit 1
