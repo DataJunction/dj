@@ -8,6 +8,7 @@ on:
       - datajunction-clients/python/__about__.py
       - datajunction-server/datajunction_server/__about__.py
       - datajunction-query/djqs/__about__.py
+      - datajunction-reflection/datajunction_reflection/__about__.py
       # javascript
       - datajunction-clients/javascript/package.json
       - datajunction-ui/package.json
@@ -55,6 +56,12 @@ jobs:
           hatch build
           hatch publish
 
+      - name: Publish DJ Reflection service
+        working-directory: ./datajunction-reflection
+        run: |
+          hatch build
+          hatch publish
+  
       - name: Publish DJ Python client
         working-directory: ./datajunction-clients/python
         run: |
