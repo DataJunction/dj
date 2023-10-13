@@ -69,7 +69,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
-from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR, amenable_name
+from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR
 
 _logger = logging.getLogger(__name__)
 
@@ -427,8 +427,12 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     # dependencies_map = missing_parents_map = {}
     try:
         formatted_query = (
-            NodeRevision.format_metric_alias(validated_node.query, validated_node.name)
-            if validated_node.type == NodeType.METRIC else validated_node.query
+            NodeRevision.format_metric_alias(
+                validated_node.query,  # type: ignore
+                validated_node.name,
+            )
+            if validated_node.type == NodeType.METRIC
+            else validated_node.query
         )
         query_ast = parse(formatted_query)  # type: ignore
         dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)

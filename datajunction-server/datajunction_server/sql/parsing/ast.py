@@ -803,7 +803,6 @@ class Column(Aliasable, Named, Expression):
         """
         Find all tables that this column could have originated from.
         """
-        print("Finding nearest parent for", self)
         query = cast(
             Query,
             self.get_nearest_parent_of_type(Query),

@@ -44,7 +44,6 @@ async def test_build_node(node_name: str, db_id: int, request):
             construction_session,
             node.current,
         )
-        print("AST", str(ast))
         assert compare_query_strings(str(ast), expected)
     else:
         with pytest.raises(Exception) as exc:
@@ -87,7 +86,6 @@ async def test_build_metric_with_dimensions_aggs(request):
          GROUP BY
            basic_DOT_dimension_DOT_users.country, basic_DOT_dimension_DOT_users.gender
     """
-    print("QRRRY", str(query))
     assert compare_query_strings(str(query), expected)
 
 
