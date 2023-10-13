@@ -1878,8 +1878,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         node_data = response.json()
         assert node_data["query"] == (
-            "SELECT  sum(price) default_DOT_total_repair_cost \n"
-            " FROM default.repair_order_details\n\n"
+            "SELECT sum(price) FROM default.repair_order_details"
         )
         response = client_with_roads.get("/nodes/default.total_repair_cost")
         assert response.json()["version"] == "v1.0"
@@ -1890,8 +1889,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         node_data = response.json()
         assert node_data["query"] == (
-            "SELECT  count(price) default_DOT_total_repair_cost \n"
-            " FROM default.repair_order_details\n\n"
+            "SELECT count(price) FROM default.repair_order_details"
         )
         response = client_with_roads.get("/nodes/default.total_repair_cost")
         assert response.json()["version"] == "v2.0"
@@ -3489,7 +3487,8 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             if e
             == {
                 "code": 301,
-                "message": "Node definition contains references to nodes that do not exist",
+                "message": "Node definition contains references to nodes that do not exist: "
+                "large_revenue_payments_only",
                 "debug": {"missing_parents": ["large_revenue_payments_only"]},
                 "context": "",
             }
@@ -3569,7 +3568,8 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "errors": [
                 {
                     "code": 301,
-                    "message": "Node definition contains references to nodes that do not exist",
+                    "message": "Node definition contains references to nodes that do not exist: "
+                    "node_that_does_not_exist",
                     "debug": {"missing_parents": ["node_that_does_not_exist"]},
                     "context": "",
                 },
@@ -3614,7 +3614,8 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
                 "code": 301,
                 "context": "",
                 "debug": {"missing_parents": ["node_that_does_not_exist"]},
-                "message": "Node definition contains references to nodes that do not exist",
+                "message": "Node definition contains references to nodes that do not exist: "
+                "node_that_does_not_exist",
             },
         ]
 

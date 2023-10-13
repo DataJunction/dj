@@ -889,8 +889,8 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         )
     )
 
-    if node.type == NodeType.METRIC:
-        data.query = NodeRevision.format_metric_alias(data.query, node.name)  # type: ignore
+    # if node.type == NodeType.METRIC:
+    #     data.query = NodeRevision.format_metric_alias(data.query, node.name)  # type: ignore
 
     query_changes = (
         old_revision.type != NodeType.SOURCE
@@ -1062,7 +1062,15 @@ def column_lineage(
         )
 
     ctx = CompileContext(session, DJException())
-    query_ast = parse(node_rev.query)
+    query = (
+        NodeRevision.format_metric_alias(
+            node_rev.query,  # type: ignore
+            node_rev.name,
+        )
+        if node_rev.type == NodeType.METRIC
+        else node_rev.query
+    )
+    query_ast = parse(query)
     query_ast.compile(ctx)
     query_ast.select.add_aliases_to_unnamed_columns()
 
@@ -1113,8 +1121,12 @@ def column_lineage(
                 ),
             )
         else:
-            expr_column_deps = list(
-                current.expression.find_all(ast.Column),
+            expr_column_deps = (
+                list(
+                    current.expression.find_all(ast.Column),
+                )
+                if current.expression
+                else []
             )
             for col_dep in expr_column_deps:
                 processed.append(col_dep)
