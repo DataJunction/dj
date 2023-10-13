@@ -48,7 +48,6 @@ def test_sql(
     session.commit()
 
     response = client.get("/sql/a-metric/").json()
-    print("SQL", response["sql"])
     assert compare_query_strings(
         response["sql"],
         "SELECT  COUNT(*) a_MINUS_metric \n FROM rev.my_table AS my_table\n",
