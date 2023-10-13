@@ -3553,7 +3553,7 @@ def infer_type(  # type: ignore
     pos: ct.IntegerType,
     length: ct.IntegerType,
 ) -> ct.StringType:
-    return ct.StringType()
+    return ct.StringType()  # pragma: no cover
 
 
 class Sum(Function):

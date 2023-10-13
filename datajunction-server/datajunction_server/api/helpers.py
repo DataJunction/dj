@@ -426,7 +426,11 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     # Try to parse the node's query, extract dependencies and missing parents
     # dependencies_map = missing_parents_map = {}
     try:
-        query_ast = parse(validated_node.query)  # type: ignore
+        formatted_query = (
+            NodeRevision.format_metric_alias(validated_node.query, validated_node.name)
+            if validated_node.type == NodeType.METRIC else validated_node.query
+        )
+        query_ast = parse(formatted_query)  # type: ignore
         dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)
         node_validator.dependencies_map = dependencies_map
         node_validator.missing_parents_map = missing_parents_map
@@ -436,13 +440,6 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
             DJError(code=ErrorCode.INVALID_SQL_QUERY, message=str(raised_exceptions)),
         )
         return node_validator
-
-    # Assign metric alias to the select column for metric nodes
-    if data.type == NodeType.METRIC:
-        projection_0 = query_ast.select.projection[0]
-        query_ast.select.projection[0] = projection_0.set_alias(
-            ast.Name(amenable_name(data.name)),
-        )
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
