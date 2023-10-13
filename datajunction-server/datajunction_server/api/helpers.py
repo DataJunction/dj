@@ -69,7 +69,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
-from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR
+from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR, amenable_name
 
 _logger = logging.getLogger(__name__)
 
@@ -403,7 +403,7 @@ class NodeValidator:
         return updated_columns
 
 
-def validate_node_data(  # pylint: disable=too-many-locals
+def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     data: Union[NodeRevisionBase, NodeRevision],
     session: Session,
 ) -> NodeValidator:
@@ -436,6 +436,13 @@ def validate_node_data(  # pylint: disable=too-many-locals
             DJError(code=ErrorCode.INVALID_SQL_QUERY, message=str(raised_exceptions)),
         )
         return node_validator
+
+    # Assign metric alias to the select column for metric nodes
+    if data.type == NodeType.METRIC:
+        projection_0 = query_ast.select.projection[0]
+        query_ast.select.projection[0] = projection_0.set_alias(
+            ast.Name(amenable_name(data.name)),
+        )
 
     # Add aliases for any unnamed columns and confirm that all column types can be inferred
     query_ast.select.add_aliases_to_unnamed_columns()
@@ -492,7 +499,8 @@ def validate_node_data(  # pylint: disable=too-many-locals
             [
                 DJError(
                     code=ErrorCode.MISSING_PARENT,
-                    message="Node definition contains references to nodes that do not exist",
+                    message=f"Node definition contains references to nodes that do not "
+                    f"exist: {','.join(missing_parents_map.keys())}",
                     debug={"missing_parents": list(missing_parents_map.keys())},
                 ),
             ]
