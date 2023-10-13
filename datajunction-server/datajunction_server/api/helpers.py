@@ -403,7 +403,7 @@ class NodeValidator:
         return updated_columns
 
 
-def validate_node_data(  # pylint: disable=too-many-locals
+def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
     data: Union[NodeRevisionBase, NodeRevision],
     session: Session,
 ) -> NodeValidator:
@@ -426,7 +426,15 @@ def validate_node_data(  # pylint: disable=too-many-locals
     # Try to parse the node's query, extract dependencies and missing parents
     # dependencies_map = missing_parents_map = {}
     try:
-        query_ast = parse(validated_node.query)  # type: ignore
+        formatted_query = (
+            NodeRevision.format_metric_alias(
+                validated_node.query,  # type: ignore
+                validated_node.name,
+            )
+            if validated_node.type == NodeType.METRIC
+            else validated_node.query
+        )
+        query_ast = parse(formatted_query)  # type: ignore
         dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)
         node_validator.dependencies_map = dependencies_map
         node_validator.missing_parents_map = missing_parents_map
@@ -492,7 +500,8 @@ def validate_node_data(  # pylint: disable=too-many-locals
             [
                 DJError(
                     code=ErrorCode.MISSING_PARENT,
-                    message="Node definition contains references to nodes that do not exist",
+                    message=f"Node definition contains references to nodes that do not "
+                    f"exist: {','.join(missing_parents_map.keys())}",
                     debug={"missing_parents": list(missing_parents_map.keys())},
                 ),
             ]

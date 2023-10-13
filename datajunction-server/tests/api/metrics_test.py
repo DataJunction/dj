@@ -11,7 +11,6 @@ from datajunction_server.models.database import Database
 from datajunction_server.models.node import Node, NodeRevision, NodeType
 from datajunction_server.models.table import Table
 from datajunction_server.sql.parsing.types import FloatType, IntegerType, StringType
-from tests.sql.utils import compare_query_strings
 
 
 def test_read_metrics(client_with_roads: TestClient) -> None:
@@ -1016,15 +1015,24 @@ def test_metric_expression_auto_aliased(client_with_service_setup: TestClient):
         },
     )
     assert response.status_code == 201
-    assert compare_query_strings(
-        response.json()["query"],
-        "SELECT  SUM(counts.b) + SUM(counts.b) basic_DOT_dream_count \n FROM basic.dreams\n",
-    )
+    data = response.json()
+    assert data["query"] == "SELECT SUM(counts.b) + SUM(counts.b) FROM basic.dreams"
+    assert data["columns"] == [
+        {
+            "attributes": [],
+            "dimension": None,
+            "display_name": "Basic: Dream Count",
+            "name": "basic_DOT_dream_count",
+            "partition": None,
+            "type": "bigint",
+        },
+    ]
 
 
 def test_raise_on_malformated_expression_alias(client_with_service_setup: TestClient):
     """
-    Testing raising when an invalid alias is used for a metric expression
+    Test that using an invalid alias for a metric expression is saved, but the alias
+    is overridden when creating the column name
     """
     client_with_service_setup.post(
         "/nodes/source/",
@@ -1053,12 +1061,10 @@ def test_raise_on_malformated_expression_alias(client_with_service_setup: TestCl
             "name": "basic.dream_count",
         },
     )
-    assert response.status_code == 422
-    assert (
-        "Invalid Metric. The expression in the projection cannot "
-        "have alias different from the node name. Got `foo` "
-        "but expected `basic_DOT_dream_count`"
-    ) in response.json()["message"]
+    assert response.status_code == 201
+    data = response.json()
+    assert data["query"] == "SELECT SUM(counts.b) as foo FROM basic.dreams"
+    assert data["columns"][0]["name"] == "basic_DOT_dream_count"
 
 
 def test_raise_on_multiple_expressions(client_with_service_setup: TestClient):

@@ -3533,6 +3533,29 @@ def infer_type(  # type: ignore
     return ct.StringType()
 
 
+class Substr(Function):
+    """
+    Extracts a substring from a string column or expression.
+    """
+
+
+@Substr.register
+def infer_type(  # type: ignore
+    string: ct.StringType,
+    pos: ct.IntegerType,
+) -> ct.StringType:
+    return ct.StringType()
+
+
+@Substr.register
+def infer_type(  # type: ignore
+    string: ct.StringType,
+    pos: ct.IntegerType,
+    length: ct.IntegerType,
+) -> ct.StringType:
+    return ct.StringType()  # pragma: no cover
+
+
 class Sum(Function):
     """
     Computes the sum of the input column or expression.

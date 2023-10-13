@@ -74,7 +74,7 @@ async def test_build_metric_with_dimensions_aggs(request):
         SELECT
           basic_DOT_dimension_DOT_users.country,
           basic_DOT_dimension_DOT_users.gender,
-          COUNT(1) AS cnt
+          COUNT(1) AS basic_DOT_num_comments
         FROM basic.source.comments AS basic_DOT_source_DOT_comments
         LEFT OUTER JOIN (
           SELECT
@@ -108,7 +108,7 @@ def test_build_metric_with_required_dimensions(request):
         SELECT
           basic_DOT_dimension_DOT_users.country,
           basic_DOT_dimension_DOT_users.gender,
-          COUNT(1) AS cnt,
+          COUNT(1) AS basic_DOT_num_comments_bnd,
           basic_DOT_source_DOT_comments.id,
           basic_DOT_source_DOT_comments.text
         FROM basic.source.comments AS basic_DOT_source_DOT_comments
@@ -227,7 +227,7 @@ async def test_build_metric_with_dimensions_filters(request):
     expected = """
     SELECT
         basic_DOT_dimension_DOT_users.age,
-      COUNT(1) AS cnt
+      COUNT(1) AS basic_DOT_num_comments
     FROM basic.source.comments AS basic_DOT_source_DOT_comments
     LEFT OUTER JOIN (
       SELECT

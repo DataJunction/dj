@@ -50,9 +50,9 @@ def test_sql(
     response = client.get("/sql/a-metric/").json()
     assert compare_query_strings(
         response["sql"],
-        "SELECT  COUNT(*) col0 \n FROM rev.my_table AS my_table\n",
+        "SELECT  COUNT(*) a_MINUS_metric \n FROM rev.my_table AS my_table\n",
     )
-    assert response["columns"] == [{"name": "col0", "type": "bigint"}]
+    assert response["columns"] == [{"name": "a_MINUS_metric", "type": "bigint"}]
     assert response["dialect"] is None
 
 

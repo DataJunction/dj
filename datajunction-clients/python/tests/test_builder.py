@@ -216,8 +216,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         num_repair_orders = client.metric("default.num_repair_orders")
         assert num_repair_orders.name == "default.num_repair_orders"
         assert num_repair_orders.query == (
-            "SELECT  count(repair_order_id) default_DOT_num_repair_orders "
-            "\n FROM default.repair_orders\n\n"
+            "SELECT count(repair_order_id) FROM default.repair_orders"
         )
         assert num_repair_orders.type == "metric"
 
