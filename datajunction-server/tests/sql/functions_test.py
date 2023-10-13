@@ -2731,6 +2731,12 @@ def test_substring(session: Session):
     assert query.select.projection[0].type == ct.StringType()  # type: ignore
     assert query.select.projection[1].type == ct.StringType()  # type: ignore
 
+    query = parse("SELECT substr('Spark SQL', 5), substring('Spark SQL', 5, 1)")
+    query.compile(ctx)
+    assert not exc.errors
+    assert query.select.projection[0].type == ct.StringType()  # type: ignore
+    assert query.select.projection[1].type == ct.StringType()  # type: ignore
+
 
 def test_sum() -> None:
     """

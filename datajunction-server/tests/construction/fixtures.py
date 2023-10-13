@@ -145,14 +145,14 @@ def build_expectation() -> Dict[str, Dict[Optional[int], Tuple[bool, str]]]:
         """basic.num_comments""": {
             None: (
                 True,
-                """SELECT  COUNT(1) AS cnt
+                """SELECT  COUNT(1) AS basic_DOT_num_comments
  FROM basic.source.comments AS basic_DOT_source_DOT_comments""",
             ),
         },
         """basic.num_users""": {
             None: (
                 True,
-                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users) AS col0
+                """SELECT  SUM(basic_DOT_transform_DOT_country_agg.num_users) AS basic_DOT_num_users
  FROM (SELECT  basic_DOT_source_DOT_users.country,
     COUNT(DISTINCT basic_DOT_source_DOT_users.id) AS num_users
  FROM basic.source.users AS basic_DOT_source_DOT_users

@@ -549,7 +549,7 @@ def build_node(  # pylint: disable=too-many-arguments
             return ast.Query(select=select)  # pragma: no cover
 
     if node.query and node.type == NodeType.METRIC:
-        query = parse(node.query)
+        query = parse(NodeRevision.format_metric_alias(node.query, node.name))
     elif node.query and node.type != NodeType.METRIC:
         node_query = parse(node.query)
         node_query.select.add_aliases_to_unnamed_columns()
@@ -711,7 +711,12 @@ def build_metric_nodes(
 
         # Add the metric expression into the parent node query
         for metric_node in metrics:
-            metric_query = parse(metric_node.query)
+            metric_query = parse(
+                NodeRevision.format_metric_alias(
+                    metric_node.query,  # type: ignore
+                    metric_node.name,
+                ),
+            )
             metric_query.compile(context)
             metric_query.build(session, {})
             parent_ast.select.projection.extend(metric_query.select.projection)
