@@ -64,6 +64,7 @@ from datajunction_server.models.node import (
     DimensionAttributeOutput,
     LineageColumn,
     Node,
+    NodeMinimumDetail,
     NodeMode,
     NodeOutput,
     NodeRevision,
@@ -204,6 +205,36 @@ def list_nodes(
             nodes,
         )
     ]
+
+
+@router.get("/nodes/details/", response_model=List[NodeMinimumDetail])
+def list_nodes_with_details(
+    node_type: Optional[NodeType] = None,
+    *,
+    session: Session = Depends(get_session),
+    current_user: Optional[User] = Depends(get_current_user),
+    validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
+        validate_access,
+    ),
+) -> List[NodeMinimumDetail]:
+    """
+    List the available nodes.
+    """
+    nodes_query = select(Node).where(
+        Node.current_version == NodeRevision.version,
+        Node.name == NodeRevision.name,
+        Node.type == node_type if node_type else True,
+        is_(Node.deactivated_at, None),
+    )
+    nodes = session.exec(nodes_query).all()
+    accessable_nodes = validate_access_nodes(
+        validate_access,
+        access.ResourceRequestVerb.BROWSE,
+        current_user,
+        nodes,
+    )
+
+    return [node.current for node in accessable_nodes]
 
 
 @router.get("/nodes/{name}/", response_model=NodeOutput)

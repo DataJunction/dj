@@ -925,6 +925,7 @@ class NodeMinimumDetail(SQLModel):
 
     name: str
     display_name: str
+    description: str
     version: str
     type: NodeType
     status: NodeStatus
