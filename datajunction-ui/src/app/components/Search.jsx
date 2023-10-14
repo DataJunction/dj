@@ -44,9 +44,6 @@ export default function Search() {
     if (fuse) {
       setSearchResults(fuse.search(e.target.value).map(result => result.item));
     }
-    console.log(searchValue);
-    console.log(searchResults);
-    console.log(fuse);
   };
 
   return (
@@ -69,7 +66,7 @@ export default function Search() {
         {searchResults.map(item => {
           return (
             <a href={`/nodes/${item.name}`}>
-              <div id={item} className="search-result-item">
+              <div key={item.name} className="search-result-item">
                 <span class={`node_type__${item.type} badge node_type`}>
                   {item.type}
                 </span>
