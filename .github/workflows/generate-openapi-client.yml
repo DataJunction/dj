@@ -1,4 +1,4 @@
-name: Generate OpenAPI Client
+name: "Manual : Generate OpenAPI client"
 on:
   workflow_dispatch:
 jobs:

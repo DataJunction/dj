@@ -1,4 +1,4 @@
-name: Bump version of all DJ Services and Clients.
+name: "Manual : Bump version of all components."
 on:
   workflow_dispatch:
     inputs:
