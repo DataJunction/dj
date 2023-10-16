@@ -823,6 +823,7 @@ def _create_node_from_inactive(
     data: CreateSourceNode,
     session: Session = Depends(get_session),
     current_user: Optional[User] = None,
+    query_service_client: QueryServiceClient = None,
 ) -> Optional[Node]:
     """
     If the node existed and is inactive the re-creation takes different steps than
@@ -842,22 +843,30 @@ def _create_node_from_inactive(
                 "you need to remove all the traces of the previous node with a <TODO> command.",
                 http_status_code=HTTPStatus.CONFLICT,
             )
-        update_node_with_query(
-            name=data.name,
-            data=UpdateNode(
-                # MutableNodeFields
-                display_name=data.display_name,
-                description=data.description,
-                mode=data.mode,
-                # SourceNodeFields
-                catalog=data.catalog,
-                schema_=data.schema_,
-                table=data.table,
-                columns=data.columns,
-            ),
-            session=session,
-            current_user=current_user,
-        )
+        if new_node_type != NodeType.CUBE:
+            update_node_with_query(
+                name=data.name,
+                data=UpdateNode(
+                    # MutableNodeFields
+                    display_name=data.display_name,
+                    description=data.description,
+                    mode=data.mode,
+                    # SourceNodeFields
+                    catalog=data.catalog,
+                    schema_=data.schema_,
+                    table=data.table,
+                    columns=data.columns,
+                ),
+                session=session,
+                current_user=current_user,
+            )
+        else:
+            update_cube_node(  # pragma: no cover
+                session,
+                previous_inactive_node.current,
+                data,
+                query_service_client=query_service_client,
+            )
         try:
             activate_node(name=data.name, session=session, current_user=current_user)
             return get_node_by_name(session, data.name, with_current=True)

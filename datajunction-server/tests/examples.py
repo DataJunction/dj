@@ -443,7 +443,17 @@ ROADS = (  # type: ignore
                 "order_month",
                 "order_day",
             ],
-            "query": """SELECT
+            "query": """
+WITH ro as (SELECT
+        repair_order_id,
+        municipality_id,
+        hard_hat_id,
+        order_date,
+        required_date,
+        dispatched_date,
+        dispatcher_id
+    FROM default.repair_orders)
+            SELECT
     usr.us_region_id,
     us.state_name,
     CONCAT(us.state_name, '-', usr.us_region_description) AS location_hierarchy,
@@ -457,16 +467,7 @@ ROADS = (  # type: ignore
     -- ELEMENT_AT(ARRAY_SORT(COLLECT_LIST(STRUCT(COUNT(*) AS cnt, rt.repair_type_name AS repair_type_name)), (left, right) -> case when left.cnt < right.cnt then 1 when left.cnt > right.cnt then -1 else 0 end), 0).repair_type_name AS most_common_repair_type,
     AVG(DATEDIFF(ro.dispatched_date, ro.order_date)) AS avg_dispatch_delay,
     COUNT(DISTINCT c.contractor_id) AS unique_contractors
-FROM
-    (SELECT
-        repair_order_id,
-        municipality_id,
-        hard_hat_id,
-        order_date,
-        required_date,
-        dispatched_date,
-        dispatcher_id
-    FROM default.repair_orders) ro
+FROM ro
 JOIN
     default.municipality m ON ro.municipality_id = m.municipality_id
 JOIN
