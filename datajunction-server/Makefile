@@ -35,14 +35,7 @@ check:
 lint:
 	make check
 
-version:
-	@hatch version $(v)
-	@git add __about__.py
-	@git commit -m "Bumping to v$$(hatch version)"
-	@git tag v$$(hatch version)
-	@git push
-	@git push --tags
-	@hatch version
-
-release:
-	@hatch publish
+dev-release:
+	hatch version dev
+	hatch build
+	hatch publish

@@ -10,24 +10,28 @@ of DJ. This page will help to understand how to modify, locally test, and deploy
 ## Running the Docs Site Locally
 
 Clone the DJ repo locally.
-
 ```sh
 git clone https://github.com/datajunction/dj
 ```
 
-Change into the docs directory.
+Clone the hugo-doks theme submodule.
+```sh
+git submodule update --init docs/themes/doks
+```
 
+Change into the docs directory.
 ```sh
 cd dj/docs
 ```
 
 Using hugo, start a local server for the specific DJ docs version you want to view.
-
 ```sh
 hugo serve --contentDir content/0.1.0/
 ```
 
 {{< alert icon="👉" text="By default, the docs site will be launched at http://localhost:1313/" />}}
+
+{{< alert icon="❗" text="If your run into a `... render of \"page\" failed` kind of error try running `npm install` and `npm run build -- -b http://localhost:1313` first." />}}
 
 In addition to different versions of the docs site, there is a `Versions` page that is deployed as a
 small sub-site to the `/versions/` route. This is a connecting page that all versions of the site

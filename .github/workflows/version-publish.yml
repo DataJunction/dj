@@ -1,0 +1,82 @@
+name: Publish all DJ Services and Clients
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      # python
+      - datajunction-clients/python/__about__.py
+      - datajunction-server/datajunction_server/__about__.py
+      - datajunction-query/djqs/__about__.py
+      - datajunction-reflection/datajunction_reflection/__about__.py
+      # javascript
+      - datajunction-clients/javascript/package.json
+      - datajunction-ui/package.json
+      # java: TODO
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10']
+    runs-on: 'ubuntu-latest'
+    defaults:
+      run:
+        working-directory: .
+    env:
+      HATCH_INDEX_USER: __token__
+      HATCH_INDEX_AUTH: ${{ secrets.PYPI_TOKEN }}          
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Hatch
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatch
+
+      #
+      # Publish Python / hatch
+      #
+      - name: Publish DJ Server
+        working-directory: ./datajunction-server
+        run: |
+          hatch build
+          hatch publish
+
+      - name: Publish DJ Query service
+        working-directory: ./datajunction-query
+        run: |
+          hatch build
+          hatch publish
+
+      - name: Publish DJ Reflection service
+        working-directory: ./datajunction-reflection
+        run: |
+          hatch build
+          hatch publish
+  
+      - name: Publish DJ Python client
+        working-directory: ./datajunction-clients/python
+        run: |
+          hatch build
+          hatch publish
+
+      #
+      # Publish Javascript / npm
+      #
+      - name: Publish DJ UI
+        working-directory: ./datajunction-ui
+        run: |
+          npm publish
+          
+      - name: Publish DJ Javascript client
+        working-directory: ./datajunction-clients/javascript
+        run: |
+          npm publish
