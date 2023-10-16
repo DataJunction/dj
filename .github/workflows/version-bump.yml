@@ -1,0 +1,113 @@
+name: Bump version of all DJ Services and Clients.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        type: choice
+        description: "Select version cycle"
+        required: true
+        default: alpha
+        options:
+          # Uncomment next item when ready to switch:
+          - alpha
+          # - patch
+          # - minor
+          # - major
+
+jobs:
+  publish:
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.10']
+    runs-on: 'ubuntu-latest'
+    defaults:
+      run:
+        working-directory: .
+
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Hatch
+        run: |
+          python -m pip install --upgrade pip
+          pip install hatch
+
+      - name: Configure Git
+        run: |
+          git config user.name "GitHub Actions Bot"
+          git config user.email "<>"
+
+      #
+      # Python / hatch
+      #
+      - name: Bump version for DJ Server 
+        working-directory: ./datajunction-server
+        run: |
+          hatch version ${{ github.event.inputs.bump }}
+          echo "NEW_VERSION=`hatch version`" >> $GITHUB_ENV
+
+      - name: Bump version for DJ Query service 
+        working-directory: ./datajunction-query
+        run: |
+          hatch version ${{ github.event.inputs.bump }}
+
+      - name: Bump version for DJ Reflection service 
+        working-directory: ./datajunction-reflection
+        run: |
+          hatch version ${{ github.event.inputs.bump }}
+  
+      - name: Bump version for DJ Python client 
+        working-directory: ./datajunction-clients/python
+        run: |
+          hatch version ${{ github.event.inputs.bump }}
+  
+      #
+      # Javascript / npm
+      #
+      - name: Bump version for DJ UI
+        working-directory: ./datajunction-ui
+        run: |
+          yarn version --new-version $NEW_VERSION --no-git-tag-version
+
+      - name: Bump version for DJ Javascript client
+        working-directory: ./datajunction-clients/javascript
+        run: |
+          yarn version --new-version $NEW_VERSION --no-git-tag-version
+  
+      #
+      # Docs (after alpha)
+      # 
+      - name: Update docs (for major, minor or patch release)
+        working-directory: ./docs
+        if: ${{github.event.inputs.bump == 'major' || github.event.inputs.bump == 'minor' || github.event.inputs.bump == 'patch'}}
+        run: |
+          ./build-docs.sh $NEW_VERSION true
+  
+      #
+      # Pull request
+      # 
+      - name: Open a PR
+        run: |
+          echo "Make a commit ..."
+          git add ./datajunction-*/**/__about__.py
+          git add ./datajunction-clients/javascript/package.json
+          git add ./datajunction-ui/package.json
+          git add ./docs          
+          git commit -m "Bumping DJ to version $NEW_VERSION ."
+          git checkout -b releases/version-$NEW_VERSION
+          git push --set-upstream origin releases/version-$NEW_VERSION -f
+
+          echo "Make a tag ..."
+          git tag -a version-$NEW_VERSION -m version-$NEW_VERSION
+          git push origin version-$NEW_VERSION
+
+          echo "Create a PR ..."
+          gh pr create -B main -H "releases/version-$NEW_VERSION" --title "Make DataJunction version $NEW_VERSION" --body "This is an automated PR triggered by the Weekly Version Bump action. Merging this PR will publish all the component for version $NEW_VERSION ."
+        env:
+          GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}          
