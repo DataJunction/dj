@@ -15,7 +15,7 @@ on:
           # - major
 
 jobs:
-  publish:
+  bump:
     strategy:
       fail-fast: false
       matrix:
@@ -95,8 +95,11 @@ jobs:
       - name: Open a PR
         run: |
           echo "Make a commit ..."
-          git add ./datajunction-*/**/__about__.py
+          git add ./datajunction-clients/python/datajunction/__about__.py
           git add ./datajunction-clients/javascript/package.json
+          git add ./datajunction-query/djqs/__about__.py
+          git add ./datajunction-reflection/datajunction_reflection/__about__.py
+          git add ./datajunction-server/datajunction_server/__about__.py
           git add ./datajunction-ui/package.json
           git add ./docs          
           git commit -m "Bumping DJ to version $NEW_VERSION ."
@@ -108,6 +111,6 @@ jobs:
           git push origin version-$NEW_VERSION
 
           echo "Create a PR ..."
-          gh pr create -B main -H "releases/version-$NEW_VERSION" --title "Make DataJunction version $NEW_VERSION" --body "This is an automated PR triggered by the Weekly Version Bump action. Merging this PR will publish all the component for version $NEW_VERSION ."
+          gh pr create -B main -H "releases/version-$NEW_VERSION" --title "Bump DataJunction version to $NEW_VERSION" --body "This is an automated PR triggered by the github action. Merging this PR will publish all the component for version $NEW_VERSION ."
         env:
           GITHUB_TOKEN: ${{ secrets.REPO_SCOPED_TOKEN }}          
