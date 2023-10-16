@@ -1,4 +1,4 @@
-name: Unit Tests & Linters
+name: "PR update : Run tests and linters"
 
 on:
   push:

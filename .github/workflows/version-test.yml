@@ -1,4 +1,4 @@
-name: Matching Versions
+name: "PR update : Test matching versions"
 
 on:
   pull_request:
