@@ -795,6 +795,21 @@ class Column(Aliasable, Named, Expression):
     def is_compiled(self):
         return self._is_compiled or (self.table and self._type)
 
+    def column_names(self) -> Tuple[Optional[str], str, Optional[str]]:
+        """
+        Returns the column namespace (if any), column name, and subscript name (if any)
+        """
+        subscript_name = None
+        column_name = self.name.name
+        column_namespace = None
+        if len(self.namespace) == 2:  # struct
+            column_namespace, column_name = self.namespace
+            column_name = column_name.name
+            subscript_name = self.name.name
+        elif len(self.namespace) == 1:  # non-struct
+            column_namespace = self.namespace[0].name
+        return column_namespace, column_name, subscript_name
+
     def find_table_sources(
         self,
         ctx: CompileContext,
@@ -821,6 +836,11 @@ class Column(Aliasable, Named, Expression):
         namespace = (
             self.name.namespace.identifier(False) if self.name.namespace else ""
         )  # a.x -> a
+
+        # Determine if the column is referencing a struct
+        column_namespace, column_name, subscript_name = self.column_names()
+        is_struct = column_namespace and column_name and subscript_name
+
         found = []
 
         # Go through TableExpressions directly on the AST first and collect all
@@ -835,7 +855,9 @@ class Column(Aliasable, Named, Expression):
             # implies that the column on the table is likely a struct and the dereferencing
             # will happen on the struct object
             for col in table.columns:
-                if col.alias_or_name.name == namespace:
+                if col.alias_or_name.name == namespace or (
+                    col.alias_or_name.name == column_name and is_struct
+                ):
                     table.add_ref_column(self, ctx)
 
         if found:
@@ -941,7 +963,10 @@ class Column(Aliasable, Named, Expression):
     @property
     def struct_column_name(self) -> str:
         """If this is a struct reference, the struct type's column name"""
-        return self.namespace[0].name
+        column_namespace, column_name, subscript_name = self.column_names()
+        if len(self.namespace) == 1:  # non-struct
+            return column_namespace
+        return column_name
 
     @property
     def struct_subscript(self) -> str:
@@ -1091,9 +1116,17 @@ class TableExpression(Aliasable, Expression):
                     column_namespace = ".".join(
                         [name.name for name in column.namespace],
                     )
-                    if column_namespace == col.alias_or_name.identifier(False):
+                    subscript_name = column.name.name
+                    column_name = column.name.name
+                    if len(column.namespace) == 2:
+                        column_namespace, column_name, _ = column.column_names()
+
+                    if col.alias_or_name.identifier(False) in (
+                        column_namespace,
+                        column_name,
+                    ):
                         for type_field in col.type.fields:
-                            if type_field.name.name == column.name.name:
+                            if type_field.name.name == subscript_name:
                                 self._ref_columns.append(column)
                                 column.set_struct_ref()
                                 column.add_table(self)
