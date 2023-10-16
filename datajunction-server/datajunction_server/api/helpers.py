@@ -435,7 +435,10 @@ def validate_node_data(  # pylint: disable=too-many-locals,too-many-statements
             else validated_node.query
         )
         query_ast = parse(formatted_query)  # type: ignore
-        dependencies_map, missing_parents_map = query_ast.extract_dependencies(ctx)
+        (
+            dependencies_map,
+            missing_parents_map,
+        ) = query_ast.bake_ctes().extract_dependencies(ctx)
         node_validator.dependencies_map = dependencies_map
         node_validator.missing_parents_map = missing_parents_map
     except (DJParseException, ValueError, SqlSyntaxError) as raised_exceptions:

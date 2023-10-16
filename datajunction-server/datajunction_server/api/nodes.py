@@ -285,6 +285,7 @@ def create_source(
     data: CreateSourceNode,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
     """
     Create a source node. If columns are not provided, the source node's schema
@@ -298,6 +299,7 @@ def create_source(
         data=data,
         session=session,
         current_user=current_user,
+        query_service_client=query_service_client,
     ):
         return recreated_node
 
@@ -378,6 +380,7 @@ def create_node(
     *,
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
+    query_service_client: QueryServiceClient = Depends(get_query_service_client),
 ) -> NodeOutput:
     """
     Create a node.
@@ -395,6 +398,7 @@ def create_node(
         data=data,
         session=session,
         current_user=current_user,
+        query_service_client=query_service_client,
     ):
         return recreated_node  # pragma: no cover
 
@@ -463,6 +467,7 @@ def create_cube(
         data=data,
         session=session,
         current_user=current_user,
+        query_service_client=query_service_client,
     ):
         return recreated_node  # pragma: no cover
 

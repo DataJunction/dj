@@ -314,7 +314,6 @@ def _build_tables_on_select(
                     if col in set(tbl.child.select.projection)
                 ]
             node_ast.compile(context)
-
             select.replace(
                 tbl,
                 node_ast,
@@ -552,6 +551,8 @@ def build_node(  # pylint: disable=too-many-arguments
         query = parse(NodeRevision.format_metric_alias(node.query, node.name))
     elif node.query and node.type != NodeType.METRIC:
         node_query = parse(node.query)
+        if node_query.ctes:
+            node_query = node_query.bake_ctes()
         node_query.select.add_aliases_to_unnamed_columns()
         query = parse(f"select * from {node.name}")
         query.select.projection = []
