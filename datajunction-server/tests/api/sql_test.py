@@ -406,7 +406,6 @@ def test_sql_with_filters(  # pylint: disable=too-many-arguments
         params={"dimensions": dimensions, "filters": filters},
     )
     data = response.json()
-    print("QUERY@###", data["sql"])
     assert compare_query_strings(data["sql"], sql)
 
 
@@ -1191,7 +1190,6 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
     )
     assert response.status_code == 200
     data = response.json()
-    print(data["sql"])
     assert compare_query_strings(
         data["sql"],
         """
@@ -1317,3 +1315,124 @@ def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
         "Columns ['default.hard_hat.city'] in order by "
         "clause must also be specified in the metrics or dimensions"
     )
+
+
+def test_sql_structs(client_with_roads: TestClient):
+    """
+    Create a transform with structs and verify that metric expressions that reference these
+    structs, along with grouping by dimensions that reference these structs will work when
+    building metrics SQL.
+    """
+    client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "name": "default.simple_agg",
+            "description": "simple agg",
+            "mode": "published",
+            "query": """SELECT
+  EXTRACT(YEAR FROM ro.relevant_dates.order_dt) AS order_year,
+  EXTRACT(MONTH FROM ro.relevant_dates.order_dt) AS order_month,
+  EXTRACT(DAY FROM ro.relevant_dates.order_dt) AS order_day,
+  SUM(DATEDIFF(ro.relevant_dates.dispatched_dt, ro.relevant_dates.order_dt)) AS dispatch_delay_sum,
+  COUNT(ro.repair_order_id) AS repair_orders_cnt
+FROM (
+  SELECT
+    repair_order_id,
+    STRUCT(required_date as required_dt, order_date as order_dt, dispatched_date as dispatched_dt) relevant_dates
+  FROM default.repair_orders
+) AS ro
+GROUP BY
+  EXTRACT(YEAR FROM ro.relevant_dates.order_dt),
+  EXTRACT(MONTH FROM ro.relevant_dates.order_dt),
+  EXTRACT(DAY FROM ro.relevant_dates.order_dt)""",
+        },
+    )
+
+    client_with_roads.post(
+        "/nodes/metric",
+        json={
+            "name": "default.average_dispatch_delay",
+            "description": "average dispatch delay",
+            "mode": "published",
+            "query": """select SUM(D.dispatch_delay_sum)/SUM(D.repair_orders_cnt) from default.simple_agg D""",
+        },
+    )
+    dimension_attr = [
+        {
+            "namespace": "system",
+            "name": "dimension",
+        },
+    ]
+    for column in ["order_year", "order_month", "order_day"]:
+        client_with_roads.post(
+            f"/nodes/default.simple_agg/columns/{column}/attributes/",
+            json=dimension_attr,
+        )
+    sql_params = {
+        "metrics": ["default.average_dispatch_delay"],
+        "dimensions": [
+            "default.simple_agg.order_year",
+            "default.simple_agg.order_month",
+            "default.simple_agg.order_day",
+        ],
+        "filters": ["default.simple_agg.order_year = 2020"],
+    }
+
+    expected = """WITH
+default_DOT_simple_agg AS (SELECT  default_DOT_simple_agg.order_day default_DOT_simple_agg_DOT_order_day,
+    default_DOT_simple_agg.order_month default_DOT_simple_agg_DOT_order_month,
+    default_DOT_simple_agg.order_year default_DOT_simple_agg_DOT_order_year,
+    SUM(default_DOT_simple_agg.dispatch_delay_sum) / SUM(default_DOT_simple_agg.repair_orders_cnt) default_DOT_average_dispatch_delay
+ FROM (SELECT  SUM(DATEDIFF(ro.relevant_dates.dispatched_dt, ro.relevant_dates.order_dt)) AS dispatch_delay_sum,
+    EXTRACT(DAY, ro.relevant_dates.order_dt) AS order_day,
+    EXTRACT(MONTH, ro.relevant_dates.order_dt) AS order_month,
+    EXTRACT(YEAR, ro.relevant_dates.order_dt) AS order_year,
+    COUNT(ro.repair_order_id) AS repair_orders_cnt
+ FROM (SELECT  default_DOT_repair_orders.repair_order_id,
+    struct(default_DOT_repair_orders.required_date AS required_dt, default_DOT_repair_orders.order_date AS order_dt, default_DOT_repair_orders.dispatched_date AS dispatched_dt) relevant_dates
+ FROM roads.repair_orders AS default_DOT_repair_orders
+
+) AS ro
+ GROUP BY  EXTRACT(YEAR, ro.relevant_dates.order_dt), EXTRACT(MONTH, ro.relevant_dates.order_dt), EXTRACT(DAY, ro.relevant_dates.order_dt))
+ AS default_DOT_simple_agg
+ WHERE  default_DOT_simple_agg.order_year = 2020
+ GROUP BY  default_DOT_simple_agg.order_year, default_DOT_simple_agg.order_month, default_DOT_simple_agg.order_day
+)
+
+SELECT  default_DOT_simple_agg.default_DOT_average_dispatch_delay,
+    default_DOT_simple_agg.default_DOT_simple_agg_DOT_order_day,
+    default_DOT_simple_agg.default_DOT_simple_agg_DOT_order_month,
+    default_DOT_simple_agg.default_DOT_simple_agg_DOT_order_year
+ FROM default_DOT_simple_agg"""
+    response = client_with_roads.get("/sql", params=sql_params)
+    data = response.json()
+    assert compare_query_strings(data["sql"], expected)
+
+    # Test the same query string but with `ro` as a CTE
+    client_with_roads.patch(
+        "/nodes/transform",
+        json={
+            "name": "default.simple_agg",
+            "query": """WITH ro as (
+  SELECT
+    repair_order_id,
+    STRUCT(required_date as required_dt, order_date as order_dt, dispatched_date as dispatched_dt) relevant_dates
+  FROM default.repair_orders
+)
+SELECT
+  EXTRACT(YEAR FROM ro.relevant_dates.order_dt) AS order_year,
+  EXTRACT(MONTH FROM ro.relevant_dates.order_dt) AS order_month,
+  EXTRACT(DAY FROM ro.relevant_dates.order_dt) AS order_day,
+  SUM(DATEDIFF(ro.relevant_dates.dispatched_dt, ro.relevant_dates.order_dt)) AS dispatch_delay_sum,
+  COUNT(ro.repair_order_id) AS repair_orders_cnt
+FROM ro
+GROUP BY
+  EXTRACT(YEAR FROM ro.relevant_dates.order_dt),
+  EXTRACT(MONTH FROM ro.relevant_dates.order_dt),
+  EXTRACT(DAY FROM ro.relevant_dates.order_dt)""",
+        },
+    )
+
+    response = client_with_roads.get("/sql", params=sql_params)
+    data = response.json()
+    assert compare_query_strings(data["sql"], expected)
