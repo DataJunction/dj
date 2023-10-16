@@ -1,8 +1,6 @@
 name: "PR update : Run tests and linters"
 
 on:
-  push:
-    branches: [ main ]
   pull_request:
     branches: [ main ]
 
