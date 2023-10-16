@@ -8,7 +8,7 @@ DataJunction project publishes all of its backend services and the Python client
 - datajunction-clients/python
 - datajunction-query
 - datajunction-server
-- datajunction-reflection (NOT YET IMPLEMENTED)
+- datajunction-reflection
 
 Javascript client and the UI component go to [NPM](https://www.npmjs.com/):
 
@@ -62,8 +62,8 @@ In order to simplify version management we decided to release all the components
 
 Three steps:
 
-1. To make a new official release for all the components simply run the [Version Bump](https://github.com/DataJunction/dj/actions/workflows/bump-version.yml) Github action with the default settings. The default setting will make sure you are staying with the current version cycle, which at the moment is **ALPHA**.
+1. To make a new official release for all the components simply run the [Version Bump](https://github.com/DataJunction/dj/actions/workflows/version-bump.yml) Github action with the default settings. The default setting will make sure you are staying with the current version cycle, which at the moment is **ALPHA**.
 
 2. Once the above workflow runs succesfully we should recive a PR for the version updates. This will allow us to double-check the versions before the final release.
 
-3. After the above PR is merged a [Version Release](https://github.com/DataJunction/dj/actions/workflows/bump-version.yml) Github action will build and publish all the versions to its corresponding repositories.
+3. After the above PR is merged a [Version Publish'ing](https://github.com/DataJunction/dj/actions/workflows/version-publish.yml) Github action will build and publish all the versions to its corresponding repositories.
