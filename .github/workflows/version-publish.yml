@@ -1,5 +1,9 @@
 name: Publish all DJ Services and Clients
 on:
+  # TEMPORARY for testing
+  pull_request:
+    branches: [ main ]
+  #
   workflow_dispatch:
   push:
     branches: [ main ]
@@ -27,6 +31,7 @@ jobs:
     env:
       HATCH_INDEX_USER: __token__
       HATCH_INDEX_AUTH: ${{ secrets.PYPI_TOKEN }}          
+      NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
     steps:
       - uses: actions/checkout@v2
@@ -71,12 +76,30 @@ jobs:
       #
       # Publish Javascript / npm
       #
-      - name: Publish DJ UI
-        working-directory: ./datajunction-ui
-        run: |
-          npm publish
-          
+      - uses: actions/setup-node@v3
+        with:
+          node-version: '20.x'
+          registry-url: 'https://registry.npmjs.org'
+
       - name: Publish DJ Javascript client
         working-directory: ./datajunction-clients/javascript
         run: |
-          npm publish
+          export VERSION_IN_CODE=`cat package.json | jq -r '.version'`
+          export VERSION_IN_NPM=`npm view datajunction version | tr -d '-'`
+          # check if the current version hasn't been published yet
+          if [[ $VERSION_IN_CODE != $VERSION_IN_NPM ]]; then
+            yarn
+            npm publish
+          fi;
+  
+      - name: Publish DJ UI
+        working-directory: ./datajunction-ui
+        run: |
+          export VERSION_IN_CODE=`cat package.json | jq -r '.version'`
+          export VERSION_IN_NPM=`npm view datajunction-ui version | tr -d '-'`
+          # check if the current version hasn't been published yet
+          if [[ $VERSION_IN_CODE != $VERSION_IN_NPM ]]; then
+            yarn
+            npm publish
+          fi;
+        
