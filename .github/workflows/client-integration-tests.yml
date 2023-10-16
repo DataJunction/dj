@@ -1,4 +1,4 @@
-name: Client Integration Tests
+name: "Manual : Run client integration tests"
 on:
   schedule:
     - cron:  '0 12 * * *'

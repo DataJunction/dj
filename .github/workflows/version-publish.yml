@@ -1,9 +1,5 @@
-name: Publish all DJ Services and Clients
+name: "PR merge : Publish all components to Pypi/NPM"
 on:
-  # TEMPORARY for testing
-  pull_request:
-    branches: [ main ]
-  #
   workflow_dispatch:
   push:
     branches: [ main ]
