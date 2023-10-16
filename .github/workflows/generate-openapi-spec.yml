@@ -1,4 +1,4 @@
-name: Generate OpenAPI Spec
+name: "Manual : Generate OpenAPI spec"
 on:
   workflow_dispatch:
 jobs:
