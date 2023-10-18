@@ -439,7 +439,7 @@ def update_any_node(  # pylint: disable=too-many-arguments
     name: str,
     data: UpdateNode,
     session: Session,
-    query_service_client: QueryServiceClient = None,
+    query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks = None,
 ) -> Node:
@@ -472,7 +472,7 @@ def update_node_with_query(
     data: UpdateNode,
     session: Session,
     *,
-    query_service_client: QueryServiceClient = None,
+    query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks,
 ) -> Node:
@@ -541,6 +541,13 @@ def update_node_with_query(
         session.add(new_revision)
         session.commit()
 
+    if background_tasks:
+        background_tasks.add_task(
+            save_column_level_lineage,
+            session=session,
+            node_revision=new_revision,
+        )
+
     history_events = {}
     old_columns_map = {col.name: col.type for col in old_revision.columns}
     history_events[node.name] = {
@@ -605,7 +612,7 @@ def update_cube_node(  # pylint: disable=too-many-locals
     node_revision: NodeRevision,
     data: UpdateNode,
     *,
-    query_service_client: Optional[QueryServiceClient],
+    query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks,
 ) -> Optional[NodeRevision]:
@@ -683,12 +690,11 @@ def update_cube_node(  # pylint: disable=too-many-locals
                     user=current_user.username if current_user else None,
                 ),
             )
-        if query_service_client:  # pragma: no cover
-            background_tasks.add_task(
-                schedule_materialization_jobs,
-                materializations=new_cube_revision.materializations,
-                query_service_client=query_service_client,
-            )
+        background_tasks.add_task(
+            schedule_materialization_jobs,
+            materializations=new_cube_revision.materializations,
+            query_service_client=query_service_client,
+        )
     session.add(new_cube_revision)
     session.add(new_cube_revision.node)
     session.commit()
@@ -704,7 +710,7 @@ def propagate_update_downstream(  # pylint: disable=too-many-locals
     node: Node,
     history_events: Dict[str, Any],
     *,
-    query_service_client: QueryServiceClient = None,
+    query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
     background_tasks: BackgroundTasks,
 ):
@@ -832,8 +838,9 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     new_node_type: NodeType,
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
     session: Session = Depends(get_session),
+    *,
     current_user: Optional[User] = None,
-    query_service_client: QueryServiceClient = None,
+    query_service_client: QueryServiceClient,
     background_tasks: BackgroundTasks = None,
 ) -> Optional[Node]:
     """
@@ -875,6 +882,7 @@ def _create_node_from_inactive(  # pylint: disable=too-many-arguments
                 name=data.name,
                 data=update_node,
                 session=session,
+                query_service_client=query_service_client,
                 current_user=current_user,
                 background_tasks=background_tasks,
             )
