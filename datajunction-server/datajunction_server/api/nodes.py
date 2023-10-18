@@ -467,6 +467,7 @@ def create_cube(
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Create a cube node.
@@ -500,9 +501,14 @@ def create_cube(
     save_node(session, node_revision, node, data.mode, current_user=current_user)
 
     # Schedule materialization jobs, if any
-    schedule_materialization_jobs(
-        node_revision.materializations,
-        query_service_client,
+    # schedule_materialization_jobs(
+    #     node_revision.materializations,
+    #     query_service_client,
+    # )
+    background_tasks.add_task(
+        schedule_materialization_jobs,
+        materializations=node_revision.materializations,
+        query_service_client=query_service_client,
     )
     return node  # type: ignore
 
@@ -863,6 +869,7 @@ def update_node(
         session=session,
         query_service_client=query_service_client,
         current_user=current_user,
+        background_tasks=background_tasks,
     )
     background_tasks.add_task(
         save_column_level_lineage,

@@ -5,7 +5,7 @@ from collections import defaultdict, deque
 from http import HTTPStatus
 from typing import Any, Dict, List, Optional, Union
 
-from fastapi import Depends
+from fastapi import BackgroundTasks, Depends
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import (
@@ -64,7 +64,6 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeStatus,
     NodeType,
-    UpdateCubeNode,
     UpdateNode,
 )
 from datajunction_server.models.partition import Partition
@@ -436,12 +435,13 @@ def save_node(
     session.refresh(node.current)
 
 
-def update_any_node(
+def update_any_node(  # pylint: disable=too-many-arguments
     name: str,
     data: UpdateNode,
     session: Session,
     query_service_client: QueryServiceClient = None,
     current_user: Optional[User] = None,
+    background_tasks: BackgroundTasks = None,
 ) -> Node:
     """
     Node update helper function that handles updating any node
@@ -452,16 +452,18 @@ def update_any_node(
             session,
             node.current,
             data,
-            query_service_client,
-            current_user,
+            query_service_client=query_service_client,
+            current_user=current_user,
+            background_tasks=background_tasks,
         )
         return node_revision.node if node_revision else node
     return update_node_with_query(
         name,
         data,
         session,
-        query_service_client,
-        current_user,
+        query_service_client=query_service_client,
+        current_user=current_user,
+        background_tasks=background_tasks,
     )
 
 
@@ -469,8 +471,10 @@ def update_node_with_query(
     name: str,
     data: UpdateNode,
     session: Session,
+    *,
     query_service_client: QueryServiceClient = None,
     current_user: Optional[User] = None,
+    background_tasks: BackgroundTasks,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
@@ -529,9 +533,10 @@ def update_node_with_query(
                     ),
                 ),
             )
-        schedule_materialization_jobs(
-            new_revision.materializations,
-            query_service_client,  # type: ignore
+        background_tasks.add_task(
+            schedule_materialization_jobs,
+            materializations=node.current.materializations,
+            query_service_client=query_service_client,
         )
         session.add(new_revision)
         session.commit()
@@ -554,6 +559,7 @@ def update_node_with_query(
         history_events,
         query_service_client=query_service_client,
         current_user=current_user,
+        background_tasks=background_tasks,
     )
 
     session.refresh(node.current)
@@ -562,7 +568,7 @@ def update_node_with_query(
 
 def has_minor_changes(
     old_revision: NodeRevision,
-    data: Union[UpdateNode, UpdateCubeNode],
+    data: UpdateNode,
 ):
     """
     Whether the node has minor changes
@@ -597,9 +603,11 @@ def node_update_history_event(new_revision: NodeRevision, current_user: Optional
 def update_cube_node(  # pylint: disable=too-many-locals
     session: Session,
     node_revision: NodeRevision,
-    data: UpdateCubeNode,
+    data: UpdateNode,
+    *,
     query_service_client: Optional[QueryServiceClient],
     current_user: Optional[User] = None,
+    background_tasks: BackgroundTasks,
 ) -> Optional[NodeRevision]:
     """
     Update cube node based on changes
@@ -676,9 +684,10 @@ def update_cube_node(  # pylint: disable=too-many-locals
                 ),
             )
         if query_service_client:  # pragma: no cover
-            schedule_materialization_jobs(
-                new_cube_revision.materializations,
-                query_service_client,
+            background_tasks.add_task(
+                schedule_materialization_jobs,
+                materializations=new_cube_revision.materializations,
+                query_service_client=query_service_client,
             )
     session.add(new_cube_revision)
     session.add(new_cube_revision.node)
@@ -690,12 +699,14 @@ def update_cube_node(  # pylint: disable=too-many-locals
     return new_cube_revision
 
 
-def propagate_update_downstream(
+def propagate_update_downstream(  # pylint: disable=too-many-locals
     session: Session,
     node: Node,
     history_events: Dict[str, Any],
+    *,
     query_service_client: QueryServiceClient = None,
     current_user: Optional[User] = None,
+    background_tasks: BackgroundTasks,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -727,6 +738,7 @@ def propagate_update_downstream(
                         dimensions=child.cube_dimensions(),
                     ),
                     query_service_client=query_service_client,
+                    background_tasks=background_tasks,
                 )
                 continue
 
@@ -816,12 +828,13 @@ def copy_existing_node_revision(old_revision: NodeRevision):
     )
 
 
-def _create_node_from_inactive(
+def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     new_node_type: NodeType,
     data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
     session: Session = Depends(get_session),
     current_user: Optional[User] = None,
     query_service_client: QueryServiceClient = None,
+    background_tasks: BackgroundTasks = None,
 ) -> Optional[Node]:
     """
     If the node existed and is inactive the re-creation takes different steps than
@@ -863,13 +876,15 @@ def _create_node_from_inactive(
                 data=update_node,
                 session=session,
                 current_user=current_user,
+                background_tasks=background_tasks,
             )
         else:
-            update_cube_node(  # pragma: no cover
+            update_cube_node(
                 session,
                 previous_inactive_node.current,
                 data,
                 query_service_client=query_service_client,
+                background_tasks=background_tasks,
             )
         try:
             activate_node(name=data.name, session=session, current_user=current_user)

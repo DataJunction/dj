@@ -187,6 +187,7 @@ def create_new_materialization(
     """
     generic_config = None
     engine = get_engine(session, upsert.engine.name, upsert.engine.version)
+    temporal_partition = current_revision.temporal_partition_columns()
     if current_revision.type in (
         NodeType.DIMENSION,
         NodeType.TRANSFORM,
@@ -214,6 +215,12 @@ def create_new_materialization(
     if current_revision.type == NodeType.CUBE:
         # Check to see if a default materialization was already configured, so that we
         # can copy over the default cube setup and layer on specific config as needed
+        if not temporal_partition:
+            raise DJInvalidInputException(
+                "The cube materialization cannot be configured if there is no "
+                "temporal partition specified on the cube. Please set at least one cube"
+                "element with a temporal partition.",
+            )
         default_job = [
             conf
             for conf in current_revision.materializations
@@ -239,7 +246,6 @@ def create_new_materialization(
                     f"engine `{engine.name}`."
                 ),
             ) from exc
-    temporal_partition = current_revision.temporal_partition_columns()
     materialization_name = (
         f"{temporal_partition[0].name}_{engine.name}"
         if temporal_partition
