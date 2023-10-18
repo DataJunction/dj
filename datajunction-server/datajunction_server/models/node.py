@@ -1076,19 +1076,18 @@ class CreateSourceNode(ImmutableNodeFields, MutableNodeFields, SourceNodeFields)
     """
 
 
-class UpdateCubeNode(MutableNodeFields, CubeNodeFields):
-    """
-    An update object for cube nodes
-    """
-
-
 class CreateCubeNode(ImmutableNodeFields, MutableNodeFields, CubeNodeFields):
     """
     A create object for cube nodes
     """
 
 
-class UpdateNode(MutableNodeFields, SourceNodeFields):
+class UpdateNode(
+    MutableNodeFields,
+    SourceNodeFields,
+    MutableNodeQueryField,
+    CubeNodeFields,
+):
     """
     Update node object where all fields are optional
     """

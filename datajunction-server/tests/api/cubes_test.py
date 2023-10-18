@@ -1473,6 +1473,7 @@ def test_updating_cube(
 
 def test_updating_cube_with_existing_materialization(
     client_with_repairs_cube: TestClient,  # pylint: disable=redefined-outer-name
+    query_service_client: QueryServiceClient,
     repairs_cube_with_materialization: requests.Response,  # pylint: disable=redefined-outer-name
 ):
     """
@@ -1519,6 +1520,22 @@ def test_updating_cube_with_existing_materialization(
     )
     result = response.json()
     assert result["version"] == "v2.0"
+
+    # Check that the query service was called to materialize
+    last_call_args = (
+        query_service_client.materialize.call_args_list[-1].args[0].dict()  # type: ignore
+    )
+    assert last_call_args["name"] == "default_DOT_hard_hat_DOT_hire_date_druid"
+    assert last_call_args["node_name"] == "default.repairs_cube"
+    assert last_call_args["node_version"] == "v2.0"
+    assert last_call_args["node_type"] == "cube"
+    assert last_call_args["schedule"] == "@daily"
+    assert last_call_args["druid_spec"]["dataSchema"]["parser"]["parseSpec"][
+        "timestampSpec"
+    ] == {
+        "column": "default_DOT_hard_hat_DOT_hire_date",
+        "format": "yyyyMMdd",
+    }
 
     # Check that the cube was updated
     response = client_with_repairs_cube.get("/cubes/default.repairs_cube/")
