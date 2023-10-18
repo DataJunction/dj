@@ -7,7 +7,7 @@ import os
 from http import HTTPStatus
 from typing import List, Optional, Union, cast
 
-from fastapi import Depends, Query, Response
+from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -42,6 +42,7 @@ from datajunction_server.internal.nodes import (
     create_node_revision,
     get_column_level_lineage,
     get_node_column,
+    save_column_level_lineage,
     save_node,
     set_node_column_attributes,
     update_any_node,
@@ -381,6 +382,7 @@ def create_node(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Create a node.
@@ -400,6 +402,11 @@ def create_node(
         current_user=current_user,
         query_service_client=query_service_client,
     ):
+        background_tasks.add_task(
+            save_column_level_lineage,
+            session=session,
+            node_revision=recreated_node.current,
+        )
         return recreated_node  # pragma: no cover
 
     namespace = get_namespace_from_name(data.name)
@@ -417,6 +424,11 @@ def create_node(
     )
     node_revision = create_node_revision(data, node_type, session)
     save_node(session, node_revision, node, data.mode, current_user=current_user)
+    background_tasks.add_task(
+        save_column_level_lineage,
+        session=session,
+        node_revision=node_revision,
+    )
     session.refresh(node_revision)
     session.refresh(node)
 
@@ -840,6 +852,7 @@ def update_node(
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Update a node.
@@ -850,6 +863,11 @@ def update_node(
         session=session,
         query_service_client=query_service_client,
         current_user=current_user,
+    )
+    background_tasks.add_task(
+        save_column_level_lineage,
+        session=session,
+        node_revision=node.current,
     )
     return node  # type: ignore
 
