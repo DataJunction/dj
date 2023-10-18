@@ -35,7 +35,6 @@ from datajunction_server.internal.access.authorization import (
     validate_access,
     validate_access_nodes,
 )
-from datajunction_server.internal.materializations import schedule_materialization_jobs
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
     create_cube_node_revision,
@@ -401,12 +400,8 @@ def create_node(
         session=session,
         current_user=current_user,
         query_service_client=query_service_client,
+        background_tasks=background_tasks,
     ):
-        background_tasks.add_task(
-            save_column_level_lineage,
-            session=session,
-            node_revision=recreated_node.current,
-        )
         return recreated_node  # pragma: no cover
 
     namespace = get_namespace_from_name(data.name)
@@ -481,6 +476,7 @@ def create_cube(
         session=session,
         current_user=current_user,
         query_service_client=query_service_client,
+        background_tasks=background_tasks,
     ):
         return recreated_node  # pragma: no cover
 
@@ -499,17 +495,6 @@ def create_cube(
     )
     node_revision = create_cube_node_revision(session=session, data=data)
     save_node(session, node_revision, node, data.mode, current_user=current_user)
-
-    # Schedule materialization jobs, if any
-    # schedule_materialization_jobs(
-    #     node_revision.materializations,
-    #     query_service_client,
-    # )
-    background_tasks.add_task(
-        schedule_materialization_jobs,
-        materializations=node_revision.materializations,
-        query_service_client=query_service_client,
-    )
     return node  # type: ignore
 
 
@@ -870,11 +855,6 @@ def update_node(
         query_service_client=query_service_client,
         current_user=current_user,
         background_tasks=background_tasks,
-    )
-    background_tasks.add_task(
-        save_column_level_lineage,
-        session=session,
-        node_revision=node.current,
     )
     return node  # type: ignore
 
