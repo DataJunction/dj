@@ -3,7 +3,7 @@
 import logging
 from collections import defaultdict, deque
 from http import HTTPStatus
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
 from fastapi import Depends
 from sqlmodel import Session, select
@@ -64,6 +64,7 @@ from datajunction_server.models.node import (
     NodeMode,
     NodeStatus,
     NodeType,
+    UpdateCubeNode,
     UpdateNode,
 )
 from datajunction_server.models.partition import Partition
@@ -409,9 +410,6 @@ def save_node(
     )
     node.current_version = node_revision.version
     node_revision.extra_validation()
-    node_revision.lineage = [
-        lineage.dict() for lineage in get_column_level_lineage(session, node_revision)
-    ]
 
     session.add(node)
     session.add(
@@ -496,9 +494,6 @@ def update_node_with_query(
     node.current_version = new_revision.version  # type: ignore
 
     new_revision.extra_validation()
-    new_revision.lineage = [
-        lineage.dict() for lineage in get_column_level_lineage(session, new_revision)
-    ]
 
     session.add(new_revision)
     session.add(node)
@@ -565,7 +560,10 @@ def update_node_with_query(
     return node
 
 
-def has_minor_changes(old_revision: NodeRevision, data: UpdateNode):
+def has_minor_changes(
+    old_revision: NodeRevision,
+    data: Union[UpdateNode, UpdateCubeNode],
+):
     """
     Whether the node has minor changes
     """
@@ -599,7 +597,7 @@ def node_update_history_event(new_revision: NodeRevision, current_user: Optional
 def update_cube_node(  # pylint: disable=too-many-locals
     session: Session,
     node_revision: NodeRevision,
-    data: UpdateNode,
+    data: UpdateCubeNode,
     query_service_client: Optional[QueryServiceClient],
     current_user: Optional[User] = None,
 ) -> Optional[NodeRevision]:
@@ -820,7 +818,7 @@ def copy_existing_node_revision(old_revision: NodeRevision):
 
 def _create_node_from_inactive(
     new_node_type: NodeType,
-    data: CreateSourceNode,
+    data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
     session: Session = Depends(get_session),
     current_user: Optional[User] = None,
     query_service_client: QueryServiceClient = None,
@@ -839,24 +837,30 @@ def _create_node_from_inactive(
         if previous_inactive_node.type != new_node_type:
             raise DJException(  # pragma: no cover
                 message=f"A node with name `{data.name}` of a `{previous_inactive_node.type.value}` "  # pylint: disable=line-too-long
-                "type existed before. If you want to re-created with a different type now, "
-                "you need to remove all the traces of the previous node with a <TODO> command.",
+                "type existed before. If you want to re-create it with a different type, "
+                "you need to remove all traces of the previous node with a hard delete call: "
+                "DELETE /nodes/{node_name}/hard",
                 http_status_code=HTTPStatus.CONFLICT,
             )
         if new_node_type != NodeType.CUBE:
+            update_node = UpdateNode(
+                # MutableNodeFields
+                display_name=data.display_name,
+                description=data.description,
+                mode=data.mode,
+            )
+            if isinstance(data, CreateSourceNode):
+                update_node.catalog = data.catalog
+                update_node.schema_ = data.schema_
+                update_node.table = data.table
+                update_node.columns = data.columns
+
+            if isinstance(data, CreateNode):
+                update_node.query = data.query
+
             update_node_with_query(
                 name=data.name,
-                data=UpdateNode(
-                    # MutableNodeFields
-                    display_name=data.display_name,
-                    description=data.description,
-                    mode=data.mode,
-                    # SourceNodeFields
-                    catalog=data.catalog,
-                    schema_=data.schema_,
-                    table=data.table,
-                    columns=data.columns,
-                ),
+                data=update_node,
                 session=session,
                 current_user=current_user,
             )
@@ -1026,6 +1030,19 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             [p.name for p in new_revision.parents],
         )
     return new_revision
+
+
+def save_column_level_lineage(
+    session: Session,
+    node_revision: NodeRevision,
+):
+    """
+    Saves the column-level lineage for a node
+    """
+    column_level_lineage = get_column_level_lineage(session, node_revision)
+    node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
+    session.add(node_revision)
+    session.commit()
 
 
 def get_column_level_lineage(
