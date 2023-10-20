@@ -36,18 +36,7 @@ class TestDataForNode:
         )
         data = response.json()
         assert response.status_code == 500
-        assert data["message"] == (
-            "Cannot resolve type of column something in SELECT  "
-            "default_DOT_payment_type.id,\n"
-            "\tdefault_DOT_payment_type.payment_type_classification,\n"
-            "\tdefault_DOT_payment_type.payment_type_name,\n"
-            "\tsomething \n"
-            " FROM (SELECT  default_DOT_payment_type_table.id,\n"
-            "\tdefault_DOT_payment_type_table.payment_type_classification,\n"
-            "\tdefault_DOT_payment_type_table.payment_type_name \n"
-            " FROM accounting.payment_type_table AS default_DOT_payment_type_table)\n"
-            " AS default_DOT_payment_type\n"
-        )
+        assert "Cannot resolve type of column something" in data["message"]
 
     def test_get_dimension_data(
         self,

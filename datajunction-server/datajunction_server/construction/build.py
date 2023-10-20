@@ -243,6 +243,7 @@ def join_tables_for_dimensions(
     the select, it will traverse through available linked tables (via dimension
     nodes) and join them in.
     """
+    initial_nodes = set(tables)
     for dim_node, required_dimension_columns in sorted(
         dimension_nodes_to_columns.items(),
         key=lambda x: x[0].name,
@@ -256,7 +257,6 @@ def join_tables_for_dimensions(
         # Join the source tables (if necessary) for these dimension columns
         # onto each select clause
         for select in selects_map:
-            initial_nodes = set(tables)
             if dim_node not in initial_nodes:  # need to join dimension
                 join_asts = _build_joins_for_dimension(
                     session,
