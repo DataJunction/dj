@@ -7,7 +7,7 @@ import os
 from http import HTTPStatus
 from typing import List, Optional, Union, cast
 
-from fastapi import Depends, Query, Response
+from fastapi import BackgroundTasks, Depends, Query, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -35,13 +35,13 @@ from datajunction_server.internal.access.authorization import (
     validate_access,
     validate_access_nodes,
 )
-from datajunction_server.internal.materializations import schedule_materialization_jobs
 from datajunction_server.internal.nodes import (
     _create_node_from_inactive,
     create_cube_node_revision,
     create_node_revision,
     get_column_level_lineage,
     get_node_column,
+    save_column_level_lineage,
     save_node,
     set_node_column_attributes,
     update_any_node,
@@ -381,6 +381,7 @@ def create_node(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Create a node.
@@ -399,6 +400,7 @@ def create_node(
         session=session,
         current_user=current_user,
         query_service_client=query_service_client,
+        background_tasks=background_tasks,
     ):
         return recreated_node  # pragma: no cover
 
@@ -417,6 +419,11 @@ def create_node(
     )
     node_revision = create_node_revision(data, node_type, session)
     save_node(session, node_revision, node, data.mode, current_user=current_user)
+    background_tasks.add_task(
+        save_column_level_lineage,
+        session=session,
+        node_revision=node_revision,
+    )
     session.refresh(node_revision)
     session.refresh(node)
 
@@ -455,6 +462,7 @@ def create_cube(
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Create a cube node.
@@ -468,6 +476,7 @@ def create_cube(
         session=session,
         current_user=current_user,
         query_service_client=query_service_client,
+        background_tasks=background_tasks,
     ):
         return recreated_node  # pragma: no cover
 
@@ -486,12 +495,6 @@ def create_cube(
     )
     node_revision = create_cube_node_revision(session=session, data=data)
     save_node(session, node_revision, node, data.mode, current_user=current_user)
-
-    # Schedule materialization jobs, if any
-    schedule_materialization_jobs(
-        node_revision.materializations,
-        query_service_client,
-    )
     return node  # type: ignore
 
 
@@ -840,6 +843,7 @@ def update_node(
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
+    background_tasks: BackgroundTasks,
 ) -> NodeOutput:
     """
     Update a node.
@@ -850,6 +854,7 @@ def update_node(
         session=session,
         query_service_client=query_service_client,
         current_user=current_user,
+        background_tasks=background_tasks,
     )
     return node  # type: ignore
 

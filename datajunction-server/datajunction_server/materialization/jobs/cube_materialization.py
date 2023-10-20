@@ -3,7 +3,6 @@ Cube materialization jobs
 """
 from typing import Dict
 
-from datajunction_server.errors import DJInvalidInputException
 from datajunction_server.materialization.jobs.materialization_job import (
     MaterializationJob,
 )
@@ -87,13 +86,6 @@ class DruidCubeMaterializationJob(MaterializationJob):
 
         metrics_spec = list(_metrics_spec.values())
         temporal_partition_cols = node_revision.temporal_partition_columns()
-
-        if not temporal_partition_cols:
-            raise DJInvalidInputException(
-                "The cube materialization cannot be configured if there is no "
-                "temporal partition specified on the cube. Please set at least one cube"
-                "element with a temporal partition.",
-            )
         temporal_partition_column = temporal_partition_cols[0]
 
         druid_spec: Dict = {

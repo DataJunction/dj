@@ -3,9 +3,9 @@
 import logging
 from collections import defaultdict, deque
 from http import HTTPStatus
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Union
 
-from fastapi import Depends
+from fastapi import BackgroundTasks, Depends
 from sqlmodel import Session, select
 
 from datajunction_server.api.helpers import (
@@ -409,9 +409,6 @@ def save_node(
     )
     node.current_version = node_revision.version
     node_revision.extra_validation()
-    node_revision.lineage = [
-        lineage.dict() for lineage in get_column_level_lineage(session, node_revision)
-    ]
 
     session.add(node)
     session.add(
@@ -438,12 +435,13 @@ def save_node(
     session.refresh(node.current)
 
 
-def update_any_node(
+def update_any_node(  # pylint: disable=too-many-arguments
     name: str,
     data: UpdateNode,
     session: Session,
-    query_service_client: QueryServiceClient = None,
+    query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
+    background_tasks: BackgroundTasks = None,
 ) -> Node:
     """
     Node update helper function that handles updating any node
@@ -454,16 +452,18 @@ def update_any_node(
             session,
             node.current,
             data,
-            query_service_client,
-            current_user,
+            query_service_client=query_service_client,
+            current_user=current_user,
+            background_tasks=background_tasks,
         )
         return node_revision.node if node_revision else node
     return update_node_with_query(
         name,
         data,
         session,
-        query_service_client,
-        current_user,
+        query_service_client=query_service_client,
+        current_user=current_user,
+        background_tasks=background_tasks,
     )
 
 
@@ -471,8 +471,10 @@ def update_node_with_query(
     name: str,
     data: UpdateNode,
     session: Session,
-    query_service_client: QueryServiceClient = None,
+    *,
+    query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
+    background_tasks: BackgroundTasks,
 ) -> Node:
     """
     Update the named node with the changes defined in the UpdateNode object.
@@ -496,9 +498,6 @@ def update_node_with_query(
     node.current_version = new_revision.version  # type: ignore
 
     new_revision.extra_validation()
-    new_revision.lineage = [
-        lineage.dict() for lineage in get_column_level_lineage(session, new_revision)
-    ]
 
     session.add(new_revision)
     session.add(node)
@@ -534,12 +533,20 @@ def update_node_with_query(
                     ),
                 ),
             )
-        schedule_materialization_jobs(
-            new_revision.materializations,
-            query_service_client,  # type: ignore
+        background_tasks.add_task(
+            schedule_materialization_jobs,
+            materializations=node.current.materializations,
+            query_service_client=query_service_client,
         )
         session.add(new_revision)
         session.commit()
+
+    if background_tasks:
+        background_tasks.add_task(
+            save_column_level_lineage,
+            session=session,
+            node_revision=new_revision,
+        )
 
     history_events = {}
     old_columns_map = {col.name: col.type for col in old_revision.columns}
@@ -559,13 +566,17 @@ def update_node_with_query(
         history_events,
         query_service_client=query_service_client,
         current_user=current_user,
+        background_tasks=background_tasks,
     )
 
     session.refresh(node.current)
     return node
 
 
-def has_minor_changes(old_revision: NodeRevision, data: UpdateNode):
+def has_minor_changes(
+    old_revision: NodeRevision,
+    data: UpdateNode,
+):
     """
     Whether the node has minor changes
     """
@@ -600,8 +611,10 @@ def update_cube_node(  # pylint: disable=too-many-locals
     session: Session,
     node_revision: NodeRevision,
     data: UpdateNode,
-    query_service_client: Optional[QueryServiceClient],
+    *,
+    query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
+    background_tasks: BackgroundTasks,
 ) -> Optional[NodeRevision]:
     """
     Update cube node based on changes
@@ -677,11 +690,11 @@ def update_cube_node(  # pylint: disable=too-many-locals
                     user=current_user.username if current_user else None,
                 ),
             )
-        if query_service_client:  # pragma: no cover
-            schedule_materialization_jobs(
-                new_cube_revision.materializations,
-                query_service_client,
-            )
+        background_tasks.add_task(
+            schedule_materialization_jobs,
+            materializations=new_cube_revision.materializations,
+            query_service_client=query_service_client,
+        )
     session.add(new_cube_revision)
     session.add(new_cube_revision.node)
     session.commit()
@@ -692,12 +705,14 @@ def update_cube_node(  # pylint: disable=too-many-locals
     return new_cube_revision
 
 
-def propagate_update_downstream(
+def propagate_update_downstream(  # pylint: disable=too-many-locals
     session: Session,
     node: Node,
     history_events: Dict[str, Any],
-    query_service_client: QueryServiceClient = None,
+    *,
+    query_service_client: QueryServiceClient,
     current_user: Optional[User] = None,
+    background_tasks: BackgroundTasks,
 ):
     """
     Propagate the updated node's changes to all of its downstream children.
@@ -729,6 +744,7 @@ def propagate_update_downstream(
                         dimensions=child.cube_dimensions(),
                     ),
                     query_service_client=query_service_client,
+                    background_tasks=background_tasks,
                 )
                 continue
 
@@ -818,12 +834,14 @@ def copy_existing_node_revision(old_revision: NodeRevision):
     )
 
 
-def _create_node_from_inactive(
+def _create_node_from_inactive(  # pylint: disable=too-many-arguments
     new_node_type: NodeType,
-    data: CreateSourceNode,
+    data: Union[CreateSourceNode, CreateNode, CreateCubeNode],
     session: Session = Depends(get_session),
+    *,
     current_user: Optional[User] = None,
-    query_service_client: QueryServiceClient = None,
+    query_service_client: QueryServiceClient,
+    background_tasks: BackgroundTasks = None,
 ) -> Optional[Node]:
     """
     If the node existed and is inactive the re-creation takes different steps than
@@ -839,33 +857,42 @@ def _create_node_from_inactive(
         if previous_inactive_node.type != new_node_type:
             raise DJException(  # pragma: no cover
                 message=f"A node with name `{data.name}` of a `{previous_inactive_node.type.value}` "  # pylint: disable=line-too-long
-                "type existed before. If you want to re-created with a different type now, "
-                "you need to remove all the traces of the previous node with a <TODO> command.",
+                "type existed before. If you want to re-create it with a different type, "
+                "you need to remove all traces of the previous node with a hard delete call: "
+                "DELETE /nodes/{node_name}/hard",
                 http_status_code=HTTPStatus.CONFLICT,
             )
         if new_node_type != NodeType.CUBE:
+            update_node = UpdateNode(
+                # MutableNodeFields
+                display_name=data.display_name,
+                description=data.description,
+                mode=data.mode,
+            )
+            if isinstance(data, CreateSourceNode):
+                update_node.catalog = data.catalog
+                update_node.schema_ = data.schema_
+                update_node.table = data.table
+                update_node.columns = data.columns
+
+            if isinstance(data, CreateNode):
+                update_node.query = data.query
+
             update_node_with_query(
                 name=data.name,
-                data=UpdateNode(
-                    # MutableNodeFields
-                    display_name=data.display_name,
-                    description=data.description,
-                    mode=data.mode,
-                    # SourceNodeFields
-                    catalog=data.catalog,
-                    schema_=data.schema_,
-                    table=data.table,
-                    columns=data.columns,
-                ),
+                data=update_node,
                 session=session,
+                query_service_client=query_service_client,
                 current_user=current_user,
+                background_tasks=background_tasks,
             )
         else:
-            update_cube_node(  # pragma: no cover
+            update_cube_node(
                 session,
                 previous_inactive_node.current,
                 data,
                 query_service_client=query_service_client,
+                background_tasks=background_tasks,
             )
         try:
             activate_node(name=data.name, session=session, current_user=current_user)
@@ -1026,6 +1053,19 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             [p.name for p in new_revision.parents],
         )
     return new_revision
+
+
+def save_column_level_lineage(
+    session: Session,
+    node_revision: NodeRevision,
+):
+    """
+    Saves the column-level lineage for a node
+    """
+    column_level_lineage = get_column_level_lineage(session, node_revision)
+    node_revision.lineage = [lineage.dict() for lineage in column_level_lineage]
+    session.add(node_revision)
+    session.commit()
 
 
 def get_column_level_lineage(
