@@ -3,6 +3,7 @@ import { Outlet } from 'react-router-dom';
 import DJLogo from '../../icons/DJLogo';
 import { Helmet } from 'react-helmet-async';
 import DJClientContext from '../../providers/djclient';
+import Search from '../../components/Search';
 
 export function Root() {
   const djClient = useContext(DJClientContext).DataJunctionAPI;
@@ -28,6 +29,7 @@ export function Root() {
               Data<b>Junction</b>
             </h2>
           </div>
+          <Search />
           <div className="menu">
             <div className="menu-item here menu-here-bg menu-lg-down-accordion me-0 me-lg-2 fw-semibold">
               <span className="menu-link">

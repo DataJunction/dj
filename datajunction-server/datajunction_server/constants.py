@@ -18,3 +18,5 @@ GET_COLUMNS_TIMEOUT = timedelta(seconds=60)
 
 AUTH_COOKIE = "__dj"
 LOGGED_IN_FLAG_COOKIE = "__djlif"
+
+NODE_LIST_MAX = 50000

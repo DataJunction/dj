@@ -54,6 +54,7 @@
     "file-loader": "6.2.0",
     "fontfaceobserver": "2.3.0",
     "formik": "2.4.3",
+    "fuse.js": "6.6.2",
     "husky": "8.0.1",
     "i18next": "21.9.2",
     "i18next-browser-languagedetector": "6.1.5",
