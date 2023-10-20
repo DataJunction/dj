@@ -4733,3 +4733,121 @@ def test_set_column_partition(client_with_roads: TestClient):
         },
         "type": "string",
     }
+
+
+def test_delete_recreate_for_all_nodes(client_with_roads: TestClient):
+    """
+    Test deleting and recreating for all node types
+    """
+    # Delete a source node
+    client_with_roads.delete("/nodes/default.dispatchers")
+    # Recreating it should succeed
+    response = client_with_roads.post(
+        "/nodes/source",
+        json={
+            "columns": [
+                {"name": "dispatcher_id", "type": "int"},
+                {"name": "company_name", "type": "string"},
+                {"name": "phone", "type": "string"},
+            ],
+            "description": "Information on dispatchers",
+            "mode": "published",
+            "name": "default.dispatchers",
+            "catalog": "default",
+            "schema_": "roads",
+            "table": "dispatchers",
+        },
+    )
+    assert response.json()["version"] == "v2.0"
+    response = client_with_roads.get("/history?node=default.dispatchers")
+    assert [activity["activity_type"] for activity in response.json()] == [
+        "create",
+        "delete",
+        "update",
+        "restore",
+    ]
+
+    # Delete a dimension node
+    client_with_roads.delete("/nodes/default.us_state")
+    # Trying to create a transform node with the same name will fail
+    response = client_with_roads.post(
+        "/nodes/transform",
+        json={
+            "description": "US state transform",
+            "query": """SELECT
+  state_id,
+  state_name,
+  state_abbr AS state_short
+FROM default.us_states s
+LEFT JOIN default.us_region r
+ON s.state_region = r.us_region_id""",
+            "mode": "published",
+            "name": "default.us_state",
+            "primary_key": ["state_id"],
+        },
+    )
+    assert response.json()["message"] == (
+        "A node with name `default.us_state` of a `dimension` type existed "
+        "before. If you want to re-create it with a different type, you "
+        "need to remove all traces of the previous node with a hard delete call: "
+        "DELETE /nodes/{node_name}/hard"
+    )
+    # Trying to create a dimension node with the same name but an updated query will succeed
+    response = client_with_roads.post(
+        "/nodes/dimension",
+        json={
+            "description": "US state",
+            "query": """SELECT
+  state_id,
+  state_name,
+  state_abbr AS state_short
+FROM default.us_states s
+LEFT JOIN default.us_region r
+ON s.state_region = r.us_region_id""",
+            "mode": "published",
+            "name": "default.us_state",
+            "primary_key": ["state_id"],
+        },
+    )
+    node_data = response.json()
+    assert node_data["version"] == "v2.0"
+    response = client_with_roads.get("/history?node=default.us_state")
+    assert [activity["activity_type"] for activity in response.json()] == [
+        "create",
+        "set_attribute",
+        "delete",
+        "update",
+        "restore",
+    ]
+
+    create_cube_payload = {
+        "metrics": [
+            "default.num_repair_orders",
+            "default.avg_repair_price",
+            "default.total_repair_cost",
+        ],
+        "dimensions": [
+            "default.hard_hat.country",
+            "default.dispatcher.company_name",
+            "default.municipality_dim.local_region",
+        ],
+        "filters": ["default.hard_hat.state='AZ'"],
+        "description": "Cube of various metrics related to repairs",
+        "mode": "published",
+        "name": "default.repairs_cube",
+    }
+    client_with_roads.post(
+        "/nodes/cube/",
+        json=create_cube_payload,
+    )
+    client_with_roads.delete("/nodes/default.repairs_cube")
+    client_with_roads.post(
+        "/nodes/cube/",
+        json=create_cube_payload,
+    )
+    response = client_with_roads.get("/history?node=default.repairs_cube")
+    assert [activity["activity_type"] for activity in response.json()] == [
+        "create",
+        "delete",
+        "restore",
+    ]
