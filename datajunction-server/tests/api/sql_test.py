@@ -1390,7 +1390,15 @@ default_DOT_simple_agg AS (SELECT  default_DOT_simple_agg.order_day default_DOT_
     COUNT(ro.repair_order_id) AS repair_orders_cnt
  FROM (SELECT  default_DOT_repair_orders.repair_order_id,
     struct(default_DOT_repair_orders.required_date AS required_dt, default_DOT_repair_orders.order_date AS order_dt, default_DOT_repair_orders.dispatched_date AS dispatched_dt) relevant_dates
- FROM roads.repair_orders AS default_DOT_repair_orders
+ FROM roads.repair_orders AS default_DOT_repair_orders LEFT OUTER JOIN (SELECT  default_DOT_repair_orders.dispatched_date,
+    default_DOT_repair_orders.dispatcher_id,
+    default_DOT_repair_orders.hard_hat_id,
+    default_DOT_repair_orders.municipality_id,
+    default_DOT_repair_orders.order_date,
+    default_DOT_repair_orders.repair_order_id,
+    default_DOT_repair_orders.required_date
+ FROM roads.repair_orders AS default_DOT_repair_orders)
+ AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
 
 ) AS ro
  GROUP BY  EXTRACT(YEAR, ro.relevant_dates.order_dt), EXTRACT(MONTH, ro.relevant_dates.order_dt), EXTRACT(DAY, ro.relevant_dates.order_dt))

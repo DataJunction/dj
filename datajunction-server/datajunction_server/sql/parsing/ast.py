@@ -829,6 +829,8 @@ class Column(Aliasable, Named, Expression):
                 query.find_all(TableExpression),
             ),
         )
+        if hasattr(self, "child"):
+            self.add_type(self.child.type)
         for table in direct_tables:
             if not table.is_compiled():
                 table.compile(ctx)
@@ -847,18 +849,20 @@ class Column(Aliasable, Named, Expression):
         # possible origins for this column. There may be more than one if the column
         # is not namespaced.
         for table in direct_tables:
-            if not namespace or table.alias_or_name.identifier(False) == namespace:
+            if (
+                # This column may be namespaced, in which case we'll search for an origin table
+                # that has the namespace as an alias or name. If this column has no namespace,
+                # it should be sourced from the immediate table
+                not namespace
+                or namespace == table.alias_or_name.identifier(False)
+            ) or (
+                # This column may be a struct, meaning it'll have an optional namespace,
+                # a column name, and a subscript
+                table.column_mapping.get(namespace)
+                or (table.column_mapping.get(column_name) and is_struct)
+            ):
                 if table.add_ref_column(self, ctx):
                     found.append(table)
-
-            # The column's namespace may match the name of a column on the table, which
-            # implies that the column on the table is likely a struct and the dereferencing
-            # will happen on the struct object
-            for col in table.columns:
-                if col.alias_or_name.name == namespace or (
-                    col.alias_or_name.name == column_name and is_struct
-                ):
-                    table.add_ref_column(self, ctx)
 
         if found:
             return found
@@ -1055,6 +1059,17 @@ class TableExpression(Aliasable, Expression):
         ]
 
     @property
+    def column_mapping(self) -> Dict[str, Column]:
+        """
+        Return the columns named in this table
+        """
+        return {
+            col.alias_or_name.name: col
+            for col in self._columns
+            if isinstance(col, (Aliasable, Named))
+        }
+
+    @property
     def ref_columns(self) -> Set[Column]:
         """
         Return the columns referenced from this table
@@ -1067,9 +1082,31 @@ class TableExpression(Aliasable, Expression):
         ctx: Optional[CompileContext] = None,
     ) -> bool:
         """
-        Add column referenced from this table
-        returning True if the table has the column
-        and False otherwise
+        Add column referenced from this table. Returns True if the table has the column
+        and False otherwise.
+
+        This function handles the following cases:
+
+        Regular columns. For example:
+        (1) non-aliased columns
+          `SELECT country_id AS country1 FROM countries` should match the `country_id`
+          column in the table `countries`
+        (2) aliased columns
+          `SELECT C.country_id AS country1 FROM countries C` should match the `country_id`
+          column in the table `countries` with the column namespace/table alias `C`
+
+        Struct columns. For example:
+        (1) non-aliased struct columns
+          `countries` has column `identifiers` with type:
+                STRUCT<country_name STR, country_code STR>
+          `SELECT identifiers.country_name AS name FROM countries` should match the
+          `identifier` -> `country_name` column in the table `countries`
+        (2) aliased struct columns
+          `countries` has column `identifiers` with type:
+                STRUCT<country_name STR, country_code STR>
+          `SELECT C.identifiers.country_name AS name FROM countries C` should match the
+          `identifier` -> `country_name` column in the table `countries` with the column namespace/
+          table alias `C`
         """
         if not self._columns:
             if ctx is None:
@@ -1078,6 +1115,14 @@ class TableExpression(Aliasable, Expression):
                     "add Column ref without a compilation context.",
                 )
             self.compile(ctx)
+
+        if not isinstance(column, Alias):
+            ref_col_name = column.name.name
+            if matching_column := self.column_mapping.get(ref_col_name):
+                self._ref_columns.append(column)
+                column.add_table(self)
+                column.add_expression(matching_column)
+                column.add_type(matching_column.type)
 
         # For table-valued functions, add the list of columns that gets
         # returned as reference columns and compile them
@@ -1101,7 +1146,11 @@ class TableExpression(Aliasable, Expression):
 
         for col in self.columns:
             if isinstance(col, (Aliasable, Named)):
-                if column.name.name == col.alias_or_name.name:
+                if (
+                    not column.alias
+                    and not hasattr(column, "child")
+                    and column.name.name == col.alias_or_name.name
+                ):
                     self._ref_columns.append(column)
                     column.add_table(self)
                     column.add_expression(col)
