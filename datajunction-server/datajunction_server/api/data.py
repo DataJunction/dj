@@ -72,9 +72,13 @@ def add_availability_state(
     node_revision = node.current
     validate_access_nodes(
         validate_access,
-        access.ResourceRequestVerb.WRITE,
         current_user,
-        [node_revision],
+        [
+            access.ResourceRequest(
+                verb=access.ResourceRequestVerb.WRITE,
+                access_object=access.Resource.from_node(node_revision),
+            ),
+        ],
         True,
     )
 

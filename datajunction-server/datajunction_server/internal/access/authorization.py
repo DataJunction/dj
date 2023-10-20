@@ -8,6 +8,7 @@ from datajunction_server.models.access import (
     AccessControlStore,
     Node,
     NodeRevision,
+    ResourceRequest,
     ResourceRequestVerb,
     ValidateAccessFn,
 )
@@ -16,44 +17,27 @@ from datajunction_server.models.user import User
 
 def validate_access_nodes(
     validate_access: ValidateAccessFn,  # pylint: disable=W0621
-    verb: ResourceRequestVerb,
     user: Optional[User],
-    nodes: Iterable[Union[NodeRevision, Node]],
+    resource_requests: Iterable[ResourceRequest],
     raise_: bool = False,
-) -> List[Union[NodeRevision, Node]]:
+) -> List[Union[NodeRevision, Node, ResourceRequest]]:
     """
     Validate the access of the user to a set of nodes
     """
     if user is None:
-        return list(nodes)  # pragma: no cover
+        return list(resource_requests)  # pragma: no cover
     access_control = AccessControlStore(
         validate_access=validate_access,
         user=user,
     )
 
-    access_control.add_request_by_nodes(nodes, verb)
+    for request in resource_requests:
+        access_control.add_request(request)
 
     validation_results = access_control.validate()
     if raise_:
         access_control.raise_if_invalid_requests()  # pragma: no cover
-    approved_node_ids = {
-        request.access_object.id for request in validation_results if request.approved
-    }
-    approved_node_revision_ids = {
-        request.access_object.revision_id
-        for request in validation_results
-        if request.approved
-    }
-    return [
-        node
-        for node in nodes
-        if (
-            (isinstance(node, Node) and node.id in approved_node_ids)
-            or (
-                isinstance(node, NodeRevision) and node.id in approved_node_revision_ids
-            )
-        )
-    ]
+    return [result for result in validation_results if result.approved]
 
 
 def validate_access_namespaces(

@@ -32,10 +32,7 @@ def test_list_nodes_with_dimension_access_limited(
     def validate_access_override():
         def _validate_access(access_control: access.AccessControl):
             for request in access_control.requests:
-                if (
-                    isinstance(request.access_object, access.DJNode)
-                    and "repair" in request.access_object.name
-                ):
+                if "repair" in request.access_object.name:
                     request.approve()
                 else:
                     request.deny()
