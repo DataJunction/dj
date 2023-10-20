@@ -7,6 +7,7 @@ import { HelmetProvider } from 'react-helmet-async';
 describe('<Root />', () => {
   const mockDjClient = {
     logout: jest.fn(),
+    nodeDetails: jest.fn(),
   };
 
   it('renders with the correct title and navigation', async () => {

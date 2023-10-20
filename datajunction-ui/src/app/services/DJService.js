@@ -52,8 +52,17 @@ export const DataJunctionAPI = {
   },
 
   nodes: async function (prefix) {
+    const queryParams = prefix ? `?prefix=${prefix}` : '';
     return await (
-      await fetch(`${DJ_URL}/nodes/?prefix=${prefix}`, {
+      await fetch(`${DJ_URL}/nodes/${queryParams}`, {
+        credentials: 'include',
+      })
+    ).json();
+  },
+
+  nodeDetails: async () => {
+    return await (
+      await fetch(`${DJ_URL}/nodes/details/`, {
         credentials: 'include',
       })
     ).json();

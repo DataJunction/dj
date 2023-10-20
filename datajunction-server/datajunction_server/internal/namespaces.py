@@ -34,6 +34,7 @@ def get_nodes_in_namespace(
     list_nodes_query = select(
         Node.name,
         NodeRevision.display_name,
+        NodeRevision.description,
         Node.type,
         Node.current_version.label(  # type: ignore # pylint: disable=no-member
             "version",
