@@ -818,7 +818,7 @@ def test_add_materialization_cube_failures(
     )
     assert response.json()["message"] == (
         "The cube materialization cannot be configured if there is no temporal partition specified"
-        " on the cube. Please set at least one cubeelement with a temporal partition."
+        " on the cube. Please make sure at least one cube element has a temporal partition defined"
     )
 
     set_temporal_partition_cube(client_with_repairs_cube)
@@ -1652,5 +1652,6 @@ def test_updating_cube_with_existing_materialization(
     result = response.json()
     assert result["message"] == (
         "The cube materialization cannot be configured if there is no temporal partition "
-        "specified on the cube. Please set at least one cubeelement with a temporal partition."
+        "specified on the cube. Please make sure at least one cube element has a temporal "
+        "partition defined"
     )
