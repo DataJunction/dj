@@ -218,8 +218,8 @@ def create_new_materialization(
         if not temporal_partition:
             raise DJInvalidInputException(
                 "The cube materialization cannot be configured if there is no "
-                "temporal partition specified on the cube. Please set at least one cube"
-                "element with a temporal partition.",
+                "temporal partition specified on the cube. Please make sure at "
+                "least one cube element has a temporal partition defined",
             )
         default_job = [
             conf
