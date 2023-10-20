@@ -29,6 +29,7 @@ from datajunction_server.api.helpers import (
 )
 from datajunction_server.api.namespaces import create_node_namespace
 from datajunction_server.api.tags import get_tags_by_name
+from datajunction_server.constants import NODE_LIST_MAX
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
@@ -208,7 +209,7 @@ def list_nodes(
 
 
 @router.get("/nodes/details/", response_model=List[NodeMinimumDetail])
-def list_nodes_with_details(
+def list_all_nodes_with_details(
     node_type: Optional[NodeType] = None,
     *,
     session: Session = Depends(get_session),
@@ -220,13 +221,23 @@ def list_nodes_with_details(
     """
     List the available nodes.
     """
-    nodes_query = select(Node).where(
-        Node.current_version == NodeRevision.version,
-        Node.name == NodeRevision.name,
-        Node.type == node_type if node_type else True,
-        is_(Node.deactivated_at, None),
-    )
+    nodes_query = (
+        select(Node)
+        .where(
+            Node.current_version == NodeRevision.version,
+            Node.name == NodeRevision.name,
+            Node.type == node_type if node_type else True,
+            is_(Node.deactivated_at, None),
+        )
+        .limit(NODE_LIST_MAX)
+    )  # Very high limit as a safeguard
     nodes = session.exec(nodes_query).all()
+
+    if len(nodes) == NODE_LIST_MAX:  # pragma: no cover
+        _logger.warning(
+            "%s limit reached when returning all nodes, all nodes may not be captured in results",
+            NODE_LIST_MAX,
+        )
     accessable_nodes = validate_access_nodes(
         validate_access,
         access.ResourceRequestVerb.BROWSE,
