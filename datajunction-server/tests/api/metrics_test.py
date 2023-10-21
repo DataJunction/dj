@@ -2,6 +2,8 @@
 """
 Tests for the metrics API.
 """
+from unittest import mock
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -22,6 +24,15 @@ def test_read_metrics(client_with_roads: TestClient) -> None:
 
     assert response.status_code == 200
     assert len(data) > 5
+
+    response = client_with_roads.get("/metrics/default.num_repair_orders")
+    data = response.json()
+    assert data["metric_metadata"] == {
+        "direction": "higher_is_better",
+        "id": mock.ANY,
+        "kind": "count",
+        "unit": "unknown",
+    }
 
 
 def test_read_metric(session: Session, client: TestClient) -> None:
