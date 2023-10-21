@@ -24,7 +24,7 @@ from datajunction_server.errors import (
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    validate_access_placeholder,
+    validate_access,
     validate_access_requests,
 )
 from datajunction_server.models import History, User, access
@@ -60,7 +60,7 @@ def add_availability_state(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> JSONResponse:
     """
@@ -158,7 +158,7 @@ def get_data(  # pylint: disable=too-many-locals
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> QueryWithResults:
     """

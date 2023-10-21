@@ -33,7 +33,7 @@ from datajunction_server.constants import NODE_LIST_MAX
 from datajunction_server.errors import DJException, DJInvalidInputException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    validate_access_placeholder,
+    validate_access,
     validate_access_requests,
 )
 from datajunction_server.internal.nodes import (
@@ -183,7 +183,7 @@ def list_nodes(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> List[str]:
     """
@@ -220,7 +220,7 @@ def list_all_nodes_with_details(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> List[NodeIndexItem]:
     """

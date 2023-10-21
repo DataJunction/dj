@@ -3,9 +3,7 @@ Tests for the namespaces API.
 """
 from fastapi.testclient import TestClient
 
-from datajunction_server.internal.access.authorization import (
-    validate_access_placeholder,
-)
+from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
 
 
@@ -49,7 +47,7 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
         return _validate_access
 
     app = client_with_examples.app
-    app.dependency_overrides[validate_access_placeholder] = validate_access_override
+    app.dependency_overrides[validate_access] = validate_access_override
 
     response = client_with_examples.get("/namespaces/")
 
@@ -79,7 +77,7 @@ def test_list_all_namespaces_access_bad_injection(
         return _validate_access
 
     app = client_with_examples.app
-    app.dependency_overrides[validate_access_placeholder] = validate_access_override
+    app.dependency_overrides[validate_access] = validate_access_override
 
     response = client_with_examples.get("/namespaces/")
 
@@ -110,7 +108,7 @@ def test_list_all_namespaces_deny_all(client_with_examples: TestClient) -> None:
         return _validate_access
 
     app = client_with_examples.app
-    app.dependency_overrides[validate_access_placeholder] = validate_access_override
+    app.dependency_overrides[validate_access] = validate_access_override
 
     response = client_with_examples.get("/namespaces/")
 

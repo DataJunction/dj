@@ -18,7 +18,7 @@ from datajunction_server.api.helpers import (
 from datajunction_server.errors import DJAlreadyExistsException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    validate_access_placeholder,
+    validate_access,
     validate_access_requests,
 )
 from datajunction_server.internal.namespaces import (
@@ -92,7 +92,7 @@ def list_namespaces(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> List[NamespaceOutput]:
     """

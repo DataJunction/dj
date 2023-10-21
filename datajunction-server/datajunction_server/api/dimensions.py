@@ -12,7 +12,7 @@ from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    validate_access_placeholder,
+    validate_access,
     validate_access_requests,
 )
 from datajunction_server.models import User, access
@@ -35,7 +35,7 @@ def list_dimensions(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> List[str]:
     """
@@ -58,7 +58,7 @@ def find_nodes_with_dimension(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> List[NodeRevisionOutput]:
     """
@@ -91,7 +91,7 @@ def find_nodes_with_common_dimensions(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> List[NodeRevisionOutput]:
     """

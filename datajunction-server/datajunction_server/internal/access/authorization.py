@@ -39,7 +39,7 @@ def validate_access_requests(
     return [result for result in validation_results if result.approved]
 
 
-def validate_access_placeholder() -> ValidateAccessFn:
+def validate_access() -> ValidateAccessFn:
     """
     A placeholder validate access dependency injected function
     that returns a ValidateAccessFn that approves all requests

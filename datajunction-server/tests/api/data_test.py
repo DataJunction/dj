@@ -10,9 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from datajunction_server.internal.access.authorization import (
-    validate_access_placeholder,
-)
+from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import access
 from datajunction_server.models.node import Node
 
@@ -236,7 +234,7 @@ class TestDataForNode:
             return _validate_access
 
         app = custom_client.app
-        app.dependency_overrides[validate_access_placeholder] = validate_access_override
+        app.dependency_overrides[validate_access] = validate_access_override
 
         response = custom_client.get("/data/basic.num_comments/")
         app.dependency_overrides.clear()

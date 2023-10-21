@@ -14,9 +14,7 @@ from datajunction_server.api.helpers import (
     validate_orderby,
 )
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.access.authorization import (
-    validate_access_placeholder,
-)
+from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import User, access
 from datajunction_server.models.metric import TranslatedSQL
 from datajunction_server.models.query import ColumnMetadata
@@ -44,7 +42,7 @@ def get_sql(
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> TranslatedSQL:
     """
@@ -96,7 +94,7 @@ def get_sql_for_metrics(
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     ),
 ) -> TranslatedSQL:
     """

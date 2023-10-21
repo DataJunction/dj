@@ -10,9 +10,7 @@ from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import build_sql_for_dj_query, query_event_stream
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
-from datajunction_server.internal.access.authorization import (
-    validate_access_placeholder,
-)
+from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import User, access
 from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
@@ -38,7 +36,7 @@ def get_data_for_djsql(  # pylint: disable=R0914, R0913
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     )
 ) -> QueryWithResults:
     """
@@ -85,7 +83,7 @@ async def get_data_stream_for_djsql(  # pragma: no cover
     engine_version: Optional[str] = None,
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access_placeholder,
+        validate_access,
     )
 ) -> QueryWithResults:  # pragma: no cover
     """
