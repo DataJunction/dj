@@ -918,6 +918,17 @@ class NodeNameList(SQLModel):
     __root__: List[str]
 
 
+class NodeIndexItem(SQLModel):
+    """
+    Node details used for indexing purposes
+    """
+
+    name: str
+    display_name: str
+    description: str
+    type: NodeType
+
+
 class NodeMinimumDetail(SQLModel):
     """
     List of high level node details

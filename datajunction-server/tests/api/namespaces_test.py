@@ -37,7 +37,7 @@ def test_list_all_namespaces_access_limited(client_with_examples: TestClient) ->
         def _validate_access(access_control: access.AccessControl):
             for request in access_control.requests:
                 if (
-                    isinstance(request.access_object, access.DJNamespace)
+                    request.access_object.resource_type == access.ResourceType.NAMESPACE
                     and "dbt" in request.access_object.name
                 ):
                     request.approve()
