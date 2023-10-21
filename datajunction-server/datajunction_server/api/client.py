@@ -37,6 +37,7 @@ def client_code_for_creating_node(
             "catalog_id",
             "lineage",
             "status",
+            "metric_metadata_id",
             "mode",
             "node_id",
             "updated_at",
@@ -46,6 +47,8 @@ def client_code_for_creating_node(
     )
 
     params["primary_key"] = [col.name for col in node.current.primary_key()]
+    # if node.current.metric_metadata:
+    #     params["metric_metadata"] = node.current.metric_metadata.dict(exclude={"id"})
 
     for key in params:
         if not isinstance(params[key], list) and key != "query" and key != "lineage":

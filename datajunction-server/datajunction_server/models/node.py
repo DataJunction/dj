@@ -505,6 +505,108 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
         return True
 
 
+class MetricDirection(str, enum.Enum):
+    """
+    The direction of the metric that's considered good, i.e., higher is better
+    """
+
+    HIGHER_IS_BETTER = "higher_is_better"
+    LOWER_IS_BETTER = "lower_is_better"
+    NEUTRAL = "neutral"
+
+
+class MetricKind(str, enum.Enum):
+    """
+    The kind of metric
+    """
+
+    UNSPECIFIED = "unspecified"
+
+    COUNT = "count"
+
+    DELTA = "delta"
+
+    # A ratio is one quantity divided by another quantity, with the two sharing the same units
+    RATIO = "ratio"
+
+    # A rate is like ratio, but with different units of measure
+    RATE = "rate"
+
+    # A proportion is like ratio, but it compares a part to a whole.
+    # The possible values range from 0 to 1
+    PROPORTION = "proportion"
+
+    # A ratio expressed as a fraction of 100
+    PERCENTAGE = "percentage"
+
+
+class Unit(BaseSQLModel):
+    """
+    Metric unit
+    """
+
+    name: str
+    category: str
+    abbreviation: Optional[str]
+
+    def __str__(self):
+        return self.name
+
+
+class MetricUnit(str, enum.Enum):
+    """
+    Available units of measure for metrics
+    TODO: Eventually this can be recorded in a database, since measurement units
+    can be customized depending on the metric (i.e., clicks/hour). For the time being,
+    this enum provides some basic units.
+    """
+
+    UNKNOWN = Unit(name="unknown", category="")
+    UNITLESS = Unit(name="unitless", category="")
+
+    # Monetary
+    USD = Unit(name="usd", category="currency", abbreviation="$")
+
+    # Time
+    SECOND = Unit(name="second", category="time", abbreviation="s")
+    MINUTE = Unit(name="minute", category="time", abbreviation="m")
+    HOUR = Unit(name="hour", category="time", abbreviation="h")
+    DAY = Unit(name="day", category="time", abbreviation="d")
+    WEEK = Unit(name="week", category="time", abbreviation="w")
+    MONTH = Unit(name="month", category="time", abbreviation="mo")
+    YEAR = Unit(name="year", category="time", abbreviation="y")
+
+
+class MetricMetadataBase(BaseSQLModel):  # type: ignore
+    """
+    Base class for additional metric metadata
+    """
+
+    direction: Optional[MetricDirection] = Field(
+        sa_column=SqlaColumn(Enum(MetricDirection)),
+        default=MetricDirection.NEUTRAL,
+    )
+    kind: Optional[MetricKind] = Field(
+        sa_column=SqlaColumn(Enum(MetricKind)),
+        default=MetricKind.UNSPECIFIED,
+    )
+    unit: Optional[MetricUnit] = Field(
+        sa_column=SqlaColumn(Enum(MetricUnit)),
+        default=MetricUnit.UNKNOWN,
+    )
+
+    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
+        json_encoders = {MetricUnit: lambda v: v.name}  # pragma: no cover
+
+
+class MetricMetadata(MetricMetadataBase, table=True):  # type: ignore
+    """
+    Additional metric metadata
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+
 class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for availability state
@@ -617,6 +719,18 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         sa_relationship_kwargs={
             "primaryjoin": "NodeRevision.id==BoundDimensionsRelationship.metric_id",
             "secondaryjoin": "Column.id==BoundDimensionsRelationship.bound_dimension_id",
+        },
+    )
+
+    metric_metadata_id: Optional[int] = Field(
+        default=None,
+        foreign_key="metricmetadata.id",
+    )
+    metric_metadata: Optional[MetricMetadata] = Relationship(
+        sa_relationship_kwargs={
+            "primaryjoin": "NodeRevision.metric_metadata_id==MetricMetadata.id",
+            "cascade": "all, delete",
+            "uselist": False,
         },
     )
 
@@ -1064,6 +1178,7 @@ class MetricNodeFields(BaseSQLModel):
     """
 
     required_dimensions: Optional[List[str]]
+    metric_metadata: Optional[MetricMetadataBase]
 
 
 #
@@ -1098,6 +1213,7 @@ class UpdateNode(
     MutableNodeFields,
     SourceNodeFields,
     MutableNodeQueryField,
+    MetricNodeFields,
     CubeNodeFields,
 ):
     """
