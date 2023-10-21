@@ -79,9 +79,7 @@ def find_nodes_with_dimension(
         resource_requests=resource_requests,
     )
 
-    approved_nodes: List[str] = [
-        request.access_object.name for request in approvals
-    ]
+    approved_nodes: List[str] = [request.access_object.name for request in approvals]
     return [node for node in nodes if node.name in approved_nodes]
 
 
