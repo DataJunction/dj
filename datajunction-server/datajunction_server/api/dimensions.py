@@ -12,8 +12,8 @@ from datajunction_server.api.helpers import get_node_by_name
 from datajunction_server.api.nodes import list_nodes
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    validate_access,
-    validate_access_nodes,
+    validate_access_placeholder,
+    validate_access_requests,
 )
 from datajunction_server.models import User, access
 from datajunction_server.models.node import NodeRevisionOutput, NodeType
@@ -35,7 +35,7 @@ def list_dimensions(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access,
+        validate_access_placeholder,
     ),
 ) -> List[str]:
     """
@@ -58,7 +58,7 @@ def find_nodes_with_dimension(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access,
+        validate_access_placeholder,
     ),
 ) -> List[NodeRevisionOutput]:
     """
@@ -73,7 +73,7 @@ def find_nodes_with_dimension(
         )
         for node in nodes
     ]
-    approvals = validate_access_nodes(
+    approvals = validate_access_requests(
         validate_access=validate_access,
         user=current_user,
         resource_requests=resource_requests,
@@ -91,7 +91,7 @@ def find_nodes_with_common_dimensions(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access,
+        validate_access_placeholder,
     ),
 ) -> List[NodeRevisionOutput]:
     """
@@ -104,7 +104,7 @@ def find_nodes_with_common_dimensions(
     )
     approvals = [
         approval.access_object.name
-        for approval in validate_access_nodes(
+        for approval in validate_access_requests(
             validate_access,
             current_user,
             [

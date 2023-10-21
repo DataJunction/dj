@@ -7,7 +7,9 @@ import pytest
 from sqlmodel import Session
 from starlette.testclient import TestClient
 
-from datajunction_server.internal.access.authorization import validate_access
+from datajunction_server.internal.access.authorization import (
+    validate_access_placeholder,
+)
 from datajunction_server.models import Column, Database, Node, access
 from datajunction_server.models.node import NodeRevision, NodeType
 from datajunction_server.sql.parsing.types import StringType
@@ -627,7 +629,7 @@ def test_sql_with_filters_orderby_no_access(  # pylint: disable=R0913
         return _validate_access
 
     app = client_with_namespaced_roads.app
-    app.dependency_overrides[validate_access] = validate_access_override
+    app.dependency_overrides[validate_access_placeholder] = validate_access_override
 
     node_name = "foo.bar.num_repair_orders"
     dimensions = [
@@ -828,7 +830,7 @@ def test_get_sql_for_metrics_no_access(client_with_roads: TestClient):
         return _validate_access
 
     app = client_with_roads.app
-    app.dependency_overrides[validate_access] = validate_access_override
+    app.dependency_overrides[validate_access_placeholder] = validate_access_override
 
     response = client_with_roads.get(
         "/sql/",
@@ -1297,7 +1299,7 @@ def test_get_sql_for_metrics_orderby_not_in_dimensions_no_access(
             return _validate_access
 
         app = client_example_loader.app
-        app.dependency_overrides[validate_access] = validate_access_override
+        app.dependency_overrides[validate_access_placeholder] = validate_access_override
 
     custom_client = client_example_loader(["ROADS", "NAMESPACED_ROADS"])
     response = custom_client.get(

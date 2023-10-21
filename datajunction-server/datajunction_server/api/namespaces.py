@@ -18,8 +18,8 @@ from datajunction_server.api.helpers import (
 from datajunction_server.errors import DJAlreadyExistsException
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
-    validate_access,
-    validate_access_namespaces,
+    validate_access_placeholder,
+    validate_access_requests,
 )
 from datajunction_server.internal.namespaces import (
     create_namespace,
@@ -92,13 +92,13 @@ def list_namespaces(
     session: Session = Depends(get_session),
     current_user: Optional[User] = Depends(get_current_user),
     validate_access: access.ValidateAccessFn = Depends(  # pylint: disable=W0621
-        validate_access,
+        validate_access_placeholder,
     ),
 ) -> List[NamespaceOutput]:
     """
     List namespaces with the number of nodes contained in them
     """
-    namespace_outputs = session.exec(
+    results = session.exec(
         select(NodeNamespace.namespace, func.count(Node.id).label("num_nodes"))
         .join(Node, onclause=NodeNamespace.namespace == Node.namespace, isouter=True)
         .where(
@@ -106,20 +106,22 @@ def list_namespaces(
         )
         .group_by(NodeNamespace.namespace),
     ).all()
-
-    return [
-        nmspc_out
-        for nmspc_out in namespace_outputs
-        if nmspc_out.namespace
-        in set(
-            validate_access_namespaces(
-                validate_access,
-                access.ResourceRequestVerb.BROWSE,
-                current_user,
-                [nmspc_out.namespace for nmspc_out in namespace_outputs],
-            ),
+    resource_requests = [
+        access.ResourceRequest(
+            verb=access.ResourceRequestVerb.BROWSE,
+            access_object=access.Resource.from_namespace(record.namespace),
         )
+        for record in results
     ]
+    approvals = validate_access_requests(
+        validate_access,
+        current_user,
+        resource_requests=resource_requests,
+    )
+    approved_namespaces: List[str] = [
+        request.access_object.name for request in approvals
+    ]
+    return [record for record in results if record.namespace in approved_namespaces]
 
 
 @router.get(

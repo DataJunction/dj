@@ -221,21 +221,6 @@ class AccessControlStore(BaseModel):
                 ),
             )
 
-    def add_request_by_namespace(
-        self,
-        namespace: str,
-        verb: Optional[ResourceRequestVerb] = None,
-    ):
-        """
-        Add a request using a namespace
-        """
-        self.add_request(
-            ResourceRequest(
-                verb=verb or self.base_verb,
-                access_object=Resource.from_namespace(namespace),
-            ),
-        )
-
     def raise_if_invalid_requests(self, show_denials: bool = True):
         """
         Raises if validate has ever given any invalid requests
