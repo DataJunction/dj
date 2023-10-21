@@ -73,16 +73,16 @@ def find_nodes_with_dimension(
         )
         for node in nodes
     ]
-    access_results = validate_access_nodes(
+    approvals = validate_access_nodes(
         validate_access=validate_access,
         user=current_user,
         resource_requests=resource_requests,
     )
 
-    approvals = [
-        request.access_object.name for request in access_results if request.approved
+    approved_nodes: List[str] = [
+        request.access_object.name for request in approvals
     ]
-    return [node for node in nodes if node.name in approvals]
+    return [node for node in nodes if node.name in approved_nodes]
 
 
 @router.get("/dimensions/common/", response_model=List[NodeRevisionOutput])
