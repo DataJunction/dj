@@ -15,6 +15,7 @@ class EngineType(Enum):
 
     DUCKDB = "duckdb"
     SQLALCHEMY = "sqlalchemy"
+    SNOWFLAKE = "snowflake"
 
 
 class Engine(SQLModel, table=True):  # type: ignore
