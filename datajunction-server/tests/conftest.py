@@ -18,7 +18,6 @@ from sqlmodel.pool import StaticPool
 from datajunction_server.api.main import app
 from datajunction_server.config import Settings
 from datajunction_server.errors import DJQueryServiceClientException
-from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import Column, Engine
 from datajunction_server.models.materialization import MaterializationInfo
 from datajunction_server.models.query import QueryCreate

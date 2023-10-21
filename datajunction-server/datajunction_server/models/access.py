@@ -4,7 +4,7 @@ Models for authorization
 from copy import deepcopy
 from enum import Enum
 from http import HTTPStatus
-from typing import TYPE_CHECKING, Callable, FrozenSet, Iterable, Optional, Set, Union
+from typing import TYPE_CHECKING, Callable, Iterable, Optional, Set, Union
 
 from pydantic import BaseModel, Field
 from sqlmodel import Session
@@ -16,6 +16,15 @@ from datajunction_server.models.user import User
 
 if TYPE_CHECKING:
     from datajunction_server.sql.parsing.ast import Column
+
+
+class ResourceType(Enum):
+    """
+    Types of resources
+    """
+
+    NODE = "node"
+    NAMESPACE = "namespace"
 
 
 class ResourceRequestVerb(Enum):
@@ -31,67 +40,36 @@ class ResourceRequestVerb(Enum):
     DELETE = "delete"
 
 
-class ResourceObjectBase(BaseModel):
+class Resource(BaseModel):
     """
     Base class for resource objects
     that are passed to injected validation logic
     """
 
     name: str  # name of the node
+    resource_type: ResourceType
     owner: str
 
     def __hash__(self) -> int:
-        return hash((self.name, self.owner))
+        return hash((self.name, self.resource_type, self.owner))
 
-    @staticmethod
-    def from_node(node: Union[NodeRevision, Node]) -> "DJNode":
+    @classmethod
+    def from_node(cls, node: Union[NodeRevision, Node]) -> "Resource":
         """
         Create a resource object from a DJ Node
         """
-        if isinstance(node, Node):
-            return DJNode(
-                id=node.id,
-                revision_id=node.current.id,
-                name=node.name,
-                namespace=node.namespace,
-                owner="",
-                tags=frozenset({tag.name for tag in node.tags}),
-            )
-        return DJNode(
-            id=node.node_id,
-            revision_id=node.id,
-            name=node.name,
-            namespace=node.node.namespace,
-            owner="",
-            tags=frozenset({tag.name for tag in node.node.tags}),
-        )
+        return cls(name=node.name, resource_type=ResourceType.NODE, owner="")
 
-    @staticmethod
-    def from_namespace(namespace: str) -> "DJNode":
+    @classmethod
+    def from_namespace(cls, namespace: str) -> "Resource":
         """
         Create a resource object from a namespace
         """
-        return DJNamespace(name=namespace, owner="")
-
-
-class DJNode(ResourceObjectBase):
-    """
-    Resource Object for DJ Node
-    """
-
-    id: int
-    revision_id: int
-    namespace: str  # namespace the node belongs to
-    tags: FrozenSet[str]
-
-    def __hash__(self) -> int:
-        return hash((self.name, self.owner, self.namespace, self.tags))
-
-
-class DJNamespace(ResourceObjectBase):
-    """
-    Resource Object for DJ Node
-    """
+        return cls(
+            name=namespace,
+            resource_type=ResourceType.NAMESPACE,
+            owner="",
+        )
 
 
 class ResourceRequest(BaseModel):
@@ -101,7 +79,7 @@ class ResourceRequest(BaseModel):
     """
 
     verb: ResourceRequestVerb
-    access_object: ResourceObjectBase
+    access_object: Resource
     approved: Optional[bool] = None
 
     def approve(self):
@@ -125,7 +103,7 @@ class ResourceRequest(BaseModel):
     def __str__(self) -> str:
         return (  # pragma: no cover
             f"{self.verb.value}:"
-            f"{self.access_object.__class__.__name__.lower()}/"
+            f"{self.access_object.resource_type.value}/"
             f"{self.access_object.name}"
         )
 
@@ -223,7 +201,7 @@ class AccessControlStore(BaseModel):
         self.add_request(
             ResourceRequest(
                 verb=verb or self.base_verb,
-                access_object=ResourceObjectBase.from_node(node),
+                access_object=Resource.from_node(node),
             ),
         )
 
@@ -239,24 +217,9 @@ class AccessControlStore(BaseModel):
             self.add_request(
                 ResourceRequest(
                     verb=verb or self.base_verb,
-                    access_object=ResourceObjectBase.from_node(node),
+                    access_object=Resource.from_node(node),
                 ),
             )
-
-    def add_request_by_namespace(
-        self,
-        namespace: str,
-        verb: Optional[ResourceRequestVerb] = None,
-    ):
-        """
-        Add a request using a namespace
-        """
-        self.add_request(
-            ResourceRequest(
-                verb=verb or self.base_verb,
-                access_object=ResourceObjectBase.from_namespace(namespace),
-            ),
-        )
 
     def raise_if_invalid_requests(self, show_denials: bool = True):
         """

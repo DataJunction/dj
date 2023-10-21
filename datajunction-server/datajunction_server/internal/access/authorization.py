@@ -8,97 +8,44 @@ from datajunction_server.models.access import (
     AccessControlStore,
     Node,
     NodeRevision,
-    ResourceRequestVerb,
+    ResourceRequest,
     ValidateAccessFn,
 )
 from datajunction_server.models.user import User
 
 
-def validate_access_nodes(
+def validate_access_requests(
     validate_access: ValidateAccessFn,  # pylint: disable=W0621
-    verb: ResourceRequestVerb,
     user: Optional[User],
-    nodes: Iterable[Union[NodeRevision, Node]],
+    resource_requests: Iterable[ResourceRequest],
     raise_: bool = False,
-) -> List[Union[NodeRevision, Node]]:
+) -> List[Union[NodeRevision, Node, ResourceRequest]]:
     """
-    Validate the access of the user to a set of nodes
+    Validate a set of access requests. Only approved requests are returned.
     """
     if user is None:
-        return list(nodes)  # pragma: no cover
+        return list(resource_requests)  # pragma: no cover
     access_control = AccessControlStore(
         validate_access=validate_access,
         user=user,
     )
 
-    access_control.add_request_by_nodes(nodes, verb)
+    for request in resource_requests:
+        access_control.add_request(request)
 
     validation_results = access_control.validate()
     if raise_:
         access_control.raise_if_invalid_requests()  # pragma: no cover
-    approved_node_ids = {
-        request.access_object.id for request in validation_results if request.approved
-    }
-    approved_node_revision_ids = {
-        request.access_object.revision_id
-        for request in validation_results
-        if request.approved
-    }
-    return [
-        node
-        for node in nodes
-        if (
-            (isinstance(node, Node) and node.id in approved_node_ids)
-            or (
-                isinstance(node, NodeRevision) and node.id in approved_node_revision_ids
-            )
-        )
-    ]
+    return [result for result in validation_results if result.approved]
 
 
-def validate_access_namespaces(
-    validate_access: "ValidateAccessFn",  # pylint: disable=W0621
-    verb: ResourceRequestVerb,
-    user: Optional[User],
-    namespaces: Iterable[str],
-    raise_: bool = False,
-) -> List[str]:
-    """
-    Validate the access of the user to a set of namespaces
-    """
-    if user is None:
-        if user is None:  # pragma: no cover
-            return list(namespaces)
-    access_control = AccessControlStore(
-        validate_access=validate_access,
-        user=user,
-    )
-    for namespace in namespaces:
-        access_control.add_request_by_namespace(namespace, verb)
-
-    validation_results = access_control.validate()
-    if raise_:
-        access_control.raise_if_invalid_requests()  # pragma: no cover
-
-    return [
-        namespace
-        for namespace in namespaces
-        if namespace
-        in {
-            request.access_object.name
-            for request in validation_results
-            if request.approved
-        }
-    ]
-
-
-# Dummy default if not dependency injected
 def validate_access() -> ValidateAccessFn:
     """
-    Validate access returns a ValidateAccessFn
+    A placeholder validate access dependency injected function
+    that returns a ValidateAccessFn that approves all requests
     """
 
-    def _validate_access(access_control: AccessControl):
+    def _(access_control: AccessControl):
         """
         Examines all requests in the AccessControl
         and approves or denies each
@@ -120,4 +67,4 @@ def validate_access() -> ValidateAccessFn:
         """
         access_control.approve_all()
 
-    return _validate_access
+    return _

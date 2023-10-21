@@ -241,7 +241,7 @@ class TestDataForNode:
         data = response.json()
         assert data["message"] == (
             "Authorization of User `dj` for this request failed."
-            "\nThe following requests were denied:\nexecute:djnode/basic.num_comments."
+            "\nThe following requests were denied:\nexecute:node/basic.num_comments."
         )
         assert response.status_code == 403
 

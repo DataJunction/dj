@@ -25,7 +25,7 @@ from datajunction_server.errors import (
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     validate_access,
-    validate_access_nodes,
+    validate_access_requests,
 )
 from datajunction_server.models import History, User, access
 from datajunction_server.models.history import ActivityType, EntityType
@@ -70,11 +70,15 @@ def add_availability_state(
 
     # Source nodes require that any availability states set are for one of the defined tables
     node_revision = node.current
-    validate_access_nodes(
+    validate_access_requests(
         validate_access,
-        access.ResourceRequestVerb.WRITE,
         current_user,
-        [node_revision],
+        [
+            access.ResourceRequest(
+                verb=access.ResourceRequestVerb.WRITE,
+                access_object=access.Resource.from_node(node_revision),
+            ),
+        ],
         True,
     )
 

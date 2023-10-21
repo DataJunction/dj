@@ -13,7 +13,7 @@ from datajunction_server.api.nodes import list_nodes
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
 from datajunction_server.internal.access.authorization import (
     validate_access,
-    validate_access_nodes,
+    validate_access_requests,
 )
 from datajunction_server.models import User, access
 from datajunction_server.models.node import NodeRevisionOutput, NodeType
@@ -66,12 +66,21 @@ def find_nodes_with_dimension(
     """
     dimension_node = get_node_by_name(session, name)
     nodes = get_nodes_with_dimension(session, dimension_node, node_type)
-    return validate_access_nodes(
-        validate_access,
-        access.ResourceRequestVerb.READ,
-        current_user,
-        nodes,
+    resource_requests = [
+        access.ResourceRequest(
+            verb=access.ResourceRequestVerb.READ,
+            access_object=access.Resource.from_node(node),
+        )
+        for node in nodes
+    ]
+    approvals = validate_access_requests(
+        validate_access=validate_access,
+        user=current_user,
+        resource_requests=resource_requests,
     )
+
+    approved_nodes: List[str] = [request.access_object.name for request in approvals]
+    return [node for node in nodes if node.name in approved_nodes]
 
 
 @router.get("/dimensions/common/", response_model=List[NodeRevisionOutput])
@@ -93,9 +102,18 @@ def find_nodes_with_common_dimensions(
         [get_node_by_name(session, dim) for dim in dimension],  # type: ignore
         node_type,
     )
-    return validate_access_nodes(
-        validate_access,
-        access.ResourceRequestVerb.READ,
-        current_user,
-        nodes,
-    )
+    approvals = [
+        approval.access_object.name
+        for approval in validate_access_requests(
+            validate_access,
+            current_user,
+            [
+                access.ResourceRequest(
+                    verb=access.ResourceRequestVerb.READ,
+                    access_object=access.Resource.from_node(node),
+                )
+                for node in nodes
+            ],
+        )
+    ]
+    return [node for node in nodes if node.name in approvals]
