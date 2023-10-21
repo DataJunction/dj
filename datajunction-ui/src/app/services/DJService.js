@@ -77,7 +77,18 @@ export const DataJunctionAPI = {
     mode,
     namespace,
     primary_key,
+    metric_direction,
+    metric_kind,
+    metric_unit,
   ) {
+    const metricMetadata =
+      metric_direction || metric_kind || metric_unit
+        ? {
+            direction: metric_direction,
+            kind: metric_kind,
+            unit: metric_unit,
+          }
+        : null;
     const response = await fetch(`${DJ_URL}/nodes/${nodeType}`, {
       method: 'POST',
       headers: {
@@ -91,6 +102,7 @@ export const DataJunctionAPI = {
         mode: mode,
         namespace: namespace,
         primary_key: primary_key,
+        metric_metadata: metricMetadata,
       }),
       credentials: 'include',
     });
@@ -104,8 +116,19 @@ export const DataJunctionAPI = {
     query,
     mode,
     primary_key,
+    metric_direction,
+    metric_kind,
+    metric_unit,
   ) {
     try {
+      const metricMetadata =
+        metric_direction || metric_kind || metric_unit
+          ? {
+              direction: metric_direction,
+              kind: metric_kind,
+              unit: metric_unit,
+            }
+          : null;
       const response = await fetch(`${DJ_URL}/nodes/${name}`, {
         method: 'PATCH',
         headers: {
@@ -117,6 +140,7 @@ export const DataJunctionAPI = {
           query: query,
           mode: mode,
           primary_key: primary_key,
+          metric_metadata: metricMetadata,
         }),
         credentials: 'include',
       });

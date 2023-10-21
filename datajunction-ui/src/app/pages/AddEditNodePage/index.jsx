@@ -108,9 +108,13 @@ export function AddEditNodePage() {
       values.mode,
       values.namespace,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
+      values.metric_direction,
+      values.metric_kind,
     );
     if (status === 200 || status === 201) {
-      await djClient.tagsNode(values.name, values.tags);
+      if (values.tags) {
+        await djClient.tagsNode(values.name, values.tags);
+      }
       setStatus({
         success: (
           <>
@@ -134,6 +138,8 @@ export function AddEditNodePage() {
       values.query,
       values.mode,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
+      values.metric_direction,
+      values.metric_kind,
     );
     const tagsResponse = await djClient.tagsNode(values.name, values.tags);
     if ((status === 200 || status === 201) && tagsResponse.status === 200) {
@@ -281,6 +287,40 @@ export function AddEditNodePage() {
                   </div>
                 );
 
+                const metricMetadataInput = (
+                  <>
+                    <div className="MetricKindInput NodeCreationInput">
+                      <ErrorMessage name="metric_kind" component="span" />
+                      <label htmlFor="MetricKind">Metric Kind</label>
+                      <Field as="select" name="metric_kind" id="MetricKind">
+                        <option value="unspecified">unspecified</option>
+                        <option value="count">count</option>
+                        <option value="delta">delta</option>
+                        <option value="ratio">ratio</option>
+                        <option value="rate">rate</option>
+                        <option value="proportion">proportion</option>
+                        <option value="percentage">percentage</option>
+                      </Field>
+                    </div>
+
+                    <div className="MetricDirectionInput NodeCreationInput">
+                      <ErrorMessage name="metric_direction" component="span" />
+                      <label htmlFor="MetricDirection">Metric Direction</label>
+                      <Field
+                        as="select"
+                        name="metric_direction"
+                        id="MetricDirection"
+                      >
+                        <option value="neutral">Neutral</option>
+                        <option value="higher_is_better">
+                          Higher is better
+                        </option>
+                        <option value="lower_is_better">Lower is better</option>
+                      </Field>
+                    </div>
+                  </>
+                );
+
                 useEffect(() => {
                   const fetchData = async () => {
                     if (action === Action.Edit) {
@@ -352,6 +392,9 @@ export function AddEditNodePage() {
                             placeholder="Describe your node"
                           />
                         </div>
+                        {nodeType === 'metric' || node.type === 'metric'
+                          ? metricMetadataInput
+                          : ''}
                         <div className="QueryInput NodeCreationInput">
                           <ErrorMessage name="query" component="span" />
                           <label htmlFor="Query">Query</label>
@@ -379,6 +422,7 @@ export function AddEditNodePage() {
                             <option value="published">Published</option>
                           </Field>
                         </div>
+
                         <button type="submit" disabled={isSubmitting}>
                           {action === Action.Add ? 'Create' : 'Save'} {nodeType}
                         </button>
