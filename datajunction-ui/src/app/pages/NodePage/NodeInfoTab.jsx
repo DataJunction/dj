@@ -101,7 +101,7 @@ export default function NodeInfoTab({ node }) {
               aria-hidden="false"
               aria-label="MetricKind"
             >
-              {node?.metric_metadata?.kind}
+              {labelize(node?.metric_metadata?.kind)}
             </p>
           </div>
           <div>
@@ -115,6 +115,17 @@ export default function NodeInfoTab({ node }) {
               {node?.metric_metadata?.direction
                 ? labelize(node?.metric_metadata?.direction)
                 : ''}
+            </p>
+          </div>
+          <div style={{ marginRight: '2rem' }}>
+            <h6 className="mb-0 w-100">Unit</h6>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="MetricKind"
+            >
+              {labelize(node?.metric_metadata?.unit)}
             </p>
           </div>
         </div>

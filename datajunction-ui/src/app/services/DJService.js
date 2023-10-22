@@ -695,4 +695,36 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
+  listMetricMetadata: {
+    Unit: async function () {
+      const response = await fetch(`${DJ_URL}/metrics/metadata/unit`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+      return await response.json();
+    },
+    Direction: async function () {
+      const response = await fetch(`${DJ_URL}/metrics/metadata/direction`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+      return await response.json();
+    },
+    Kind: async function () {
+      const response = await fetch(`${DJ_URL}/metrics/metadata/kind`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+      return await response.json();
+    },
+  },
 };
