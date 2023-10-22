@@ -49,6 +49,8 @@ describe('AddEditNodePage submission failed', () => {
         'draft',
         'default',
         null,
+        undefined,
+        undefined,
       );
       expect(
         screen.getByText(/Some columns in the primary key \[] were not found/),

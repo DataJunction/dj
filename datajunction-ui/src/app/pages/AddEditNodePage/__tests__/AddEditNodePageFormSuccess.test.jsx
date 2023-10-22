@@ -59,10 +59,7 @@ describe('AddEditNodePage submission succeeded', () => {
         'draft',
         'default',
         null,
-      );
-      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalled();
-      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
-        'default.some_test_metric',
+        undefined,
         undefined,
       );
       expect(screen.getByText(/default.some_test_metric/)).toBeInTheDocument();
@@ -114,6 +111,8 @@ describe('AddEditNodePage submission succeeded', () => {
         'SELECT count(repair_order_id) default_DOT_num_repair_orders FROM default.repair_orders',
         'published',
         ['repair_order_id', 'country'],
+        undefined,
+        undefined,
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
