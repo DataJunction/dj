@@ -2,7 +2,6 @@
 """
 Tests for the metrics API.
 """
-from unittest import mock
 
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
@@ -29,9 +28,8 @@ def test_read_metrics(client_with_roads: TestClient) -> None:
     data = response.json()
     assert data["metric_metadata"] == {
         "direction": "higher_is_better",
-        "id": mock.ANY,
         "kind": "count",
-        "unit": "unknown",
+        "unit": "dollar",
     }
 
 
@@ -1114,3 +1112,36 @@ def test_raise_on_multiple_expressions(client_with_service_setup: TestClient):
     assert (
         "Metric queries can only have a single expression, found 2"
     ) in response.json()["message"]
+
+
+def test_list_metric_metadata(client: TestClient):
+    """
+    Test listing metric metadata values
+    """
+    metric_kinds = client.get("/metrics/metadata/kind").json()
+    assert metric_kinds == [
+        "unspecified",
+        "count",
+        "delta",
+        "ratio",
+        "rate",
+        "proportion",
+        "percentage",
+    ]
+
+    metric_directions = client.get("/metrics/metadata/direction").json()
+    assert metric_directions == ["higher_is_better", "lower_is_better", "neutral"]
+
+    metric_units = client.get("/metrics/metadata/unit").json()
+    assert metric_units == [
+        "unknown",
+        "unitless",
+        "dollar",
+        "second",
+        "minute",
+        "hour",
+        "day",
+        "week",
+        "month",
+        "year",
+    ]

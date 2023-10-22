@@ -1988,7 +1988,7 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 "metric_metadata": {
                     "kind": "count",
                     "direction": "higher_is_better",
-                    "unit": "usd",
+                    "unit": "dollar",
                 },
             },
         )
@@ -2000,9 +2000,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         metric_data = response.json()
         assert metric_data["metric_metadata"] == {
             "direction": "higher_is_better",
-            "id": mock.ANY,
             "kind": "count",
-            "unit": "usd",
+            "unit": "dollar",
         }
 
         response = client_with_roads.get("/nodes/default.total_repair_cost")

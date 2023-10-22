@@ -17,7 +17,14 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import User, access
 from datajunction_server.models.metric import Metric
-from datajunction_server.models.node import DimensionAttributeOutput, Node, NodeType
+from datajunction_server.models.node import (
+    DimensionAttributeOutput,
+    MetricDirection,
+    MetricKind,
+    MetricUnit,
+    Node,
+    NodeType,
+)
 from datajunction_server.sql.dag import get_shared_dimensions
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
@@ -66,7 +73,32 @@ def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metri
     Return a metric by name.
     """
     node = get_metric(session, name)
-    return Metric.parse_node(node)
+    metric = Metric.parse_node(node)
+    return metric
+
+
+@router.get("/metrics/metadata/kind", response_model=List[MetricKind])
+def list_metric_kinds() -> List[MetricKind]:
+    """
+    Return a metric by name.
+    """
+    return [MetricKind(e) for e in MetricKind]
+
+
+@router.get("/metrics/metadata/direction", response_model=List[MetricDirection])
+def list_metric_directions() -> List[MetricDirection]:
+    """
+    Return a metric by name.
+    """
+    return [MetricDirection(e) for e in MetricDirection]
+
+
+@router.get("/metrics/metadata/unit", response_model=List[MetricUnit])
+def list_metric_units() -> List[MetricUnit]:
+    """
+    Return a metric by name.
+    """
+    return [MetricUnit(e) for e in MetricUnit]
 
 
 @router.get(

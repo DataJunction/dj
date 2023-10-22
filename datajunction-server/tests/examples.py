@@ -531,6 +531,7 @@ CROSS JOIN
             "metric_metadata": {
                 "kind": "count",
                 "direction": "higher_is_better",
+                "unit": "dollar",
             },
         },
     ),
