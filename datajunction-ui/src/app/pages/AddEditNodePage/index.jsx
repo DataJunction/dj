@@ -33,6 +33,9 @@ export function AddEditNodePage() {
 
   const [namespaces, setNamespaces] = useState([]);
   const [tags, setTags] = useState([]);
+  const [metricUnits, setMetricUnits] = useState([]);
+  const [metricDirections, setMetricDirections] = useState([]);
+  const [metricKinds, setMetricKinds] = useState([]);
 
   const initialValues = {
     name: action === Action.Edit ? name : '',
@@ -110,6 +113,7 @@ export function AddEditNodePage() {
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
       values.metric_kind,
+      values.metric_unit,
     );
     if (status === 200 || status === 201) {
       if (values.tags) {
@@ -140,8 +144,12 @@ export function AddEditNodePage() {
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
       values.metric_kind,
+      values.metric_unit,
     );
-    const tagsResponse = await djClient.tagsNode(values.name, values.tags);
+    const tagsResponse = await djClient.tagsNode(
+      values.name,
+      values.tags.map(tag => tag.name),
+    );
     if ((status === 200 || status === 201) && tagsResponse.status === 200) {
       setStatus({
         success: (
@@ -207,6 +215,9 @@ export function AddEditNodePage() {
         setFieldValue(field, data[field] || '', false);
       }
     });
+    setFieldValue('metric_kind', data.metric_metadata.kind);
+    setFieldValue('metric_direction', data.metric_metadata.direction);
+    setFieldValue('metric_unit', data.metric_metadata.unit);
   };
 
   const alertMessage = message => {
@@ -247,6 +258,19 @@ export function AddEditNodePage() {
     };
     fetchData().catch(console.error);
   }, [djClient, djClient.listTags]);
+
+  // Get metric metadata values
+  useEffect(() => {
+    const fetchData = async () => {
+      const directions = await djClient.listMetricMetadata.Direction();
+      setMetricDirections(directions);
+      const units = await djClient.listMetricMetadata.Unit();
+      setMetricUnits(units);
+      const kinds = await djClient.listMetricMetadata.Kind();
+      setMetricKinds(kinds);
+    };
+    fetchData().catch(console.error);
+  }, [djClient]);
 
   return (
     <div className="mid">
@@ -289,21 +313,23 @@ export function AddEditNodePage() {
 
                 const metricMetadataInput = (
                   <>
-                    <div className="MetricKindInput NodeCreationInput">
+                    <div
+                      className="MetricKindInput NodeCreationInput"
+                      style={{ width: '25%' }}
+                    >
                       <ErrorMessage name="metric_kind" component="span" />
                       <label htmlFor="MetricKind">Metric Kind</label>
                       <Field as="select" name="metric_kind" id="MetricKind">
-                        <option value="unspecified">unspecified</option>
-                        <option value="count">count</option>
-                        <option value="delta">delta</option>
-                        <option value="ratio">ratio</option>
-                        <option value="rate">rate</option>
-                        <option value="proportion">proportion</option>
-                        <option value="percentage">percentage</option>
+                        {metricKinds.map(kind => (
+                          <option value={kind}>{labelize(kind)}</option>
+                        ))}
                       </Field>
                     </div>
 
-                    <div className="MetricDirectionInput NodeCreationInput">
+                    <div
+                      className="MetricDirectionInput NodeCreationInput"
+                      style={{ width: '25%' }}
+                    >
                       <ErrorMessage name="metric_direction" component="span" />
                       <label htmlFor="MetricDirection">Metric Direction</label>
                       <Field
@@ -311,11 +337,23 @@ export function AddEditNodePage() {
                         name="metric_direction"
                         id="MetricDirection"
                       >
-                        <option value="neutral">Neutral</option>
-                        <option value="higher_is_better">
-                          Higher is better
-                        </option>
-                        <option value="lower_is_better">Lower is better</option>
+                        {metricDirections.map(direction => (
+                          <option value={direction}>
+                            {labelize(direction)}
+                          </option>
+                        ))}
+                      </Field>
+                    </div>
+                    <div
+                      className="MetricUnitInput NodeCreationInput"
+                      style={{ width: '25%' }}
+                    >
+                      <ErrorMessage name="metric_unit" component="span" />
+                      <label htmlFor="MetricUnit">Metric Unit</label>
+                      <Field as="select" name="metric_unit" id="MetricUnit">
+                        {metricUnits.map(unit => (
+                          <option value={unit}>{labelize(unit)}</option>
+                        ))}
                       </Field>
                     </div>
                   </>

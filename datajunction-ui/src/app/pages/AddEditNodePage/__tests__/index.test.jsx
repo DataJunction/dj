@@ -53,6 +53,15 @@ export const initializeMockDJClient = () => {
       node: jest.fn(),
       tagsNode: jest.fn(),
       listTags: jest.fn(),
+      listMetricMetadata: {
+        Kind: jest
+          .fn()
+          .mockReturnValue(['count', 'ratio', 'rate', 'percentage']),
+        Direction: jest
+          .fn()
+          .mockReturnValue(['higher_is_better', 'lower_is_better', 'neutral']),
+        Unit: jest.fn().mockReturnValue(['dollar', 'second']),
+      },
     },
   };
 };

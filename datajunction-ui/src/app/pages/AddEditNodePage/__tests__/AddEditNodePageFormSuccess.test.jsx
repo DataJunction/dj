@@ -61,6 +61,7 @@ describe('AddEditNodePage submission succeeded', () => {
         null,
         undefined,
         undefined,
+        undefined,
       );
       expect(screen.getByText(/default.some_test_metric/)).toBeInTheDocument();
     });
@@ -111,15 +112,25 @@ describe('AddEditNodePage submission succeeded', () => {
         'SELECT count(repair_order_id) default_DOT_num_repair_orders FROM default.repair_orders',
         'published',
         ['repair_order_id', 'country'],
-        undefined,
-        undefined,
+        'neutral',
+        'count',
+        'unitless',
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
         'default.num_repair_orders',
-        [{ display_name: 'Purpose', name: 'purpose' }],
+        ['purpose'],
       );
 
+      expect(
+        mockDjClient.DataJunctionAPI.listMetricMetadata.Kind,
+      ).toBeCalledTimes(1);
+      expect(
+        mockDjClient.DataJunctionAPI.listMetricMetadata.Direction,
+      ).toBeCalledTimes(1);
+      expect(
+        mockDjClient.DataJunctionAPI.listMetricMetadata.Unit,
+      ).toBeCalledTimes(1);
       expect(
         await screen.getByDisplayValue('repair_order_id, country'),
       ).toBeInTheDocument();
