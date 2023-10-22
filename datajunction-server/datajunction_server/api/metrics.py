@@ -80,7 +80,7 @@ def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metri
 @router.get("/metrics/metadata/kind", response_model=List[MetricKind])
 def list_metric_kinds() -> List[MetricKind]:
     """
-    Return a metric by name.
+    Return available metric kinds
     """
     return [MetricKind(e) for e in MetricKind]
 
@@ -88,7 +88,7 @@ def list_metric_kinds() -> List[MetricKind]:
 @router.get("/metrics/metadata/direction", response_model=List[MetricDirection])
 def list_metric_directions() -> List[MetricDirection]:
     """
-    Return a metric by name.
+    Return available metric directions
     """
     return [MetricDirection(e) for e in MetricDirection]
 
@@ -96,7 +96,7 @@ def list_metric_directions() -> List[MetricDirection]:
 @router.get("/metrics/metadata/unit", response_model=List[MetricUnit])
 def list_metric_units() -> List[MetricUnit]:
     """
-    Return a metric by name.
+    Return available metric units
     """
     return [MetricUnit(e) for e in MetricUnit]
 
