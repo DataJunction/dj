@@ -9,7 +9,7 @@ from sqlmodel import SQLModel
 from datajunction_server.models.engine import Dialect
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
-    MetricMetadata,
+    MetricMetadataOutput,
     Node,
 )
 from datajunction_server.models.query import ColumnMetadata
@@ -36,7 +36,7 @@ class Metric(SQLModel):
     query: str
 
     dimensions: List[DimensionAttributeOutput]
-    metric_metadata: Optional[MetricMetadata] = None
+    metric_metadata: Optional[MetricMetadataOutput] = None
 
     @classmethod
     def parse_node(cls, node: Node) -> "Metric":

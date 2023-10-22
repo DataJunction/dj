@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
@@ -25,6 +25,7 @@ from datajunction_server.models.base import (
     BaseSQLModel,
     NodeColumns,
     generate_display_name,
+    labelize,
 )
 from datajunction_server.models.catalog import Catalog
 from datajunction_server.models.column import Column, ColumnYAML
@@ -546,11 +547,23 @@ class Unit(BaseSQLModel):
     """
 
     name: str
-    category: str
+    label: Optional[str]
+    category: Optional[str]
     abbreviation: Optional[str]
 
     def __str__(self):
         return self.name
+
+    @validator("label", always=True)
+    def get_label(  # pylint: disable=no-self-argument
+        cls,
+        label: str,
+        values: Dict[str, Any],
+    ) -> str:
+        """Generate a default label if one was not provided."""
+        if not label and values:
+            return labelize(values["name"])
+        return label
 
 
 class MetricUnit(str, enum.Enum):
@@ -565,7 +578,7 @@ class MetricUnit(str, enum.Enum):
     UNITLESS = Unit(name="unitless", category="")
 
     # Monetary
-    USD = Unit(name="usd", category="currency", abbreviation="$")
+    USD = Unit(name="dollar", label="Dollar", category="currency", abbreviation="$")
 
     # Time
     SECOND = Unit(name="second", category="time", abbreviation="s")
@@ -595,9 +608,6 @@ class MetricMetadataBase(BaseSQLModel):  # type: ignore
         default=MetricUnit.UNKNOWN,
     )
 
-    class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
-        json_encoders = {MetricUnit: lambda v: v.name}  # pragma: no cover
-
 
 class MetricMetadata(MetricMetadataBase, table=True):  # type: ignore
     """
@@ -605,6 +615,16 @@ class MetricMetadata(MetricMetadataBase, table=True):  # type: ignore
     """
 
     id: Optional[int] = Field(default=None, primary_key=True)
+
+
+class MetricMetadataOutput(BaseSQLModel):
+    """
+    Metric metadata output
+    """
+
+    kind: MetricKind
+    direction: MetricDirection
+    unit: MetricUnit
 
 
 class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
@@ -1298,6 +1318,7 @@ class NodeRevisionOutput(SQLModel):
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
     parents: List[NodeNameOutput]
+    metric_metadata: Optional[MetricMetadataOutput] = None
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True
