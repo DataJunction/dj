@@ -26,7 +26,10 @@ def upgrade():
         sa.Column(
             "direction",
             sa.Enum(
-                "HIGHER_IS_BETTER", "LOWER_IS_BETTER", "NEUTRAL", name="metricdirection",
+                "HIGHER_IS_BETTER",
+                "LOWER_IS_BETTER",
+                "NEUTRAL",
+                name="metricdirection",
             ),
             nullable=True,
         ),
