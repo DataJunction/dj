@@ -593,3 +593,75 @@ def test_submit_duckdb_query(
     assert data["results"][0]["columns"] == []
     assert data["results"][0]["rows"] == [[1, "a"]]
     assert data["errors"] == []
+
+
+@mock.patch("djqs.engine.snowflake.connector")
+def test_submit_snowflake_query(
+    mock_snowflake_connect,
+    session: Session,
+    client: TestClient,
+) -> None:
+    """
+    Test submitting a Snowflake query
+    """
+    mock_exec = mock.MagicMock()
+    mock_exec.fetchall.return_value = [[1, "a"]]
+    mock_cur = mock.MagicMock()
+    mock_cur.execute.return_value = mock_exec
+    mock_conn = mock.MagicMock()
+    mock_conn.cursor.return_value = mock_cur
+    mock_snowflake_connect.connect.return_value = mock_conn
+
+    engine = Engine(
+        name="test_snowflake_engine",
+        type=EngineType.SNOWFLAKE,
+        version="7.37",
+        uri="snowflake:///:memory:",
+        extra_params={"user": "foo", "account": "bar", "database": "foobar"},
+    )
+    catalog = Catalog(name="test_catalog", engines=[engine])
+    session.add(catalog)
+    session.commit()
+    session.refresh(catalog)
+
+    query_create = QueryCreate(
+        catalog_name=catalog.name,
+        engine_name=engine.name,
+        engine_version=engine.version,
+        submitted_query="SELECT 1 AS int_col, 'a' as str_col",
+    )
+    payload = query_create.json(by_alias=True)
+    assert payload == json.dumps(
+        {
+            "catalog_name": "test_catalog",
+            "engine_name": "test_snowflake_engine",
+            "engine_version": "7.37",
+            "submitted_query": "SELECT 1 AS int_col, 'a' as str_col",
+            "async_": False,
+        },
+    )
+
+    with freeze_time("2021-01-01T00:00:00Z"):
+        response = client.post(
+            "/queries/",
+            data=payload,
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+    data = response.json()
+
+    assert response.status_code == 200
+    assert data["catalog_name"] == "test_catalog"
+    assert data["engine_name"] == "test_snowflake_engine"
+    assert data["engine_version"] == "7.37"
+    assert data["submitted_query"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["executed_query"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["scheduled"] == "2021-01-01T00:00:00"
+    assert data["started"] == "2021-01-01T00:00:00"
+    assert data["finished"] == "2021-01-01T00:00:00"
+    assert data["state"] == "FINISHED"
+    assert data["progress"] == 1.0
+    assert len(data["results"]) == 1
+    assert data["results"][0]["sql"] == "SELECT 1 AS int_col, 'a' as str_col"
+    assert data["results"][0]["columns"] == []
+    assert data["results"][0]["rows"] == [[1, "a"]]
+    assert data["errors"] == []

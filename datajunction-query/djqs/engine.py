@@ -3,10 +3,12 @@ Query related functions.
 """
 
 import logging
+import os
 from datetime import datetime, timezone
 from typing import List, Tuple
 
 import duckdb
+import snowflake.connector
 import sqlparse
 from sqlalchemy import create_engine, text
 from sqlmodel import Session, select
@@ -94,6 +96,15 @@ def run_query(
             )
         )
         return run_duckdb_query(query, conn)
+    if engine.type == EngineType.SNOWFLAKE:
+        conn = snowflake.connector.connect(
+            **engine.extra_params,
+            password=os.getenv("SNOWSQL_PWD"),
+        )
+        cur = conn.cursor()
+
+        return run_snowflake_query(query, cur)
+
     sqla_engine = create_engine(engine.uri, **catalog.extra_params)
     connection = sqla_engine.connect()
 
@@ -123,6 +134,20 @@ def run_duckdb_query(
     """
     output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
     rows = conn.execute(query.submitted_query).fetchall()
+    columns: List[ColumnMetadata] = []
+    output.append((query.submitted_query, columns, rows))
+    return output
+
+
+def run_snowflake_query(
+    query: Query,
+    cur: snowflake.connector.cursor.SnowflakeCursor,
+) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
+    """
+    Run a query against a snowflake warehouse
+    """
+    output: List[Tuple[str, List[ColumnMetadata], Stream]] = []
+    rows = cur.execute(query.submitted_query).fetchall()
     columns: List[ColumnMetadata] = []
     output.append((query.submitted_query, columns, rows))
     return output

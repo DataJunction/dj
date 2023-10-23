@@ -122,4 +122,6 @@ def duckdb_conn():
     """
     A duckdb connection to a roads database
     """
-    return duckdb.connect(database="docker/default.duckdb")
+    return duckdb.connect(
+        database="docker/default.duckdb",
+    )
