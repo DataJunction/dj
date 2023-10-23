@@ -98,10 +98,8 @@ def run_query(
         return run_duckdb_query(query, conn)
     if engine.type == EngineType.SNOWFLAKE:
         conn = snowflake.connector.connect(
-            user=engine.extra_params["user"],
-            account=engine.extra_params["account"],
+            **engine.extra_params,
             password=os.getenv("SNOWSQL_PWD"),
-            database=engine.extra_params["database"],
         )
         cur = conn.cursor()
 
@@ -143,7 +141,7 @@ def run_duckdb_query(
 
 def run_snowflake_query(
     query: Query,
-    cur,
+    cur: snowflake.connector.cursor.SnowflakeCursor,
 ) -> List[Tuple[str, List[ColumnMetadata], Stream]]:
     """
     Run a query against a snowflake warehouse

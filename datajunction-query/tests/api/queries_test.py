@@ -602,7 +602,7 @@ def test_submit_snowflake_query(
     client: TestClient,
 ) -> None:
     """
-    Test submitting a Spark query
+    Test submitting a Snowflake query
     """
     mock_exec = mock.MagicMock()
     mock_exec.fetchall.return_value = [[1, "a"]]
