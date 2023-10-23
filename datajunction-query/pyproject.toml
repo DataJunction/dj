@@ -27,8 +27,9 @@ dependencies = [
     "sqlalchemy<2.0.0,>=1.4.41",
     "sqlmodel<1.0.0,>=0.0.8",
     "sqlparse<1.0.0,>=0.4.3",
-    "pyspark==3.3.2",
     "toml>=0.10.2",
+    "snowflake-connector-python>=3.3.1",
+    "pyyaml==5.3.1",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.rst"
