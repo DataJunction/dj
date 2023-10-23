@@ -375,6 +375,13 @@ field_type=IntegerType(), is_optional=True, doc='an optional field'))
         """
         return self._fields  # pragma: no cover
 
+    @property
+    def fields_mapping(self) -> Dict[str, NestedField]:
+        """
+        Returns the struct's fields.
+        """
+        return {field.name.name: field for field in self._fields}  # pragma: no cover
+
 
 class ListType(ColumnType):
     """A list type
@@ -911,8 +918,10 @@ PRIMITIVE_TYPES: Dict[str, PrimitiveType] = {
     "bool": BooleanType(),
     "boolean": BooleanType(),
     "varchar": VarcharType(),
-    "bigint": BigIntType(),
     "int": IntegerType(),
+    "tinyint": TinyIntType(),
+    "smallint": SmallIntType(),
+    "bigint": BigIntType(),
     "long": BigIntType(),
     "float": FloatType(),
     "double": DoubleType(),

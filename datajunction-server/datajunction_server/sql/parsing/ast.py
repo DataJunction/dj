@@ -2032,6 +2032,11 @@ class Subscript(Expression):
         if isinstance(self.expr.type, MapType):
             type_ = cast(MapType, self.expr.type)
             return type_.value.type
+        if isinstance(self.expr.type, StructType):
+            nested_field = self.expr.type.fields_mapping.get(
+                self.index.value.replace("'", ""),
+            )
+            return nested_field.type
         return cast(ListType, self.expr.type).element.type
 
 
@@ -2101,6 +2106,27 @@ class Join(Node):
         if self.criteria:
             parts.append(f" {self.criteria}")
         return "".join(parts)
+
+
+@dataclass(eq=False)
+class InlineTable(TableExpression, Named):
+    """
+    An inline table
+    """
+
+    values: List[Expression] = field(default_factory=list)
+    explicit_columns: bool = False
+
+    def __str__(self) -> str:
+        values = "VALUES " + ",\n\t".join(
+            [f'({", ".join([str(col) for col in row])})' for row in self.values],
+        )
+        alias = f"{self.alias_or_name.name}" + (
+            f"({', '.join([col.alias_or_name.name for col in self.columns])})"
+            if self.explicit_columns
+            else ""
+        )
+        return f"{values} AS {alias}"
 
 
 @dataclass(eq=False)

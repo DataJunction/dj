@@ -245,7 +245,9 @@ def create_node_revision(
     ]
     node_revision.required_dimensions = node_validator.required_dimensions
     new_parents = [node.name for node in node_validator.dependencies_map]
-    catalog_ids = [node.catalog_id for node in node_validator.dependencies_map]
+    catalog_ids = [
+        node.catalog_id for node in node_validator.dependencies_map if node.catalog_id
+    ]
     if node_revision.mode == NodeMode.PUBLISHED and not len(set(catalog_ids)) <= 1:
         raise DJException(
             f"Cannot create nodes with multi-catalog dependencies: {set(catalog_ids)}",
