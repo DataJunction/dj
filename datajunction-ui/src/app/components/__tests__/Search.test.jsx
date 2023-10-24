@@ -9,27 +9,43 @@ describe('<Search />', () => {
   const mockDjClient = {
     logout: jest.fn(),
     nodeDetails: async () => [
-        {
-          name: 'default.repair_orders',
-          display_name: 'Default: Repair Orders',
-          description: 'Repair orders',
-          version: 'v1.0',
-          type: 'source',
-          status: 'valid',
-          mode: 'published',
-          updated_at: '2023-08-21T16:48:52.880498+00:00',
-        },
-        {
-          name: 'default.repair_order_details',
-          display_name: 'Default: Repair Order Details',
-          description: 'Details on repair orders',
-          version: 'v1.0',
-          type: 'source',
-          status: 'valid',
-          mode: 'published',
-          updated_at: '2023-08-21T16:48:52.981201+00:00',
-        },
-      ]
+      {
+        name: 'default.repair_orders',
+        display_name: 'Default: Repair Orders',
+        description: 'Repair orders',
+        version: 'v1.0',
+        type: 'source',
+        status: 'valid',
+        mode: 'published',
+        updated_at: '2023-08-21T16:48:52.880498+00:00',
+      },
+      {
+        name: 'default.repair_order_details',
+        display_name: 'Default: Repair Order Details',
+        description: 'Details on repair orders',
+        version: 'v1.0',
+        type: 'source',
+        status: 'valid',
+        mode: 'published',
+        updated_at: '2023-08-21T16:48:52.981201+00:00',
+      },
+    ],
+    listTags: async () => [
+      {
+        description: 'something',
+        display_name: 'Report A',
+        tag_metadata: {},
+        name: 'report.a',
+        tag_type: 'report',
+      },
+      {
+        description: 'report B',
+        display_name: 'Report B',
+        tag_metadata: {},
+        name: 'report.b',
+        tag_type: 'report',
+      },
+    ],
   };
 
   it('displays search results correctly', () => {

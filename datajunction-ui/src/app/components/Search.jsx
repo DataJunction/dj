@@ -16,8 +16,15 @@ export default function Search() {
   };
   useEffect(() => {
     const fetchNodes = async () => {
-      const data = await djClient.nodeDetails();
-      const fuse = new Fuse(data, {
+      const data = (await djClient.nodeDetails()) || [];
+      const tags = (await djClient.listTags()) || [];
+      const allEntities = data.concat(
+        tags.map(tag => {
+          tag.type = 'tag';
+          return tag;
+        }),
+      );
+      const fuse = new Fuse(allEntities || [], {
         keys: [
           'name', // will be assigned a `weight` of 1
           {
@@ -31,6 +38,10 @@ export default function Search() {
           {
             name: 'type',
             weight: 4,
+          },
+          {
+            name: 'tag_type',
+            weight: 5,
           },
         ],
       });
@@ -64,13 +75,16 @@ export default function Search() {
       </form>
       <div className="search-results">
         {searchResults.map(item => {
+          const itemUrl =
+            item.type !== 'tag' ? `/nodes/${item.name}` : `/tags/${item.name}`;
           return (
-            <a href={`/nodes/${item.name}`}>
+            <a href={itemUrl}>
               <div key={item.name} className="search-result-item">
-                <span class={`node_type__${item.type} badge node_type`}>
+                <span className={`node_type__${item.type} badge node_type`}>
                   {item.type}
                 </span>
-                {item.display_name} (<b>{item.name}</b>) -{' '}
+                {item.display_name} (<b>{item.name}</b>){' '}
+                {item.description ? '- ' : ' '}
                 {truncate(item.description)}
               </div>
             </a>
