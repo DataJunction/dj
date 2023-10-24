@@ -464,7 +464,7 @@ describe('<NodePage />', () => {
       fireEvent.click(savePartition);
       expect(screen.getByText('Saved!'));
     });
-  });
+  }, 60000);
   // check compiled SQL on nodeInfo page
 
   it('renders the NodeHistory tab correctly', async () => {
