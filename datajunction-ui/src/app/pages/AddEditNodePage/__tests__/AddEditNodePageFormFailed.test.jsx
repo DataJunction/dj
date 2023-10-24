@@ -32,10 +32,13 @@ describe('AddEditNodePage submission failed', () => {
     const { container } = renderCreateNode(element);
 
     await userEvent.type(
-      screen.getByLabelText('Display Name'),
+      screen.getByLabelText('Display Name *'),
       'Some Test Metric',
     );
-    await userEvent.type(screen.getByLabelText('Query'), 'SELECT * FROM test');
+    await userEvent.type(
+      screen.getByLabelText('Query *'),
+      'SELECT * FROM test',
+    );
     await userEvent.click(screen.getByText('Create dimension'));
 
     await waitFor(() => {
@@ -49,7 +52,6 @@ describe('AddEditNodePage submission failed', () => {
         'draft',
         'default',
         null,
-        undefined,
         undefined,
         undefined,
       );
@@ -83,7 +85,7 @@ describe('AddEditNodePage submission failed', () => {
     const element = testElement(mockDjClient);
     renderEditNode(element);
 
-    await userEvent.type(screen.getByLabelText('Display Name'), '!!!');
+    await userEvent.type(screen.getByLabelText('Display Name *'), '!!!');
     await userEvent.type(screen.getByLabelText('Description'), '!!!');
     await userEvent.click(screen.getByText('Save'));
     await waitFor(async () => {

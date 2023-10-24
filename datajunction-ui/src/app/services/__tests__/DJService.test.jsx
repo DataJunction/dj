@@ -106,7 +106,6 @@ describe('DataJunctionAPI', () => {
       'mode',
       'primary_key',
       'neutral',
-      'count',
       '',
     ];
     fetch.mockResponseOnce(JSON.stringify({}));
@@ -124,7 +123,6 @@ describe('DataJunctionAPI', () => {
         primary_key: sampleArgs[5],
         metric_metadata: {
           direction: 'neutral',
-          kind: 'count',
           unit: '',
         },
       }),

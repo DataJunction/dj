@@ -93,17 +93,6 @@ export default function NodeInfoTab({ node }) {
     node?.type === 'metric' ? (
       <div className="list-group-item d-flex">
         <div className="d-flex gap-2 w-100 py-3">
-          <div style={{ marginRight: '2rem' }}>
-            <h6 className="mb-0 w-100">Kind</h6>
-            <p
-              className="mb-0 opacity-75"
-              role="dialog"
-              aria-hidden="false"
-              aria-label="MetricKind"
-            >
-              {labelize(node?.metric_metadata?.kind)}
-            </p>
-          </div>
           <div>
             <h6 className="mb-0 w-100">Direction</h6>
             <p
@@ -114,7 +103,7 @@ export default function NodeInfoTab({ node }) {
             >
               {node?.metric_metadata?.direction
                 ? labelize(node?.metric_metadata?.direction)
-                : ''}
+                : 'None'}
             </p>
           </div>
           <div style={{ marginRight: '2rem' }}>
@@ -123,9 +112,11 @@ export default function NodeInfoTab({ node }) {
               className="mb-0 opacity-75"
               role="dialog"
               aria-hidden="false"
-              aria-label="MetricKind"
+              aria-label="MetricUnit"
             >
-              {labelize(node?.metric_metadata?.unit)}
+              {node?.metric_metadata?.unit
+                ? labelize(node?.metric_metadata?.unit?.label)
+                : 'None'}
             </p>
           </div>
         </div>
