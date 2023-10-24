@@ -246,8 +246,8 @@ def create_node_revision(
     ]
     node_revision.required_dimensions = node_validator.required_dimensions
     node_revision.metric_metadata = (
-        MetricMetadata.from_orm(data.metric_metadata)
-        if node_type == NodeType.METRIC
+        MetricMetadata.from_input(data.metric_metadata)
+        if node_type == NodeType.METRIC and data.metric_metadata is not None
         else None
     )
     new_parents = [node.name for node in node_validator.dependencies_map]
@@ -997,7 +997,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         materializations=[],
         status=old_revision.status,
         metric_metadata=(
-            MetricMetadata.from_orm(data.metric_metadata)
+            MetricMetadata.from_input(data.metric_metadata)
             if data and data.metric_metadata
             else old_revision.metric_metadata
         ),
@@ -1027,6 +1027,13 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             ),
         ).all()
         new_revision.parents = list(parent_refs)
+        catalogs = [
+            parent.current.catalog_id
+            for parent in parent_refs
+            if parent.current.catalog_id
+        ]
+        if catalogs:
+            new_revision.catalog_id = catalogs[0]
         new_revision.columns = node_validator.columns or []
         if new_revision.type == NodeType.METRIC:
             new_revision.columns[0].display_name = new_revision.display_name
