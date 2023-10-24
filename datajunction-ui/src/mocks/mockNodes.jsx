@@ -210,8 +210,10 @@ export const mocks = {
       },
     ],
     metric_metadata: {
-      unit: 'unitless',
-      kind: 'count',
+      unit: {
+        name: 'unitless',
+        label: 'Unitless',
+      },
       direction: 'neutral',
     },
   },
@@ -1019,8 +1021,10 @@ export const mocks = {
       },
     ],
     metric_metadata: {
-      unit: 'unitless',
-      kind: 'count',
+      unit: {
+        name: 'unitless',
+        label: 'Unitless',
+      },
       direction: 'neutral',
     },
   },

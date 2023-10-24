@@ -35,7 +35,6 @@ export function AddEditNodePage() {
   const [tags, setTags] = useState([]);
   const [metricUnits, setMetricUnits] = useState([]);
   const [metricDirections, setMetricDirections] = useState([]);
-  const [metricKinds, setMetricKinds] = useState([]);
 
   const initialValues = {
     name: action === Action.Edit ? name : '',
@@ -112,7 +111,6 @@ export function AddEditNodePage() {
       values.namespace,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
-      values.metric_kind,
       values.metric_unit,
     );
     if (status === 200 || status === 201) {
@@ -143,7 +141,6 @@ export function AddEditNodePage() {
       values.mode,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
       values.metric_direction,
-      values.metric_kind,
       values.metric_unit,
     );
     const tagsResponse = await djClient.tagsNode(
@@ -169,7 +166,7 @@ export function AddEditNodePage() {
   const namespaceInput = (
     <div className="NamespaceInput">
       <ErrorMessage name="namespace" component="span" />
-      <label htmlFor="react-select-3-input">Namespace</label>
+      <label htmlFor="react-select-3-input">Namespace *</label>
       <FormikSelect
         selectOptions={namespaces}
         formikFieldName="namespace"
@@ -185,7 +182,7 @@ export function AddEditNodePage() {
   const fullNameInput = (
     <div className="FullNameInput NodeCreationInput">
       <ErrorMessage name="name" component="span" />
-      <label htmlFor="FullName">Full Name</label>
+      <label htmlFor="FullName">Full Name *</label>
       <FullNameField type="text" name="name" />
     </div>
   );
@@ -215,9 +212,15 @@ export function AddEditNodePage() {
         setFieldValue(field, data[field] || '', false);
       }
     });
-    setFieldValue('metric_kind', data.metric_metadata.kind);
-    setFieldValue('metric_direction', data.metric_metadata.direction);
-    setFieldValue('metric_unit', data.metric_metadata.unit);
+    if (data.metric_metadata?.direction) {
+      setFieldValue('metric_direction', data.metric_metadata.direction);
+    }
+    if (data.metric_metadata?.unit) {
+      setFieldValue(
+        'metric_unit',
+        data.metric_metadata.unit.name.toLowerCase(),
+      );
+    }
   };
 
   const alertMessage = message => {
@@ -262,12 +265,9 @@ export function AddEditNodePage() {
   // Get metric metadata values
   useEffect(() => {
     const fetchData = async () => {
-      const directions = await djClient.listMetricMetadata.Direction();
-      setMetricDirections(directions);
-      const units = await djClient.listMetricMetadata.Unit();
-      setMetricUnits(units);
-      const kinds = await djClient.listMetricMetadata.Kind();
-      setMetricKinds(kinds);
+      const metadata = await djClient.listMetricMetadata();
+      setMetricDirections(metadata.directions);
+      setMetricUnits(metadata.units);
     };
     fetchData().catch(console.error);
   }, [djClient]);
@@ -314,19 +314,6 @@ export function AddEditNodePage() {
                 const metricMetadataInput = (
                   <>
                     <div
-                      className="MetricKindInput NodeCreationInput"
-                      style={{ width: '25%' }}
-                    >
-                      <ErrorMessage name="metric_kind" component="span" />
-                      <label htmlFor="MetricKind">Metric Kind</label>
-                      <Field as="select" name="metric_kind" id="MetricKind">
-                        {metricKinds.map(kind => (
-                          <option value={kind}>{labelize(kind)}</option>
-                        ))}
-                      </Field>
-                    </div>
-
-                    <div
                       className="MetricDirectionInput NodeCreationInput"
                       style={{ width: '25%' }}
                     >
@@ -337,6 +324,7 @@ export function AddEditNodePage() {
                         name="metric_direction"
                         id="MetricDirection"
                       >
+                        <option value=""></option>
                         {metricDirections.map(direction => (
                           <option value={direction}>
                             {labelize(direction)}
@@ -351,8 +339,9 @@ export function AddEditNodePage() {
                       <ErrorMessage name="metric_unit" component="span" />
                       <label htmlFor="MetricUnit">Metric Unit</label>
                       <Field as="select" name="metric_unit" id="MetricUnit">
+                        <option value=""></option>
                         {metricUnits.map(unit => (
-                          <option value={unit}>{labelize(unit)}</option>
+                          <option value={unit.name}>{unit.label}</option>
                         ))}
                       </Field>
                     </div>
@@ -410,7 +399,7 @@ export function AddEditNodePage() {
                           : staticFieldsInEdit(node)}
                         <div className="DisplayNameInput NodeCreationInput">
                           <ErrorMessage name="display_name" component="span" />
-                          <label htmlFor="displayName">Display Name</label>
+                          <label htmlFor="displayName">Display Name *</label>
                           <Field
                             type="text"
                             name="display_name"
@@ -435,7 +424,7 @@ export function AddEditNodePage() {
                           : ''}
                         <div className="QueryInput NodeCreationInput">
                           <ErrorMessage name="query" component="span" />
-                          <label htmlFor="Query">Query</label>
+                          <label htmlFor="Query">Query *</label>
                           <NodeQueryField
                             djClient={djClient}
                             value={node.query ? node.query : ''}

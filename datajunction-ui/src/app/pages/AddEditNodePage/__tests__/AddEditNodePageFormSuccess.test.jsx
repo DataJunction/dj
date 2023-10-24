@@ -42,10 +42,13 @@ describe('AddEditNodePage submission succeeded', () => {
     const { container } = renderCreateNode(element);
 
     await userEvent.type(
-      screen.getByLabelText('Display Name'),
+      screen.getByLabelText('Display Name *'),
       'Some Test Metric',
     );
-    await userEvent.type(screen.getByLabelText('Query'), 'SELECT * FROM test');
+    await userEvent.type(
+      screen.getByLabelText('Query *'),
+      'SELECT * FROM test',
+    );
     await userEvent.click(screen.getByText('Create dimension'));
 
     await waitFor(() => {
@@ -59,7 +62,6 @@ describe('AddEditNodePage submission succeeded', () => {
         'draft',
         'default',
         null,
-        undefined,
         undefined,
         undefined,
       );
@@ -95,7 +97,7 @@ describe('AddEditNodePage submission succeeded', () => {
     const element = testElement(mockDjClient);
     const { getByTestId } = renderEditNode(element);
 
-    await userEvent.type(screen.getByLabelText('Display Name'), '!!!');
+    await userEvent.type(screen.getByLabelText('Display Name *'), '!!!');
     await userEvent.type(screen.getByLabelText('Description'), '!!!');
     await userEvent.click(screen.getByText('Save'));
 
@@ -113,7 +115,6 @@ describe('AddEditNodePage submission succeeded', () => {
         'published',
         ['repair_order_id', 'country'],
         'neutral',
-        'count',
         'unitless',
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
@@ -122,15 +123,9 @@ describe('AddEditNodePage submission succeeded', () => {
         ['purpose'],
       );
 
-      expect(
-        mockDjClient.DataJunctionAPI.listMetricMetadata.Kind,
-      ).toBeCalledTimes(1);
-      expect(
-        mockDjClient.DataJunctionAPI.listMetricMetadata.Direction,
-      ).toBeCalledTimes(1);
-      expect(
-        mockDjClient.DataJunctionAPI.listMetricMetadata.Unit,
-      ).toBeCalledTimes(1);
+      expect(mockDjClient.DataJunctionAPI.listMetricMetadata).toBeCalledTimes(
+        1,
+      );
       expect(
         await screen.getByDisplayValue('repair_order_id, country'),
       ).toBeInTheDocument();

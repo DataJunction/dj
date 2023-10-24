@@ -78,14 +78,12 @@ export const DataJunctionAPI = {
     namespace,
     primary_key,
     metric_direction,
-    metric_kind,
     metric_unit,
   ) {
     const metricMetadata =
-      metric_direction || metric_kind || metric_unit
+      metric_direction || metric_unit
         ? {
             direction: metric_direction,
-            kind: metric_kind,
             unit: metric_unit,
           }
         : null;
@@ -117,15 +115,13 @@ export const DataJunctionAPI = {
     mode,
     primary_key,
     metric_direction,
-    metric_kind,
     metric_unit,
   ) {
     try {
       const metricMetadata =
-        metric_direction || metric_kind || metric_unit
+        metric_direction || metric_unit
           ? {
               direction: metric_direction,
-              kind: metric_kind,
               unit: metric_unit,
             }
           : null;
@@ -695,36 +691,14 @@ export const DataJunctionAPI = {
     );
     return { status: response.status, json: await response.json() };
   },
-  listMetricMetadata: {
-    Unit: async function () {
-      const response = await fetch(`${DJ_URL}/metrics/metadata/unit`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
-      return await response.json();
-    },
-    Direction: async function () {
-      const response = await fetch(`${DJ_URL}/metrics/metadata/direction`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
-      return await response.json();
-    },
-    Kind: async function () {
-      const response = await fetch(`${DJ_URL}/metrics/metadata/kind`, {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-      });
-      return await response.json();
-    },
+  listMetricMetadata: async function () {
+    const response = await fetch(`${DJ_URL}/metrics/metadata`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    return await response.json();
   },
 };
