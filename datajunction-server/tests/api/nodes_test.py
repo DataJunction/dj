@@ -2000,8 +2000,13 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         metric_data = response.json()
         assert metric_data["metric_metadata"] == {
             "direction": "higher_is_better",
-            "kind": "count",
-            "unit": "dollar",
+            "unit": {
+                "abbreviation": None,
+                "category": None,
+                "description": None,
+                "label": "Dollar",
+                "name": "DOLLAR",
+            },
         }
 
         response = client_with_roads.get("/nodes/default.total_repair_cost")

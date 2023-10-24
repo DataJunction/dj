@@ -529,7 +529,6 @@ CROSS JOIN
             "mode": "published",
             "name": "default.num_repair_orders",
             "metric_metadata": {
-                "kind": "count",
                 "direction": "higher_is_better",
                 "unit": "dollar",
             },

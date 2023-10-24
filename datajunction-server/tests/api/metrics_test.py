@@ -28,8 +28,13 @@ def test_read_metrics(client_with_roads: TestClient) -> None:
     data = response.json()
     assert data["metric_metadata"] == {
         "direction": "higher_is_better",
-        "kind": "count",
-        "unit": "dollar",
+        "unit": {
+            "abbreviation": None,
+            "category": None,
+            "description": None,
+            "label": "Dollar",
+            "name": "DOLLAR",
+        },
     }
 
 
@@ -1118,30 +1123,95 @@ def test_list_metric_metadata(client: TestClient):
     """
     Test listing metric metadata values
     """
-    metric_kinds = client.get("/metrics/metadata/kind").json()
-    assert metric_kinds == [
-        "unspecified",
-        "count",
-        "delta",
-        "ratio",
-        "rate",
-        "proportion",
-        "percentage",
-    ]
-
-    metric_directions = client.get("/metrics/metadata/direction").json()
-    assert metric_directions == ["higher_is_better", "lower_is_better", "neutral"]
-
-    metric_units = client.get("/metrics/metadata/unit").json()
-    assert metric_units == [
-        "unknown",
-        "unitless",
-        "dollar",
-        "second",
-        "minute",
-        "hour",
-        "day",
-        "week",
-        "month",
-        "year",
-    ]
+    metric_metadata_options = client.get("/metrics/metadata").json()
+    assert metric_metadata_options == {
+        "directions": ["higher_is_better", "lower_is_better", "neutral"],
+        "units": [
+            {
+                "abbreviation": None,
+                "category": "",
+                "description": None,
+                "label": "Unknown",
+                "name": "unknown",
+            },
+            {
+                "abbreviation": None,
+                "category": "",
+                "description": None,
+                "label": "Unitless",
+                "name": "unitless",
+            },
+            {
+                "abbreviation": "%",
+                "category": "",
+                "description": "A ratio expressed as a number out of 100. Values "
+                "range from 0 to 100.",
+                "label": "Percentage",
+                "name": "percentage",
+            },
+            {
+                "abbreviation": "",
+                "category": "",
+                "description": "A ratio that compares a part to a whole. Values "
+                "range from 0 to 1.",
+                "label": "Proportion",
+                "name": "proportion",
+            },
+            {
+                "abbreviation": "$",
+                "category": "currency",
+                "description": None,
+                "label": "Dollar",
+                "name": "dollar",
+            },
+            {
+                "abbreviation": "s",
+                "category": "time",
+                "description": None,
+                "label": "Second",
+                "name": "second",
+            },
+            {
+                "abbreviation": "m",
+                "category": "time",
+                "description": None,
+                "label": "Minute",
+                "name": "minute",
+            },
+            {
+                "abbreviation": "h",
+                "category": "time",
+                "description": None,
+                "label": "Hour",
+                "name": "hour",
+            },
+            {
+                "abbreviation": "d",
+                "category": "time",
+                "description": None,
+                "label": "Day",
+                "name": "day",
+            },
+            {
+                "abbreviation": "w",
+                "category": "time",
+                "description": None,
+                "label": "Week",
+                "name": "week",
+            },
+            {
+                "abbreviation": "mo",
+                "category": "time",
+                "description": None,
+                "label": "Month",
+                "name": "month",
+            },
+            {
+                "abbreviation": "y",
+                "category": "time",
+                "description": None,
+                "label": "Year",
+                "name": "year",
+            },
+        ],
+    }

@@ -516,31 +516,6 @@ class MetricDirection(str, enum.Enum):
     NEUTRAL = "neutral"
 
 
-class MetricKind(str, enum.Enum):
-    """
-    The kind of metric
-    """
-
-    UNSPECIFIED = "unspecified"
-
-    COUNT = "count"
-
-    DELTA = "delta"
-
-    # A ratio is one quantity divided by another quantity, with the two sharing the same units
-    RATIO = "ratio"
-
-    # A rate is like ratio, but with different units of measure
-    RATE = "rate"
-
-    # A proportion is like ratio, but it compares a part to a whole.
-    # The possible values range from 0 to 1
-    PROPORTION = "proportion"
-
-    # A ratio expressed as a fraction of 100
-    PERCENTAGE = "percentage"
-
-
 class Unit(BaseSQLModel):
     """
     Metric unit
@@ -550,8 +525,12 @@ class Unit(BaseSQLModel):
     label: Optional[str]
     category: Optional[str]
     abbreviation: Optional[str]
+    description: Optional[str]
 
     def __str__(self):
+        return self.name  # pragma: no cover
+
+    def __repr__(self):
         return self.name
 
     @validator("label", always=True)
@@ -566,19 +545,33 @@ class Unit(BaseSQLModel):
         return label
 
 
-class MetricUnit(str, enum.Enum):
+class MetricUnit(enum.Enum):
     """
     Available units of measure for metrics
-    TODO: Eventually this can be recorded in a database, since measurement units
-    can be customized depending on the metric (i.e., clicks/hour). For the time being,
-    this enum provides some basic units.
+    TODO: Eventually this can be recorded in a database,   # pylint: disable=fixme
+    since measurement units can be customized depending on the metric
+    (i.e., clicks/hour). For the time being, this enum provides some basic units.
     """
 
     UNKNOWN = Unit(name="unknown", category="")
     UNITLESS = Unit(name="unitless", category="")
 
+    PERCENTAGE = Unit(
+        name="percentage",
+        category="",
+        abbreviation="%",
+        description="A ratio expressed as a number out of 100. Values range from 0 to 100.",
+    )
+
+    PROPORTION = Unit(
+        name="proportion",
+        category="",
+        abbreviation="",
+        description="A ratio that compares a part to a whole. Values range from 0 to 1.",
+    )
+
     # Monetary
-    USD = Unit(name="dollar", label="Dollar", category="currency", abbreviation="$")
+    DOLLAR = Unit(name="dollar", label="Dollar", category="currency", abbreviation="$")
 
     # Time
     SECOND = Unit(name="second", category="time", abbreviation="s")
@@ -590,6 +583,15 @@ class MetricUnit(str, enum.Enum):
     YEAR = Unit(name="year", category="time", abbreviation="y")
 
 
+class MetricMetadataOptions(BaseSQLModel):
+    """
+    Metric metadata options list
+    """
+
+    directions: List[MetricDirection]
+    units: List[Unit]
+
+
 class MetricMetadataBase(BaseSQLModel):  # type: ignore
     """
     Base class for additional metric metadata
@@ -598,10 +600,6 @@ class MetricMetadataBase(BaseSQLModel):  # type: ignore
     direction: Optional[MetricDirection] = Field(
         sa_column=SqlaColumn(Enum(MetricDirection)),
         default=MetricDirection.NEUTRAL,
-    )
-    kind: Optional[MetricKind] = Field(
-        sa_column=SqlaColumn(Enum(MetricKind)),
-        default=MetricKind.UNSPECIFIED,
     )
     unit: Optional[MetricUnit] = Field(
         sa_column=SqlaColumn(Enum(MetricUnit)),
@@ -616,15 +614,33 @@ class MetricMetadata(MetricMetadataBase, table=True):  # type: ignore
 
     id: Optional[int] = Field(default=None, primary_key=True)
 
+    @classmethod
+    def from_input(cls, input_data: "MetricMetadataInput") -> "MetricMetadata":
+        """
+        Parses a MetricMetadataInput object to a MetricMetadata object
+        """
+        return MetricMetadata(
+            direction=input_data.direction,
+            unit=MetricUnit[input_data.unit.upper()] if input_data.unit else None,
+        )
+
 
 class MetricMetadataOutput(BaseSQLModel):
     """
     Metric metadata output
     """
 
-    kind: MetricKind
     direction: MetricDirection
-    unit: MetricUnit
+    unit: Unit
+
+
+class MetricMetadataInput(BaseSQLModel):
+    """
+    Metric metadata output
+    """
+
+    direction: Optional[MetricDirection]
+    unit: Optional[str]
 
 
 class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
@@ -1198,7 +1214,7 @@ class MetricNodeFields(BaseSQLModel):
     """
 
     required_dimensions: Optional[List[str]]
-    metric_metadata: Optional[MetricMetadataBase]
+    metric_metadata: Optional[MetricMetadataInput]
 
 
 #

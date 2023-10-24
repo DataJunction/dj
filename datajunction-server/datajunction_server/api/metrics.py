@@ -20,7 +20,7 @@ from datajunction_server.models.metric import Metric
 from datajunction_server.models.node import (
     DimensionAttributeOutput,
     MetricDirection,
-    MetricKind,
+    MetricMetadataOptions,
     MetricUnit,
     Node,
     NodeType,
@@ -67,6 +67,18 @@ def list_metrics(
     )
 
 
+@router.get("/metrics/metadata")
+def list_metric_metadata() -> MetricMetadataOptions:
+    """
+    Return available metric metadata attributes
+    """
+    return_obj = MetricMetadataOptions(
+        directions=[MetricDirection(e) for e in MetricDirection],
+        units=[MetricUnit(e).value for e in MetricUnit],
+    )
+    return return_obj
+
+
 @router.get("/metrics/{name}/", response_model=Metric)
 def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metric:
     """
@@ -75,30 +87,6 @@ def get_a_metric(name: str, *, session: Session = Depends(get_session)) -> Metri
     node = get_metric(session, name)
     metric = Metric.parse_node(node)
     return metric
-
-
-@router.get("/metrics/metadata/kind", response_model=List[MetricKind])
-def list_metric_kinds() -> List[MetricKind]:
-    """
-    Return available metric kinds
-    """
-    return [MetricKind(e) for e in MetricKind]
-
-
-@router.get("/metrics/metadata/direction", response_model=List[MetricDirection])
-def list_metric_directions() -> List[MetricDirection]:
-    """
-    Return available metric directions
-    """
-    return [MetricDirection(e) for e in MetricDirection]
-
-
-@router.get("/metrics/metadata/unit", response_model=List[MetricUnit])
-def list_metric_units() -> List[MetricUnit]:
-    """
-    Return available metric units
-    """
-    return [MetricUnit(e) for e in MetricUnit]
 
 
 @router.get(
