@@ -50,6 +50,7 @@ export function NodePage() {
       if (data.type === 'metric') {
         const metric = await djClient.metric(name);
         data.dimensions = metric.dimensions;
+        data.metric_metadata = metric.metric_metadata;
         setNode(data);
       }
       if (data.type === 'cube') {

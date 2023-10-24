@@ -37,6 +37,7 @@ def client_code_for_creating_node(
             "catalog_id",
             "lineage",
             "status",
+            "metric_metadata_id",
             "mode",
             "node_id",
             "updated_at",

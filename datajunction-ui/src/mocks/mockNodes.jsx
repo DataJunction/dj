@@ -209,6 +209,13 @@ export const mocks = {
         label: 'default.us_state.state_region_description (string)',
       },
     ],
+    metric_metadata: {
+      unit: {
+        name: 'unitless',
+        label: 'Unitless',
+      },
+      direction: 'neutral',
+    },
   },
   attributes: [
     {
@@ -1013,6 +1020,13 @@ export const mocks = {
         ],
       },
     ],
+    metric_metadata: {
+      unit: {
+        name: 'unitless',
+        label: 'Unitless',
+      },
+      direction: 'neutral',
+    },
   },
   mockNodeDAG: [
     {

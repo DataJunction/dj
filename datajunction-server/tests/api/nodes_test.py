@@ -1983,14 +1983,34 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         """
         response = client_with_roads.patch(
             "/nodes/default.total_repair_cost/",
-            json={"query": "SELECT sum(price) FROM default.repair_order_details"},
+            json={
+                "query": "SELECT sum(price) FROM default.repair_order_details",
+                "metric_metadata": {
+                    "kind": "count",
+                    "direction": "higher_is_better",
+                    "unit": "dollar",
+                },
+            },
         )
         node_data = response.json()
         assert node_data["query"] == (
             "SELECT sum(price) FROM default.repair_order_details"
         )
+        response = client_with_roads.get("/metrics/default.total_repair_cost")
+        metric_data = response.json()
+        assert metric_data["metric_metadata"] == {
+            "direction": "higher_is_better",
+            "unit": {
+                "abbreviation": None,
+                "category": None,
+                "description": None,
+                "label": "Dollar",
+                "name": "DOLLAR",
+            },
+        }
+
         response = client_with_roads.get("/nodes/default.total_repair_cost")
-        assert response.json()["version"] == "v1.0"
+        assert response.json()["version"] == "v1.1"
 
         response = client_with_roads.patch(
             "/nodes/default.total_repair_cost/",

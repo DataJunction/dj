@@ -91,6 +91,7 @@ describe('DataJunctionAPI', () => {
         mode: sampleArgs[5],
         namespace: sampleArgs[6],
         primary_key: sampleArgs[7],
+        metric_metadata: null,
       }),
       credentials: 'include',
     });
@@ -104,6 +105,8 @@ describe('DataJunctionAPI', () => {
       'query',
       'mode',
       'primary_key',
+      'neutral',
+      '',
     ];
     fetch.mockResponseOnce(JSON.stringify({}));
     await DataJunctionAPI.patchNode(...sampleArgs);
@@ -118,6 +121,10 @@ describe('DataJunctionAPI', () => {
         query: sampleArgs[3],
         mode: sampleArgs[4],
         primary_key: sampleArgs[5],
+        metric_metadata: {
+          direction: 'neutral',
+          unit: '',
+        },
       }),
       credentials: 'include',
     });

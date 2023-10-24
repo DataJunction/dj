@@ -528,6 +528,10 @@ CROSS JOIN
             "query": ("SELECT count(repair_order_id) " "FROM default.repair_orders"),
             "mode": "published",
             "name": "default.num_repair_orders",
+            "metric_metadata": {
+                "direction": "higher_is_better",
+                "unit": "dollar",
+            },
         },
     ),
     (

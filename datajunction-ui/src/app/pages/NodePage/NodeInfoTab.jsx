@@ -6,6 +6,7 @@ import NodeStatus from './NodeStatus';
 import ListGroupItem from '../../components/ListGroupItem';
 import ToggleSwitch from '../../components/ToggleSwitch';
 import DJClientContext from '../../providers/djclient';
+import { labelize } from '../../../utils/form';
 
 SyntaxHighlighter.registerLanguage('sql', sql);
 foundation.hljs['padding'] = '2rem';
@@ -87,6 +88,42 @@ export default function NodeInfoTab({ node }) {
       </div>
     );
   };
+
+  const metricMetadataDiv =
+    node?.type === 'metric' ? (
+      <div className="list-group-item d-flex">
+        <div className="d-flex gap-2 w-100 py-3">
+          <div>
+            <h6 className="mb-0 w-100">Direction</h6>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="MetricDirection"
+            >
+              {node?.metric_metadata?.direction
+                ? labelize(node?.metric_metadata?.direction)
+                : 'None'}
+            </p>
+          </div>
+          <div style={{ marginRight: '2rem' }}>
+            <h6 className="mb-0 w-100">Unit</h6>
+            <p
+              className="mb-0 opacity-75"
+              role="dialog"
+              aria-hidden="false"
+              aria-label="MetricUnit"
+            >
+              {node?.metric_metadata?.unit
+                ? labelize(node?.metric_metadata?.unit?.label)
+                : 'None'}
+            </p>
+          </div>
+        </div>
+      </div>
+    ) : (
+      ''
+    );
 
   const cubeElementsDiv = node?.cube_elements ? (
     <div className="list-group-item d-flex">
@@ -205,6 +242,7 @@ export default function NodeInfoTab({ node }) {
           </div>
         </div>
       </div>
+      {metricMetadataDiv}
       {node?.type !== 'cube' ? queryDiv : ''}
       {cubeElementsDiv}
     </div>

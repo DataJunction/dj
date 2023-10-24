@@ -32,10 +32,13 @@ describe('AddEditNodePage submission failed', () => {
     const { container } = renderCreateNode(element);
 
     await userEvent.type(
-      screen.getByLabelText('Display Name'),
+      screen.getByLabelText('Display Name *'),
       'Some Test Metric',
     );
-    await userEvent.type(screen.getByLabelText('Query'), 'SELECT * FROM test');
+    await userEvent.type(
+      screen.getByLabelText('Query *'),
+      'SELECT * FROM test',
+    );
     await userEvent.click(screen.getByText('Create dimension'));
 
     await waitFor(() => {
@@ -49,6 +52,8 @@ describe('AddEditNodePage submission failed', () => {
         'draft',
         'default',
         null,
+        undefined,
+        undefined,
       );
       expect(
         screen.getByText(/Some columns in the primary key \[] were not found/),
@@ -80,7 +85,7 @@ describe('AddEditNodePage submission failed', () => {
     const element = testElement(mockDjClient);
     renderEditNode(element);
 
-    await userEvent.type(screen.getByLabelText('Display Name'), '!!!');
+    await userEvent.type(screen.getByLabelText('Display Name *'), '!!!');
     await userEvent.type(screen.getByLabelText('Description'), '!!!');
     await userEvent.click(screen.getByText('Save'));
     await waitFor(async () => {
@@ -88,7 +93,7 @@ describe('AddEditNodePage submission failed', () => {
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalled();
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
         'default.num_repair_orders',
-        [{ display_name: 'Purpose', name: 'purpose' }],
+        ['purpose'],
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toReturnWith({
         json: { message: 'Some tags were not found' },

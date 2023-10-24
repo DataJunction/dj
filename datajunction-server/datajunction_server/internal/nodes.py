@@ -60,6 +60,7 @@ from datajunction_server.models.node import (
     CreateNode,
     CreateSourceNode,
     LineageColumn,
+    MetricMetadata,
     MissingParent,
     NodeMode,
     NodeStatus,
@@ -244,6 +245,11 @@ def create_node_revision(
         for missing_parent in node_validator.missing_parents_map
     ]
     node_revision.required_dimensions = node_validator.required_dimensions
+    node_revision.metric_metadata = (
+        MetricMetadata.from_input(data.metric_metadata)
+        if node_type == NodeType.METRIC and data.metric_metadata is not None
+        else None
+    )
     new_parents = [node.name for node in node_validator.dependencies_map]
     catalog_ids = [
         node.catalog_id for node in node_validator.dependencies_map if node.catalog_id
@@ -917,6 +923,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
     """
     Creates a new revision from an existing node revision.
     """
+    metadata_changes = data is not None and data.metric_metadata
     minor_changes = (
         (data and data.description and old_revision.description != data.description)
         or (data and data.mode and old_revision.mode != data.mode)
@@ -925,6 +932,7 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             and data.display_name
             and old_revision.display_name != data.display_name
         )
+        or metadata_changes
     )
 
     query_changes = (
@@ -988,6 +996,11 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
         mode=new_mode,
         materializations=[],
         status=old_revision.status,
+        metric_metadata=(
+            MetricMetadata.from_input(data.metric_metadata)
+            if data and data.metric_metadata
+            else old_revision.metric_metadata
+        ),
     )
 
     # Link the new revision to its parents if a new revision was created and update its status
@@ -1014,6 +1027,13 @@ def create_new_revision_from_existing(  # pylint: disable=too-many-locals,too-ma
             ),
         ).all()
         new_revision.parents = list(parent_refs)
+        catalogs = [
+            parent.current.catalog_id
+            for parent in parent_refs
+            if parent.current.catalog_id
+        ]
+        if catalogs:
+            new_revision.catalog_id = catalogs[0]
         new_revision.columns = node_validator.columns or []
         if new_revision.type == NodeType.METRIC:
             new_revision.columns[0].display_name = new_revision.display_name

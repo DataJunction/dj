@@ -33,6 +33,8 @@ export function AddEditNodePage() {
 
   const [namespaces, setNamespaces] = useState([]);
   const [tags, setTags] = useState([]);
+  const [metricUnits, setMetricUnits] = useState([]);
+  const [metricDirections, setMetricDirections] = useState([]);
 
   const initialValues = {
     name: action === Action.Edit ? name : '',
@@ -108,9 +110,13 @@ export function AddEditNodePage() {
       values.mode,
       values.namespace,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
+      values.metric_direction,
+      values.metric_unit,
     );
     if (status === 200 || status === 201) {
-      await djClient.tagsNode(values.name, values.tags);
+      if (values.tags) {
+        await djClient.tagsNode(values.name, values.tags);
+      }
       setStatus({
         success: (
           <>
@@ -134,8 +140,13 @@ export function AddEditNodePage() {
       values.query,
       values.mode,
       values.primary_key ? primaryKeyToList(values.primary_key) : null,
+      values.metric_direction,
+      values.metric_unit,
     );
-    const tagsResponse = await djClient.tagsNode(values.name, values.tags);
+    const tagsResponse = await djClient.tagsNode(
+      values.name,
+      values.tags.map(tag => tag.name),
+    );
     if ((status === 200 || status === 201) && tagsResponse.status === 200) {
       setStatus({
         success: (
@@ -155,7 +166,7 @@ export function AddEditNodePage() {
   const namespaceInput = (
     <div className="NamespaceInput">
       <ErrorMessage name="namespace" component="span" />
-      <label htmlFor="react-select-3-input">Namespace</label>
+      <label htmlFor="react-select-3-input">Namespace *</label>
       <FormikSelect
         selectOptions={namespaces}
         formikFieldName="namespace"
@@ -171,7 +182,7 @@ export function AddEditNodePage() {
   const fullNameInput = (
     <div className="FullNameInput NodeCreationInput">
       <ErrorMessage name="name" component="span" />
-      <label htmlFor="FullName">Full Name</label>
+      <label htmlFor="FullName">Full Name *</label>
       <FullNameField type="text" name="name" />
     </div>
   );
@@ -201,6 +212,15 @@ export function AddEditNodePage() {
         setFieldValue(field, data[field] || '', false);
       }
     });
+    if (data.metric_metadata?.direction) {
+      setFieldValue('metric_direction', data.metric_metadata.direction);
+    }
+    if (data.metric_metadata?.unit) {
+      setFieldValue(
+        'metric_unit',
+        data.metric_metadata.unit.name.toLowerCase(),
+      );
+    }
   };
 
   const alertMessage = message => {
@@ -242,6 +262,16 @@ export function AddEditNodePage() {
     fetchData().catch(console.error);
   }, [djClient, djClient.listTags]);
 
+  // Get metric metadata values
+  useEffect(() => {
+    const fetchData = async () => {
+      const metadata = await djClient.listMetricMetadata();
+      setMetricDirections(metadata.directions);
+      setMetricUnits(metadata.units);
+    };
+    fetchData().catch(console.error);
+  }, [djClient]);
+
   return (
     <div className="mid">
       <NamespaceHeader namespace="" />
@@ -279,6 +309,43 @@ export function AddEditNodePage() {
                       )}
                     </span>
                   </div>
+                );
+
+                const metricMetadataInput = (
+                  <>
+                    <div
+                      className="MetricDirectionInput NodeCreationInput"
+                      style={{ width: '25%' }}
+                    >
+                      <ErrorMessage name="metric_direction" component="span" />
+                      <label htmlFor="MetricDirection">Metric Direction</label>
+                      <Field
+                        as="select"
+                        name="metric_direction"
+                        id="MetricDirection"
+                      >
+                        <option value=""></option>
+                        {metricDirections.map(direction => (
+                          <option value={direction}>
+                            {labelize(direction)}
+                          </option>
+                        ))}
+                      </Field>
+                    </div>
+                    <div
+                      className="MetricUnitInput NodeCreationInput"
+                      style={{ width: '25%' }}
+                    >
+                      <ErrorMessage name="metric_unit" component="span" />
+                      <label htmlFor="MetricUnit">Metric Unit</label>
+                      <Field as="select" name="metric_unit" id="MetricUnit">
+                        <option value=""></option>
+                        {metricUnits.map(unit => (
+                          <option value={unit.name}>{unit.label}</option>
+                        ))}
+                      </Field>
+                    </div>
+                  </>
                 );
 
                 useEffect(() => {
@@ -332,7 +399,7 @@ export function AddEditNodePage() {
                           : staticFieldsInEdit(node)}
                         <div className="DisplayNameInput NodeCreationInput">
                           <ErrorMessage name="display_name" component="span" />
-                          <label htmlFor="displayName">Display Name</label>
+                          <label htmlFor="displayName">Display Name *</label>
                           <Field
                             type="text"
                             name="display_name"
@@ -352,9 +419,12 @@ export function AddEditNodePage() {
                             placeholder="Describe your node"
                           />
                         </div>
+                        {nodeType === 'metric' || node.type === 'metric'
+                          ? metricMetadataInput
+                          : ''}
                         <div className="QueryInput NodeCreationInput">
                           <ErrorMessage name="query" component="span" />
-                          <label htmlFor="Query">Query</label>
+                          <label htmlFor="Query">Query *</label>
                           <NodeQueryField
                             djClient={djClient}
                             value={node.query ? node.query : ''}
@@ -379,6 +449,7 @@ export function AddEditNodePage() {
                             <option value="published">Published</option>
                           </Field>
                         </div>
+
                         <button type="submit" disabled={isSubmitting}>
                           {action === Action.Add ? 'Create' : 'Save'} {nodeType}
                         </button>
