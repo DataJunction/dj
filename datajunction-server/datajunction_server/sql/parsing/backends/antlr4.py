@@ -266,6 +266,39 @@ def _(ctx: sbp.StatementDefaultContext):
 
 
 @visit.register
+def _(ctx: sbp.InlineTableDefault2Context):
+    return visit(ctx.inlineTable())
+
+
+@visit.register
+def _(ctx: sbp.RowConstructorContext):
+    namedExpr = visit(ctx.namedExpression())
+    return namedExpr
+
+
+@visit.register
+def _(ctx: sbp.InlineTableContext):
+    args = visit(ctx.expression())
+    alias, columns = visit(ctx.tableAlias())
+
+    # Generate default column aliases if they weren't specified
+    inline_table_columns = (
+        [ast.Column(col, _type=value.type) for col, value in zip(columns, args[0])]
+        if columns
+        else [
+            ast.Column(ast.Name(f"col{idx + 1}"), _type=value.type)
+            for idx, value in enumerate(args[0])
+        ]
+    )
+    return ast.InlineTable(
+        name=alias,
+        _columns=inline_table_columns,
+        explicit_columns=len(columns) > 0,
+        values=[value for value in args],
+    )
+
+
+@visit.register
 def _(ctx: sbp.QueryContext):
     ctes = []
     if ctes_ctx := ctx.ctes():
