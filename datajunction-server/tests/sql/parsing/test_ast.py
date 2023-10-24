@@ -1,3 +1,4 @@
+# pylint: disable=too-many-lines
 """
 testing ast Nodes and their methods
 """
@@ -8,6 +9,7 @@ from sqlmodel import Session
 from datajunction_server.errors import DJException
 from datajunction_server.sql.parsing import ast, types
 from datajunction_server.sql.parsing.backends.antlr4 import parse
+from tests.sql.utils import compare_query_strings
 
 
 def test_ast_compile_table(
@@ -892,3 +894,111 @@ def test_ast_compile_lateral_view_explode8(session: Session):
         quote_style="",
         namespace=None,
     )
+
+
+def test_ast_compile_inline_table(session: Session):
+    """
+    Test parsing and compiling an inline table with VALUES (...)
+    """
+    query_str_explicit_columns = """SELECT
+  w.a AS one,
+  w.b AS two,
+  w.c AS three,
+  w.d AS four
+FROM VALUES
+  ('1', 1, 2, 1),
+  ('11', 1, 3, 1),
+  ('111', 1, 2, 1),
+  ('1111', 1, 3, 1),
+  ('11111', 1, 4, 1),
+  ('111111', 1, 5, 1) AS w(a, b, c, d)"""
+    expected_columns = [
+        ("one", types.StringType()),
+        ("two", types.IntegerType()),
+        ("three", types.IntegerType()),
+        ("four", types.IntegerType()),
+    ]
+    expected_values = [
+        [
+            ast.String(value="'1'"),
+            ast.Number(value=1, _type=None),
+            ast.Number(value=2, _type=None),
+            ast.Number(value=1, _type=None),
+        ],
+        [
+            ast.String(value="'11'"),
+            ast.Number(value=1, _type=None),
+            ast.Number(value=3, _type=None),
+            ast.Number(value=1, _type=None),
+        ],
+        [
+            ast.String(value="'111'"),
+            ast.Number(value=1, _type=None),
+            ast.Number(value=2, _type=None),
+            ast.Number(value=1, _type=None),
+        ],
+        [
+            ast.String(value="'1111'"),
+            ast.Number(value=1, _type=None),
+            ast.Number(value=3, _type=None),
+            ast.Number(value=1, _type=None),
+        ],
+        [
+            ast.String(value="'11111'"),
+            ast.Number(value=1, _type=None),
+            ast.Number(value=4, _type=None),
+            ast.Number(value=1, _type=None),
+        ],
+        [
+            ast.String(value="'111111'"),
+            ast.Number(value=1, _type=None),
+            ast.Number(value=5, _type=None),
+            ast.Number(value=1, _type=None),
+        ],
+    ]
+    expected_table_name = ast.Name(  # type: ignore
+        name="w",
+        quote_style="",
+        namespace=None,
+    )
+    query = parse(query_str_explicit_columns)
+    exc = DJException()
+    assert not exc.errors
+
+    ctx = ast.CompileContext(session=session, exception=exc)
+    assert parse(str(query)) == query
+    assert compare_query_strings(str(query), query_str_explicit_columns)
+
+    query.compile(ctx)
+    assert [
+        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+    ] == expected_columns
+    assert query.select.from_.relations[0].primary.values == expected_values  # type: ignore
+    assert query.columns[0].table.alias_or_name == expected_table_name  # type: ignore
+
+    query_str_implicit_columns = """SELECT
+  w.col1 AS one,
+  w.col2 AS two,
+  w.col3 AS three,
+  w.col4 AS four
+FROM VALUES
+  ('1', 1, 2, 1),
+  ('11', 1, 3, 1),
+  ('111', 1, 2, 1),
+  ('1111', 1, 3, 1),
+  ('11111', 1, 4, 1),
+  ('111111', 1, 5, 1) AS w"""
+    query = parse(query_str_implicit_columns)
+    exc = DJException()
+    assert not exc.errors
+
+    ctx = ast.CompileContext(session=session, exception=exc)
+    assert parse(str(query)) == query
+    assert compare_query_strings(str(query), query_str_implicit_columns)
+
+    query.compile(ctx)
+    assert [
+        (col.alias_or_name.name, col.type) for col in query.select.projection  # type: ignore
+    ] == expected_columns
+    assert query.select.from_.relations[0].primary.values == expected_values  # type: ignore
+    assert query.columns[0].table.alias_or_name == expected_table_name  # type: ignore

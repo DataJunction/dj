@@ -3001,6 +3001,20 @@ def infer_type(
     return arg.type
 
 
+@Min.register  # type: ignore
+def infer_type(
+    arg: ct.DateType,
+) -> ct.DateType:
+    return arg.type  # pragma: no cover
+
+
+@Min.register  # type: ignore
+def infer_type(
+    arg: ct.TimestampType,
+) -> ct.TimestampType:
+    return arg.type  # pragma: no cover
+
+
 class MinBy(Function):
     """
     min_by(val, key) - Returns the value of val corresponding to the minimum value of key.
