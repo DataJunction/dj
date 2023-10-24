@@ -7,7 +7,11 @@ from pydantic.class_validators import root_validator
 from sqlmodel import SQLModel
 
 from datajunction_server.models.engine import Dialect
-from datajunction_server.models.node import DimensionAttributeOutput, Node
+from datajunction_server.models.node import (
+    DimensionAttributeOutput,
+    MetricMetadataOutput,
+    Node,
+)
 from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.transpilation import get_transpilation_plugin
@@ -32,6 +36,7 @@ class Metric(SQLModel):
     query: str
 
     dimensions: List[DimensionAttributeOutput]
+    metric_metadata: Optional[MetricMetadataOutput] = None
 
     @classmethod
     def parse_node(cls, node: Node) -> "Metric":
@@ -45,6 +50,7 @@ class Metric(SQLModel):
             updated_at=node.current.updated_at,
             query=node.current.query,
             dimensions=get_dimensions(node),
+            metric_metadata=node.current.metric_metadata,
         )
 
 

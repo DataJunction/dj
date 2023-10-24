@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from functools import partial
 from http import HTTPStatus
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import BaseModel, Extra
 from pydantic import Field as PydanticField
@@ -25,6 +25,7 @@ from datajunction_server.models.base import (
     BaseSQLModel,
     NodeColumns,
     generate_display_name,
+    labelize,
 )
 from datajunction_server.models.catalog import Catalog
 from datajunction_server.models.column import Column, ColumnYAML
@@ -505,6 +506,143 @@ class AvailabilityState(AvailabilityStateBase, table=True):  # type: ignore
         return True
 
 
+class MetricDirection(str, enum.Enum):
+    """
+    The direction of the metric that's considered good, i.e., higher is better
+    """
+
+    HIGHER_IS_BETTER = "higher_is_better"
+    LOWER_IS_BETTER = "lower_is_better"
+    NEUTRAL = "neutral"
+
+
+class Unit(BaseSQLModel):
+    """
+    Metric unit
+    """
+
+    name: str
+    label: Optional[str]
+    category: Optional[str]
+    abbreviation: Optional[str]
+    description: Optional[str]
+
+    def __str__(self):
+        return self.name  # pragma: no cover
+
+    def __repr__(self):
+        return self.name
+
+    @validator("label", always=True)
+    def get_label(  # pylint: disable=no-self-argument
+        cls,
+        label: str,
+        values: Dict[str, Any],
+    ) -> str:
+        """Generate a default label if one was not provided."""
+        if not label and values:
+            return labelize(values["name"])
+        return label
+
+
+class MetricUnit(enum.Enum):
+    """
+    Available units of measure for metrics
+    TODO: Eventually this can be recorded in a database,   # pylint: disable=fixme
+    since measurement units can be customized depending on the metric
+    (i.e., clicks/hour). For the time being, this enum provides some basic units.
+    """
+
+    UNKNOWN = Unit(name="unknown", category="")
+    UNITLESS = Unit(name="unitless", category="")
+
+    PERCENTAGE = Unit(
+        name="percentage",
+        category="",
+        abbreviation="%",
+        description="A ratio expressed as a number out of 100. Values range from 0 to 100.",
+    )
+
+    PROPORTION = Unit(
+        name="proportion",
+        category="",
+        abbreviation="",
+        description="A ratio that compares a part to a whole. Values range from 0 to 1.",
+    )
+
+    # Monetary
+    DOLLAR = Unit(name="dollar", label="Dollar", category="currency", abbreviation="$")
+
+    # Time
+    SECOND = Unit(name="second", category="time", abbreviation="s")
+    MINUTE = Unit(name="minute", category="time", abbreviation="m")
+    HOUR = Unit(name="hour", category="time", abbreviation="h")
+    DAY = Unit(name="day", category="time", abbreviation="d")
+    WEEK = Unit(name="week", category="time", abbreviation="w")
+    MONTH = Unit(name="month", category="time", abbreviation="mo")
+    YEAR = Unit(name="year", category="time", abbreviation="y")
+
+
+class MetricMetadataOptions(BaseSQLModel):
+    """
+    Metric metadata options list
+    """
+
+    directions: List[MetricDirection]
+    units: List[Unit]
+
+
+class MetricMetadataBase(BaseSQLModel):  # type: ignore
+    """
+    Base class for additional metric metadata
+    """
+
+    direction: Optional[MetricDirection] = Field(
+        sa_column=SqlaColumn(Enum(MetricDirection)),
+        default=MetricDirection.NEUTRAL,
+    )
+    unit: Optional[MetricUnit] = Field(
+        sa_column=SqlaColumn(Enum(MetricUnit)),
+        default=MetricUnit.UNKNOWN,
+    )
+
+
+class MetricMetadata(MetricMetadataBase, table=True):  # type: ignore
+    """
+    Additional metric metadata
+    """
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+
+    @classmethod
+    def from_input(cls, input_data: "MetricMetadataInput") -> "MetricMetadata":
+        """
+        Parses a MetricMetadataInput object to a MetricMetadata object
+        """
+        return MetricMetadata(
+            direction=input_data.direction,
+            unit=MetricUnit[input_data.unit.upper()] if input_data.unit else None,
+        )
+
+
+class MetricMetadataOutput(BaseSQLModel):
+    """
+    Metric metadata output
+    """
+
+    direction: MetricDirection
+    unit: Unit
+
+
+class MetricMetadataInput(BaseSQLModel):
+    """
+    Metric metadata output
+    """
+
+    direction: Optional[MetricDirection]
+    unit: Optional[str]
+
+
 class NodeAvailabilityState(BaseSQLModel, table=True):  # type: ignore
     """
     Join table for availability state
@@ -617,6 +755,18 @@ class NodeRevision(NodeRevisionBase, table=True):  # type: ignore
         sa_relationship_kwargs={
             "primaryjoin": "NodeRevision.id==BoundDimensionsRelationship.metric_id",
             "secondaryjoin": "Column.id==BoundDimensionsRelationship.bound_dimension_id",
+        },
+    )
+
+    metric_metadata_id: Optional[int] = Field(
+        default=None,
+        foreign_key="metricmetadata.id",
+    )
+    metric_metadata: Optional[MetricMetadata] = Relationship(
+        sa_relationship_kwargs={
+            "primaryjoin": "NodeRevision.metric_metadata_id==MetricMetadata.id",
+            "cascade": "all, delete",
+            "uselist": False,
         },
     )
 
@@ -1064,6 +1214,7 @@ class MetricNodeFields(BaseSQLModel):
     """
 
     required_dimensions: Optional[List[str]]
+    metric_metadata: Optional[MetricMetadataInput]
 
 
 #
@@ -1098,6 +1249,7 @@ class UpdateNode(
     MutableNodeFields,
     SourceNodeFields,
     MutableNodeQueryField,
+    MetricNodeFields,
     CubeNodeFields,
 ):
     """
@@ -1182,6 +1334,7 @@ class NodeRevisionOutput(SQLModel):
     updated_at: UTCDatetime
     materializations: List[MaterializationConfigOutput]
     parents: List[NodeNameOutput]
+    metric_metadata: Optional[MetricMetadataOutput] = None
 
     class Config:  # pylint: disable=missing-class-docstring,too-few-public-methods
         allow_population_by_field_name = True

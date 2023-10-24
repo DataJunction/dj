@@ -42,10 +42,13 @@ describe('AddEditNodePage submission succeeded', () => {
     const { container } = renderCreateNode(element);
 
     await userEvent.type(
-      screen.getByLabelText('Display Name'),
+      screen.getByLabelText('Display Name *'),
       'Some Test Metric',
     );
-    await userEvent.type(screen.getByLabelText('Query'), 'SELECT * FROM test');
+    await userEvent.type(
+      screen.getByLabelText('Query *'),
+      'SELECT * FROM test',
+    );
     await userEvent.click(screen.getByText('Create dimension'));
 
     await waitFor(() => {
@@ -59,10 +62,7 @@ describe('AddEditNodePage submission succeeded', () => {
         'draft',
         'default',
         null,
-      );
-      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalled();
-      expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
-        'default.some_test_metric',
+        undefined,
         undefined,
       );
       expect(screen.getByText(/default.some_test_metric/)).toBeInTheDocument();
@@ -97,7 +97,7 @@ describe('AddEditNodePage submission succeeded', () => {
     const element = testElement(mockDjClient);
     const { getByTestId } = renderEditNode(element);
 
-    await userEvent.type(screen.getByLabelText('Display Name'), '!!!');
+    await userEvent.type(screen.getByLabelText('Display Name *'), '!!!');
     await userEvent.type(screen.getByLabelText('Description'), '!!!');
     await userEvent.click(screen.getByText('Save'));
 
@@ -114,13 +114,18 @@ describe('AddEditNodePage submission succeeded', () => {
         'SELECT count(repair_order_id) default_DOT_num_repair_orders FROM default.repair_orders',
         'published',
         ['repair_order_id', 'country'],
+        'neutral',
+        'unitless',
       );
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledTimes(1);
       expect(mockDjClient.DataJunctionAPI.tagsNode).toBeCalledWith(
         'default.num_repair_orders',
-        [{ display_name: 'Purpose', name: 'purpose' }],
+        ['purpose'],
       );
 
+      expect(mockDjClient.DataJunctionAPI.listMetricMetadata).toBeCalledTimes(
+        1,
+      );
       expect(
         await screen.getByDisplayValue('repair_order_id, country'),
       ).toBeInTheDocument();

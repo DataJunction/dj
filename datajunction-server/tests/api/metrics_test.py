@@ -2,6 +2,7 @@
 """
 Tests for the metrics API.
 """
+
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
@@ -22,6 +23,19 @@ def test_read_metrics(client_with_roads: TestClient) -> None:
 
     assert response.status_code == 200
     assert len(data) > 5
+
+    response = client_with_roads.get("/metrics/default.num_repair_orders")
+    data = response.json()
+    assert data["metric_metadata"] == {
+        "direction": "higher_is_better",
+        "unit": {
+            "abbreviation": None,
+            "category": None,
+            "description": None,
+            "label": "Dollar",
+            "name": "DOLLAR",
+        },
+    }
 
 
 def test_read_metric(session: Session, client: TestClient) -> None:
@@ -1103,3 +1117,101 @@ def test_raise_on_multiple_expressions(client_with_service_setup: TestClient):
     assert (
         "Metric queries can only have a single expression, found 2"
     ) in response.json()["message"]
+
+
+def test_list_metric_metadata(client: TestClient):
+    """
+    Test listing metric metadata values
+    """
+    metric_metadata_options = client.get("/metrics/metadata").json()
+    assert metric_metadata_options == {
+        "directions": ["higher_is_better", "lower_is_better", "neutral"],
+        "units": [
+            {
+                "abbreviation": None,
+                "category": "",
+                "description": None,
+                "label": "Unknown",
+                "name": "unknown",
+            },
+            {
+                "abbreviation": None,
+                "category": "",
+                "description": None,
+                "label": "Unitless",
+                "name": "unitless",
+            },
+            {
+                "abbreviation": "%",
+                "category": "",
+                "description": "A ratio expressed as a number out of 100. Values "
+                "range from 0 to 100.",
+                "label": "Percentage",
+                "name": "percentage",
+            },
+            {
+                "abbreviation": "",
+                "category": "",
+                "description": "A ratio that compares a part to a whole. Values "
+                "range from 0 to 1.",
+                "label": "Proportion",
+                "name": "proportion",
+            },
+            {
+                "abbreviation": "$",
+                "category": "currency",
+                "description": None,
+                "label": "Dollar",
+                "name": "dollar",
+            },
+            {
+                "abbreviation": "s",
+                "category": "time",
+                "description": None,
+                "label": "Second",
+                "name": "second",
+            },
+            {
+                "abbreviation": "m",
+                "category": "time",
+                "description": None,
+                "label": "Minute",
+                "name": "minute",
+            },
+            {
+                "abbreviation": "h",
+                "category": "time",
+                "description": None,
+                "label": "Hour",
+                "name": "hour",
+            },
+            {
+                "abbreviation": "d",
+                "category": "time",
+                "description": None,
+                "label": "Day",
+                "name": "day",
+            },
+            {
+                "abbreviation": "w",
+                "category": "time",
+                "description": None,
+                "label": "Week",
+                "name": "week",
+            },
+            {
+                "abbreviation": "mo",
+                "category": "time",
+                "description": None,
+                "label": "Month",
+                "name": "month",
+            },
+            {
+                "abbreviation": "y",
+                "category": "time",
+                "description": None,
+                "label": "Year",
+                "name": "year",
+            },
+        ],
+    }
