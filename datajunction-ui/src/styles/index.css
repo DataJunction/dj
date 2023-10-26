@@ -453,6 +453,12 @@ tbody th {
   color: #580076;
 }
 
+.node_type__tag {
+  font-family: 'Jost';
+  color: #5c3b8f;
+  background-color: #5c3b8f25 !important;
+}
+
 .node_type__blank {
   font-family: 'Jost';
   background-color: #ffffff !important;
