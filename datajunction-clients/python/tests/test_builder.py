@@ -525,7 +525,8 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         )
         assert (
             result["message"]
-            == "Cannot resolve type of column dimension_that_does_not_exist in dimension_that_does_not_exist "
+            == "Cannot resolve type of column dimension_that_does_not_exist in "
+            "dimension_that_does_not_exist "
             "dimension_that_does_not_exist"
         )
 
