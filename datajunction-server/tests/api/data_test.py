@@ -73,9 +73,24 @@ class TestDataForNode:
                 {
                     "sql": "",
                     "columns": [
-                        {"name": "id", "type": "int"},
-                        {"name": "payment_type_classification", "type": "string"},
-                        {"name": "payment_type_name", "type": "string"},
+                        {
+                            "column": "id",
+                            "name": "default_DOT_payment_type_DOT_id",
+                            "node": "default.payment_type",
+                            "type": "int",
+                        },
+                        {
+                            "column": "payment_type_classification",
+                            "name": "default_DOT_payment_type_DOT_payment_type_classification",
+                            "node": "default.payment_type",
+                            "type": "string",
+                        },
+                        {
+                            "column": "payment_type_name",
+                            "name": "default_DOT_payment_type_DOT_payment_type_name",
+                            "node": "default.payment_type",
+                            "type": "string",
+                        },
                     ],
                     "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
                     "row_count": 0,
@@ -113,7 +128,9 @@ class TestDataForNode:
             "results": [
                 {
                     "sql": "",
-                    "columns": [{"name": "*", "type": "wildcard"}],
+                    "columns": [
+                        {"name": "*", "type": "wildcard", "node": "", "column": "*"},
+                    ],
                     "rows": [[129.19]],
                     "row_count": 0,
                 },
@@ -141,11 +158,7 @@ class TestDataForNode:
             "id": "1b049fb1-652e-458a-ba9d-3669412b34bd",
             "engine_name": None,
             "engine_version": None,
-            "submitted_query": (
-                "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
-                '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n '
-                "WHERE  revenue.payment_amount > 1000000"
-            ),
+            "submitted_query": mock.ANY,
             "executed_query": None,
             "scheduled": None,
             "started": None,
@@ -157,10 +170,30 @@ class TestDataForNode:
                 {
                     "sql": "",
                     "columns": [
-                        {"name": "account_type", "type": "string"},
-                        {"name": "customer_id", "type": "int"},
-                        {"name": "payment_amount", "type": "float"},
-                        {"name": "payment_id", "type": "int"},
+                        {
+                            "column": "account_type",
+                            "name": "default_DOT_large_revenue_payments_only_DOT_account_type",
+                            "node": "default.large_revenue_payments_only",
+                            "type": "string",
+                        },
+                        {
+                            "column": "customer_id",
+                            "name": "default_DOT_large_revenue_payments_only_DOT_customer_id",
+                            "node": "default.large_revenue_payments_only",
+                            "type": "int",
+                        },
+                        {
+                            "column": "payment_amount",
+                            "name": "default_DOT_large_revenue_payments_only_DOT_payment_amount",
+                            "node": "default.large_revenue_payments_only",
+                            "type": "float",
+                        },
+                        {
+                            "column": "payment_id",
+                            "name": "default_DOT_large_revenue_payments_only_DOT_payment_id",
+                            "node": "default.large_revenue_payments_only",
+                            "type": "int",
+                        },
                     ],
                     "rows": [
                         ["CHECKING", 2, "22.50", 1],
@@ -207,7 +240,14 @@ class TestDataForNode:
             "results": [
                 {
                     "sql": "",
-                    "columns": [{"name": "basic_DOT_num_comments", "type": "bigint"}],
+                    "columns": [
+                        {
+                            "column": "basic_DOT_num_comments",
+                            "name": "basic_DOT_num_comments",
+                            "node": "basic.num_comments",
+                            "type": "bigint",
+                        },
+                    ],
                     "rows": [[1]],
                     "row_count": 0,
                 },
@@ -289,12 +329,21 @@ class TestDataForNode:
                     "sql": "",
                     "columns": [
                         {
+                            "column": "default_DOT_num_repair_orders",
                             "name": "default_DOT_num_repair_orders",
+                            "node": "default.num_repair_orders",
                             "type": "bigint",
                         },
-                        {"name": "default_DOT_avg_repair_price", "type": "double"},
                         {
+                            "column": "default_DOT_avg_repair_price",
+                            "name": "default_DOT_avg_repair_price",
+                            "node": "default.avg_repair_price",
+                            "type": "double",
+                        },
+                        {
+                            "column": "company_name",
                             "name": "default_DOT_dispatcher_DOT_company_name",
+                            "node": "default.dispatcher",
                             "type": "string",
                         },
                     ],
@@ -347,7 +396,14 @@ class TestDataForNode:
         assert new_data["results"] == [
             {
                 "sql": "",
-                "columns": [{"name": "basic_DOT_num_comments", "type": "bigint"}],
+                "columns": [
+                    {
+                        "column": "basic_DOT_num_comments",
+                        "name": "basic_DOT_num_comments",
+                        "node": "basic.num_comments",
+                        "type": "bigint",
+                    },
+                ],
                 "rows": [[1]],
                 "row_count": 0,
             },
