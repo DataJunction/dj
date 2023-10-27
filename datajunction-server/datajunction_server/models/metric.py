@@ -1,7 +1,7 @@
 """
 Models for metrics.
 """
-from typing import List, Optional, Union
+from typing import List, Optional
 
 from pydantic.class_validators import root_validator
 from sqlmodel import SQLModel
@@ -12,7 +12,7 @@ from datajunction_server.models.node import (
     MetricMetadataOutput,
     Node,
 )
-from datajunction_server.models.query import ColumnMetadata, ColumnMetadataDetails
+from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.sql.dag import get_dimensions
 from datajunction_server.transpilation import get_transpilation_plugin
 from datajunction_server.typing import UTCDatetime
@@ -62,9 +62,7 @@ class TranslatedSQL(SQLModel):
     # TODO: once type-inference is added to /query/ endpoint  # pylint: disable=fixme
     # columns attribute can be required
     sql: str
-    columns: Optional[
-        List[Union[ColumnMetadataDetails, ColumnMetadata]]
-    ] = None  # pragma: no-cover
+    columns: Optional[List[ColumnMetadata]] = None  # pragma: no-cover
     dialect: Optional[Dialect] = None
 
     @root_validator(pre=False)

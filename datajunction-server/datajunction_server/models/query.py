@@ -46,20 +46,11 @@ class ColumnMetadata(BaseSQLModel):
 
     name: str
     type: str
+    column: Optional[str]
+    node: Optional[str]
 
     def __hash__(self):
         return hash((self.name, self.type))
-
-
-class ColumnMetadataDetails(BaseSQLModel):
-    """
-    A model for column metadata with additional details
-    """
-
-    name: str
-    column: str
-    node: str
-    type: str
 
 
 class StatementResults(BaseSQLModel):
