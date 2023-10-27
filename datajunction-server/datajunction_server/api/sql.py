@@ -8,6 +8,7 @@ from fastapi import Depends, Query
 from sqlmodel import Session
 
 from datajunction_server.api.helpers import (
+    assemble_column_metadata,
     build_sql_for_multiple_metrics,
     get_engine,
     get_query,
@@ -17,7 +18,6 @@ from datajunction_server.internal.access.authentication.http import SecureAPIRou
 from datajunction_server.internal.access.authorization import validate_access
 from datajunction_server.models import User, access
 from datajunction_server.models.metric import TranslatedSQL
-from datajunction_server.models.query import ColumnMetadata
 from datajunction_server.utils import get_current_user, get_session, get_settings
 
 _logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ def get_sql(
         access_control=access_control,
     )
     columns = [
-        ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
+        assemble_column_metadata(col, node_name)  # type: ignore
         for col in query_ast.select.projection
     ]
     return TranslatedSQL(

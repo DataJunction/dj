@@ -524,7 +524,10 @@ def test_create_cube(  # pylint: disable=redefined-outer-name
     assert default_materialization["name"] == "default"
     assert default_materialization["schedule"] == "@daily"
     assert sorted(
-        default_materialization["config"]["columns"],
+        [
+            {"name": col["name"], "type": col["type"]}
+            for col in default_materialization["config"]["columns"]
+        ],
         key=lambda x: x["name"],
     ) == sorted(
         [
@@ -1179,12 +1182,42 @@ def test_cube_sql_generation_with_availability(
     )
     data = response.json()
     assert data["columns"] == [
-        {"name": "default_DOT_discounted_orders_rate", "type": "double"},
-        {"name": "default_DOT_num_repair_orders", "type": "bigint"},
-        {"name": "default_DOT_avg_repair_price", "type": "double"},
-        {"name": "default_DOT_hard_hat_DOT_country", "type": "string"},
-        {"name": "default_DOT_hard_hat_DOT_postal_code", "type": "string"},
-        {"name": "default_DOT_hard_hat_DOT_hire_date", "type": "timestamp"},
+        {
+            "column": "default_DOT_discounted_orders_rate",
+            "name": "default_DOT_discounted_orders_rate",
+            "node": "default.discounted_orders_rate",
+            "type": "double",
+        },
+        {
+            "column": "default_DOT_num_repair_orders",
+            "name": "default_DOT_num_repair_orders",
+            "node": "default.num_repair_orders",
+            "type": "bigint",
+        },
+        {
+            "column": "default_DOT_avg_repair_price",
+            "name": "default_DOT_avg_repair_price",
+            "node": "default.avg_repair_price",
+            "type": "double",
+        },
+        {
+            "column": "country",
+            "name": "default_DOT_hard_hat_DOT_country",
+            "node": "default.hard_hat",
+            "type": "string",
+        },
+        {
+            "column": "postal_code",
+            "name": "default_DOT_hard_hat_DOT_postal_code",
+            "node": "default.hard_hat",
+            "type": "string",
+        },
+        {
+            "column": "hire_date",
+            "name": "default_DOT_hard_hat_DOT_hire_date",
+            "node": "default.hard_hat",
+            "type": "timestamp",
+        },
     ]
     assert compare_query_strings(
         data["sql"],
@@ -1224,14 +1257,43 @@ LIMIT 100""",
     )
     data = response.json()
     assert data["columns"] == [
-        {"name": "default_DOT_discounted_orders_rate", "type": "double"},
-        {"name": "default_DOT_num_repair_orders", "type": "bigint"},
-        {"name": "default_DOT_avg_repair_price", "type": "double"},
-        {"name": "default_DOT_hard_hat_DOT_country", "type": "string"},
-        {"name": "default_DOT_hard_hat_DOT_postal_code", "type": "string"},
-        {"name": "default_DOT_hard_hat_DOT_hire_date", "type": "timestamp"},
+        {
+            "column": "default_DOT_discounted_orders_rate",
+            "name": "default_DOT_discounted_orders_rate",
+            "node": "default.discounted_orders_rate",
+            "type": "double",
+        },
+        {
+            "column": "default_DOT_num_repair_orders",
+            "name": "default_DOT_num_repair_orders",
+            "node": "default.num_repair_orders",
+            "type": "bigint",
+        },
+        {
+            "column": "default_DOT_avg_repair_price",
+            "name": "default_DOT_avg_repair_price",
+            "node": "default.avg_repair_price",
+            "type": "double",
+        },
+        {
+            "column": "country",
+            "name": "default_DOT_hard_hat_DOT_country",
+            "node": "default.hard_hat",
+            "type": "string",
+        },
+        {
+            "column": "postal_code",
+            "name": "default_DOT_hard_hat_DOT_postal_code",
+            "node": "default.hard_hat",
+            "type": "string",
+        },
+        {
+            "column": "hire_date",
+            "name": "default_DOT_hard_hat_DOT_hire_date",
+            "node": "default.hard_hat",
+            "type": "timestamp",
+        },
     ]
-    print("datasql", data["sql"])
     assert compare_query_strings(
         data["sql"],
         """SELECT
@@ -1547,10 +1609,30 @@ def test_updating_cube_with_existing_materialization(
         "backfills": [],
         "config": {
             "columns": [
-                {"name": mock.ANY, "type": mock.ANY},
-                {"name": mock.ANY, "type": mock.ANY},
-                {"name": mock.ANY, "type": mock.ANY},
-                {"name": mock.ANY, "type": mock.ANY},
+                {
+                    "name": mock.ANY,
+                    "type": mock.ANY,
+                    "node": mock.ANY,
+                    "column": mock.ANY,
+                },
+                {
+                    "name": mock.ANY,
+                    "type": mock.ANY,
+                    "node": mock.ANY,
+                    "column": mock.ANY,
+                },
+                {
+                    "name": mock.ANY,
+                    "type": mock.ANY,
+                    "node": mock.ANY,
+                    "column": mock.ANY,
+                },
+                {
+                    "name": mock.ANY,
+                    "type": mock.ANY,
+                    "node": mock.ANY,
+                    "column": mock.ANY,
+                },
             ],
             "dimensions": [
                 "default_DOT_hard_hat_DOT_city",

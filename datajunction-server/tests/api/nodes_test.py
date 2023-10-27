@@ -2430,8 +2430,10 @@ GROUP BY
         )
         assert compare_query_strings(
             response.json()["sql"],
-            """SELECT  default_DOT_total_amount_in_region_from_struct_transform.col0,
+            """SELECT  default_DOT_total_amount_in_region_from_struct_transform.col0
+          default_DOT_total_amount_in_region_from_struct_transform_DOT_col0,
         default_DOT_total_amount_in_region_from_struct_transform.location_hierarchy
+          default_DOT_total_amount_in_region_from_struct_transform_DOT_location_hierarchy
  FROM (SELECT  SUM(IF(default_DOT_regional_level_agg_structs.order_year = 2020,
  default_DOT_regional_level_agg_structs.measures.total_amount_in_region, 0)) col0,
   default_DOT_regional_level_agg_structs.location_hierarchy
@@ -2669,9 +2671,24 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                 "backfills": [],
                 "config": {
                     "columns": [
-                        {"name": "country", "type": "string"},
-                        {"name": "num_users", "type": "bigint"},
-                        {"name": "languages", "type": "bigint"},
+                        {
+                            "name": "country",
+                            "type": "string",
+                            "node": None,
+                            "column": None,
+                        },
+                        {
+                            "name": "num_users",
+                            "type": "bigint",
+                            "node": None,
+                            "column": None,
+                        },
+                        {
+                            "name": "languages",
+                            "type": "bigint",
+                            "node": None,
+                            "column": None,
+                        },
                     ],
                     "query": "SELECT  basic_DOT_transform_DOT_country_agg.country,\n"
                     "\tbasic_DOT_transform_DOT_country_agg.languages,\n"
@@ -2862,8 +2879,18 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     },
                     "config": {
                         "columns": [
-                            {"name": "country", "type": "string"},
-                            {"name": "num_users", "type": "bigint"},
+                            {
+                                "column": None,
+                                "name": "country",
+                                "node": None,
+                                "type": "string",
+                            },
+                            {
+                                "column": None,
+                                "name": "num_users",
+                                "node": None,
+                                "type": "bigint",
+                            },
                         ],
                         "query": """SELECT  basic_DOT_transform_DOT_country_agg.country,
     basic_DOT_transform_DOT_country_agg.num_users
@@ -2882,8 +2909,18 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                     "backfills": [],
                     "config": {
                         "columns": [
-                            {"name": "country", "type": "string"},
-                            {"name": "num_users", "type": "bigint"},
+                            {
+                                "column": None,
+                                "name": "country",
+                                "node": None,
+                                "type": "string",
+                            },
+                            {
+                                "column": None,
+                                "name": "num_users",
+                                "node": None,
+                                "type": "bigint",
+                            },
                         ],
                         "partitions": [],
                         "query": """SELECT  basic_DOT_transform_DOT_country_agg.country,
@@ -3009,19 +3046,84 @@ AS TIMESTAMP)"""
                     },
                     "config": {
                         "columns": [
-                            {"name": "hard_hat_id", "type": "int"},
-                            {"name": "last_name", "type": "string"},
-                            {"name": "first_name", "type": "string"},
-                            {"name": "title", "type": "string"},
-                            {"name": "birth_date", "type": "timestamp"},
-                            {"name": "hire_date", "type": "timestamp"},
-                            {"name": "address", "type": "string"},
-                            {"name": "city", "type": "string"},
-                            {"name": "state", "type": "string"},
-                            {"name": "postal_code", "type": "string"},
-                            {"name": "country", "type": "string"},
-                            {"name": "manager", "type": "int"},
-                            {"name": "contractor_id", "type": "int"},
+                            {
+                                "name": "hard_hat_id",
+                                "type": "int",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "last_name",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "first_name",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "title",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "birth_date",
+                                "type": "timestamp",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "hire_date",
+                                "type": "timestamp",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "address",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "city",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "state",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "postal_code",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "country",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "manager",
+                                "type": "int",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "contractor_id",
+                                "type": "int",
+                                "column": None,
+                                "node": None,
+                            },
                         ],
                         "query": """SELECT  default_DOT_hard_hat.address,
     default_DOT_hard_hat.birth_date,
@@ -3071,19 +3173,84 @@ AS TIMESTAMP)"""
                     "backfills": [],
                     "config": {
                         "columns": [
-                            {"name": "hard_hat_id", "type": "int"},
-                            {"name": "last_name", "type": "string"},
-                            {"name": "first_name", "type": "string"},
-                            {"name": "title", "type": "string"},
-                            {"name": "birth_date", "type": "timestamp"},
-                            {"name": "hire_date", "type": "timestamp"},
-                            {"name": "address", "type": "string"},
-                            {"name": "city", "type": "string"},
-                            {"name": "state", "type": "string"},
-                            {"name": "postal_code", "type": "string"},
-                            {"name": "country", "type": "string"},
-                            {"name": "manager", "type": "int"},
-                            {"name": "contractor_id", "type": "int"},
+                            {
+                                "name": "hard_hat_id",
+                                "type": "int",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "last_name",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "first_name",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "title",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "birth_date",
+                                "type": "timestamp",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "hire_date",
+                                "type": "timestamp",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "address",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "city",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "state",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "postal_code",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "country",
+                                "type": "string",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "manager",
+                                "type": "int",
+                                "column": None,
+                                "node": None,
+                            },
+                            {
+                                "name": "contractor_id",
+                                "type": "int",
+                                "column": None,
+                                "node": None,
+                            },
                         ],
                         "query": """SELECT  default_DOT_hard_hat.address,
     default_DOT_hard_hat.birth_date,

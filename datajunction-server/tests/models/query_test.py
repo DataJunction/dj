@@ -67,7 +67,9 @@ def test_msgpack() -> None:
         "results": [
             {
                 "sql": "SELECT 42 AS answer",
-                "columns": [{"name": "answer", "type": "int"}],
+                "columns": [
+                    {"name": "answer", "type": "int", "node": None, "column": None},
+                ],
                 "rows": [[42]],
                 "row_count": 1,
             },

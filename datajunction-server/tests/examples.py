@@ -1981,11 +1981,14 @@ QUERY_DATA_MAPPINGS = {
         }
     ),
     (
-        "SELECTdefault_DOT_payment_type.id,default_DOT_payment_type.payment_type_classification,"
-        "default_DOT_payment_type.payment_type_nameFROM(SELECTdefault_DOT_payment_type_table.id,"
-        "default_DOT_payment_type_table.payment_type_classification,default_DOT_payment_type_table."
-        "payment_type_nameFROMaccounting.payment_type_tableASdefault_DOT_payment_type_table)AS"
-        "default_DOT_payment_type"
+        """SELECT  default_DOT_payment_type.id default_DOT_payment_type_DOT_id,
+    default_DOT_payment_type.payment_type_classification default_DOT_payment_type_DOT_payment_type_classification,
+    default_DOT_payment_type.payment_type_name default_DOT_payment_type_DOT_payment_type_name
+ FROM (SELECT  default_DOT_payment_type_table.id,
+    default_DOT_payment_type_table.payment_type_classification,
+    default_DOT_payment_type_table.payment_type_name
+ FROM accounting.payment_type_table AS default_DOT_payment_type_table)
+ AS default_DOT_payment_type"""
     )
     .strip()
     .replace('"', "")
@@ -2068,7 +2071,17 @@ QUERY_DATA_MAPPINGS = {
         }
     ),
     (
-        "SELECTdefault_DOT_large_revenue_payments_only.account_type,default_DOT_large_revenue_payments_only.customer_id,default_DOT_large_revenue_payments_only.payment_amount,default_DOT_large_revenue_payments_only.payment_idFROM(SELECTdefault_DOT_revenue.account_type,default_DOT_revenue.customer_id,default_DOT_revenue.payment_amount,default_DOT_revenue.payment_idFROMaccounting.revenueASdefault_DOT_revenueWHEREdefault_DOT_revenue.payment_amount>1000000)ASdefault_DOT_large_revenue_payments_only"
+        """SELECT  default_DOT_large_revenue_payments_only.account_type default_DOT_large_revenue_payments_only_DOT_account_type,
+    default_DOT_large_revenue_payments_only.customer_id default_DOT_large_revenue_payments_only_DOT_customer_id,
+    default_DOT_large_revenue_payments_only.payment_amount default_DOT_large_revenue_payments_only_DOT_payment_amount,
+    default_DOT_large_revenue_payments_only.payment_id default_DOT_large_revenue_payments_only_DOT_payment_id
+ FROM (SELECT  default_DOT_revenue.account_type,
+    default_DOT_revenue.customer_id,
+    default_DOT_revenue.payment_amount,
+    default_DOT_revenue.payment_id
+ FROM accounting.revenue AS default_DOT_revenue
+ WHERE  default_DOT_revenue.payment_amount > 1000000)
+ AS default_DOT_large_revenue_payments_only"""
     )
     .strip()
     .replace('"', "")
