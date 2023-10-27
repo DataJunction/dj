@@ -2374,10 +2374,6 @@ class Select(SelectExpression):
         if self.where is not None:
             parts.extend(("WHERE ", str(self.where), "\n"))
         if self.group_by:
-            # parts.extend((
-            #     "GROUP BY ",
-            #     ", ".join(str(exp.without_aliases()) for exp in self.group_by)))
-
             parts.extend(("GROUP BY ", ", ".join(str(exp) for exp in self.group_by)))
         if self.having is not None:
             parts.extend(("HAVING ", str(self.having), "\n"))
