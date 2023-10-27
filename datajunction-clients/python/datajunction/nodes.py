@@ -74,6 +74,7 @@ class Node(ClientEntity):  # pylint: disable=protected-access
     materializations: Optional[List[Dict[str, Any]]]
     version: Optional[str]
     deactivated_at: Optional[int]
+    current_version: Optional[str]
 
     #
     # Node level actions
@@ -258,6 +259,16 @@ class Source(Node):
         )
         return self.dj_client._update_node(self.name, update_node)
 
+    def validate(self) -> str:
+        """
+        This method is only for Source nodes.
+
+        It will compare the source node metadata and create a new revision if necessary.
+        """
+        response = self.dj_client._refresh_source_node(self.name)
+        self.refresh()
+        return response["status"]
+
 
 class NodeWithQuery(Node):
     """
@@ -279,9 +290,11 @@ class NodeWithQuery(Node):
         )
         return self.dj_client._update_node(self.name, update_node)
 
-    def _validate(self) -> str:
+    def validate(self) -> str:
         """
         Check if the node is valid by calling the /validate endpoint.
+
+        For source nodes, see the Source.validate() method.
         """
         validation = self.dj_client._validate_node(self)
         return validation["status"]

@@ -420,6 +420,16 @@ class DJClient:
         response = self._session.get(f"/dimensions/{node_name}/nodes/")
         return response.json()
 
+    def _refresh_source_node(
+        self,
+        node_name,
+    ):
+        """
+        Find all nodes with this dimension
+        """
+        response = self._session.post(f"/nodes/{node_name}/refresh/")
+        return response.json()
+
 
 class ClientEntity(BaseModel):
     """

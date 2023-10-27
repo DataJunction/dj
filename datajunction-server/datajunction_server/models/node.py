@@ -1349,6 +1349,7 @@ class NodeOutput(OutputModel):
     current: NodeRevisionOutput = PydanticField(flatten=True)
     created_at: UTCDatetime
     tags: List["Tag"] = []
+    current_version: str
 
 
 class NodeValidation(SQLModel):
