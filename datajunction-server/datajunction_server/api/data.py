@@ -10,6 +10,7 @@ from sqlmodel import Session
 from sse_starlette.sse import EventSourceResponse
 
 from datajunction_server.api.helpers import (
+    assemble_column_metadata,
     build_sql_for_multiple_metrics,
     get_engine,
     get_node_by_name,
@@ -35,11 +36,7 @@ from datajunction_server.models.node import (
     AvailabilityStateBase,
     NodeType,
 )
-from datajunction_server.models.query import (
-    ColumnMetadata,
-    QueryCreate,
-    QueryWithResults,
-)
+from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.utils import (
     get_current_user,
@@ -198,7 +195,7 @@ def get_data(  # pylint: disable=too-many-locals
     )
 
     columns = [
-        ColumnMetadata(name=col.alias_or_name.name, type=str(col.type))  # type: ignore
+        assemble_column_metadata(col, node_name)  # type: ignore
         for col in query_ast.select.projection
     ]
 

@@ -62,11 +62,7 @@ from datajunction_server.models.node import (
     NodeStatus,
     NodeType,
 )
-from datajunction_server.models.query import (
-    ColumnMetadata,
-    ColumnMetadataDetails,
-    QueryWithResults,
-)
+from datajunction_server.models.query import ColumnMetadata, QueryWithResults
 from datajunction_server.service_clients import QueryServiceClient
 from datajunction_server.sql.dag import get_nodes_with_dimension
 from datajunction_server.sql.parsing import ast
@@ -1314,7 +1310,7 @@ def hard_delete_node(
 def assemble_column_metadata(
     column: ast.Column,
     node_name: Union[List[str], str],
-) -> ColumnMetadataDetails:
+) -> ColumnMetadata:
     """
     Extract column metadata from AST
     """
@@ -1331,7 +1327,7 @@ def assemble_column_metadata(
         column_name_on_node = column_name_on_ast
         reference_node_name = metric_node
 
-    return ColumnMetadataDetails(
+    return ColumnMetadata(
         name=column_name_on_ast,
         type=str(column.type),
         column=column_name_on_node,
