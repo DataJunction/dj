@@ -260,7 +260,7 @@ class DJClient:
     ):
         """
         Helper function to create a node.
-        Raises an error if node already exsist and is active.
+        Raises an error if node already exists and is active.
         """
         existing_node = self._get_node(node_name=node.name)
         if "name" in existing_node:
