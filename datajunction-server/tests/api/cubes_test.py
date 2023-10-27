@@ -1609,10 +1609,30 @@ def test_updating_cube_with_existing_materialization(
         "backfills": [],
         "config": {
             "columns": [
-                {"name": mock.ANY, "type": mock.ANY},
-                {"name": mock.ANY, "type": mock.ANY},
-                {"name": mock.ANY, "type": mock.ANY},
-                {"name": mock.ANY, "type": mock.ANY},
+                {
+                    "name": mock.ANY,
+                    "type": mock.ANY,
+                    "node": mock.ANY,
+                    "column": mock.ANY,
+                },
+                {
+                    "name": mock.ANY,
+                    "type": mock.ANY,
+                    "node": mock.ANY,
+                    "column": mock.ANY,
+                },
+                {
+                    "name": mock.ANY,
+                    "type": mock.ANY,
+                    "node": mock.ANY,
+                    "column": mock.ANY,
+                },
+                {
+                    "name": mock.ANY,
+                    "type": mock.ANY,
+                    "node": mock.ANY,
+                    "column": mock.ANY,
+                },
             ],
             "dimensions": [
                 "default_DOT_hard_hat_DOT_city",
