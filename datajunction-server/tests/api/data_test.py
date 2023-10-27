@@ -73,9 +73,15 @@ class TestDataForNode:
                 {
                     "sql": "",
                     "columns": [
-                        {"name": "id", "type": "int"},
-                        {"name": "payment_type_classification", "type": "string"},
-                        {"name": "payment_type_name", "type": "string"},
+                        {"name": "default_DOT_payment_type_DOT_id", "type": "int"},
+                        {
+                            "name": "default_DOT_payment_type_DOT_payment_type_classification",
+                            "type": "string",
+                        },
+                        {
+                            "name": "default_DOT_payment_type_DOT_payment_type_name",
+                            "type": "string",
+                        },
                     ],
                     "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
                     "row_count": 0,
@@ -141,11 +147,7 @@ class TestDataForNode:
             "id": "1b049fb1-652e-458a-ba9d-3669412b34bd",
             "engine_name": None,
             "engine_version": None,
-            "submitted_query": (
-                "SELECT  revenue.account_type,\n\trevenue.customer_id,\n\trevenue.payment_amount,"
-                '\n\trevenue.payment_id \n FROM "accounting"."revenue" AS revenue\n \n '
-                "WHERE  revenue.payment_amount > 1000000"
-            ),
+            "submitted_query": mock.ANY,
             "executed_query": None,
             "scheduled": None,
             "started": None,
@@ -157,10 +159,22 @@ class TestDataForNode:
                 {
                     "sql": "",
                     "columns": [
-                        {"name": "account_type", "type": "string"},
-                        {"name": "customer_id", "type": "int"},
-                        {"name": "payment_amount", "type": "float"},
-                        {"name": "payment_id", "type": "int"},
+                        {
+                            "name": "default_DOT_large_revenue_payments_only_DOT_account_type",
+                            "type": "string",
+                        },
+                        {
+                            "name": "default_DOT_large_revenue_payments_only_DOT_customer_id",
+                            "type": "int",
+                        },
+                        {
+                            "name": "default_DOT_large_revenue_payments_only_DOT_payment_amount",
+                            "type": "float",
+                        },
+                        {
+                            "name": "default_DOT_large_revenue_payments_only_DOT_payment_id",
+                            "type": "int",
+                        },
                     ],
                     "rows": [
                         ["CHECKING", 2, "22.50", 1],

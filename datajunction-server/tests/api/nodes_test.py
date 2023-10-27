@@ -2430,8 +2430,10 @@ GROUP BY
         )
         assert compare_query_strings(
             response.json()["sql"],
-            """SELECT  default_DOT_total_amount_in_region_from_struct_transform.col0,
+            """SELECT  default_DOT_total_amount_in_region_from_struct_transform.col0
+          default_DOT_total_amount_in_region_from_struct_transform_DOT_col0,
         default_DOT_total_amount_in_region_from_struct_transform.location_hierarchy
+          default_DOT_total_amount_in_region_from_struct_transform_DOT_location_hierarchy
  FROM (SELECT  SUM(IF(default_DOT_regional_level_agg_structs.order_year = 2020,
  default_DOT_regional_level_agg_structs.measures.total_amount_in_region, 0)) col0,
   default_DOT_regional_level_agg_structs.location_hierarchy
