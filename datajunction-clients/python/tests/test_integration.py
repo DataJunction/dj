@@ -478,7 +478,7 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     assert transform_4.status == NodeStatus.INVALID
     # Check that transform 4 is invalid because transform 3 does not exist
     with pytest.raises(DJClientException):
-        transform_4._validate()
+        transform_4.validate()
 
     # Create a draft transform 3 that's downstream from transform 2
     dj.create_transform(
@@ -497,11 +497,11 @@ def test_integration():  # pylint: disable=too-many-statements,too-many-locals,l
     )
     transform_3 = dj.transform(f"{namespace}.repair_orders_w_municipalities")
     # Check that transform 3 is valid
-    assert transform_3._validate() == NodeStatus.VALID
+    assert transform_3.validate() == NodeStatus.VALID
 
     # Check that transform 4 is now valid after transform 3 was created
     transform_4.refresh()
-    assert transform_4._validate() == NodeStatus.VALID
+    assert transform_4.validate() == NodeStatus.VALID
 
     # Check that publishing transform 3 works
     transform_3.publish()

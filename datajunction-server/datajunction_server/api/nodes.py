@@ -839,7 +839,7 @@ def refresh_source_node(
     session: Session = Depends(get_session),
     query_service_client: QueryServiceClient = Depends(get_query_service_client),
     current_user: Optional[User] = Depends(get_current_user),
-):
+) -> NodeOutput:
     """
     Refresh a source node with the latest columns from the query service.
     """
