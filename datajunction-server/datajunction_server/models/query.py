@@ -61,9 +61,6 @@ class ColumnMetadataDetails(BaseSQLModel):
     node: str
     type: str
 
-    def __hash__(self):
-        return hash((self.name, self.type))
-
 
 class StatementResults(BaseSQLModel):
     """
