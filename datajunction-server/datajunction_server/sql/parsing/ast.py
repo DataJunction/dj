@@ -584,6 +584,15 @@ class Expression(Node):
     def set_alias(self: TExpression, alias: "Name") -> Alias[TExpression]:
         return Alias(child=self).set_alias(alias)
 
+    def without_aliases(self) -> TExpression:
+        exp = self
+        while hasattr(exp, "alias") or isinstance(exp, Alias) or hasattr(exp, "child"):
+            if hasattr(exp, "child"):
+                exp = exp.child
+            elif hasattr(exp, "expression"):
+                exp = exp.expression
+        return exp
+
 
 @dataclass(eq=False)
 class Name(Node):
@@ -2365,6 +2374,10 @@ class Select(SelectExpression):
         if self.where is not None:
             parts.extend(("WHERE ", str(self.where), "\n"))
         if self.group_by:
+            # parts.extend((
+            #     "GROUP BY ",
+            #     ", ".join(str(exp.without_aliases()) for exp in self.group_by)))
+
             parts.extend(("GROUP BY ", ", ".join(str(exp) for exp in self.group_by)))
         if self.having is not None:
             parts.extend(("HAVING ", str(self.having), "\n"))

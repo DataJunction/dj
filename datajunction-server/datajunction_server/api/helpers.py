@@ -69,7 +69,7 @@ from datajunction_server.sql.parsing import ast
 from datajunction_server.sql.parsing.backends.antlr4 import SqlSyntaxError, parse
 from datajunction_server.sql.parsing.backends.exceptions import DJParseException
 from datajunction_server.typing import END_JOB_STATES, UTCDatetime
-from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR
+from datajunction_server.utils import LOOKUP_CHARS, SEPARATOR, amenable_name
 
 _logger = logging.getLogger(__name__)
 
@@ -231,6 +231,26 @@ def get_query(  # pylint: disable=too-many-arguments
         access_control=access_control,
     )
 
+    # Rename the final columns with the full qualified column name (i.e., node name + column name)
+    projection = []
+    for expression in query_ast.select.projection:
+        if not isinstance(expression, ast.Alias) and not isinstance(
+            expression,
+            ast.Wildcard,
+        ):
+            projection.append(
+                ast.Alias(
+                    alias=ast.Name(
+                        amenable_name(
+                            node.name + SEPARATOR + expression.alias_or_name.name,  # type: ignore
+                        ),
+                    ),
+                    child=expression,
+                ),
+            )
+        else:
+            projection.append(expression)  # type: ignore
+    query_ast.select.projection = projection  # type: ignore
     return query_ast
 
 
