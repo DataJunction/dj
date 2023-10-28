@@ -307,12 +307,11 @@ def _build_tables_on_select(
                         node_query.select.where and [node_query.select.where] or []
                     )
                     for filter_ in filters:
-                        # use parse to get the asts from the strings we got
                         temp_select = parse(f"select * where {filter_}").select
                         referenced_cols = temp_select.find_all(ast.Column)
 
-                        # We can only push down the filter if they're all available as
-                        # FK cols on the node
+                        # We can only push down the filter if all columns referenced by the filter
+                        # are available as foreign key columns on the node
                         if all(
                             col.alias_or_name.name in fk_column_mapping
                             for col in referenced_cols
@@ -418,7 +417,8 @@ def rename_dimension_primary_keys_to_foreign_keys(
     """
     Optimize the query build by renaming any requested dimension node primary key columns to
     foreign keys on the current processing node. This results in one less join if the user is
-    only requesting the dimension node's PK, since that column is already present via the FK.
+    only requesting the dimension node's primary key, since that column is already present via
+    current node's foreign key column.
     """
     if (
         dimension_node.name != current_node.name
