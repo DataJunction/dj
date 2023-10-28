@@ -278,6 +278,9 @@ def _build_tables_on_select(
     tables: Dict[NodeRevision, List[ast.Table]],
     memoized_queries: Dict[int, ast.Query],
     build_criteria: Optional[BuildCriteria] = None,
+    filters: Optional[List[str]] = None,
+    dimensions: Optional[List[str]] = None,
+    access_control=None,
 ):
     """
     Add all nodes not agg or filter dimensions to the select
@@ -287,16 +290,53 @@ def _build_tables_on_select(
             Optional[ast.Table],
             _get_node_table(node, build_criteria),
         )  # got a materialization
+        fk_column_mapping = {
+            ",".join([pk.name for pk in col.dimension.current.primary_key()]): col
+            for col in node.columns
+            if col.dimension
+        }
+
         if node_table is None:  # no materialization - recurse to node first
             node_query = parse(cast(str, node.query))
             if hash(node_query) in memoized_queries:  # pragma: no cover
                 node_table = memoized_queries[hash(node_query)].select  # type: ignore
             else:
+                if filters:
+                    filter_asts = (  # pylint: disable=consider-using-ternary
+                        node_query.select.where and [node_query.select.where] or []
+                    )
+                    for filter_ in filters:
+                        # use parse to get the asts from the strings we got
+                        temp_select = parse(f"select * where {filter_}").select
+                        referenced_cols = [
+                            col for col in temp_select.find_all(ast.Column)
+                        ]
+
+                        # We can only push down the filter if they're all available as FK cols on the node
+                        if all(
+                            [
+                                col.alias_or_name.name in fk_column_mapping
+                                for col in referenced_cols
+                            ],
+                        ):
+                            for col in temp_select.find_all(ast.Column):
+                                col.name = ast.Name(
+                                    name=fk_column_mapping[col.alias_or_name.name].name,
+                                )
+                            filter_asts.append(
+                                temp_select.where,  # type:ignore
+                            )
+                    if filter_asts:
+                        node_query.select.where = ast.BinaryOp.And(*filter_asts)
+
                 query_ast = build_ast(  # type: ignore
                     session,
                     node_query,
                     memoized_queries,
                     build_criteria,
+                    filters,
+                    dimensions,
+                    access_control,
                 )
                 node_table = query_ast.select  # type: ignore
                 node_table.parenthesized = True  # type: ignore
@@ -347,6 +387,9 @@ def _build_select_ast(
     select: ast.SelectExpression,
     memoized_queries: Dict[int, ast.Query],
     build_criteria: Optional[BuildCriteria] = None,
+    filters: Optional[List[str]] = None,
+    dimensions: Optional[List[str]] = None,
+    access_control=None,
 ):
     """
     Transforms a select ast by replacing dj node references with their asts
@@ -357,12 +400,57 @@ def _build_select_ast(
     tables = _get_tables_from_select(select)
     dimension_columns = dimension_columns_mapping(select)
     join_tables_for_dimensions(session, dimension_columns, tables, build_criteria)
-    _build_tables_on_select(session, select, tables, memoized_queries, build_criteria)
+    _build_tables_on_select(
+        session,
+        select,
+        tables,
+        memoized_queries,
+        build_criteria,
+        filters,
+        dimensions,
+        access_control,
+    )
+
+
+def rename_dimension_primary_keys_to_foreign_keys(
+    dimension_node: Node,
+    current_node: NodeRevision,
+    col: ast.Column,
+) -> ast.Column:
+    """
+    Optimize the query build by renaming any requested dimension node primary key columns to
+    foreign keys on the current processing node. This results in one less join if the user is
+    only requesting the dimension node's PK, since that column is already present via the FK.
+
+    There are these options for the dimension column:
+    * The column is on the current node --> don't do anything, no join will happen
+    * The column is on a dimension node -->
+    * The column is the PK of the dim node --> rename so that the column is the FK of the current node
+    """
+    if (
+        dimension_node.name != current_node.name
+        and dimension_node.type == NodeType.DIMENSION
+    ):
+        dimension_pk = ",".join(
+            [col.name for col in dimension_node.current.primary_key()],
+        )
+        if dimension_pk == col.alias_or_name.name:
+            foreign_key = [
+                col
+                for col in current_node.columns
+                if col.dimension and col.dimension.name == dimension_node.name
+            ]
+            if foreign_key:
+                col.name = ast.Name(
+                    foreign_key[0].name, namespace=to_namespaced_name(current_node.name),
+                )
+    return col
 
 
 # pylint: disable=R0915
 def add_filters_dimensions_orderby_limit_to_query_ast(
     session: Session,
+    node: NodeRevision,
     query: ast.Query,
     dialect: Optional[str] = None,  # pylint: disable=unused-argument
     filters: Optional[List[str]] = None,
@@ -388,10 +476,12 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 projection_addition[col.identifier(False)] = col
 
                 if access_control:
-                    access_control.add_request_by_node_name(
+                    dj_node = access_control.add_request_by_node_name(
                         session,
                         col,
                     )
+                    if dj_node:
+                        rename_dimension_primary_keys_to_foreign_keys(dj_node, node, col)
 
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
@@ -408,10 +498,12 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                 if not dimensions:
                     projection_addition[col.identifier(False)] = col
                 if access_control:
-                    access_control.add_request_by_node_name(
+                    dj_node = access_control.add_request_by_node_name(
                         session,
                         col,
                     )
+                    if dj_node:
+                        rename_dimension_primary_keys_to_foreign_keys(dj_node, node, col)
 
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
@@ -565,6 +657,7 @@ def build_node(  # pylint: disable=too-many-arguments
 
     add_filters_dimensions_orderby_limit_to_query_ast(
         session,
+        node,
         query,
         build_criteria.dialect,
         filters,
@@ -581,7 +674,15 @@ def build_node(  # pylint: disable=too-many-arguments
 
     memoized_queries: Dict[int, ast.Query] = {}
     _logger.info("Calling build_ast on %s", node.name)
-    built_ast = build_ast(session, query, memoized_queries, build_criteria)
+    built_ast = build_ast(
+        session,
+        query,
+        memoized_queries,
+        build_criteria,
+        filters,
+        dimensions,
+        access_control,
+    )
     if access_control:
         access_control.add_request_by_nodes(
             [
@@ -958,6 +1059,9 @@ def build_ast(  # pylint: disable=too-many-arguments
     query: ast.Query,
     memoized_queries: Dict[int, ast.Query] = None,
     build_criteria: Optional[BuildCriteria] = None,
+    filters: Optional[List[str]] = None,
+    dimensions: Optional[List[str]] = None,
+    access_control=None,
 ) -> ast.Query:
     """
     Determines the optimal way to build the query AST and does so
@@ -975,7 +1079,9 @@ def build_ast(  # pylint: disable=too-many-arguments
     _logger.info("Finished compiling query %s in %s", str(query)[-100:], end - start)
 
     start = time.time()
-    query.build(session, memoized_queries, build_criteria)
+    query.build(
+        session, memoized_queries, build_criteria, filters, dimensions, access_control,
+    )
     end = time.time()
     _logger.info("Finished building query in %s", end - start)
     return query

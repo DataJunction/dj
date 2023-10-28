@@ -407,6 +407,7 @@ def test_sql(
                   default_DOT_repair_orders.municipality_id,
                   default_DOT_repair_orders.repair_order_id
                 FROM roads.repair_orders AS default_DOT_repair_orders
+                WHERE default_DOT_repair_orders.dispatcher_id = 1
               ) AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
               LEFT OUTER JOIN (
                 SELECT default_DOT_hard_hats.hard_hat_id,
@@ -460,6 +461,7 @@ def test_sql(
                   default_DOT_repair_orders.municipality_id,
                   default_DOT_repair_orders.repair_order_id
                 FROM roads.repair_orders AS default_DOT_repair_orders
+                WHERE default_DOT_repair_orders.dispatcher_id = 1
               ) AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
               LEFT OUTER JOIN (
                 SELECT default_DOT_dispatchers.company_name,
@@ -756,6 +758,7 @@ def test_sql_with_filters(  # pylint: disable=too-many-arguments
         params={"dimensions": dimensions, "filters": filters},
     )
     data = response.json()
+    print("SQLLL", data["sql"])
     assert compare_query_strings(data["sql"], sql)
     assert data["columns"] == columns
 
@@ -840,6 +843,7 @@ def test_sql_with_filters(  # pylint: disable=too-many-arguments
                   foo_DOT_bar_DOT_repair_orders.municipality_id,
                   foo_DOT_bar_DOT_repair_orders.repair_order_id
                 FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+                WHERE foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
               ) AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
               LEFT OUTER JOIN (
                 SELECT foo_DOT_bar_DOT_hard_hats.hard_hat_id,
@@ -879,6 +883,7 @@ def test_sql_with_filters(  # pylint: disable=too-many-arguments
                   foo_DOT_bar_DOT_repair_orders.municipality_id,
                   foo_DOT_bar_DOT_repair_orders.repair_order_id
                 FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+                WHERE foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
               ) AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
               LEFT OUTER JOIN (
                 SELECT foo_DOT_bar_DOT_dispatchers.company_name,

@@ -189,6 +189,7 @@ class AccessControlStore(BaseModel):
         node = try_get_dj_node(session, node_name)
         if node is not None:
             self.add_request_by_node(node, verb)
+        return node
 
     def add_request_by_node(
         self,
