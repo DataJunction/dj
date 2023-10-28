@@ -4,6 +4,7 @@ import logging
 import time
 
 # pylint: disable=too-many-arguments,too-many-locals,too-many-nested-blocks,too-many-branches,R0401
+# pylint: disable=too-many-lines
 from typing import DefaultDict, Deque, Dict, List, Optional, Set, Tuple, Union, cast
 
 from sqlmodel import Session
@@ -308,16 +309,13 @@ def _build_tables_on_select(
                     for filter_ in filters:
                         # use parse to get the asts from the strings we got
                         temp_select = parse(f"select * where {filter_}").select
-                        referenced_cols = [
-                            col for col in temp_select.find_all(ast.Column)
-                        ]
+                        referenced_cols = temp_select.find_all(ast.Column)
 
-                        # We can only push down the filter if they're all available as FK cols on the node
+                        # We can only push down the filter if they're all available as
+                        # FK cols on the node
                         if all(
-                            [
-                                col.alias_or_name.name in fk_column_mapping
-                                for col in referenced_cols
-                            ],
+                            col.alias_or_name.name in fk_column_mapping
+                            for col in referenced_cols
                         ):
                             for col in temp_select.find_all(ast.Column):
                                 col.name = ast.Name(
@@ -421,11 +419,6 @@ def rename_dimension_primary_keys_to_foreign_keys(
     Optimize the query build by renaming any requested dimension node primary key columns to
     foreign keys on the current processing node. This results in one less join if the user is
     only requesting the dimension node's PK, since that column is already present via the FK.
-
-    There are these options for the dimension column:
-    * The column is on the current node --> don't do anything, no join will happen
-    * The column is on a dimension node -->
-    * The column is the PK of the dim node --> rename so that the column is the FK of the current node
     """
     if (
         dimension_node.name != current_node.name
@@ -442,7 +435,8 @@ def rename_dimension_primary_keys_to_foreign_keys(
             ]
             if foreign_key:
                 col.name = ast.Name(
-                    foreign_key[0].name, namespace=to_namespaced_name(current_node.name),
+                    foreign_key[0].name,
+                    namespace=to_namespaced_name(current_node.name),
                 )
     return col
 
@@ -481,7 +475,11 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                         col,
                     )
                     if dj_node:
-                        rename_dimension_primary_keys_to_foreign_keys(dj_node, node, col)
+                        rename_dimension_primary_keys_to_foreign_keys(
+                            dj_node,
+                            node,
+                            col,
+                        )
 
     if filters:
         filter_asts = (  # pylint: disable=consider-using-ternary
@@ -502,8 +500,12 @@ def add_filters_dimensions_orderby_limit_to_query_ast(
                         session,
                         col,
                     )
-                    if dj_node:
-                        rename_dimension_primary_keys_to_foreign_keys(dj_node, node, col)
+                    if dj_node:  # pragma: no cover
+                        rename_dimension_primary_keys_to_foreign_keys(
+                            dj_node,
+                            node,
+                            col,
+                        )
 
         query.select.where = ast.BinaryOp.And(*filter_asts)
 
@@ -1080,7 +1082,12 @@ def build_ast(  # pylint: disable=too-many-arguments
 
     start = time.time()
     query.build(
-        session, memoized_queries, build_criteria, filters, dimensions, access_control,
+        session,
+        memoized_queries,
+        build_criteria,
+        filters,
+        dimensions,
+        access_control,
     )
     end = time.time()
     _logger.info("Finished building query in %s", end - start)

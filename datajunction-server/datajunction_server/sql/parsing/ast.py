@@ -2531,7 +2531,6 @@ class Query(TableExpression, UnNamed):
         """
         from datajunction_server.construction.build import _build_select_ast
 
-        print("Building query", filters)
         self.bake_ctes()  # pylint: disable=W0212
         _build_select_ast(
             session,
