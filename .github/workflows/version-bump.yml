@@ -101,8 +101,8 @@ jobs:
           git add ./datajunction-reflection/datajunction_reflection/__about__.py
           git add ./datajunction-server/datajunction_server/__about__.py
           git add ./datajunction-ui/package.json
-          git add ./docs          
-          git commit -m "Bumping DJ to version $NEW_VERSION ."
+          git add ./docs
+          git commit -m "Bumping DJ to version $NEW_VERSION [skip ci]"
           git checkout -b releases/version-$NEW_VERSION
           git push --set-upstream origin releases/version-$NEW_VERSION -f
 
