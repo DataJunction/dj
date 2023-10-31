@@ -141,7 +141,7 @@ def save_query_and_run(
     """
     query = Query(**create_query.dict(by_alias=True))
     query.state = QueryState.ACCEPTED
-
+    print("Running", query.submitted_query)
     session.add(query)
     session.commit()
     session.refresh(query)

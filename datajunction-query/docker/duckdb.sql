@@ -18,19 +18,20 @@ CREATE TABLE roads.municipality (
     contact_name string,
     contact_title string,
     local_region string,
-    state_id int
+    state_id int,
+    phone string
 );
 INSERT INTO roads.municipality VALUES
-('New York', 'Alexander Wilkinson', 'Assistant City Clerk', 'Manhattan', 33),
-('Los Angeles', 'Hugh Moser', 'Administrative Assistant', 'Santa Monica',5 ),
-('Chicago', 'Phillip Bradshaw', 'Director of Community Engagement', 'West Ridge', 14),
-('Houston', 'Leo Ackerman', 'Municipal Roads Specialist', 'The Woodlands', 44),
-('Phoenix', 'Jessie Paul', 'Director of Finance and Administration', 'Old Town Scottsdale', 3),
-('Philadelphia', 'Willie Chaney', 'Municipal Manager', 'Center City', 39),
-('San Antonio', 'Chester Lyon', 'Treasurer', 'Alamo Heights', 44),
-('San Diego', 'Ralph Helms', 'Senior Electrical Project Manager', 'Del Mar', 5),
-('Dallas', 'Virgil Craft', 'Assistant Assessor (Town/Municipality)', 'Deep Ellum', 44),
-('San Jose', 'Charles Carney', 'Municipal Accounting Manager', 'Santana Row', 5);
+('New York', 'Alexander Wilkinson', 'Assistant City Clerk', 'Manhattan', 33, '202-291-2922'),
+('Los Angeles', 'Hugh Moser', 'Administrative Assistant', 'Santa Monica', 5, '808-211-2323'),
+('Chicago', 'Phillip Bradshaw', 'Director of Community Engagement', 'West Ridge', 14, '425-132-3421'),
+('Houston', 'Leo Ackerman', 'Municipal Roads Specialist', 'The Woodlands', 44, '413-435-8641'),
+('Phoenix', 'Jessie Paul', 'Director of Finance and Administration', 'Old Town Scottsdale', 3, '321-425-5427'),
+('Philadelphia', 'Willie Chaney', 'Municipal Manager', 'Center City', 39, '212-213-5361'),
+('San Antonio', 'Chester Lyon', 'Treasurer', 'Alamo Heights', 44, '252-216-6938'),
+('San Diego', 'Ralph Helms', 'Senior Electrical Project Manager', 'Del Mar', 5, '491-813-2417'),
+('Dallas', 'Virgil Craft', 'Assistant Assessor (Town/Municipality)', 'Deep Ellum', 44, '414-563-7894'),
+('San Jose', 'Charles Carney', 'Municipal Accounting Manager', 'Santana Row', 5, '408-313-0698');
 
 CREATE TABLE roads.hard_hats (
     hard_hat_id int,
@@ -550,3 +551,34 @@ VALUES
     (902, 'MadGenius', 12),
     (921, 'GameGuru', 9),
     (901, 'ScriptMage', 6);
+
+CREATE SCHEMA accounting;
+CREATE TABLE accounting.payment_type_table (
+    id int,
+    payment_type_name string,
+    payment_type_classification string
+);
+
+INSERT INTO accounting.payment_type_table (id, payment_type_name, payment_type_classification)
+VALUES
+    (1, 'VISA', 'CARD'),
+    (2, 'MASTERCARD', 'CARD');
+
+
+CREATE TABLE accounting.revenue (
+    payment_id int,
+    payment_amount float,
+    payment_type int,
+    customer_id int,
+    account_type string
+);
+
+INSERT INTO accounting.revenue (payment_id, payment_amount, payment_type, customer_id, account_type)
+VALUES
+    (1, 25.5, 1, 2, 'ACTIVE'),
+    (2, 12.5, 2, 2, 'INACTIVE'),
+    (3, 89, 1, 3, 'ACTIVE'),
+    (4, 1293.2, 2, 2, 'ACTIVE'),
+    (5, 23, 1, 4, 'INACTIVE'),
+    (6, 398.13, 2, 3, 'ACTIVE'),
+    (7, 239.7, 2, 4, 'ACTIVE'),;

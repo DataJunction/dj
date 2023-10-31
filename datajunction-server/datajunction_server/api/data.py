@@ -12,7 +12,6 @@ from sse_starlette.sse import EventSourceResponse
 from datajunction_server.api.helpers import (
     assemble_column_metadata,
     build_sql_for_multiple_metrics,
-    get_engine,
     get_node_by_name,
     get_query,
     query_event_stream,
@@ -28,6 +27,7 @@ from datajunction_server.internal.access.authorization import (
     validate_access,
     validate_access_requests,
 )
+from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import History, User, access
 from datajunction_server.models.history import ActivityType, EntityType
 from datajunction_server.models.metric import TranslatedSQL

@@ -8,6 +8,7 @@ from http.client import HTTPException
 from typing import Callable, Collection, Generator, Iterator, List, Optional
 from unittest.mock import MagicMock, patch
 
+import duckdb
 import pytest
 from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
@@ -20,9 +21,10 @@ from datajunction_server.config import Settings
 from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.models import Column, Engine
 from datajunction_server.models.materialization import MaterializationInfo
-from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
     get_query_service_client,
     get_session,
@@ -80,7 +82,9 @@ def session() -> Iterator[Session]:
 
 
 @pytest.fixture
-def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
+def query_service_client(
+    mocker: MockerFixture,
+) -> Iterator[QueryServiceClient]:
     """
     Custom settings for unit tests.
     """
@@ -102,14 +106,28 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
 
     def mock_submit_query(
         query_create: QueryCreate,
-    ) -> Collection[Collection[str]]:
-        return QUERY_DATA_MAPPINGS[
-            query_create.submitted_query.strip()
-            .replace('"', "")
-            .replace("\n", "")
-            .replace(" ", "")
-            .replace("\t", "")
-        ]
+    ) -> QueryWithResults:
+        with duckdb.connect(
+            "default.duckdb",
+        ) as duckdb_conn:  # pylint: disable=c-extension-no-member
+            result = duckdb_conn.sql(query_create.submitted_query)
+            columns = [
+                {"name": col, "type": str(type_).lower()}
+                for col, type_ in zip(result.columns, result.types)
+            ]
+            return QueryWithResults(
+                id="bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+                submitted_query=query_create.submitted_query,
+                state=QueryState.FINISHED,
+                results=[
+                    {
+                        "columns": columns,
+                        "rows": result.fetchall(),
+                        "sql": query_create.submitted_query,
+                    },
+                ],
+                errors=[],
+            )
 
     mocker.patch.object(
         qs_client,
