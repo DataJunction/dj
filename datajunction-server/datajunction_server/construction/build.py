@@ -436,7 +436,6 @@ def rename_dimension_primary_keys_to_foreign_keys(
         dimension_pk = ",".join(
             [col.name for col in dimension_node.current.primary_key()],
         )
-        print("REACHED HERE", dimension_pk, col.alias_or_name.name)
         if dimension_pk == col.alias_or_name.name:
             foreign_key = [
                 col

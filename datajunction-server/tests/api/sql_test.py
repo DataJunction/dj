@@ -986,7 +986,6 @@ def test_sql_with_filters(  # pylint: disable=too-many-arguments
         params={"dimensions": dimensions, "filters": filters},
     )
     data = response.json()
-    print("SQLL", data["sql"])
     assert compare_query_strings(data["sql"], sql)
     assert sorted(data["columns"], key=lambda x: x["name"]) == sorted(
         columns,
@@ -1205,7 +1204,6 @@ def test_sql_with_filters_on_namespaced_nodes(  # pylint: disable=R0913
         params={"dimensions": dimensions, "filters": filters, "orderby": orderby},
     )
     data = response.json()
-    print("SQLL", data["sql"], data["columns"])
     assert compare_query_strings(data["sql"], sql)
 
 
@@ -1309,7 +1307,6 @@ def test_cross_join_unnest(
       basic_DOT_paint_colors_trino.color_name
     """
     query = response.json()["sql"]
-    print("QUERY", query)
     compare_query_strings(query, expected)
 
 
@@ -1369,7 +1366,6 @@ def test_lateral_view_explode(
     LIMIT 5
     """
     query = response.json()["sql"]
-    print("QUERY!", query)
     compare_query_strings(query, expected)
 
 
@@ -1540,7 +1536,6 @@ def test_get_sql_for_metrics(client_with_roads: TestClient):
     ORDER BY default_DOT_hard_hat_DOT_country, default_DOT_num_repair_orders, default_DOT_dispatcher_DOT_company_name, default_DOT_discounted_orders_rate
     LIMIT 100
     """
-    print("QUERY", data["sql"])
     assert compare_query_strings(data["sql"], expected_sql)
     assert data["columns"] == [
         {
@@ -1619,7 +1614,6 @@ def test_get_sql_including_dimension_ids(client_with_roads: TestClient):
     )
     assert response.status_code == 200
     data = response.json()
-    print("SQLL", data["sql"])
     assert compare_query_strings(
         data["sql"],
         """
@@ -1671,7 +1665,6 @@ def test_get_sql_including_dimension_ids(client_with_roads: TestClient):
     )
     assert response.status_code == 200
     data = response.json()
-    print("SQLLL", data["sql"])
     assert compare_query_strings(
         data["sql"],
         """
@@ -2705,7 +2698,6 @@ def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
     }
     response = client_with_roads.get("/sql/measures", params=sql_params)
     data = response.json()
-    print("SQLLL", data["sql"])
     assert compare_query_strings(data["sql"], sql)
     with duckdb.connect(
         "default.duckdb",
@@ -2733,7 +2725,6 @@ def test_get_measures_sql_for_cube(client_with_roads: TestClient):
     }
     response = client_with_roads.get("/sql/measures", params=sql_params)
     data = response.json()
-    print("SQLLL", data["sql"])
     expected_sql = """WITH
 default_DOT_repair_orders_fact AS (SELECT  default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
     default_DOT_us_state.state_name default_DOT_us_state_DOT_state_name,
