@@ -293,6 +293,26 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
             "default.avg_repair_order_discounts",
         ]
 
+    def test_refresh_source_node(self, client):
+        """
+        Check that `Source.validate()` works as expected.
+        """
+        # change the source node
+        source_node = client.source("default.repair_orders")
+        version_before = source_node.current_version
+        response = source_node.validate()
+        assert response == "valid"
+        version_after = source_node.current_version
+        assert version_before and version_after and version_before != version_after
+
+        # change the source node (but don't really)
+        source_node = client.source("default.repair_orders")
+        version_before = source_node.current_version
+        response = source_node.validate()
+        assert response == "valid"
+        version_after = source_node.current_version
+        assert version_before and version_after and version_before == version_after
+
     #
     # Get common metrics and dimensions
     #

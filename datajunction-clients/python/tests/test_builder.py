@@ -377,7 +377,7 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
             primary_key=["id"],
             mode=NodeMode.DRAFT,
         )
-        payment_type_dim._validate()  # pylint: disable=protected-access
+        payment_type_dim.validate()  # pylint: disable=protected-access
         assert payment_type_dim.name == "default.payment_type"
         assert "default.payment_type" in client.list_dimensions(namespace="default")
         payment_type_dim.publish()  # Test changing a draft node to published
