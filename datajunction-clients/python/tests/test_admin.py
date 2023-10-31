@@ -59,7 +59,7 @@ class TestDJAdmin:  # pylint: disable=too-many-public-methods
         """
         Check that `client.get_engine()` works as expected.
         """
-        result = datajunction_server.internal.engines.get_engine(name="spark", version="3.1.1")
+        result = client.get_engine(name="spark", version="3.1.1")
         assert result == {
             "dialect": "spark",
             "name": "spark",
@@ -72,7 +72,7 @@ class TestDJAdmin:  # pylint: disable=too-many-public-methods
         Check that `client.get_engine()` works as expected.
         """
         # check not exist
-        result = datajunction_server.internal.engines.get_engine(name="8-cylinder", version="7.11")
+        result = client.get_engine(name="8-cylinder", version="7.11")
         assert "Engine not found: `8-cylinder` version `7.11`" in result["detail"]
         # add engine
         client.add_engine(
@@ -82,7 +82,7 @@ class TestDJAdmin:  # pylint: disable=too-many-public-methods
             dialect="trino",
         )
         # check not exist
-        result = datajunction_server.internal.engines.get_engine(name="8-cylinder", version="7.11")
+        result = client.get_engine(name="8-cylinder", version="7.11")
         assert result == {
             "dialect": "trino",
             "name": "8-cylinder",
