@@ -292,7 +292,9 @@ def _build_tables_on_select(
             _get_node_table(node, build_criteria),
         )  # got a materialization
         fk_column_mapping = {
-            ",".join([pk.name for pk in col.dimension.current.primary_key()]): col
+            ",".join(
+                sorted([pk.name for pk in col.dimension.current.primary_key()]),
+            ): col
             for col in node.columns
             if col.dimension
         }
