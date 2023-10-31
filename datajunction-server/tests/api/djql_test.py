@@ -159,7 +159,6 @@ def test_get_djsql_data_only_nested_metrics(
      FROM metric_query_0
     )
      GROUP BY  city"""
-    print("query", query)
     assert compare_query_strings(query, expected_query)
 
 
@@ -241,7 +240,6 @@ def test_get_djsql_data_only_multiple_metrics(
         metric_query_0.default_DOT_hard_hat_DOT_city
      FROM metric_query_0"""
 
-    print("SQLL", query)
     assert compare_query_strings(query, expected_query)
 
 

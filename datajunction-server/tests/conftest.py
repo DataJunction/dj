@@ -107,9 +107,9 @@ def query_service_client(
     def mock_submit_query(
         query_create: QueryCreate,
     ) -> QueryWithResults:
-        with duckdb.connect(
+        with duckdb.connect(  # pylint: disable=c-extension-no-member
             "default.duckdb",
-        ) as duckdb_conn:  # pylint: disable=c-extension-no-member
+        ) as duckdb_conn:
             result = duckdb_conn.sql(query_create.submitted_query)
             columns = [
                 {"name": col, "type": str(type_).lower()}

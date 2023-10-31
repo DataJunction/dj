@@ -33,7 +33,6 @@ def materialization_compare(response, expected):
     """Compares two materialization lists of json
     configs paying special attention to query comparison"""
     for materialization_response, materialization_expected in zip(response, expected):
-        print("RES", materialization_response["config"]["query"])
         assert compare_query_strings(
             materialization_response["config"]["query"],
             materialization_expected["config"]["query"],
@@ -1833,7 +1832,6 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             json=create_transform_node_payload,
         )
         data = response.json()
-        print("data", data)
         assert data["name"] == "default.country_agg"
         assert data["display_name"] == "Default: Country Agg"
         assert data["type"] == "transform"
