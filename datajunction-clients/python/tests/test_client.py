@@ -323,7 +323,7 @@ class TestDJClient:  # pylint: disable=too-many-public-methods
         dims = client.common_dimensions(
             metrics=["default.num_repair_orders", "default.avg_repair_price"],
         )
-        assert len(dims) == 8
+        assert len(dims) == 28
 
     #
     # SQL and data
