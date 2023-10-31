@@ -207,6 +207,14 @@ def amenable_name(name: str) -> str:
     return ("_".join(ret) + "_" + "".join(cont)).strip("_")
 
 
+def from_amenable_name(name: str) -> str:
+    """
+    Takes a string and converts it back to a namespaced name
+    """
+    to_replace = f"_{LOOKUP_CHARS[SEPARATOR]}_"
+    return name.replace(to_replace, SEPARATOR)
+
+
 async def get_current_user(request: Request) -> Optional[User]:
     """
     Returns the current authenticated user
