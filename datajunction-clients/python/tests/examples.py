@@ -1123,6 +1123,12 @@ EXAMPLES = (  # type: ignore
 )
 
 COLUMN_MAPPINGS = {
+    "default.roads.repair_orders": [
+        Column(name="id", type=IntegerType()),
+        Column(name="user_id", type=IntegerType()),
+        Column(name="timestamp", type=TimestampType()),
+        Column(name="text", type=StringType()),
+    ],
     "default.store.comments": [
         Column(name="id", type=IntegerType()),
         Column(name="user_id", type=IntegerType()),
