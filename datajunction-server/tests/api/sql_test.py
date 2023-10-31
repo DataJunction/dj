@@ -61,6 +61,7 @@ def test_sql(
             "node": "a-metric",
             "type": "bigint",
             "semantic_type": None,
+            "semantic_entity": None,
         },
     ]
     assert response["dialect"] is None
@@ -101,60 +102,68 @@ def test_sql(
             """,
             [
                 {
-                    "name": "default_DOT_hard_hat_DOT_state",
                     "column": "state",
+                    "name": "default_DOT_hard_hat_DOT_state",
                     "node": "default.hard_hat",
-                    "type": "string",
+                    "semantic_entity": None,
                     "semantic_type": None,
+                    "type": "string",
                 },
                 {
-                    "name": "default_DOT_repair_orders_DOT_dispatched_date",
                     "column": "dispatched_date",
+                    "name": "default_DOT_repair_orders_DOT_dispatched_date",
                     "node": "default.repair_orders",
-                    "type": "timestamp",
+                    "semantic_entity": None,
                     "semantic_type": None,
+                    "type": "timestamp",
                 },
                 {
-                    "name": "default_DOT_repair_orders_DOT_dispatcher_id",
                     "column": "dispatcher_id",
+                    "name": "default_DOT_repair_orders_DOT_dispatcher_id",
                     "node": "default.repair_orders",
-                    "type": "int",
+                    "semantic_entity": None,
                     "semantic_type": None,
+                    "type": "int",
                 },
                 {
-                    "name": "default_DOT_repair_orders_DOT_hard_hat_id",
                     "column": "hard_hat_id",
+                    "name": "default_DOT_repair_orders_DOT_hard_hat_id",
                     "node": "default.repair_orders",
-                    "type": "int",
+                    "semantic_entity": None,
                     "semantic_type": None,
+                    "type": "int",
                 },
                 {
-                    "name": "default_DOT_repair_orders_DOT_municipality_id",
                     "column": "municipality_id",
+                    "name": "default_DOT_repair_orders_DOT_municipality_id",
                     "node": "default.repair_orders",
+                    "semantic_entity": None,
+                    "semantic_type": None,
                     "type": "string",
-                    "semantic_type": None,
                 },
                 {
-                    "name": "default_DOT_repair_orders_DOT_order_date",
                     "column": "order_date",
+                    "name": "default_DOT_repair_orders_DOT_order_date",
                     "node": "default.repair_orders",
-                    "type": "timestamp",
+                    "semantic_entity": None,
                     "semantic_type": None,
+                    "type": "timestamp",
                 },
                 {
-                    "name": "default_DOT_repair_orders_DOT_repair_order_id",
                     "column": "repair_order_id",
+                    "name": "default_DOT_repair_orders_DOT_repair_order_id",
                     "node": "default.repair_orders",
-                    "type": "int",
+                    "semantic_entity": None,
                     "semantic_type": None,
+                    "type": "int",
                 },
                 {
-                    "name": "default_DOT_repair_orders_DOT_required_date",
                     "column": "required_date",
+                    "name": "default_DOT_repair_orders_DOT_required_date",
                     "node": "default.repair_orders",
-                    "type": "timestamp",
+                    "semantic_entity": None,
                     "semantic_type": None,
+                    "type": "timestamp",
                 },
             ],
             [
@@ -194,6 +203,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "dispatched_date",
@@ -201,6 +211,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "dispatcher_id",
@@ -208,6 +219,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "hard_hat_id",
@@ -215,6 +227,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "municipality_id",
@@ -222,6 +235,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "repair_order_id",
@@ -229,6 +243,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "required_date",
@@ -236,6 +251,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [],
@@ -275,6 +291,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "events_cnt",
@@ -282,6 +299,7 @@ def test_sql(
                     "node": "default.country_dim",
                     "type": "bigint",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "device_id",
@@ -289,6 +307,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "event_id",
@@ -296,6 +315,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "event_latency",
@@ -303,6 +323,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [],
@@ -340,6 +361,7 @@ def test_sql(
                     "node": "default.country_dim",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "device_id",
@@ -347,6 +369,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "event_id",
@@ -354,6 +377,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "event_latency",
@@ -361,6 +385,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [],
@@ -395,6 +420,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "device_id",
@@ -402,6 +428,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "event_id",
@@ -409,6 +436,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "event_latency",
@@ -416,6 +444,7 @@ def test_sql(
                     "node": "default.long_events",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [],
@@ -442,6 +471,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "contact_title",
@@ -449,6 +479,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "state_id",
@@ -456,6 +487,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "local_region",
@@ -463,6 +495,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "municipality_id",
@@ -470,6 +503,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "phone",
@@ -477,6 +511,7 @@ def test_sql(
                     "node": "default.municipality",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [],
@@ -510,6 +545,7 @@ def test_sql(
                     "node": "default.num_repair_orders",
                     "type": "bigint",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [[25]],
@@ -555,6 +591,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "default_DOT_num_repair_orders",
@@ -562,6 +599,7 @@ def test_sql(
                     "node": "default.num_repair_orders",
                     "type": "bigint",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [],
@@ -629,6 +667,7 @@ def test_sql(
                     "node": "default.dispatcher",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "name": "default_DOT_hard_hat_DOT_city",
@@ -636,6 +675,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "name": "default_DOT_hard_hat_DOT_last_name",
@@ -643,6 +683,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "name": "default_DOT_municipality_dim_DOT_local_region",
@@ -650,6 +691,7 @@ def test_sql(
                     "node": "default.municipality_dim",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "name": "default_DOT_num_repair_orders",
@@ -657,6 +699,7 @@ def test_sql(
                     "node": "default.num_repair_orders",
                     "type": "bigint",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [],
@@ -699,6 +742,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "default_DOT_avg_repair_price",
@@ -706,6 +750,7 @@ def test_sql(
                     "node": "default.avg_repair_price",
                     "type": "double",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [
@@ -763,6 +808,7 @@ def test_sql(
                     "node": "default.dispatcher",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "city",
@@ -770,6 +816,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "default_DOT_avg_repair_price",
@@ -777,6 +824,7 @@ def test_sql(
                     "node": "default.avg_repair_price",
                     "type": "double",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [
@@ -839,6 +887,7 @@ def test_sql(
                     "node": "default.us_state",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "default_DOT_num_repair_orders",
@@ -846,6 +895,7 @@ def test_sql(
                     "node": "default.num_repair_orders",
                     "type": "bigint",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [
@@ -898,6 +948,7 @@ def test_sql(
                     "node": "default.hard_hat",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "dispatched_date",
@@ -905,6 +956,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "dispatcher_id",
@@ -912,6 +964,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "hard_hat_id",
@@ -919,6 +972,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "municipality_id",
@@ -926,6 +980,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "string",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "order_date",
@@ -933,6 +988,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "repair_order_id",
@@ -940,6 +996,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "int",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
                 {
                     "column": "required_date",
@@ -947,6 +1004,7 @@ def test_sql(
                     "node": "default.repair_orders",
                     "type": "timestamp",
                     "semantic_type": None,
+                    "semantic_entity": None,
                 },
             ],
             [
@@ -1542,57 +1600,65 @@ def test_get_sql_for_metrics(client_with_roads: TestClient):
             "column": "default_DOT_discounted_orders_rate",
             "name": "default_DOT_discounted_orders_rate",
             "node": "default.discounted_orders_rate",
-            "type": "double",
+            "semantic_entity": None,
             "semantic_type": None,
+            "type": "double",
         },
         {
             "column": "default_DOT_num_repair_orders",
             "name": "default_DOT_num_repair_orders",
             "node": "default.num_repair_orders",
-            "type": "bigint",
+            "semantic_entity": None,
             "semantic_type": None,
+            "type": "bigint",
         },
         {
             "column": "company_name",
             "name": "default_DOT_dispatcher_DOT_company_name",
             "node": "default.dispatcher",
-            "type": "string",
+            "semantic_entity": None,
             "semantic_type": None,
+            "type": "string",
         },
         {
             "column": "city",
             "name": "default_DOT_hard_hat_DOT_city",
             "node": "default.hard_hat",
-            "type": "string",
+            "semantic_entity": None,
             "semantic_type": None,
+            "type": "string",
         },
         {
             "column": "country",
             "name": "default_DOT_hard_hat_DOT_country",
             "node": "default.hard_hat",
-            "type": "string",
+            "semantic_entity": None,
             "semantic_type": None,
+            "type": "string",
         },
         {
             "column": "postal_code",
             "name": "default_DOT_hard_hat_DOT_postal_code",
             "node": "default.hard_hat",
-            "type": "string",
+            "semantic_entity": None,
             "semantic_type": None,
+            "type": "string",
         },
         {
             "column": "state",
             "name": "default_DOT_hard_hat_DOT_state",
             "node": "default.hard_hat",
-            "type": "string",
+            "semantic_entity": None,
             "semantic_type": None,
+            "type": "string",
         },
         {
             "column": "local_region",
             "name": "default_DOT_municipality_dim_DOT_local_region",
             "node": "default.municipality_dim",
-            "type": "string",
+            "semantic_entity": None,
             "semantic_type": None,
+            "type": "string",
         },
     ]
 
@@ -1731,6 +1797,7 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
             "name": "default_DOT_total_repair_cost",
             "node": "default.total_repair_cost",
             "semantic_type": None,
+            "semantic_entity": None,
             "type": "double",
         },
         {
@@ -1738,6 +1805,7 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
             "name": "default_DOT_municipality_dim_DOT_municipality_type_desc",
             "node": "default.municipality_dim",
             "semantic_type": None,
+            "semantic_entity": None,
             "type": "string",
         },
         {
@@ -1745,6 +1813,7 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
             "name": "default_DOT_municipality_dim_DOT_municipality_type_id",
             "node": "default.municipality_dim",
             "semantic_type": None,
+            "semantic_entity": None,
             "type": "string",
         },
         {
@@ -1752,6 +1821,7 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
             "name": "default_DOT_municipality_dim_DOT_state_id",
             "node": "default.municipality_dim",
             "semantic_type": None,
+            "semantic_entity": None,
             "type": "int",
         },
         {
@@ -1759,6 +1829,7 @@ def test_get_sql_including_dimensions_with_disambiguated_columns(
             "name": "default_DOT_municipality_dim_DOT_municipality_id",
             "node": "default.municipality_dim",
             "semantic_type": None,
+            "semantic_entity": None,
             "type": "string",
         },
     ]
@@ -2114,6 +2185,7 @@ GROUP BY
                     "column": "discount",
                     "name": "default_DOT_repair_orders_fact_DOT_discount",
                     "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.discount",
                     "semantic_type": "measure",
                     "type": "float",
                 },
@@ -2121,6 +2193,7 @@ GROUP BY
                     "column": "price",
                     "name": "default_DOT_repair_orders_fact_DOT_price",
                     "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.price",
                     "semantic_type": "measure",
                     "type": "float",
                 },
@@ -2128,6 +2201,7 @@ GROUP BY
                     "column": "dispatcher_id",
                     "name": "default_DOT_dispatcher_DOT_dispatcher_id",
                     "node": "default.dispatcher",
+                    "semantic_entity": "default.dispatcher.dispatcher_id",
                     "semantic_type": "dimension",
                     "type": "int",
                 },
@@ -2198,6 +2272,7 @@ GROUP BY
                     "column": "discount",
                     "name": "default_DOT_repair_orders_fact_DOT_discount",
                     "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.discount",
                     "semantic_type": "measure",
                     "type": "float",
                 },
@@ -2205,6 +2280,7 @@ GROUP BY
                     "column": "price",
                     "name": "default_DOT_repair_orders_fact_DOT_price",
                     "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.price",
                     "semantic_type": "measure",
                     "type": "float",
                 },
@@ -2212,6 +2288,7 @@ GROUP BY
                     "column": "dispatcher_id",
                     "name": "default_DOT_dispatcher_DOT_dispatcher_id",
                     "node": "default.dispatcher",
+                    "semantic_entity": "default.dispatcher.dispatcher_id",
                     "semantic_type": "dimension",
                     "type": "int",
                 },
@@ -2293,6 +2370,7 @@ GROUP BY
                     "column": "time_to_dispatch",
                     "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
                     "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.time_to_dispatch",
                     "semantic_type": "measure",
                     "type": "timestamp",
                 },
@@ -2300,6 +2378,7 @@ GROUP BY
                     "column": "total_repair_cost",
                     "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
                     "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.total_repair_cost",
                     "semantic_type": "measure",
                     "type": "float",
                 },
@@ -2307,6 +2386,7 @@ GROUP BY
                     "column": "company_name",
                     "name": "default_DOT_dispatcher_DOT_company_name",
                     "node": "default.dispatcher",
+                    "semantic_entity": "default.dispatcher.company_name",
                     "semantic_type": "dimension",
                     "type": "string",
                 },
@@ -2314,6 +2394,7 @@ GROUP BY
                     "column": "state_name",
                     "name": "default_DOT_us_state_DOT_state_name",
                     "node": "default.us_state",
+                    "semantic_entity": "default.us_state.state_name",
                     "semantic_type": "dimension",
                     "type": "string",
                 },
@@ -2400,53 +2481,60 @@ SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_discou
  FROM default_DOT_repair_orders_fact FULL OUTER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.default_DOT_us_state_DOT_state_name = default_DOT_hard_hat.default_DOT_us_state_DOT_state_name""",
             [
                 {
-                    "name": "default_DOT_repair_orders_fact_DOT_discount",
-                    "type": "float",
                     "column": "discount",
+                    "name": "default_DOT_repair_orders_fact_DOT_discount",
                     "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.discount",
                     "semantic_type": "measure",
+                    "type": "float",
                 },
                 {
-                    "name": "default_DOT_repair_orders_fact_DOT_price",
-                    "type": "float",
                     "column": "price",
+                    "name": "default_DOT_repair_orders_fact_DOT_price",
                     "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.price",
                     "semantic_type": "measure",
-                },
-                {
-                    "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
-                    "type": "int",
-                    "column": "repair_order_id",
-                    "node": "default.repair_orders_fact",
-                    "semantic_type": "measure",
-                },
-                {
-                    "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
-                    "type": "timestamp",
-                    "column": "time_to_dispatch",
-                    "node": "default.repair_orders_fact",
-                    "semantic_type": "measure",
-                },
-                {
-                    "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
                     "type": "float",
-                    "column": "total_repair_cost",
+                },
+                {
+                    "column": "repair_order_id",
+                    "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
                     "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.repair_order_id",
                     "semantic_type": "measure",
+                    "type": "int",
                 },
                 {
-                    "name": "default_DOT_hard_hat_DOT_hire_date",
+                    "column": "time_to_dispatch",
+                    "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.time_to_dispatch",
+                    "semantic_type": "measure",
                     "type": "timestamp",
-                    "column": "hire_date",
-                    "node": "default.hard_hat",
-                    "semantic_type": "measure",
                 },
                 {
-                    "name": "default_DOT_us_state_DOT_state_name",
-                    "type": "string",
+                    "column": "total_repair_cost",
+                    "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
+                    "node": "default.repair_orders_fact",
+                    "semantic_entity": "default.repair_orders_fact.total_repair_cost",
+                    "semantic_type": "measure",
+                    "type": "float",
+                },
+                {
+                    "column": "hire_date",
+                    "name": "default_DOT_hard_hat_DOT_hire_date",
+                    "node": "default.hard_hat",
+                    "semantic_entity": "default.hard_hat.hire_date",
+                    "semantic_type": "measure",
+                    "type": "timestamp",
+                },
+                {
                     "column": "state_name",
+                    "name": "default_DOT_us_state_DOT_state_name",
                     "node": "default.us_state",
+                    "semantic_entity": "default.us_state.state_name",
                     "semantic_type": "dimension",
+                    "type": "string",
                 },
             ],
             [
@@ -2687,6 +2775,7 @@ def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
     columns,
     rows,
     client_with_roads: TestClient,
+    duckdb_conn: duckdb.DuckDBPyConnection,
 ):
     """
     Test ``GET /sql/measures`` with various metrics, filters, and dimensions.
@@ -2699,204 +2788,6 @@ def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
     response = client_with_roads.get("/sql/measures", params=sql_params)
     data = response.json()
     assert compare_query_strings(data["sql"], sql)
-    with duckdb.connect(
-        "default.duckdb",
-    ) as duckdb_conn:  # pylint: disable=c-extension-no-member
-        result = duckdb_conn.sql(data["sql"])
-        assert result.fetchall() == rows
+    result = duckdb_conn.sql(data["sql"])
+    assert result.fetchall() == rows
     assert data["columns"] == columns
-
-
-def test_get_measures_sql_for_cube(client_with_roads: TestClient):
-    """
-    Test get measures sql
-    """
-    # Two metrics with different measures + two dimensions from different sources
-    sql_params = {
-        "metrics": [
-            "default.avg_time_to_dispatch",
-            "default.total_repair_cost",
-        ],
-        "dimensions": [
-            "default.us_state.state_name",
-            "default.dispatcher.company_name",
-        ],
-        "filters": ["default.us_state.state_name = 'New Jersey'"],
-    }
-    response = client_with_roads.get("/sql/measures", params=sql_params)
-    data = response.json()
-    expected_sql = """WITH
-default_DOT_repair_orders_fact AS (SELECT  default_DOT_dispatcher.company_name default_DOT_dispatcher_DOT_company_name,
-    default_DOT_us_state.state_name default_DOT_us_state_DOT_state_name,
-    default_DOT_repair_orders_fact.time_to_dispatch default_DOT_repair_orders_fact_DOT_time_to_dispatch,
-    default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost
- FROM (SELECT  default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay,
-    default_DOT_repair_order_details.discount,
-    default_DOT_repair_order_details.price,
-    default_DOT_repair_order_details.quantity,
-    default_DOT_repair_order_details.repair_type_id,
-    default_DOT_repair_orders.dispatched_date,
-    default_DOT_repair_orders.dispatcher_id,
-    default_DOT_repair_orders.hard_hat_id,
-    default_DOT_repair_orders.municipality_id,
-    default_DOT_repair_orders.order_date,
-    default_DOT_repair_orders.repair_order_id,
-    default_DOT_repair_orders.required_date,
-    default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
-    default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost
- FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
- AS default_DOT_repair_orders_fact LEFT OUTER JOIN (SELECT  default_DOT_dispatchers.company_name,
-    default_DOT_dispatchers.dispatcher_id
- FROM roads.dispatchers AS default_DOT_dispatchers)
- AS default_DOT_dispatcher ON default_DOT_repair_orders_fact.dispatcher_id = default_DOT_dispatcher.dispatcher_id
-LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-    default_DOT_hard_hats.state
- FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_name,
-    default_DOT_us_states.state_abbr AS state_short
- FROM roads.us_states AS default_DOT_us_states)
- AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_short
- WHERE  default_DOT_us_state.state_name = 'New Jersey'
-
-)
-
-SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_time_to_dispatch,
-    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_total_repair_cost,
-    default_DOT_repair_orders_fact.default_DOT_dispatcher_DOT_company_name,
-    default_DOT_repair_orders_fact.default_DOT_us_state_DOT_state_name
- FROM default_DOT_repair_orders_fact"""
-    assert compare_query_strings(data["sql"], expected_sql)
-
-    # Two parent transforms (requires COALESCE of dimensions across them), no filters
-    sql_params = {
-        "metrics": [
-            "default.avg_time_to_dispatch",
-            "default.total_repair_cost",
-            "default.num_repair_orders",
-            "default.total_repair_order_discounts",
-            "default.avg_length_of_employment",
-            "default.avg_repair_price",
-        ],
-        "dimensions": [
-            "default.us_state.state_name",
-        ],
-        "filters": [],
-    }
-    response = client_with_roads.get("/sql/measures", params=sql_params)
-    data = response.json()
-    expected_sql = """WITH
-default_DOT_repair_orders_fact AS (SELECT  default_DOT_us_state.state_name default_DOT_us_state_DOT_state_name,
-    default_DOT_repair_orders_fact.discount default_DOT_repair_orders_fact_DOT_discount,
-    default_DOT_repair_orders_fact.price default_DOT_repair_orders_fact_DOT_price,
-    default_DOT_repair_orders_fact.repair_order_id default_DOT_repair_orders_fact_DOT_repair_order_id,
-    default_DOT_repair_orders_fact.time_to_dispatch default_DOT_repair_orders_fact_DOT_time_to_dispatch,
-    default_DOT_repair_orders_fact.total_repair_cost default_DOT_repair_orders_fact_DOT_total_repair_cost
- FROM (SELECT  default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.required_date AS dispatch_delay,
-    default_DOT_repair_order_details.discount,
-    default_DOT_repair_order_details.price,
-    default_DOT_repair_order_details.quantity,
-    default_DOT_repair_order_details.repair_type_id,
-    default_DOT_repair_orders.dispatched_date,
-    default_DOT_repair_orders.dispatcher_id,
-    default_DOT_repair_orders.hard_hat_id,
-    default_DOT_repair_orders.municipality_id,
-    default_DOT_repair_orders.order_date,
-    default_DOT_repair_orders.repair_order_id,
-    default_DOT_repair_orders.required_date,
-    default_DOT_repair_orders.dispatched_date - default_DOT_repair_orders.order_date AS time_to_dispatch,
-    default_DOT_repair_order_details.price * default_DOT_repair_order_details.quantity AS total_repair_cost
- FROM roads.repair_orders AS default_DOT_repair_orders JOIN roads.repair_order_details AS default_DOT_repair_order_details ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order_details.repair_order_id)
- AS default_DOT_repair_orders_fact LEFT OUTER JOIN (SELECT  default_DOT_hard_hats.hard_hat_id,
-    default_DOT_hard_hats.state
- FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat ON default_DOT_repair_orders_fact.hard_hat_id = default_DOT_hard_hat.hard_hat_id
-LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_name,
-    default_DOT_us_states.state_abbr AS state_short
- FROM roads.us_states AS default_DOT_us_states)
- AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_short
-
-),
-default_DOT_hard_hat AS (SELECT  default_DOT_us_state.state_name default_DOT_us_state_DOT_state_name,
-    default_DOT_hard_hat.hire_date default_DOT_hard_hat_DOT_hire_date
- FROM (SELECT  default_DOT_hard_hats.address,
-    default_DOT_hard_hats.birth_date,
-    default_DOT_hard_hats.city,
-    default_DOT_hard_hats.contractor_id,
-    default_DOT_hard_hats.country,
-    default_DOT_hard_hats.first_name,
-    default_DOT_hard_hats.hard_hat_id,
-    default_DOT_hard_hats.hire_date,
-    default_DOT_hard_hats.last_name,
-    default_DOT_hard_hats.manager,
-    default_DOT_hard_hats.postal_code,
-    default_DOT_hard_hats.state,
-    default_DOT_hard_hats.title
- FROM roads.hard_hats AS default_DOT_hard_hats)
- AS default_DOT_hard_hat LEFT OUTER JOIN (SELECT  default_DOT_us_states.state_name,
-    default_DOT_us_states.state_abbr AS state_short
- FROM roads.us_states AS default_DOT_us_states)
- AS default_DOT_us_state ON default_DOT_hard_hat.state = default_DOT_us_state.state_short
-
-)
-
-SELECT  default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_discount,
-    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_price,
-    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_repair_order_id,
-    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_time_to_dispatch,
-    default_DOT_repair_orders_fact.default_DOT_repair_orders_fact_DOT_total_repair_cost,
-    default_DOT_hard_hat.default_DOT_hard_hat_DOT_hire_date,
-    COALESCE(default_DOT_repair_orders_fact.default_DOT_us_state_DOT_state_name, default_DOT_hard_hat.default_DOT_us_state_DOT_state_name) default_DOT_us_state_DOT_state_name
- FROM default_DOT_repair_orders_fact FULL OUTER JOIN default_DOT_hard_hat ON default_DOT_repair_orders_fact.default_DOT_us_state_DOT_state_name = default_DOT_hard_hat.default_DOT_us_state_DOT_state_name"""
-    assert compare_query_strings(data["sql"], expected_sql)
-    assert data["columns"] == [
-        {
-            "name": "default_DOT_repair_orders_fact_DOT_discount",
-            "type": "float",
-            "column": "discount",
-            "node": "default.repair_orders_fact",
-            "semantic_type": "measure",
-        },
-        {
-            "name": "default_DOT_repair_orders_fact_DOT_price",
-            "type": "float",
-            "column": "price",
-            "node": "default.repair_orders_fact",
-            "semantic_type": "measure",
-        },
-        {
-            "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
-            "type": "int",
-            "column": "repair_order_id",
-            "node": "default.repair_orders_fact",
-            "semantic_type": "measure",
-        },
-        {
-            "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
-            "type": "timestamp",
-            "column": "time_to_dispatch",
-            "node": "default.repair_orders_fact",
-            "semantic_type": "measure",
-        },
-        {
-            "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
-            "type": "float",
-            "column": "total_repair_cost",
-            "node": "default.repair_orders_fact",
-            "semantic_type": "measure",
-        },
-        {
-            "name": "default_DOT_hard_hat_DOT_hire_date",
-            "type": "timestamp",
-            "column": "hire_date",
-            "node": "default.hard_hat",
-            "semantic_type": "measure",
-        },
-        {
-            "name": "default_DOT_us_state_DOT_state_name",
-            "type": "string",
-            "column": "state_name",
-            "node": "default.us_state",
-            "semantic_type": "dimension",
-        },
-    ]
