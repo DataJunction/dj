@@ -51,6 +51,7 @@ from datajunction_server.models.engine import Engine
 from datajunction_server.models.node import NodeRevision
 from datajunction_server.models.table import Table
 from datajunction_server.models.user import User
+from datajunction_server.sql.nflx_functions import register_nflx_udfs
 from datajunction_server.utils import get_settings
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -103,6 +104,8 @@ app.include_router(client.router)
 app.include_router(dimensions.router)
 app.include_router(graphql_app, prefix="/graphql")
 app.include_router(whoami.router)
+
+register_nflx_udfs()
 
 
 @app.exception_handler(DJException)

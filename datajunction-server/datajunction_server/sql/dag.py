@@ -15,7 +15,7 @@ from datajunction_server.models.node import (
     NodeRevision,
     NodeType,
 )
-from datajunction_server.utils import get_settings
+from datajunction_server.utils import SEPARATOR, get_settings
 
 settings = get_settings()
 
@@ -98,7 +98,15 @@ def check_convergence(path1: List[str], path2: List[str]) -> bool:
         if partial1 == partial2:
             return True
 
-    return False
+    # TODO: Once we introduce dimension roles, we can remove this.  # pylint: disable=fixme
+    # To workaround this for now, we're using column names as the effective role of the dimension
+    if (
+        path1
+        and path2
+        and path1[-1].split(SEPARATOR)[-1] == path2[-1].split(SEPARATOR)[-1]
+    ):
+        return True
+    return False  # pragma: no cover
 
 
 def group_dimensions_by_name(node: Node) -> Dict[str, List[DimensionAttributeOutput]]:
@@ -125,7 +133,7 @@ def get_shared_dimensions(
         node_dimensions = group_dimensions_by_name(node)
 
         # Merge each set of dimensions based on the name and path
-        to_delete = set()
+        to_delete = set(common.keys() - node_dimensions.keys())
         common_dim_keys = common.keys() & list(node_dimensions.keys())
         if not common_dim_keys:
             return []
@@ -134,7 +142,7 @@ def get_shared_dimensions(
                 for new_attr in node_dimensions[common_dim]:
                     converged = check_convergence(existing_attr.path, new_attr.path)
                     if not converged:
-                        to_delete.add(common_dim)
+                        to_delete.add(common_dim)  # pragma: no cover
 
         for dim_key in to_delete:
             del common[dim_key]

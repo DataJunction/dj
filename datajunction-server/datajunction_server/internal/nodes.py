@@ -11,7 +11,6 @@ from sqlmodel import Session, select
 from datajunction_server.api.helpers import (
     activate_node,
     get_attribute_type,
-    get_engine,
     get_node_by_name,
     propagate_valid_status,
     resolve_downstream_references,
@@ -20,6 +19,7 @@ from datajunction_server.api.helpers import (
 )
 from datajunction_server.construction.build import build_metric_nodes
 from datajunction_server.errors import DJDoesNotExistException, DJException
+from datajunction_server.internal.engines import get_engine
 from datajunction_server.internal.materializations import (
     build_cube_config,
     create_new_materialization,

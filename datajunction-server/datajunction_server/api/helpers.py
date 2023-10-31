@@ -14,8 +14,6 @@ from datetime import datetime
 from http import HTTPStatus
 from typing import Dict, List, Optional, Set, Tuple, Union
 
-from fastapi import HTTPException
-from sqlalchemy.exc import NoResultFound
 from sqlalchemy.orm import joinedload
 from sqlalchemy.sql.operators import is_
 from sqlmodel import Session, select
@@ -24,6 +22,7 @@ from datajunction_server.construction.build import (
     build_materialized_cube_node,
     build_metric_nodes,
     build_node,
+    rename_columns,
 )
 from datajunction_server.construction.dj_query import build_dj_query
 from datajunction_server.errors import (
@@ -33,6 +32,7 @@ from datajunction_server.errors import (
     DJNodeNotFound,
     ErrorCode,
 )
+from datajunction_server.internal.engines import get_engine
 from datajunction_server.models import (
     AttributeType,
     Catalog,
@@ -230,44 +230,8 @@ def get_query(  # pylint: disable=too-many-arguments
         build_criteria=build_criteria,
         access_control=access_control,
     )
-
-    # Rename the final columns with the full qualified column name (i.e., node name + column name)
-    projection = []
-    node_columns = {col.name for col in node.current.columns}
-    for expression in query_ast.select.projection:
-        if not isinstance(expression, ast.Alias) and not isinstance(
-            expression,
-            ast.Wildcard,
-        ):
-            alias_name = expression.alias_or_name.identifier(False)  # type: ignore
-            if expression.alias_or_name.name in node_columns:  # type: ignore
-                alias_name = node.name + SEPARATOR + expression.alias_or_name.name  # type: ignore
-            projection.append(
-                ast.Alias(alias=ast.Name(amenable_name(alias_name)), child=expression),
-            )
-        else:
-            projection.append(expression)  # type: ignore
-    query_ast.select.projection = projection  # type: ignore
+    query_ast = rename_columns(query_ast, node.current)
     return query_ast
-
-
-def get_engine(session: Session, name: str, version: str) -> Engine:
-    """
-    Return an Engine instance given an engine name and version
-    """
-    statement = (
-        select(Engine)
-        .where(Engine.name == name)
-        .where(Engine.version == (version or ""))
-    )
-    try:
-        engine = session.exec(statement).one()
-    except NoResultFound as exc:
-        raise HTTPException(
-            status_code=HTTPStatus.NOT_FOUND,
-            detail=f"Engine not found: `{name}` version `{version}`",
-        ) from exc
-    return engine
 
 
 def get_downstream_nodes(

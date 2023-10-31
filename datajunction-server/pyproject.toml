@@ -89,6 +89,7 @@ test = [
     "requests-mock>=1.10.0",
     "typing-extensions>=4.5.0",
     "pytest-xdist>=3.3.0",
+    "duckdb==0.8.1",
 ]
 
 [[tool.pdm.autoexport]]

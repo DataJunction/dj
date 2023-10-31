@@ -21,7 +21,7 @@ num_repair_orders = dj.create_metric(
     display_name="Default: Num Repair Orders",
     name="default.num_repair_orders",
     primary_key=[],
-    query=\"\"\"SELECT count(repair_order_id) FROM default.repair_orders\"\"\"
+    query=\"\"\"SELECT count(repair_order_id) FROM default.repair_orders_fact\"\"\"
 )"""
     )
 

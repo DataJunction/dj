@@ -8,8 +8,8 @@ from typing import List
 from fastapi import Depends, HTTPException
 from sqlmodel import Session, select
 
-from datajunction_server.api.helpers import get_engine
 from datajunction_server.internal.access.authentication.http import SecureAPIRouter
+from datajunction_server.internal.engines import get_engine
 from datajunction_server.models.engine import Engine, EngineInfo
 from datajunction_server.utils import get_session, get_settings
 

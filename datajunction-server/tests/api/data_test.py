@@ -52,54 +52,51 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "id": "0cb5478c-fd7d-4159-a414-68c50f4b9914",
             "engine_name": None,
             "engine_version": None,
-            "submitted_query": (
-                "SELECT  payment_type_table.id,\n\t"
-                "payment_type_table.payment_type_classification,"
-                "\n\tpayment_type_table.payment_type_name \n FROM "
-                '"accounting"."payment_type_table" '
-                "AS payment_type_table"
-            ),
+            "errors": [],
             "executed_query": None,
-            "scheduled": None,
-            "started": None,
             "finished": None,
-            "state": "FINISHED",
-            "progress": 0.0,
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            "links": None,
+            "next": None,
             "output_table": None,
+            "previous": None,
+            "progress": 0.0,
             "results": [
                 {
-                    "sql": "",
                     "columns": [
                         {
                             "column": "id",
                             "name": "default_DOT_payment_type_DOT_id",
                             "node": "default.payment_type",
+                            "semantic_type": None,
                             "type": "int",
                         },
                         {
                             "column": "payment_type_classification",
                             "name": "default_DOT_payment_type_DOT_payment_type_classification",
                             "node": "default.payment_type",
+                            "semantic_type": None,
                             "type": "string",
                         },
                         {
                             "column": "payment_type_name",
                             "name": "default_DOT_payment_type_DOT_payment_type_name",
                             "node": "default.payment_type",
+                            "semantic_type": None,
                             "type": "string",
                         },
                     ],
-                    "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
                     "row_count": 0,
+                    "rows": [[1, "CARD", "VISA"], [2, "CARD", "MASTERCARD"]],
+                    "sql": mock.ANY,
                 },
             ],
-            "next": None,
-            "previous": None,
-            "errors": [],
-            "links": None,
+            "scheduled": None,
+            "started": None,
+            "state": "FINISHED",
+            "submitted_query": mock.ANY,
         }
 
     def test_get_source_data(
@@ -114,31 +111,45 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "id": "8a8bb03a-74c8-448a-8630-e9439bd5a01b",
             "engine_name": None,
             "engine_version": None,
-            "submitted_query": 'SELECT  * \n FROM "accounting"."revenue"',
+            "errors": [],
             "executed_query": None,
-            "scheduled": None,
-            "started": None,
             "finished": None,
-            "state": "FINISHED",
-            "progress": 0.0,
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            "links": None,
+            "next": None,
             "output_table": None,
+            "previous": None,
+            "progress": 0.0,
             "results": [
                 {
-                    "sql": "",
                     "columns": [
-                        {"name": "*", "type": "wildcard", "node": "", "column": "*"},
+                        {
+                            "column": "*",
+                            "name": "*",
+                            "node": "",
+                            "semantic_type": None,
+                            "type": "wildcard",
+                        },
                     ],
-                    "rows": [[129.19]],
                     "row_count": 0,
+                    "rows": [
+                        [1, 25.5, 1, 2, "ACTIVE"],
+                        [2, 12.5, 2, 2, "INACTIVE"],
+                        [3, 89.0, 1, 3, "ACTIVE"],
+                        [4, 1293.199951171875, 2, 2, "ACTIVE"],
+                        [5, 23.0, 1, 4, "INACTIVE"],
+                        [6, 398.1300048828125, 2, 3, "ACTIVE"],
+                        [7, 239.6999969482422, 2, 4, "ACTIVE"],
+                    ],
+                    "sql": "SELECT  * \n FROM accounting.revenue\n",
                 },
             ],
-            "next": None,
-            "previous": None,
-            "errors": [],
-            "links": None,
+            "scheduled": None,
+            "started": None,
+            "state": "FINISHED",
+            "submitted_query": "SELECT  * \n FROM accounting.revenue\n",
         }
 
     def test_get_transform_data(
@@ -148,66 +159,168 @@ class TestDataForNode:
         """
         Test retrieving data for a transform node
         """
-        custom_client = client_with_query_service_example_loader(["ACCOUNT_REVENUE"])
+        custom_client = client_with_query_service_example_loader(["ROADS"])
         response = custom_client.get(
-            "/data/default.large_revenue_payments_only/",
+            "/data/default.repair_orders_fact/?limit=2",
         )
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "id": "1b049fb1-652e-458a-ba9d-3669412b34bd",
             "engine_name": None,
             "engine_version": None,
-            "submitted_query": mock.ANY,
+            "errors": [],
             "executed_query": None,
-            "scheduled": None,
-            "started": None,
             "finished": None,
-            "state": "FINISHED",
-            "progress": 0.0,
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            "links": None,
+            "next": None,
             "output_table": None,
+            "previous": None,
+            "progress": 0.0,
             "results": [
                 {
-                    "sql": "",
                     "columns": [
                         {
-                            "column": "account_type",
-                            "name": "default_DOT_large_revenue_payments_only_DOT_account_type",
-                            "node": "default.large_revenue_payments_only",
-                            "type": "string",
-                        },
-                        {
-                            "column": "customer_id",
-                            "name": "default_DOT_large_revenue_payments_only_DOT_customer_id",
-                            "node": "default.large_revenue_payments_only",
-                            "type": "int",
-                        },
-                        {
-                            "column": "payment_amount",
-                            "name": "default_DOT_large_revenue_payments_only_DOT_payment_amount",
-                            "node": "default.large_revenue_payments_only",
+                            "column": "discount",
+                            "name": "default_DOT_repair_orders_fact_DOT_discount",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
                             "type": "float",
                         },
                         {
-                            "column": "payment_id",
-                            "name": "default_DOT_large_revenue_payments_only_DOT_payment_id",
-                            "node": "default.large_revenue_payments_only",
+                            "column": "dispatch_delay",
+                            "name": "default_DOT_repair_orders_fact_DOT_dispatch_delay",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "timestamp",
+                        },
+                        {
+                            "column": "dispatched_date",
+                            "name": "default_DOT_repair_orders_fact_DOT_dispatched_date",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "timestamp",
+                        },
+                        {
+                            "column": "dispatcher_id",
+                            "name": "default_DOT_repair_orders_fact_DOT_dispatcher_id",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
                             "type": "int",
                         },
-                    ],
-                    "rows": [
-                        ["CHECKING", 2, "22.50", 1],
-                        ["SAVINGS", 2, "100.50", 1],
-                        ["CREDIT", 1, "11.50", 1],
-                        ["CHECKING", 2, "2.50", 1],
+                        {
+                            "column": "hard_hat_id",
+                            "name": "default_DOT_repair_orders_fact_DOT_hard_hat_id",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "int",
+                        },
+                        {
+                            "column": "municipality_id",
+                            "name": "default_DOT_repair_orders_fact_DOT_municipality_id",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "string",
+                        },
+                        {
+                            "column": "order_date",
+                            "name": "default_DOT_repair_orders_fact_DOT_order_date",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "timestamp",
+                        },
+                        {
+                            "column": "price",
+                            "name": "default_DOT_repair_orders_fact_DOT_price",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "float",
+                        },
+                        {
+                            "column": "quantity",
+                            "name": "default_DOT_repair_orders_fact_DOT_quantity",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "int",
+                        },
+                        {
+                            "column": "repair_order_id",
+                            "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "int",
+                        },
+                        {
+                            "column": "repair_type_id",
+                            "name": "default_DOT_repair_orders_fact_DOT_repair_type_id",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "int",
+                        },
+                        {
+                            "column": "required_date",
+                            "name": "default_DOT_repair_orders_fact_DOT_required_date",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "timestamp",
+                        },
+                        {
+                            "column": "time_to_dispatch",
+                            "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "timestamp",
+                        },
+                        {
+                            "column": "total_repair_cost",
+                            "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
+                            "node": "default.repair_orders_fact",
+                            "semantic_type": None,
+                            "type": "float",
+                        },
                     ],
                     "row_count": 0,
+                    "rows": [
+                        [
+                            0.05000000074505806,
+                            -595,
+                            "2007-12-01",
+                            3,
+                            1,
+                            "New York",
+                            "2007-07-04",
+                            63708.0,
+                            1,
+                            10001,
+                            1,
+                            "2009-07-18",
+                            150,
+                            63708.0,
+                        ],
+                        [
+                            0.05000000074505806,
+                            -636,
+                            "2007-12-01",
+                            1,
+                            3,
+                            "New York",
+                            "2007-07-05",
+                            67253.0,
+                            1,
+                            10002,
+                            4,
+                            "2009-08-28",
+                            149,
+                            67253.0,
+                        ],
+                    ],
+                    "sql": mock.ANY,
                 },
             ],
-            "next": None,
-            "previous": None,
-            "errors": [],
-            "links": None,
+            "scheduled": None,
+            "started": None,
+            "state": "FINISHED",
+            "submitted_query": mock.ANY,
         }
 
     def test_get_metric_data(
@@ -217,45 +330,43 @@ class TestDataForNode:
         """
         Test retrieving data for a metric
         """
-        custom_client = client_with_query_service_example_loader(["BASIC"])
+        custom_client = client_with_query_service_example_loader(["ROADS"])
 
-        response = custom_client.get("/data/basic.num_comments/")
+        response = custom_client.get("/data/default.num_repair_orders/")
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "id": "ee41ea6c-2303-4fe1-8bf0-f0ce3d6a35ca",
             "engine_name": None,
             "engine_version": None,
-            "submitted_query": (
-                'SELECT  COUNT(1) basic_DOT_num_comments \n FROM "basic"."comments" '
-                "AS basic_DOT_source_DOT_comments"
-            ),
+            "errors": [],
             "executed_query": None,
-            "scheduled": None,
-            "started": None,
             "finished": None,
-            "state": "FINISHED",
-            "progress": 0.0,
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            "links": None,
+            "next": None,
             "output_table": None,
+            "previous": None,
+            "progress": 0.0,
             "results": [
                 {
-                    "sql": "",
                     "columns": [
                         {
-                            "column": "basic_DOT_num_comments",
-                            "name": "basic_DOT_num_comments",
-                            "node": "basic.num_comments",
+                            "column": "default_DOT_num_repair_orders",
+                            "name": "default_DOT_num_repair_orders",
+                            "node": "default.num_repair_orders",
+                            "semantic_type": None,
                             "type": "bigint",
                         },
                     ],
-                    "rows": [[1]],
                     "row_count": 0,
+                    "rows": [[25]],
+                    "sql": mock.ANY,
                 },
             ],
-            "next": None,
-            "previous": None,
-            "errors": [],
-            "links": None,
+            "scheduled": None,
+            "started": None,
+            "state": "FINISHED",
+            "submitted_query": mock.ANY,
         }
 
     def test_get_metric_data_unauthorized(
@@ -300,61 +411,55 @@ class TestDataForNode:
         data = response.json()
         assert response.status_code == 200
         assert data == {
-            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
             "engine_name": None,
             "engine_version": None,
-            "submitted_query": (
-                "SELECT  avg(repair_order_details.price) AS default_DOT_avg_repair_price,"
-                "\\n\\tdispatcher.company_name,\\n\\tcount(repair_orders.repair_order_id) "
-                "AS default_DOT_num_repair_ordersdefault_DOT_num_repair_orders \\n FROM "
-                "roads.repair_order_details AS repair_order_details LEFT OUTER JOIN (SELECT  "
-                "repair_orders.dispatcher_id,\\n\\trepair_orders.hard_hat_id,\\n\\t"
-                "repair_orders.municipality_id,\\n\\trepair_orders.repair_order_id "
-                "\\n FROM roads.repair_orders AS repair_orders) AS repair_order ON "
-                "repair_order_details.repair_order_id = repair_order.repair_order_id"
-                "\\nLEFT OUTER JOIN (SELECT  dispatchers.company_name,\\n\\t"
-                "dispatchers.dispatcher_id \\n FROM roads.dispatchers AS dispatchers) "
-                "AS dispatcher ON repair_order.dispatcher_id = dispatcher.dispatcher_id "
-                "\\n GROUP BY  dispatcher.company_name\\nLIMIT 10"
-            ),
+            "errors": [],
             "executed_query": None,
-            "scheduled": None,
-            "started": None,
             "finished": None,
-            "state": "FINISHED",
-            "progress": 0.0,
+            "id": "bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            "links": None,
+            "next": None,
             "output_table": None,
+            "previous": None,
+            "progress": 0.0,
             "results": [
                 {
-                    "sql": "",
                     "columns": [
                         {
                             "column": "default_DOT_num_repair_orders",
                             "name": "default_DOT_num_repair_orders",
                             "node": "default.num_repair_orders",
+                            "semantic_type": None,
                             "type": "bigint",
                         },
                         {
                             "column": "default_DOT_avg_repair_price",
                             "name": "default_DOT_avg_repair_price",
                             "node": "default.avg_repair_price",
+                            "semantic_type": None,
                             "type": "double",
                         },
                         {
                             "column": "company_name",
                             "name": "default_DOT_dispatcher_DOT_company_name",
                             "node": "default.dispatcher",
+                            "semantic_type": None,
                             "type": "string",
                         },
                     ],
-                    "rows": [[1.0, "Foo", 100], [2.0, "Bar", 200]],
                     "row_count": 0,
+                    "rows": [
+                        [9, 51913.88888888889, "Federal Roads Group"],
+                        [8, 62205.875, "Pothole Pete"],
+                        [8, 68914.75, "Asphalts R Us"],
+                    ],
+                    "sql": mock.ANY,
                 },
             ],
-            "next": None,
-            "previous": None,
-            "errors": [],
-            "links": None,
+            "scheduled": None,
+            "started": None,
+            "state": "FINISHED",
+            "submitted_query": mock.ANY,
         }
 
     def test_stream_multiple_metrics_and_dimensions_data(
@@ -383,11 +488,11 @@ class TestDataForNode:
         Test retrieving data for a query ID
         """
         # run some query
-        custom_client = client_with_query_service_example_loader(["BASIC"])
-        response = custom_client.get("/data/basic.num_comments/")
+        custom_client = client_with_query_service_example_loader(["ROADS"])
+        response = custom_client.get("/data/default.num_repair_orders/")
         data = response.json()
         assert response.status_code == 200
-        assert data["id"] == "ee41ea6c-2303-4fe1-8bf0-f0ce3d6a35ca"
+        assert data["id"] == "bd98d6be-e2d2-413e-94c7-96d9411ddee2"
 
         # and try to get the results by the query id only
         new_response = custom_client.get(f"/data/query/{data['id']}/")
@@ -395,17 +500,42 @@ class TestDataForNode:
         assert new_response.status_code == 200
         assert new_data["results"] == [
             {
-                "sql": "",
                 "columns": [
                     {
-                        "column": "basic_DOT_num_comments",
-                        "name": "basic_DOT_num_comments",
-                        "node": "basic.num_comments",
+                        "column": "default_DOT_num_repair_orders",
+                        "name": "default_DOT_num_repair_orders",
+                        "node": "default.num_repair_orders",
+                        "semantic_type": None,
                         "type": "bigint",
                     },
                 ],
-                "rows": [[1]],
                 "row_count": 0,
+                "rows": [[25]],
+                "sql": "SELECT  count(default_DOT_repair_orders_fact.repair_order_id) "
+                "default_DOT_num_repair_orders \n"
+                " FROM (SELECT  default_DOT_repair_orders.dispatched_date - "
+                "default_DOT_repair_orders.required_date AS dispatch_delay,\n"
+                "\tdefault_DOT_repair_order_details.discount,\n"
+                "\tdefault_DOT_repair_order_details.price,\n"
+                "\tdefault_DOT_repair_order_details.quantity,\n"
+                "\tdefault_DOT_repair_order_details.repair_type_id,\n"
+                "\tdefault_DOT_repair_orders.dispatched_date,\n"
+                "\tdefault_DOT_repair_orders.dispatcher_id,\n"
+                "\tdefault_DOT_repair_orders.hard_hat_id,\n"
+                "\tdefault_DOT_repair_orders.municipality_id,\n"
+                "\tdefault_DOT_repair_orders.order_date,\n"
+                "\tdefault_DOT_repair_orders.repair_order_id,\n"
+                "\tdefault_DOT_repair_orders.required_date,\n"
+                "\tdefault_DOT_repair_orders.dispatched_date - "
+                "default_DOT_repair_orders.order_date AS time_to_dispatch,\n"
+                "\tdefault_DOT_repair_order_details.price * "
+                "default_DOT_repair_order_details.quantity AS total_repair_cost \n"
+                " FROM roads.repair_orders AS default_DOT_repair_orders JOIN "
+                "roads.repair_order_details AS default_DOT_repair_order_details ON "
+                "default_DOT_repair_orders.repair_order_id = "
+                "default_DOT_repair_order_details.repair_order_id)\n"
+                " AS default_DOT_repair_orders_fact\n"
+                "\n",
             },
         ]
 

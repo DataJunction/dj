@@ -34,7 +34,7 @@ def test_update_source_node(
         "default.national_level_agg": NodeStatus.INVALID,
         "default.avg_repair_price": NodeStatus.INVALID,
         "default.total_repair_cost": NodeStatus.INVALID,
-        "default.discounted_orders_rate": NodeStatus.VALID,
+        "default.discounted_orders_rate": NodeStatus.INVALID,
         "default.total_repair_order_discounts": NodeStatus.INVALID,
         "default.avg_repair_order_discounts": NodeStatus.INVALID,
         "default.regional_repair_efficiency": NodeStatus.INVALID,
@@ -116,19 +116,15 @@ def test_update_source_node(
         ],
         "default.avg_repair_price": [
             {
-                "id": mock.ANY,
-                "entity_type": "node",
-                "entity_name": "default.avg_repair_price",
-                "node": "default.avg_repair_price",
                 "activity_type": "status_change",
-                "user": "dj",
-                "pre": {"status": "valid"},
-                "post": {"status": "invalid"},
+                "created_at": mock.ANY,
                 "details": {
+                    "reason": "Caused by update of `default.repair_order_details` to "
+                    "v2.0",
                     "upstreams": [
                         {
-                            "name": "default.repair_order_details",
                             "current_version": "v2.0",
+                            "name": "default.repair_order_details",
                             "previous_version": "v1.0",
                             "updated_columns": [
                                 "repair_order_id",
@@ -137,15 +133,30 @@ def test_update_source_node(
                             ],
                         },
                         {
-                            "name": "default.avg_repair_price",
                             "current_version": "v2.0",
+                            "name": "default.repair_orders_fact",
+                            "previous_version": "v1.0",
+                            "updated_columns": [
+                                "price",
+                                "quantity",
+                                "total_repair_cost",
+                            ],
+                        },
+                        {
+                            "current_version": "v2.0",
+                            "name": "default.avg_repair_price",
                             "previous_version": "v1.0",
                             "updated_columns": ["default_DOT_avg_repair_price"],
                         },
                     ],
-                    "reason": "Caused by update of `default.repair_order_details` to v2.0",
                 },
-                "created_at": mock.ANY,
+                "entity_name": "default.avg_repair_price",
+                "entity_type": "node",
+                "id": mock.ANY,
+                "node": "default.avg_repair_price",
+                "post": {"status": "invalid"},
+                "pre": {"status": "valid"},
+                "user": "dj",
             },
         ],
         "default.regional_repair_efficiency": [
