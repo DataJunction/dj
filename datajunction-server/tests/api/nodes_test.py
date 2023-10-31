@@ -2724,6 +2724,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                             "node": None,
                             "column": None,
                             "semantic_type": None,
+                            "semantic_entity": None,
                         },
                         {
                             "name": "num_users",
@@ -2731,6 +2732,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                             "node": None,
                             "column": None,
                             "semantic_type": None,
+                            "semantic_entity": None,
                         },
                         {
                             "name": "languages",
@@ -2738,6 +2740,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                             "node": None,
                             "column": None,
                             "semantic_type": None,
+                            "semantic_entity": None,
                         },
                     ],
                     "query": "SELECT  basic_DOT_transform_DOT_country_agg.country,\n"
@@ -2935,6 +2938,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                                 "node": None,
                                 "type": "string",
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "column": None,
@@ -2942,6 +2946,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                                 "node": None,
                                 "type": "bigint",
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                         ],
                         "query": """SELECT  basic_DOT_transform_DOT_country_agg.country,
@@ -2967,6 +2972,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                                 "node": None,
                                 "type": "string",
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "column": None,
@@ -2974,6 +2980,7 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                                 "node": None,
                                 "type": "bigint",
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                         ],
                         "partitions": [],
@@ -3106,6 +3113,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "last_name",
@@ -3113,6 +3121,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "first_name",
@@ -3120,6 +3129,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "title",
@@ -3127,6 +3137,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "birth_date",
@@ -3134,6 +3145,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "hire_date",
@@ -3141,6 +3153,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "address",
@@ -3148,6 +3161,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "city",
@@ -3155,6 +3169,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "state",
@@ -3162,6 +3177,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "postal_code",
@@ -3169,6 +3185,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "country",
@@ -3176,6 +3193,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "manager",
@@ -3183,6 +3201,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "contractor_id",
@@ -3190,6 +3209,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                         ],
                         "query": """SELECT  default_DOT_hard_hat.address,
@@ -3246,6 +3266,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "last_name",
@@ -3253,6 +3274,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "first_name",
@@ -3260,6 +3282,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "title",
@@ -3267,6 +3290,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "birth_date",
@@ -3274,6 +3298,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "hire_date",
@@ -3281,6 +3306,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "address",
@@ -3288,6 +3314,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "city",
@@ -3295,6 +3322,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "state",
@@ -3302,6 +3330,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "postal_code",
@@ -3309,6 +3338,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "country",
@@ -3316,6 +3346,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "manager",
@@ -3323,6 +3354,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "contractor_id",
@@ -3330,6 +3362,7 @@ AS TIMESTAMP)"""
                                 "column": None,
                                 "node": None,
                                 "semantic_type": None,
+                                "semantic_entity": None,
                             },
                         ],
                         "query": """SELECT  default_DOT_hard_hat.address,

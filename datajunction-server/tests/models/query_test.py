@@ -74,6 +74,7 @@ def test_msgpack() -> None:
                         "node": None,
                         "column": None,
                         "semantic_type": None,
+                        "semantic_entity": None,
                     },
                 ],
                 "rows": [[42]],

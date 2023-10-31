@@ -71,6 +71,7 @@ class TestDataForNode:
                             "name": "default_DOT_payment_type_DOT_id",
                             "node": "default.payment_type",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "int",
                         },
                         {
@@ -78,6 +79,7 @@ class TestDataForNode:
                             "name": "default_DOT_payment_type_DOT_payment_type_classification",
                             "node": "default.payment_type",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "string",
                         },
                         {
@@ -85,6 +87,7 @@ class TestDataForNode:
                             "name": "default_DOT_payment_type_DOT_payment_type_name",
                             "node": "default.payment_type",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "string",
                         },
                     ],
@@ -130,6 +133,7 @@ class TestDataForNode:
                             "name": "*",
                             "node": "",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "wildcard",
                         },
                     ],
@@ -185,6 +189,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_discount",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "float",
                         },
                         {
@@ -192,6 +197,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_dispatch_delay",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "timestamp",
                         },
                         {
@@ -199,6 +205,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_dispatched_date",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "timestamp",
                         },
                         {
@@ -206,6 +213,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_dispatcher_id",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "int",
                         },
                         {
@@ -213,6 +221,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_hard_hat_id",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "int",
                         },
                         {
@@ -220,6 +229,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_municipality_id",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "string",
                         },
                         {
@@ -227,6 +237,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_order_date",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "timestamp",
                         },
                         {
@@ -234,6 +245,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_price",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "float",
                         },
                         {
@@ -241,6 +253,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_quantity",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "int",
                         },
                         {
@@ -248,6 +261,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_repair_order_id",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "int",
                         },
                         {
@@ -255,6 +269,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_repair_type_id",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "int",
                         },
                         {
@@ -262,6 +277,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_required_date",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "timestamp",
                         },
                         {
@@ -269,6 +285,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_time_to_dispatch",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "timestamp",
                         },
                         {
@@ -276,6 +293,7 @@ class TestDataForNode:
                             "name": "default_DOT_repair_orders_fact_DOT_total_repair_cost",
                             "node": "default.repair_orders_fact",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "float",
                         },
                     ],
@@ -355,6 +373,7 @@ class TestDataForNode:
                             "name": "default_DOT_num_repair_orders",
                             "node": "default.num_repair_orders",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "bigint",
                         },
                     ],
@@ -430,6 +449,7 @@ class TestDataForNode:
                             "name": "default_DOT_num_repair_orders",
                             "node": "default.num_repair_orders",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "bigint",
                         },
                         {
@@ -437,6 +457,7 @@ class TestDataForNode:
                             "name": "default_DOT_avg_repair_price",
                             "node": "default.avg_repair_price",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "double",
                         },
                         {
@@ -444,6 +465,7 @@ class TestDataForNode:
                             "name": "default_DOT_dispatcher_DOT_company_name",
                             "node": "default.dispatcher",
                             "semantic_type": None,
+                            "semantic_entity": None,
                             "type": "string",
                         },
                     ],
@@ -506,6 +528,7 @@ class TestDataForNode:
                         "name": "default_DOT_num_repair_orders",
                         "node": "default.num_repair_orders",
                         "semantic_type": None,
+                        "semantic_entity": None,
                         "type": "bigint",
                     },
                 ],

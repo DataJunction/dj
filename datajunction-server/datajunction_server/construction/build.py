@@ -1346,10 +1346,11 @@ def get_measures_query(
         dim.alias_or_name.identifier(False) for dim in all_dimension_columns
     }
     for col in combined_ast.select.projection:
-        if metadata := assemble_column_metadata(
+        if metadata := assemble_column_metadata(  # pragma: no cover
             cast(ast.Column, col),
             [parent.name for parent in common_parents],
         ):
+            metadata.semantic_entity = metadata.node + SEPARATOR + metadata.column  # type: ignore
             metadata.semantic_type = (
                 "dimension" if metadata.name in dimension_column_names else "measure"
             )
