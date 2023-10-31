@@ -2522,6 +2522,9 @@ class Query(TableExpression, UnNamed):
         session: Session,
         memoized_queries: Dict[int, "Query"],
         build_criteria: Optional[BuildCriteria] = None,
+        filters: Optional[List[str]] = None,
+        dimensions: Optional[List[str]] = None,
+        access_control=None,
     ):
         """
         Transforms a query ast by replacing dj node references with their asts
@@ -2529,7 +2532,15 @@ class Query(TableExpression, UnNamed):
         from datajunction_server.construction.build import _build_select_ast
 
         self.bake_ctes()  # pylint: disable=W0212
-        _build_select_ast(session, self.select, memoized_queries, build_criteria)
+        _build_select_ast(
+            session,
+            self.select,
+            memoized_queries,
+            build_criteria,
+            filters,
+            dimensions,
+            access_control,
+        )
         self.select.add_aliases_to_unnamed_columns()
 
         # Make the generated query deterministic

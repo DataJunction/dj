@@ -270,6 +270,60 @@ def test_sql(
                 },
             ],
         ),
+        # querying transform node with filters on dimension PK column
+        # * it should not join in the dimension but use the FK column on transform instead
+        # * it should push down the filter to the parent transform
+        (
+            ["EVENT"],
+            "default.long_events",
+            [],
+            [
+                "default.country_dim.country = 'ABCD'",
+            ],  # country is PK of default.country_dim
+            """
+                SELECT
+                  default_DOT_long_events.country default_DOT_long_events_DOT_country,
+                  default_DOT_long_events.device_id default_DOT_long_events_DOT_device_id,
+                  default_DOT_long_events.event_id default_DOT_long_events_DOT_event_id,
+                  default_DOT_long_events.event_latency default_DOT_long_events_DOT_event_latency
+                FROM (
+                  SELECT default_DOT_event_source.country,
+                          default_DOT_event_source.device_id,
+                          default_DOT_event_source.event_id,
+                          default_DOT_event_source.event_latency
+                  FROM logs.log_events AS default_DOT_event_source
+                    WHERE default_DOT_event_source.event_latency > 1000000
+                     AND default_DOT_event_source.country = 'ABCD'
+                  ) AS default_DOT_long_events
+                WHERE default_DOT_long_events.country = 'ABCD'
+                """,
+            [
+                {
+                    "column": "country",
+                    "name": "default_DOT_long_events_DOT_country",
+                    "node": "default.long_events",
+                    "type": "string",
+                },
+                {
+                    "column": "device_id",
+                    "name": "default_DOT_long_events_DOT_device_id",
+                    "node": "default.long_events",
+                    "type": "int",
+                },
+                {
+                    "column": "event_id",
+                    "name": "default_DOT_long_events_DOT_event_id",
+                    "node": "default.long_events",
+                    "type": "int",
+                },
+                {
+                    "column": "event_latency",
+                    "name": "default_DOT_long_events_DOT_event_latency",
+                    "node": "default.long_events",
+                    "type": "int",
+                },
+            ],
+        ),
         # querying transform node with filters directly on the node
         (
             ["EVENT"],
@@ -407,6 +461,7 @@ def test_sql(
                   default_DOT_repair_orders.municipality_id,
                   default_DOT_repair_orders.repair_order_id
                 FROM roads.repair_orders AS default_DOT_repair_orders
+                WHERE default_DOT_repair_orders.dispatcher_id = 1
               ) AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
               LEFT OUTER JOIN (
                 SELECT default_DOT_hard_hats.hard_hat_id,
@@ -460,6 +515,7 @@ def test_sql(
                   default_DOT_repair_orders.municipality_id,
                   default_DOT_repair_orders.repair_order_id
                 FROM roads.repair_orders AS default_DOT_repair_orders
+                WHERE default_DOT_repair_orders.dispatcher_id = 1
               ) AS default_DOT_repair_order ON default_DOT_repair_orders.repair_order_id = default_DOT_repair_order.repair_order_id
               LEFT OUTER JOIN (
                 SELECT default_DOT_dispatchers.company_name,
@@ -840,6 +896,7 @@ def test_sql_with_filters(  # pylint: disable=too-many-arguments
                   foo_DOT_bar_DOT_repair_orders.municipality_id,
                   foo_DOT_bar_DOT_repair_orders.repair_order_id
                 FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+                WHERE foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
               ) AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
               LEFT OUTER JOIN (
                 SELECT foo_DOT_bar_DOT_hard_hats.hard_hat_id,
@@ -879,6 +936,7 @@ def test_sql_with_filters(  # pylint: disable=too-many-arguments
                   foo_DOT_bar_DOT_repair_orders.municipality_id,
                   foo_DOT_bar_DOT_repair_orders.repair_order_id
                 FROM roads.repair_orders AS foo_DOT_bar_DOT_repair_orders
+                WHERE foo_DOT_bar_DOT_repair_orders.dispatcher_id = 1
               ) AS foo_DOT_bar_DOT_repair_order ON foo_DOT_bar_DOT_repair_orders.repair_order_id = foo_DOT_bar_DOT_repair_order.repair_order_id
               LEFT OUTER JOIN (
                 SELECT foo_DOT_bar_DOT_dispatchers.company_name,
