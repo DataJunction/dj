@@ -4,8 +4,6 @@ import pytest
 from datajunction import DJAdmin
 from datajunction.exceptions import DJClientException
 
-import datajunction_server.internal.engines
-
 
 class TestDJAdmin:  # pylint: disable=too-many-public-methods
     """
