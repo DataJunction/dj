@@ -316,6 +316,8 @@ class Node(ABC):
         for node in self.flatten():
             if compare_(node, from_):
                 other = to.copy() if copy else to
+                if isinstance(from_, Table) and from_.parent == to:
+                    continue
                 if isinstance(from_, Table):
                     for ref in from_.ref_columns:
                         ref.add_table(other)
@@ -2161,9 +2163,9 @@ class FunctionTable(FunctionTableExpression):
             if self.column_list
             else ""
         )
-        column_list_str = f"({cols})" if alias else str(cols)
+        column_list_str = f"({cols})" if alias and cols else ""
         args_str = f"({', '.join(str(col) for col in self.args)})" if self.args else ""
-        return f"{self.name}{args_str}{alias}{as_}{column_list_str}"
+        return f"{self.name}{args_str}{as_}{alias}{column_list_str}"
 
     def set_alias(self: TNode, alias: Name) -> TNode:
         self.alias = alias
