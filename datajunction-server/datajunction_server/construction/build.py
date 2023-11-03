@@ -317,7 +317,7 @@ def _build_tables_on_select(
                     )
                     for filter_ in filters:
                         temp_select = parse(f"select * where {filter_}").select
-                        referenced_cols = temp_select.find_all(ast.Column)
+                        referenced_cols = list(temp_select.find_all(ast.Column))
 
                         # We can only push down the filter if all columns referenced by the filter
                         # are available as foreign key columns on the node
@@ -325,7 +325,7 @@ def _build_tables_on_select(
                             col.alias_or_name.name in fk_column_mapping
                             for col in referenced_cols
                         ):
-                            for col in temp_select.find_all(ast.Column):
+                            for col in referenced_cols:
                                 col.name = ast.Name(
                                     name=fk_column_mapping[col.alias_or_name.name].name,
                                 )

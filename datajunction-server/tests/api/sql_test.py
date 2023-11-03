@@ -2775,7 +2775,7 @@ def test_measures_sql_with_filters(  # pylint: disable=too-many-arguments
     columns,
     rows,
     client_with_roads: TestClient,
-    duckdb_conn: duckdb.DuckDBPyConnection,
+    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
 ):
     """
     Test ``GET /sql/measures`` with various metrics, filters, and dimensions.
