@@ -5,9 +5,9 @@ from typing import Dict, List, Set, Tuple, Union
 from pydantic import ValidationError
 from sqlmodel import Session
 
-from datajunction_server.api.helpers import get_engine
 from datajunction_server.construction.build import build_node
 from datajunction_server.errors import DJInvalidInputException
+from datajunction_server.internal.engines import get_engine
 from datajunction_server.materialization.jobs import (
     DefaultCubeMaterialization,
     DruidCubeMaterializationJob,

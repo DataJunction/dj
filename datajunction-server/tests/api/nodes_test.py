@@ -33,7 +33,6 @@ def materialization_compare(response, expected):
     """Compares two materialization lists of json
     configs paying special attention to query comparison"""
     for materialization_response, materialization_expected in zip(response, expected):
-        print("RES", materialization_response["config"]["query"])
         assert compare_query_strings(
             materialization_response["config"]["query"],
             materialization_expected["config"]["query"],
@@ -239,6 +238,7 @@ def test_get_nodes_with_details(client_with_examples: TestClient):
         "default.event_source",
         "foo.bar.repair_type",
         "default.large_revenue_payments_only",
+        "default.repair_orders_fact",
     }
 
 
@@ -1239,49 +1239,75 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         data = response.json()
         data["impact"] = sorted(data["impact"], key=lambda x: x["name"])
         assert data == {
+            "impact": [
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.avg_repair_order_discounts",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.avg_repair_price",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.avg_time_to_dispatch",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.discounted_orders_rate",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.num_repair_orders",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.regional_level_agg",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.regional_repair_efficiency",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.repair_order",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.repair_orders_fact",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.total_repair_cost",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "downstream node is now invalid",
+                    "name": "default.total_repair_order_discounts",
+                    "status": "invalid",
+                },
+            ],
             "message": "The node `default.repair_orders` has been completely removed.",
-            "impact": sorted(
-                [
-                    {
-                        "name": "default.repair_order",
-                        "status": "invalid",
-                        "effect": "downstream node is now invalid",
-                    },
-                    {
-                        "effect": "downstream node is now invalid",
-                        "name": "default.regional_level_agg",
-                        "status": "invalid",
-                    },
-                    {
-                        "effect": "downstream node is now invalid",
-                        "name": "default.regional_repair_efficiency",
-                        "status": "invalid",
-                    },
-                    {
-                        "name": "default.num_repair_orders",
-                        "status": "invalid",
-                        "effect": "downstream node is now invalid",
-                    },
-                    {
-                        "name": "default.avg_time_to_dispatch",
-                        "status": "invalid",
-                        "effect": "downstream node is now invalid",
-                    },
-                ],
-                key=lambda x: x["name"],
-            ),
         }
 
         # Hard deleting a dimension creates broken links
         response = client_with_roads.delete("/nodes/default.repair_order/hard/")
         assert response.ok
         assert response.json() == {
-            "message": "The node `default.repair_order` has been completely removed.",
             "impact": [
                 {
+                    "effect": "broken link",
                     "name": "default.repair_order_details",
                     "status": "valid",
-                    "effect": "broken link",
                 },
                 {
                     "effect": "broken link",
@@ -1295,42 +1321,60 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
                 },
                 {
                     "effect": "broken link",
+                    "name": "default.repair_orders_fact",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "broken link",
                     "name": "default.regional_repair_efficiency",
                     "status": "invalid",
                 },
                 {
+                    "effect": "broken link",
+                    "name": "default.num_repair_orders",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "broken link",
                     "name": "default.avg_repair_price",
-                    "status": "valid",
-                    "effect": "broken link",
+                    "status": "invalid",
                 },
                 {
+                    "effect": "broken link",
                     "name": "default.total_repair_cost",
-                    "status": "valid",
-                    "effect": "broken link",
+                    "status": "invalid",
                 },
                 {
+                    "effect": "broken link",
                     "name": "default.discounted_orders_rate",
-                    "status": "valid",
-                    "effect": "broken link",
+                    "status": "invalid",
                 },
                 {
+                    "effect": "broken link",
                     "name": "default.total_repair_order_discounts",
-                    "status": "valid",
-                    "effect": "broken link",
+                    "status": "invalid",
                 },
                 {
-                    "name": "default.avg_repair_order_discounts",
-                    "status": "valid",
                     "effect": "broken link",
+                    "name": "default.avg_repair_order_discounts",
+                    "status": "invalid",
+                },
+                {
+                    "effect": "broken link",
+                    "name": "default.avg_time_to_dispatch",
+                    "status": "invalid",
                 },
             ],
+            "message": "The node `default.repair_order` has been completely removed.",
         }
 
-        # Hard deleting an unlinked dimension has no impact
-        response = client_with_roads.delete("/nodes/default.municipality_dim/hard/")
+        # Hard deleting an unlinked node has no impact
+        response = client_with_roads.delete(
+            "/nodes/default.regional_repair_efficiency/hard/",
+        )
         assert response.ok
         assert response.json() == {
-            "message": "The node `default.municipality_dim` has been completely removed.",
+            "message": "The node `default.regional_repair_efficiency` has been completely removed.",
             "impact": [],
         }
 
@@ -1788,7 +1832,6 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
             json=create_transform_node_payload,
         )
         data = response.json()
-        print("data", data)
         assert data["name"] == "default.country_agg"
         assert data["display_name"] == "Default: Country Agg"
         assert data["type"] == "transform"
@@ -1984,7 +2027,10 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         response = client_with_roads.patch(
             "/nodes/default.total_repair_cost/",
             json={
-                "query": "SELECT sum(price) FROM default.repair_order_details",
+                "query": (
+                    "SELECT sum(repair_orders_fact.total_repair_cost) "
+                    "FROM default.repair_orders_fact repair_orders_fact"
+                ),
                 "metric_metadata": {
                     "kind": "count",
                     "direction": "higher_is_better",
@@ -1994,7 +2040,8 @@ class TestNodeCRUD:  # pylint: disable=too-many-public-methods
         )
         node_data = response.json()
         assert node_data["query"] == (
-            "SELECT sum(price) FROM default.repair_order_details"
+            "SELECT sum(repair_orders_fact.total_repair_cost) "
+            "FROM default.repair_orders_fact repair_orders_fact"
         )
         response = client_with_roads.get("/metrics/default.total_repair_cost")
         metric_data = response.json()
@@ -2676,18 +2723,24 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                             "type": "string",
                             "node": None,
                             "column": None,
+                            "semantic_type": None,
+                            "semantic_entity": None,
                         },
                         {
                             "name": "num_users",
                             "type": "bigint",
                             "node": None,
                             "column": None,
+                            "semantic_type": None,
+                            "semantic_entity": None,
                         },
                         {
                             "name": "languages",
                             "type": "bigint",
                             "node": None,
                             "column": None,
+                            "semantic_type": None,
+                            "semantic_entity": None,
                         },
                     ],
                     "query": "SELECT  basic_DOT_transform_DOT_country_agg.country,\n"
@@ -2884,12 +2937,16 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                                 "name": "country",
                                 "node": None,
                                 "type": "string",
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "column": None,
                                 "name": "num_users",
                                 "node": None,
                                 "type": "bigint",
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                         ],
                         "query": """SELECT  basic_DOT_transform_DOT_country_agg.country,
@@ -2914,12 +2971,16 @@ SELECT  m0_default_DOT_num_repair_orders_partitioned.default_DOT_num_repair_orde
                                 "name": "country",
                                 "node": None,
                                 "type": "string",
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "column": None,
                                 "name": "num_users",
                                 "node": None,
                                 "type": "bigint",
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                         ],
                         "partitions": [],
@@ -3051,78 +3112,104 @@ AS TIMESTAMP)"""
                                 "type": "int",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "last_name",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "first_name",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "title",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "birth_date",
                                 "type": "timestamp",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "hire_date",
                                 "type": "timestamp",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "address",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "city",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "state",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "postal_code",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "country",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "manager",
                                 "type": "int",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "contractor_id",
                                 "type": "int",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                         ],
                         "query": """SELECT  default_DOT_hard_hat.address,
@@ -3178,78 +3265,104 @@ AS TIMESTAMP)"""
                                 "type": "int",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "last_name",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "first_name",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "title",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "birth_date",
                                 "type": "timestamp",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "hire_date",
                                 "type": "timestamp",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "address",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "city",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "state",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "postal_code",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "country",
                                 "type": "string",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "manager",
                                 "type": "int",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                             {
                                 "name": "contractor_id",
                                 "type": "int",
                                 "column": None,
                                 "node": None,
+                                "semantic_type": None,
+                                "semantic_entity": None,
                             },
                         ],
                         "query": """SELECT  default_DOT_hard_hat.address,
@@ -4236,8 +4349,9 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
             "default.hard_hat",
             "default.municipality_dim",
             "default.num_repair_orders",
-            "default.repair_order",
+            "default.repair_order_details",
             "default.repair_orders",
+            "default.repair_orders_fact",
             "default.us_state",
         }
 
@@ -4251,18 +4365,26 @@ class TestValidateNodes:  # pylint: disable=too-many-public-methods
         assert response.json() == [
             {
                 "column_name": "default_DOT_num_repair_orders",
-                "node_name": "default.num_repair_orders",
-                "node_type": "metric",
                 "display_name": "Default: Num Repair Orders",
                 "lineage": [
                     {
                         "column_name": "repair_order_id",
-                        "node_name": "default.repair_orders",
-                        "node_type": "source",
-                        "display_name": "Default: Repair Orders",
-                        "lineage": [],
+                        "display_name": "Repair Orders Fact",
+                        "lineage": [
+                            {
+                                "column_name": "repair_order_id",
+                                "display_name": "Default: Repair Orders",
+                                "lineage": [],
+                                "node_name": "default.repair_orders",
+                                "node_type": "source",
+                            },
+                        ],
+                        "node_name": "default.repair_orders_fact",
+                        "node_type": "transform",
                     },
                 ],
+                "node_name": "default.num_repair_orders",
+                "node_type": "metric",
             },
         ]
 
@@ -5062,6 +5184,10 @@ def test_delete_recreate_for_all_nodes(client_with_roads: TestClient):
         "update",
         "restore",
     ]
+    client_with_roads.patch(
+        "/nodes/default.dispatcher",
+        json={"primary_key": ["dispatcher_id"]},
+    )
 
     # Delete a dimension node
     client_with_roads.delete("/nodes/default.us_state")
