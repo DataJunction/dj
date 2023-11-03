@@ -48,6 +48,8 @@ class ColumnMetadata(BaseSQLModel):
     type: str
     column: Optional[str]
     node: Optional[str]
+    semantic_entity: Optional[str]
+    semantic_type: Optional[str]
 
     def __hash__(self):
         return hash((self.name, self.type))

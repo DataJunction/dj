@@ -1,13 +1,13 @@
 """
 Fixtures for testing.
 """
-# pylint: disable=redefined-outer-name, invalid-name, W0611
-
+import os
 import re
 from http.client import HTTPException
 from typing import Callable, Collection, Generator, Iterator, List, Optional
 from unittest.mock import MagicMock, patch
 
+import duckdb
 import pytest
 from cachelib.simple import SimpleCache
 from fastapi.testclient import TestClient
@@ -20,17 +20,24 @@ from datajunction_server.config import Settings
 from datajunction_server.errors import DJQueryServiceClientException
 from datajunction_server.models import Column, Engine
 from datajunction_server.models.materialization import MaterializationInfo
-from datajunction_server.models.query import QueryCreate
+from datajunction_server.models.query import QueryCreate, QueryWithResults
 from datajunction_server.models.user import OAuthProvider, User
 from datajunction_server.service_clients import QueryServiceClient
+from datajunction_server.typing import QueryState
 from datajunction_server.utils import (
     get_query_service_client,
     get_session,
     get_settings,
 )
 
-from .construction.fixtures import build_expectation, construction_session
+from .construction.fixtures import (  # pylint: disable=unused-import
+    build_expectation,
+    construction_session,
+)
 from .examples import COLUMN_MAPPINGS, EXAMPLES, QUERY_DATA_MAPPINGS, SERVICE_SETUP
+
+# pylint: disable=redefined-outer-name, invalid-name, W0611
+
 
 EXAMPLE_TOKEN = (
     "eyJhbGciOiJkaXIiLCJlbmMiOiJBMTI4R0NNIn0..pMoQFVS0VMSAFsG5X0itfw.Lc"
@@ -64,6 +71,21 @@ def settings(mocker: MockerFixture) -> Iterator[Settings]:
     yield settings
 
 
+@pytest.fixture(scope="session")
+def duckdb_conn() -> duckdb.DuckDBPyConnection:  # pylint: disable=c-extension-no-member
+    """
+    DuckDB connection fixture with mock roads data loaded
+    """
+    with open(  # pylint: disable=unspecified-encoding
+        os.path.join(os.path.dirname(__file__), "duckdb.sql"),
+    ) as mock_data:
+        with duckdb.connect(  # pylint: disable=c-extension-no-member
+            ":memory:",
+        ) as conn:  # pylint: disable=c-extension-no-member
+            conn.execute(mock_data.read())
+            yield conn
+
+
 @pytest.fixture
 def session() -> Iterator[Session]:
     """
@@ -80,7 +102,10 @@ def session() -> Iterator[Session]:
 
 
 @pytest.fixture
-def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
+def query_service_client(
+    mocker: MockerFixture,
+    duckdb_conn: duckdb.DuckDBPyConnection,  # pylint: disable=c-extension-no-member
+) -> Iterator[QueryServiceClient]:
     """
     Custom settings for unit tests.
     """
@@ -102,14 +127,25 @@ def query_service_client(mocker: MockerFixture) -> Iterator[QueryServiceClient]:
 
     def mock_submit_query(
         query_create: QueryCreate,
-    ) -> Collection[Collection[str]]:
-        return QUERY_DATA_MAPPINGS[
-            query_create.submitted_query.strip()
-            .replace('"', "")
-            .replace("\n", "")
-            .replace(" ", "")
-            .replace("\t", "")
+    ) -> QueryWithResults:
+        result = duckdb_conn.sql(query_create.submitted_query)
+        columns = [
+            {"name": col, "type": str(type_).lower()}
+            for col, type_ in zip(result.columns, result.types)
         ]
+        return QueryWithResults(
+            id="bd98d6be-e2d2-413e-94c7-96d9411ddee2",
+            submitted_query=query_create.submitted_query,
+            state=QueryState.FINISHED,
+            results=[
+                {
+                    "columns": columns,
+                    "rows": result.fetchall(),
+                    "sql": query_create.submitted_query,
+                },
+            ],
+            errors=[],
+        )
 
     mocker.patch.object(
         qs_client,

@@ -525,9 +525,11 @@ class TestDJBuilder:  # pylint: disable=too-many-public-methods
         )
         assert (
             result["message"]
-            == "Cannot resolve type of column dimension_that_does_not_exist in "
-            "dimension_that_does_not_exist "
-            "dimension_that_does_not_exist"
+            == "Cannot resolve type of column dimension_that_does_not_exist "
+            "dimension_that_does_not_exist in SELECT  dimension_that_does_not_exist "
+            "dimension_that_does_not_exist,\n\tavg(foo_DOT_bar_DOT_repair_order_details.price) "
+            "foo_DOT_bar_DOT_avg_repair_price \n FROM roads.repair_order_details AS "
+            "foo_DOT_bar_DOT_repair_order_details \n GROUP BY  dimension_that_does_not_exist\n"
         )
 
         # Retrieve SQL for multiple metrics using the client object
