@@ -3,6 +3,16 @@ name: "PR update : Test matching versions"
 on:
   pull_request:
     branches: [ main ]
+    paths-ignore:
+      # python
+      - datajunction-clients/python/__about__.py
+      - datajunction-server/datajunction_server/__about__.py
+      - datajunction-query/djqs/__about__.py
+      - datajunction-reflection/datajunction_reflection/__about__.py
+      # javascript
+      - datajunction-clients/javascript/package.json
+      - datajunction-ui/package.json
+      # java: TODO
 
 jobs:
   test:
